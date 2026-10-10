@@ -54,6 +54,11 @@ function setup(
       if (to === "FAIL") throw new Error("send failed");
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
+    async sendImage(to, image, fromNumberId) {
+      sent.push({ to, body: `[image] ${image.caption ?? ""}` });
+      sentFrom.push(fromNumberId);
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
     async downloadMedia(mediaId) {
       if (mediaId === "broken") throw new Error("download failed");
       return { data: new Blob(["audio"]), mimeType: "audio/ogg" };
@@ -145,6 +150,21 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     await post(app, body, sign(body));
     expect(sent.map((s) => s.body)).toEqual(["from other", "alert"]);
     expect(sentFrom).toEqual(["PNID", "PNID"]);
+  });
+
+  it("sends pictures after the text, and no text when the text is empty", async () => {
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg" };
+    let text = "Here it is";
+    const pics: Product = { name: "pics", handle: async () => ({ text, images: [{ ...image, caption: "Flyer" }] }) };
+    const { app, sent } = setup(pics);
+    let body = textWebhook("wamid.pic1", "Hello");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer"]);
+
+    text = "";
+    body = textWebhook("wamid.pic2", "Hello");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer", "[image] Flyer"]);
   });
 
   it("passes a photo's caption and media id to the product", async () => {

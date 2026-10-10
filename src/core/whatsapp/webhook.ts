@@ -3,7 +3,7 @@ import type { MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
-import { sendAndRecord } from "./outbox.js";
+import { sendAndRecord, sendImageAndRecord } from "./outbox.js";
 import { extractMessages } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage } from "./types.js";
@@ -101,14 +101,20 @@ async function handleMessage(
 
   // Answer from the same number the person messaged.
   const fromNumber = msg.businessNumberId;
-  const sent = await deps.whatsapp.sendText(msg.from, reply.text, fromNumber);
-  log.info(`Replied to ${mask(msg.from)}`);
-  await deps.store.recordOutbound(contactId, {
-    waMessageId: sent.waMessageId,
-    type: "text",
-    body: reply.text,
-    raw: sent.raw,
-  });
+  if (reply.text) {
+    const sent = await deps.whatsapp.sendText(msg.from, reply.text, fromNumber);
+    log.info(`Replied to ${mask(msg.from)}`);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "text",
+      body: reply.text,
+      raw: sent.raw,
+    });
+  }
+  for (const image of reply.images ?? []) {
+    await sendImageAndRecord(deps, msg.from, image, fromNumber);
+    log.info(`Sent a picture to ${mask(msg.from)}`);
+  }
 
   // Alerts to other people (e.g. the business owner). A failed alert is logged
   // but doesn't undo the customer's reply, which has already gone out.
