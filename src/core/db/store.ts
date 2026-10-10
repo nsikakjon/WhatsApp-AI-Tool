@@ -13,6 +13,8 @@ export interface MessageStore {
    * must not reply again.
    */
   recordInbound(contactId: string, msg: IncomingMessage): Promise<"new" | "duplicate">;
+  /** Saves the text of an incoming message after the fact (e.g. a voice note's transcript). */
+  setInboundText(waMessageId: string, text: string): Promise<void>;
   /** Saves a message we sent. */
   recordOutbound(
     contactId: string,
@@ -54,6 +56,11 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
       if (!error) return "new";
       if (error.code === UNIQUE_VIOLATION) return "duplicate";
       throw new Error(`recordInbound failed: ${error.message}`);
+    },
+
+    async setInboundText(waMessageId, text) {
+      const { error } = await db.from("messages").update({ body: text }).eq("wa_message_id", waMessageId);
+      if (error) throw new Error(`setInboundText failed: ${error.message}`);
     },
 
     async recordOutbound(contactId, out) {

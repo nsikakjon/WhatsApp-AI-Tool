@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { MessageStore } from "../db/store.js";
+import type { Transcriber } from "../voice/transcribe.js";
 import type { Product } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
 import { extractMessages } from "./parse.js";
@@ -11,6 +12,8 @@ export interface WebhookDeps {
   appSecret: string;
   store: MessageStore;
   whatsapp: WhatsAppClient;
+  /** Turns voice notes into text. Optional: without it, voice notes reach products with no text. */
+  transcriber?: Transcriber;
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   log?: Pick<Console, "info" | "warn" | "error">;
@@ -81,6 +84,10 @@ async function handleMessage(
     return;
   }
 
+  if (msg.type === "audio" && msg.mediaId && deps.transcriber) {
+    msg = await transcribeVoiceNote(deps, msg, log);
+  }
+
   const history = await deps.store.recentHistory(contactId, HISTORY_LIMIT, msg.waMessageId);
   const product = deps.route(msg);
   log.info(`Message ${msg.waMessageId} (${msg.type}) from ${mask(msg.from)} -> ${product.name}`);
@@ -111,6 +118,29 @@ async function handleMessage(
     } catch (err) {
       log.error(`Failed to send notification to ${note.to}:`, err);
     }
+  }
+}
+
+/**
+ * Downloads a voice note and fills in `text` with what was said. If anything
+ * fails, the message is passed on without text and the product asks the
+ * customer to type instead.
+ */
+async function transcribeVoiceNote(
+  deps: WebhookDeps,
+  msg: IncomingMessage,
+  log: Pick<Console, "info" | "warn" | "error">,
+): Promise<IncomingMessage> {
+  try {
+    const audio = await deps.whatsapp.downloadMedia(msg.mediaId!);
+    const text = await deps.transcriber!.transcribe(audio.data, audio.mimeType);
+    if (!text) return msg;
+    await deps.store.setInboundText(msg.waMessageId, text);
+    log.info(`Transcribed voice note ${msg.waMessageId} (${text.length} characters)`);
+    return { ...msg, text, transcribed: true };
+  } catch (err) {
+    log.error(`Failed to transcribe voice note ${msg.waMessageId}:`, err);
+    return msg;
   }
 }
 
