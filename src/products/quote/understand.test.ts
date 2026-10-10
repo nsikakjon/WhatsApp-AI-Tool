@@ -1,0 +1,63 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import { describe, expect, it } from "vitest";
+import { buildSystemPrompt, createClaudeUnderstander } from "./understand.js";
+
+const catalog = [
+  { id: "uuid-flyer", name: "Flyers: A5", minQuantity: 50 },
+  { id: "uuid-card", name: "Business cards", minQuantity: 100 },
+];
+
+function fakeClient(parsed: unknown, stop_reason = "end_turn") {
+  const calls: any[] = [];
+  const client = {
+    messages: {
+      parse: async (req: unknown) => {
+        calls.push(req);
+        return { parsed_output: parsed, stop_reason };
+      },
+    },
+  } as unknown as Anthropic;
+  return { client, calls };
+}
+
+describe("Claude understander", () => {
+  it("maps short refs back to price list ids and drops unknown or bad items", async () => {
+    const { client, calls } = fakeClient({
+      intent: "quote",
+      items: [
+        { ref: "p2", quantity: 200 },
+        { ref: "p9", quantity: 5 },
+        { ref: "p1", quantity: 0 },
+      ],
+      message: null,
+    });
+    const ai = createClaudeUnderstander({ apiKey: "x", model: "claude-haiku-5-5", businessName: "KahnPrints", client });
+    const result = await ai.understand({
+      text: "200 cards",
+      history: [
+        { direction: "outbound", text: "Welcome!" },
+        { direction: "inbound", text: "hi" },
+        { direction: "outbound", text: "How can I help?" },
+      ],
+      catalog,
+    });
+
+    expect(result).toEqual({ intent: "quote", items: [{ variantId: "uuid-card", quantity: 200 }], message: null });
+    // Conversation sent to the AI starts with the customer and ends with the new message.
+    expect(calls[0].messages.map((m: any) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(calls[0].messages.at(-1).content).toBe("200 cards");
+    expect(calls[0].model).toBe("claude-haiku-5-5");
+  });
+
+  it("throws when the AI gives no usable answer", async () => {
+    const { client } = fakeClient(null, "refusal");
+    const ai = createClaudeUnderstander({ apiKey: "x", model: "m", businessName: "KahnPrints", client });
+    await expect(ai.understand({ text: "hi", history: [], catalog })).rejects.toThrow();
+  });
+
+  it("lists items without prices in the instructions", () => {
+    const prompt = buildSystemPrompt("KahnPrints", catalog);
+    expect(prompt).toContain("- ref p1: Flyers: A5 (minimum 50)");
+    expect(prompt).toContain("Never mention a price");
+  });
+});
