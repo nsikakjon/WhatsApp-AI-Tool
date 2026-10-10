@@ -1,6 +1,7 @@
 -- KahnPrints price list, copied from the "PriceList" Google Sheet (Our Price
--- column) on 2026-10-10. Only rows with an "Our Price" are included; vendor
--- names and vendor prices are left out on purpose.
+-- column) on 2026-10-10. Vendor names and vendor prices are left out on purpose.
+-- Items at the end with no price are priced by the team depending on quantity:
+-- the bot recognises them and passes the request to the owner.
 --
 -- Run this in Supabase (SQL Editor > New query > paste > Run) after the 0002
 -- and 0003 migrations. It is safe to run again: it updates existing rows
@@ -12,7 +13,7 @@
 insert into public.quote_products (slug, name) values ('flyers', 'Flyers')
   on conflict (slug) do update set name = excluded.name, active = true, updated_at = now();
 insert into public.quote_variants (product_id, name, min_quantity)
-  select id, 'A5, price per flyer', 1 from public.quote_products where slug = 'flyers'
+  select id, 'A5, price per flyer', 10 from public.quote_products where slug = 'flyers'
   on conflict (product_id, name) do update set min_quantity = excluded.min_quantity, active = true, updated_at = now();
 insert into public.quote_price_tiers (variant_id, min_quantity, unit_price_kobo)
   select v.id, 1, 22000 from public.quote_variants v join public.quote_products p on p.id = v.product_id
@@ -156,3 +157,46 @@ insert into public.quote_price_tiers (variant_id, min_quantity, unit_price_kobo)
   select v.id, 1, 1700000 from public.quote_variants v join public.quote_products p on p.id = v.product_id
   where p.slug = 'sublimation-tshirts' and v.name = '1 sample print (3 to 5 days)'
   on conflict (variant_id, min_quantity) do update set unit_price_kobo = excluded.unit_price_kobo; -- ₦17,000
+
+-- Priced by the team depending on quantity (no price row).
+insert into public.quote_products (slug, name) values ('dtf-transfers', 'DTF transfers (T-shirt printing)')
+  on conflict (slug) do update set name = excluded.name, active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A1 size', 1 from public.quote_products where slug = 'dtf-transfers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A2 size', 1 from public.quote_products where slug = 'dtf-transfers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A3 size', 1 from public.quote_products where slug = 'dtf-transfers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A4 size', 1 from public.quote_products where slug = 'dtf-transfers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A5 size', 1 from public.quote_products where slug = 'dtf-transfers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+
+insert into public.quote_products (slug, name) values ('sublimation-tshirts', 'Sublimation T-shirts')
+  on conflict (slug) do update set name = excluded.name, active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'size XL', 1 from public.quote_products where slug = 'sublimation-tshirts'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'size L', 1 from public.quote_products where slug = 'sublimation-tshirts'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'size M', 1 from public.quote_products where slug = 'sublimation-tshirts'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'bulk order (10 or more)', 1 from public.quote_products where slug = 'sublimation-tshirts'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+
+insert into public.quote_products (slug, name) values ('uv-stickers', 'UV stickers (mugs, water bottles)')
+  on conflict (slug) do update set name = excluded.name, active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A3 size', 1 from public.quote_products where slug = 'uv-stickers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();
+insert into public.quote_variants (product_id, name, min_quantity)
+  select id, 'A4 size', 1 from public.quote_products where slug = 'uv-stickers'
+  on conflict (product_id, name) do update set active = true, updated_at = now();

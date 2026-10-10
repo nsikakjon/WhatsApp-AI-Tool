@@ -54,7 +54,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
       switch (understanding.intent) {
         case "quote":
-          return makeQuote(understanding.items, variants, ctx.contactId);
+          return makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
         case "confirm":
           return confirm(ctx.contactId, msg.contactName, msg.from);
         case "cancel":
@@ -69,10 +69,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     items: Array<{ variantId: string; quantity: number }>,
     variants: Variant[],
     contactId: string,
+    name: string | undefined,
+    waId: string,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     const lines: QuoteLine[] = [];
     const problems: string[] = [];
+    // Items with no price in the database (priced by the team case by case).
+    const manual: string[] = [];
 
     for (const item of items) {
       const variant = byId.get(item.variantId);
@@ -81,11 +85,24 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       if (result.ok) lines.push(result.line);
       else if (result.reason === "below_minimum")
         problems.push(`${variant.name}: the minimum order is ${result.minQuantity}.`);
-      else problems.push(`${variant.name}: we can't price ${item.quantity} automatically, so the team will confirm.`);
+      else manual.push(`${item.quantity} x ${variant.name}`);
     }
 
+    // Hand items without a set price to the owner instead of guessing.
+    const manualNote = manual.length > 0 ? `The team will send you a price for: ${manual.join(", ")}.` : null;
+    const notify =
+      manual.length > 0 && opts.ownerWaId
+        ? [
+            {
+              to: opts.ownerWaId,
+              text: [`Quote request from ${name ?? "a customer"} (+${waId}), please reply to them with a price:`, ...manual.map((m) => `• ${m}`)].join("\n"),
+            },
+          ]
+        : undefined;
+
     if (lines.length === 0) {
-      return { text: problems.length > 0 ? problems.join("\n") : defaultHelp(variants) };
+      const text = [...problems, ...(manualNote ? [`Thanks! ${manualNote}`] : [])].join("\n") || defaultHelp(variants);
+      return notify ? { text, notify } : { text };
     }
 
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
@@ -96,10 +113,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       "",
       `*Total: ${formatNaira(order.totalKobo)}*`,
       ...(problems.length > 0 ? ["", ...problems] : []),
+      ...(manualNote ? ["", manualNote] : []),
       "",
       "Reply YES to place this order, or tell me what to change.",
     ].join("\n");
-    return { text };
+    return notify ? { text, notify } : { text };
   }
 
   async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
