@@ -31,6 +31,11 @@ export interface ProductContext {
   history: HistoryEntry[];
   /** Downloads a file the sender attached (photo, voice note, ...) by its media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
+  /**
+   * Sends another reply later, for work that takes too long to finish before
+   * answering (e.g. importing a whole spreadsheet). Errors are logged, not thrown.
+   */
+  sendLater(reply: Reply): Promise<void>;
 }
 
 export interface Product {

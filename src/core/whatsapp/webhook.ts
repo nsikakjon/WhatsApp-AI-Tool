@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
-import type { Product } from "../product.js";
+import type { Product, Reply } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
 import { sendAndRecord, sendImageAndRecord } from "./outbox.js";
 import { extractMessages } from "./parse.js";
@@ -92,18 +92,36 @@ async function handleMessage(
   const history = await deps.store.recentHistory(contactId, HISTORY_LIMIT, msg.waMessageId);
   const product = deps.route(msg);
   log.info(`Message ${msg.waMessageId} (${msg.type}) from ${mask(msg.from)} -> ${product.name}`);
+  // Answer from the same number the person messaged.
+  const fromNumber = msg.businessNumberId;
   const reply = await product.handle(msg, {
     contactId,
     history,
     downloadMedia: (mediaId) => deps.whatsapp.downloadMedia(mediaId),
+    sendLater: async (later) => {
+      try {
+        await sendReply(deps, msg.from, contactId, later, fromNumber, log);
+      } catch (err) {
+        log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
+      }
+    },
   });
   if (!reply) return;
+  await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
+}
 
-  // Answer from the same number the person messaged.
-  const fromNumber = msg.businessNumberId;
+/** Sends a product's reply: its text, then its pictures, then any alerts to other people. */
+async function sendReply(
+  deps: WebhookDeps,
+  to: string,
+  contactId: string,
+  reply: Reply,
+  fromNumber: string | undefined,
+  log: Pick<Console, "info" | "warn" | "error">,
+) {
   if (reply.text) {
-    const sent = await deps.whatsapp.sendText(msg.from, reply.text, fromNumber);
-    log.info(`Replied to ${mask(msg.from)}`);
+    const sent = await deps.whatsapp.sendText(to, reply.text, fromNumber);
+    log.info(`Replied to ${mask(to)}`);
     await deps.store.recordOutbound(contactId, {
       waMessageId: sent.waMessageId,
       type: "text",
@@ -112,8 +130,8 @@ async function handleMessage(
     });
   }
   for (const image of reply.images ?? []) {
-    await sendImageAndRecord(deps, msg.from, image, fromNumber);
-    log.info(`Sent a picture to ${mask(msg.from)}`);
+    await sendImageAndRecord(deps, to, image, fromNumber);
+    log.info(`Sent a picture to ${mask(to)}`);
   }
 
   // Alerts to other people (e.g. the business owner). A failed alert is logged

@@ -70,6 +70,7 @@ const ctx = {
   contactId: "c1",
   history: [],
   downloadMedia: async () => ({ data: new Blob([]), mimeType: "image/jpeg" }),
+  sendLater: async () => {},
 };
 
 describe("quote product", () => {

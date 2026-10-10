@@ -174,6 +174,23 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer", "[image] Flyer"]);
   });
 
+  it("lets a product send a follow-up reply after answering", async () => {
+    let later: ((r: { text: string }) => Promise<void>) | undefined;
+    const slow: Product = {
+      name: "slow",
+      handle: async (_msg, ctx) => {
+        later = ctx.sendLater;
+        return { text: "Working on it" };
+      },
+    };
+    const { app, sent, outbound } = setup(slow);
+    const body = textWebhook("wamid.later", "go");
+    await post(app, body, sign(body));
+    await later!({ text: "All done" });
+    expect(sent.map((s) => s.body)).toEqual(["Working on it", "All done"]);
+    expect(outbound).toContain("All done");
+  });
+
   it("passes a photo's caption and media id to the product", async () => {
     let seen: IncomingMessage | undefined;
     const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
