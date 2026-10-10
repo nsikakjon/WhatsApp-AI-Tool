@@ -24,7 +24,8 @@ and an admin forwards the flyer, which takes a few seconds:
 
 Supabase > SQL Editor > New query > paste the whole of
 `supabase/migrations/0005_flyers.sql` > Run. Then do the same with
-`supabase/migrations/0006_flyer_members_optional_photo.sql`.
+`supabase/migrations/0006_flyer_members_optional_photo.sql`, and then
+`supabase/migrations/0007_flyer_plans.sql`.
 
 This also creates a private storage bucket called `flyer-photos`, where
 member photos and logos are saved (Supabase > Storage).
@@ -199,9 +200,46 @@ To bring people in:
   into a QR code.
 - **Every flyer is an advert**: set `FLYER_CREDIT` so each flyer carries your
   name and chat link in small print. Everyone in every group sees it.
-- **Charging**: there's no payment step yet (Paystack is paused). For now,
-  sign customers up, then collect payment yourself. Turning off the credit
-  line for paying groups, and Paystack subscriptions, can be added later.
+- **Charging**: see "Plans" below.
+
+## Plans
+
+Every new group starts on **Free**. Paid plans unlock more:
+
+| Plan         | Members   | Admins    | Includes                                                        |
+| ------------ | --------- | --------- | --------------------------------------------------------------- |
+| Free         | 20        | 1         | 2 designs (1 and 4), logo, birthday flyers, "Made with" line    |
+| Standard     | 200       | 2         | all designs, colours, spreadsheet import, event flyers          |
+| Premium      | unlimited | 5         | everything in Standard, own background, no "Made with" line     |
+| Organisation | unlimited | unlimited | everything, for associations with several groups or chapters    |
+
+Anyone can send `plans` to see them with prices, and `plan` to see their
+group's plan, member count and end date. When an admin tries something their
+plan doesn't include, the bot says which plan has it.
+
+**Getting paid (for now, by hand):**
+
+1. The admin sends `upgrade standard` (or `upgrade premium`). You get a
+   WhatsApp message with their number, group and plan.
+2. Send them your bank details or a Paystack payment link and collect the money.
+3. Once paid, send the bot (from your owner number):
+   ```
+   set plan standard 1 month for Unilag Class of 2010
+   ```
+   Use `3 months` or `1 year` for longer. Renewing before the end adds the
+   time on top. `set plan free for <group>` moves a group back to Free.
+
+When a paid plan runs out, the group quietly drops back to Free: nothing is
+deleted, birthday flyers keep going out for everyone, but the paid extras
+(colours, own background, more designs) switch off and the "Made with" line
+comes back until they renew.
+
+**Changing prices**: Supabase > Table Editor > `flyer_plans`. Prices are in
+**kobo** (₦1 = 100 kobo), so ₦3,000 is `300000`. Leave it empty for "price on
+request". The change shows up straight away, no deploy needed.
+
+**Changing what a plan includes** (member limits, designs and so on): edit
+`src/products/flyer/plans.ts`, or ask Claude, e.g. "let Free have 30 members".
 
 ## If something doesn't work
 
