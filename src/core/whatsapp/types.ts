@@ -5,6 +5,11 @@ export interface IncomingMessage {
   waMessageId: string;
   /** Sender's WhatsApp ID: their phone number, digits only, e.g. 2348012345678. */
   from: string;
+  /**
+   * Meta's "Phone number ID" of OUR number that received the message. Lets one
+   * server run several numbers, each answered by a different product.
+   */
+  businessNumberId?: string;
   /** Sender's WhatsApp profile name, if Meta included it. */
   contactName?: string;
   /** text, image, audio, document, location, etc. */
@@ -14,6 +19,8 @@ export interface IncomingMessage {
    * notes once the core has transcribed them.
    */
   text?: string;
+  /** The caption typed under a photo, video or document, if any. */
+  caption?: string;
   /** True when `text` came from transcribing a voice note. */
   transcribed?: boolean;
   /** WhatsApp's id for an attached file (voice note, image, ...), used to download it. */

@@ -21,13 +21,16 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
 
       for (const msg of value.messages ?? []) {
         if (!msg.id || !msg.from || !msg.type) continue;
+        const media = msg.audio ?? msg.image ?? msg.document ?? msg.video;
         result.push({
           waMessageId: msg.id,
           from: msg.from,
+          businessNumberId: value.metadata?.phone_number_id,
           contactName: names.get(msg.from) ?? undefined,
           type: msg.type,
           text: msg.type === "text" ? msg.text?.body : undefined,
-          mediaId: (msg.audio ?? msg.image ?? msg.document ?? msg.video)?.id,
+          caption: media?.caption || undefined,
+          mediaId: media?.id,
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -43,6 +46,7 @@ interface WebhookBody {
     changes?: Array<{
       field?: string;
       value?: {
+        metadata?: { phone_number_id?: string };
         contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
         messages?: Array<{
           id?: string;
@@ -50,10 +54,10 @@ interface WebhookBody {
           type?: string;
           timestamp?: string;
           text?: { body?: string };
-          audio?: { id?: string };
-          image?: { id?: string };
-          document?: { id?: string };
-          video?: { id?: string };
+          audio?: { id?: string; caption?: string };
+          image?: { id?: string; caption?: string };
+          document?: { id?: string; caption?: string };
+          video?: { id?: string; caption?: string };
         }>;
       };
     }>;

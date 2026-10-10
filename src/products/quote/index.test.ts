@@ -66,7 +66,11 @@ function setup(answer: Understanding | Error, catalog: Variant[] = variants) {
 function text(body: string): IncomingMessage {
   return { waMessageId: `wamid.${body}`, from: "2348012345678", contactName: "Ada", type: "text", text: body, timestamp: 1, raw: {} };
 }
-const ctx = { contactId: "c1", history: [] };
+const ctx = {
+  contactId: "c1",
+  history: [],
+  downloadMedia: async () => ({ data: new Blob([]), mimeType: "image/jpeg" }),
+};
 
 describe("quote product", () => {
   it("prices a request from the price list and saves the quote", async () => {

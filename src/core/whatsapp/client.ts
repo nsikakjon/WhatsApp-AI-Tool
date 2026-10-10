@@ -1,8 +1,11 @@
 // Sends messages through the WhatsApp Cloud API.
 
 export interface WhatsAppClient {
-  /** Sends a plain text message. Returns WhatsApp's ID for the sent message. */
-  sendText(to: string, body: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a plain text message. Returns WhatsApp's ID for the sent message.
+   * `fromNumberId` picks which of our numbers sends it (default: the one in settings).
+   */
+  sendText(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
@@ -17,11 +20,11 @@ export interface WhatsAppClientOptions {
 export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClient {
   const doFetch = opts.fetch ?? fetch;
   const graph = `https://graph.facebook.com/${opts.graphApiVersion}`;
-  const url = `${graph}/${opts.phoneNumberId}/messages`;
   const auth = { Authorization: `Bearer ${opts.accessToken}` };
 
   return {
-    async sendText(to, body) {
+    async sendText(to, body, fromNumberId) {
+      const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
       const res = await doFetch(url, {
         method: "POST",
         headers: {

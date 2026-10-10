@@ -25,6 +25,8 @@ export interface ProductContext {
   contactId: string;
   /** Recent text messages with this customer, oldest first, not including this one. */
   history: HistoryEntry[];
+  /** Downloads a file the sender attached (photo, voice note, ...) by its media id. */
+  downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
 
 export interface Product {

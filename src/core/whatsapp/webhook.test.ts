@@ -6,6 +6,7 @@ import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
+import type { IncomingMessage } from "./types.js";
 
 const APP_SECRET = "test-secret";
 const VERIFY_TOKEN = "test-verify-token";
@@ -39,11 +40,17 @@ function memoryStore() {
   return { store, contacts, outbound, inboundText };
 }
 
-function setup(product: Product = echoProduct, transcriber?: Transcriber) {
+function setup(
+  product: Product = echoProduct,
+  transcriber?: Transcriber,
+  route?: (msg: IncomingMessage) => Product,
+) {
   const sent: Array<{ to: string; body: string }> = [];
+  const sentFrom: Array<string | undefined> = [];
   const whatsapp: WhatsAppClient = {
-    async sendText(to, body) {
+    async sendText(to, body, fromNumberId) {
       sent.push({ to, body });
+      sentFrom.push(fromNumberId);
       if (to === "FAIL") throw new Error("send failed");
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
@@ -59,10 +66,10 @@ function setup(product: Product = echoProduct, transcriber?: Transcriber) {
     store: mem.store,
     whatsapp,
     transcriber,
-    route: () => product,
+    route: route ?? (() => product),
     log: silent,
   });
-  return { app, sent, ...mem };
+  return { app, sent, sentFrom, ...mem };
 }
 
 function textWebhook(id: string, text: string) {
@@ -127,6 +134,34 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello" }]);
     expect(outbound).toEqual(["You said: Hello"]);
     expect(contacts.has("2348012345678")).toBe(true);
+  });
+
+  it("routes by the number that was messaged and replies from that number", async () => {
+    const other: Product = { name: "other", handle: async () => ({ text: "from other", notify: [{ to: "2348099999999", text: "alert" }] }) };
+    const { app, sent, sentFrom } = setup(echoProduct, undefined, (msg) =>
+      msg.businessNumberId === "PNID" ? other : echoProduct,
+    );
+    const body = textWebhook("wamid.route", "Hello");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["from other", "alert"]);
+    expect(sentFrom).toEqual(["PNID", "PNID"]);
+  });
+
+  it("passes a photo's caption and media id to the product", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app, sent } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.img", timestamp: "1", type: "image", image: { id: "img-1", caption: "Slab done" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({ type: "image", mediaId: "img-1", caption: "Slab done", businessNumberId: "PNID" });
+    expect(seen?.text).toBeUndefined();
+    expect(sent).toHaveLength(0);
   });
 
   it("rejects a missing signature without doing any work", async () => {
