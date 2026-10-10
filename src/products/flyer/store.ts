@@ -8,6 +8,11 @@ export interface Group {
   id: string;
   name: string;
   logoPath: string | null;
+  /** The chosen design's id (see themes.ts). */
+  theme: string;
+  /** A colour replacing the design's accent, or null. */
+  accent: string | null;
+  backgroundPath: string | null;
 }
 
 export interface Member {
@@ -32,6 +37,10 @@ export interface FlyerStore {
   useGroup(groupId: string, waId: string): Promise<void>;
   /** Saves the group's logo (replacing any earlier one). */
   saveLogo(groupId: string, logo: Picture): Promise<void>;
+  /** Saves a background picture, or removes it when null. */
+  saveBackground(groupId: string, picture: Picture | null): Promise<void>;
+  /** Changes the group's design and/or accent colour (null clears the colour). */
+  setStyle(groupId: string, style: { theme?: string; accent?: string | null }): Promise<void>;
   /** Adds a member, or updates their birthday and photo if the name is already in the group. */
   saveMember(groupId: string, name: string, birthday: MonthDay, photo: Picture): Promise<Member>;
   removeMember(memberId: string): Promise<void>;
@@ -75,6 +84,28 @@ function toMember(row: MemberRow): Member {
   };
 }
 
+const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path";
+
+interface GroupRow {
+  id: string;
+  name: string;
+  logo_path: string | null;
+  theme: string;
+  accent: string | null;
+  background_path: string | null;
+}
+
+function toGroup(row: GroupRow): Group {
+  return {
+    id: row.id,
+    name: row.name,
+    logoPath: row.logo_path,
+    theme: row.theme,
+    accent: row.accent,
+    backgroundPath: row.background_path,
+  };
+}
+
 const MEMBER_COLUMNS = "id, group_id, name, birth_month, birth_day, photo_path";
 
 export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
@@ -89,21 +120,18 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     async groupsForAdmin(waId) {
       const { data, error } = await db
         .from("flyer_admins")
-        .select("last_used_at, flyer_groups!inner(id, name, logo_path, active)")
+        .select(`last_used_at, flyer_groups!inner(${GROUP_COLUMNS}, active)`)
         .eq("wa_id", waId)
         .eq("flyer_groups.active", true)
         .order("last_used_at", { ascending: false });
       if (error) throw new Error(`groupsForAdmin failed: ${error.message}`);
-      return (data ?? []).map((row) => {
-        const g = row.flyer_groups as unknown as { id: string; name: string; logo_path: string | null };
-        return { id: g.id, name: g.name, logoPath: g.logo_path };
-      });
+      return (data ?? []).map((row) => toGroup(row.flyer_groups as unknown as GroupRow));
     },
 
     async createGroup(name, adminWaId) {
-      const { data, error } = await db.from("flyer_groups").insert({ name }).select("id, name, logo_path").single();
+      const { data, error } = await db.from("flyer_groups").insert({ name }).select(GROUP_COLUMNS).single();
       if (error) throw new Error(`createGroup failed: ${error.message}`);
-      const group = { id: data.id as string, name: data.name as string, logoPath: null };
+      const group = toGroup(data as GroupRow);
       await this.addAdmin(group.id, adminWaId);
       return group;
     },
@@ -130,6 +158,21 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       await upload(path, logo);
       const { error } = await db.from("flyer_groups").update({ logo_path: path }).eq("id", groupId);
       if (error) throw new Error(`saveLogo failed: ${error.message}`);
+    },
+
+    async saveBackground(groupId, picture) {
+      let path: string | null = null;
+      if (picture) {
+        path = `${groupId}/background-${Date.now()}.${extFor(picture.mimeType)}`;
+        await upload(path, picture);
+      }
+      const { error } = await db.from("flyer_groups").update({ background_path: path }).eq("id", groupId);
+      if (error) throw new Error(`saveBackground failed: ${error.message}`);
+    },
+
+    async setStyle(groupId, style) {
+      const { error } = await db.from("flyer_groups").update(style).eq("id", groupId);
+      if (error) throw new Error(`setStyle failed: ${error.message}`);
     },
 
     async saveMember(groupId, name, birthday, photo) {
@@ -165,21 +208,16 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       for (const { month, day } of dates) {
         const { data, error } = await db
           .from("flyer_members")
-          .select(`${MEMBER_COLUMNS}, flyer_groups!inner(id, name, logo_path, active, flyer_admins(wa_id))`)
+          .select(`${MEMBER_COLUMNS}, flyer_groups!inner(${GROUP_COLUMNS}, active, flyer_admins(wa_id))`)
           .eq("birth_month", month)
           .eq("birth_day", day)
           .eq("flyer_groups.active", true);
         if (error) throw new Error(`birthdaysOn failed: ${error.message}`);
         for (const row of data ?? []) {
-          const g = row.flyer_groups as unknown as {
-            id: string;
-            name: string;
-            logo_path: string | null;
-            flyer_admins: Array<{ wa_id: string }>;
-          };
+          const g = row.flyer_groups as unknown as GroupRow & { flyer_admins: Array<{ wa_id: string }> };
           out.push({
             member: toMember(row as unknown as MemberRow),
-            group: { id: g.id, name: g.name, logoPath: g.logo_path },
+            group: toGroup(g),
             admins: g.flyer_admins.map((a) => a.wa_id),
           });
         }

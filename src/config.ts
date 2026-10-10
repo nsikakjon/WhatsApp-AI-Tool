@@ -45,8 +45,14 @@ export interface Config {
    */
   flyer?: {
     phoneNumberId: string;
-    /** WhatsApp numbers allowed to create groups. */
+    /** WhatsApp numbers that run the service: can always create groups, and hear about sign-ups. */
     ownerWaIds: string[];
+    /** Let anyone set up a group of their own. */
+    openSignup: boolean;
+    /** The service's name, used when greeting new people. */
+    brandName: string;
+    /** Small print on every flyer. Empty for none. */
+    credit: string;
     /** Lagos hour (0-23) from which birthday flyers go out. */
     sendHour: number;
     /** Writes the birthday messages. Without it, ready-made messages are used. */
@@ -123,6 +129,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             .split(",")
             .map((n) => n.replace(/\D/g, ""))
             .filter(Boolean),
+          openSignup: !/^(false|no|off|0)$/i.test(env.FLYER_OPEN_SIGNUP ?? ""),
+          brandName: env.FLYER_BRAND_NAME || "Flyer Bot",
+          credit: env.FLYER_CREDIT ?? "",
           sendHour: flyerHour,
           anthropicApiKey: env.ANTHROPIC_API_KEY || undefined,
           model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",

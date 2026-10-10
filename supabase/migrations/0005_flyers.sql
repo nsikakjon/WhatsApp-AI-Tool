@@ -11,6 +11,12 @@ create table if not exists public.flyer_groups (
   name        text not null,
   -- Where the group's logo is saved in Supabase Storage (bucket "flyer-photos").
   logo_path   text,
+  -- The flyer design the group picked (see src/products/flyer/themes.ts).
+  theme       text not null default 'royal',
+  -- A colour the group chose to replace the design's accent, e.g. '#f5c451'.
+  accent      text,
+  -- A background picture the group uploaded, used instead of the design's colours.
+  background_path text,
   active      boolean not null default true,
   created_at  timestamptz not null default now()
 );

@@ -8,7 +8,14 @@ import {
   parseBirthday,
   type MonthDay,
 } from "./dates.js";
-import { renderBirthdayFlyer, renderEventFlyer } from "./render.js";
+import {
+  placeholderPortrait,
+  renderBirthdayFlyer,
+  renderDesignSheet,
+  renderEventFlyer,
+  type FlyerStyle,
+} from "./render.js";
+import { COLOUR_NAMES, findTheme, parseColour, THEMES, themeById } from "./themes.js";
 import type { FlyerStore, Group, Member, Picture } from "./store.js";
 import type { WishWriter } from "./wish.js";
 
@@ -19,19 +26,29 @@ import type { WishWriter } from "./wish.js";
 // - a photo captioned "logo" sets the group's logo,
 // - any other photo comes back as an event flyer: the photo with the logo
 //   and the caption on it.
+// - "design" shows the flyer designs to choose from; "colour" and a photo
+//   captioned "background" change the look further.
 // On each member's birthday morning, the bot sends the admins a finished
 // birthday flyer and a short message, ready to forward to the group.
+// With open sign-up, anyone who messages the number can set up their own group.
 
 export interface FlyerBotOptions {
   store: FlyerStore;
   wishes: WishWriter;
-  /** WhatsApp numbers allowed to create new groups. */
+  /** WhatsApp numbers that run the service: they can always create groups and hear about sign-ups. */
   owners: string[];
+  /** Let anyone set up one group of their own, not just owners. */
+  openSignup: boolean;
+  /** The service's name, used when greeting new people. */
+  brandName: string;
+  /** Small print on every flyer, e.g. "Made with FlyerBot · wa.me/234...". Empty for none. */
+  credit?: string;
   /** Lagos hour (0-23) from which birthday flyers go out. */
   sendHour: number;
   render?: {
     birthday: typeof renderBirthdayFlyer;
     event: typeof renderEventFlyer;
+    designSheet: typeof renderDesignSheet;
   };
   log?: Pick<Console, "info" | "error">;
 }
@@ -68,6 +85,7 @@ const HELP = `Here's what I can do:
 🖼️ *Event flyer*: send any photo with the text you want on it, e.g.
    Homecoming: Sat 12 Dec, 4pm, Alumni Hall
 🏷️ *Logo*: send your group logo with the caption *logo* (send it as a file/document to keep a see-through background)
+🎨 *Design*: send *design* to see the flyer designs and pick one
 
 Other commands:
 • *members*: everyone and their birthdays
@@ -76,6 +94,8 @@ Other commands:
 • *flyer Ada*: see Ada's birthday flyer now
 • *remove Ada Okafor*
 • *add admin 08012345678*: let someone else manage this group
+• *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
+• *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
 • *groups*: your groups (and *switch <name>*)
 
 On each birthday I'll send you the flyer in the morning, ready to forward to the group.`;
@@ -119,7 +139,11 @@ function findMember(members: Member[], query: string): Member[] {
 
 export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   const log = opts.log ?? console;
-  const render = opts.render ?? { birthday: renderBirthdayFlyer, event: renderEventFlyer };
+  const render = opts.render ?? {
+    birthday: renderBirthdayFlyer,
+    event: renderEventFlyer,
+    designSheet: renderDesignSheet,
+  };
   const owners = new Set(opts.owners);
 
   async function logoFor(group: Group): Promise<Uint8Array | undefined> {
@@ -132,8 +156,38 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
   }
 
+  async function styleFor(group: Group): Promise<FlyerStyle> {
+    let background: Uint8Array | undefined;
+    if (group.backgroundPath) {
+      try {
+        background = await opts.store.loadPicture(group.backgroundPath);
+      } catch (err) {
+        log.error(`Could not load the background for ${group.name}:`, err);
+      }
+    }
+    return {
+      theme: themeById(group.theme),
+      accent: group.accent ?? undefined,
+      background,
+      credit: opts.credit || undefined,
+    };
+  }
+
+  /** A member to show designs with: the group's first member, or an outline before there are any. */
+  async function sampleFor(group: Group) {
+    const first = (await opts.store.members(group.id))[0];
+    return {
+      photo: first ? await opts.store.loadPicture(first.photoPath) : await placeholderPortrait(),
+      name: first?.name ?? "Your Member",
+      dateLabel: first ? formatMonthDay(first.birthday) : "14 October",
+      groupName: group.name,
+      logo: await logoFor(group),
+    };
+  }
+
   async function birthdayFlyer(member: Member, group: Group): Promise<Uint8Array> {
     return render.birthday({
+      style: await styleFor(group),
       photo: await opts.store.loadPicture(member.photoPath),
       name: member.name,
       dateLabel: formatMonthDay(member.birthday),
@@ -165,6 +219,16 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       return { text: `Logo saved for ${group.name} ✅ It'll appear on every flyer from now on.` };
     }
 
+    if (/^background$/i.test(caption)) {
+      await opts.store.saveBackground(group.id, picture);
+      const sample = await sampleFor({ ...group });
+      const flyer = await render.birthday({ ...sample, style: { ...(await styleFor(group)), background: picture.data } });
+      return {
+        text: "Background saved ✅ Birthday flyers now use it. Send *background off* to go back to the design's colours.",
+        images: [{ data: flyer, mimeType: JPEG }],
+      };
+    }
+
     if (/^(add|birthday)\b/i.test(caption)) {
       const parsed = parseAddCaption(caption);
       if (!parsed?.name) {
@@ -181,7 +245,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
-    const flyer = await render.event({ photo: picture.data, caption, logo: await logoFor(group) });
+    const flyer = await render.event({
+      photo: picture.data,
+      caption,
+      logo: await logoFor(group),
+      style: await styleFor(group),
+    });
     return {
       text: group.logoPath ? "" : "Tip: send your group logo with the caption *logo* and I'll add it to every flyer.",
       images: [{ data: flyer, mimeType: JPEG }],
@@ -191,6 +260,50 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   async function handleCommand(text: string, from: string, group: Group, groups: Group[]): Promise<Reply> {
     const lower = text.toLowerCase();
     const today = lagosNow(new Date());
+
+    if (lower === "design" || lower === "designs") {
+      const sheet = await render.designSheet(await sampleFor(group), THEMES, {
+        accent: group.accent ?? undefined,
+        credit: opts.credit || undefined,
+      });
+      const current = themeById(group.theme);
+      return {
+        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.`,
+        images: [{ data: sheet, mimeType: JPEG }],
+      };
+    }
+
+    const design = text.match(/^design\s+(.+)$/i);
+    if (design) {
+      const theme = findTheme(design[1]!);
+      if (!theme) return { text: `I don't have a design called "${design[1]}". Send *design* to see them all.` };
+      await opts.store.setStyle(group.id, { theme: theme.id });
+      const updated = { ...group, theme: theme.id };
+      const flyer = await render.birthday({ ...(await sampleFor(updated)), style: await styleFor(updated) });
+      const note = group.backgroundPath ? " (your own background picture is still on; send *background off* to see the design's colours)" : "";
+      return { text: `Design changed to *${theme.label}* ✅${note}`, images: [{ data: flyer, mimeType: JPEG }] };
+    }
+
+    const colour = text.match(/^colou?r\s+(.+)$/i);
+    if (colour) {
+      const wanted = colour[1]!.trim().toLowerCase();
+      const accent = wanted === "reset" || wanted === "off" ? null : parseColour(wanted);
+      if (accent === null && wanted !== "reset" && wanted !== "off") {
+        return { text: `Try one of: ${COLOUR_NAMES.join(", ")}. Or a colour code like #1a7f37.` };
+      }
+      await opts.store.setStyle(group.id, { accent });
+      const updated = { ...group, accent };
+      const flyer = await render.birthday({ ...(await sampleFor(updated)), style: await styleFor(updated) });
+      return {
+        text: accent ? "Colour changed ✅" : "Back to the design's own colour ✅",
+        images: [{ data: flyer, mimeType: JPEG }],
+      };
+    }
+
+    if (lower === "background off" || lower === "background reset") {
+      await opts.store.saveBackground(group.id, null);
+      return { text: "Background removed. Birthday flyers use the design's colours again." };
+    }
 
     if (lower === "members" || lower === "list") {
       const members = await opts.store.members(group.id);
@@ -281,16 +394,32 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
       const newGroup = text.match(/^new group\s+(.+)$/i);
       if (newGroup) {
-        if (!isOwner) return { text: "Sorry, only the account owner can set up new groups." };
-        const group = await opts.store.createGroup(newGroup[1]!.trim(), msg.from);
-        return { text: `Created *${group.name}* ✅ You're its admin.\n\n${HELP}` };
+        // Owners can set up any number of groups; with open sign-up, anyone else can set up one.
+        if (!isOwner && !(opts.openSignup && groups.length === 0)) {
+          return {
+            text: opts.openSignup
+              ? "You already run a group here. To set up another one, please contact us."
+              : "Sorry, only the account owner can set up new groups.",
+          };
+        }
+        const name = newGroup[1]!.trim().slice(0, 80);
+        const group = await opts.store.createGroup(name, msg.from);
+        log.info(`New flyer group "${group.name}" set up by ...${msg.from.slice(-4)}`);
+        const who = msg.contactName ? `${msg.contactName} (${msg.from})` : msg.from;
+        return {
+          text: `Created *${group.name}* ✅ You're its admin.\n\n${HELP}`,
+          notify: isOwner
+            ? undefined
+            : opts.owners.map((to) => ({ to, text: `🎉 New sign-up: ${who} set up "${group.name}" on ${opts.brandName}.` })),
+        };
       }
 
       const group = groups[0];
       if (!group) {
+        if (isOwner) return { text: "Welcome! Set up your first group by sending, for example:\nnew group Unilag Class of 2010" };
         return {
-          text: isOwner
-            ? 'Welcome! Set up your first group by sending, for example:\nnew group Unilag Class of 2010'
+          text: opts.openSignup
+            ? `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work) and remind you on each birthday morning, and I brand your event photos with your group's logo.\n\nTo start, send *new group* and your group's name, e.g.\nnew group Unilag Class of 2010`
             : "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.",
         };
       }

@@ -31,7 +31,7 @@ function memoryStore() {
         .map((a) => groups.find((g) => g.id === a.groupId)!);
     },
     async createGroup(name, adminWaId) {
-      const group = { id: `g${groups.length + 1}`, name, logoPath: null };
+      const group: Group = { id: `g${groups.length + 1}`, name, logoPath: null, theme: "royal", accent: null, backgroundPath: null };
       groups.push(group);
       await store.addAdmin(group.id, adminWaId);
       return group;
@@ -46,6 +46,14 @@ function memoryStore() {
       const path = `${groupId}/logo`;
       pictures.set(path, logo.data);
       groups.find((g) => g.id === groupId)!.logoPath = path;
+    },
+    async saveBackground(groupId, picture) {
+      const path = picture ? `${groupId}/background` : null;
+      if (picture && path) pictures.set(path, picture.data);
+      groups.find((g) => g.id === groupId)!.backgroundPath = path;
+    },
+    async setStyle(groupId, style) {
+      Object.assign(groups.find((g) => g.id === groupId)!, style);
     },
     async saveMember(groupId, name, birthday, photo) {
       const path = `${groupId}/${name}`;
@@ -92,7 +100,7 @@ function memoryStore() {
   return { store, groups, members, claims };
 }
 
-function setup() {
+function setup(opts: { openSignup?: boolean } = {}) {
   const mem = memoryStore();
   const render = {
     birthday: vi.fn(async (input: { name: string; logo?: Uint8Array }) =>
@@ -101,11 +109,15 @@ function setup() {
     event: vi.fn(async (input: { caption: string; logo?: Uint8Array }) =>
       Buffer.from(`event:${input.caption}:${input.logo ? "logo" : "nologo"}`),
     ),
+    designSheet: vi.fn(async (sample: { name: string }) => Buffer.from(`sheet:${sample.name}`)),
   };
   const bot = createFlyerBot({
     store: mem.store,
     wishes: { write: async ({ name, groupName }) => `Happy birthday ${name} from ${groupName}` },
     owners: [OWNER],
+    openSignup: opts.openSignup ?? false,
+    brandName: "Flyer Bot",
+    credit: "Made with Flyer Bot",
     sendHour: 7,
     render: render as never,
     log: silent,
@@ -166,6 +178,88 @@ describe("flyer bot: setup", () => {
     expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Lekki Crew (current)");
     await bot.handle(msg(OWNER, { text: "switch unilag" }), ctx);
     expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Unilag Class of 2010 (current)");
+  });
+});
+
+describe("flyer bot: open sign-up", () => {
+  it("greets strangers with how to start, and lets them set up one group", async () => {
+    const { bot, groups } = setup({ openSignup: true });
+    const hello = await bot.handle(msg(ADMIN, { text: "Hi" }), ctx);
+    expect(hello?.text).toContain("I'm Flyer Bot");
+    expect(hello?.text).toContain("new group");
+
+    const created = await bot.handle(msg(ADMIN, { text: "new group Lekki Crew", contactName: "Bola" }), ctx);
+    expect(created?.text).toContain("Created *Lekki Crew*");
+    expect(created?.notify).toEqual([
+      { to: OWNER, text: `🎉 New sign-up: Bola (${ADMIN}) set up "Lekki Crew" on Flyer Bot.` },
+    ]);
+
+    const second = await bot.handle(msg(ADMIN, { text: "new group Another" }), ctx);
+    expect(second?.text).toContain("already run a group");
+    expect(groups).toHaveLength(1);
+  });
+
+  it("lets owners set up many groups without alerting themselves", async () => {
+    const { bot, groups } = setup({ openSignup: true });
+    expect((await bot.handle(msg(OWNER, { text: "new group A" }), ctx))?.notify).toBeUndefined();
+    await bot.handle(msg(OWNER, { text: "new group B" }), ctx);
+    expect(groups).toHaveLength(2);
+  });
+});
+
+describe("flyer bot: designs", () => {
+  it("shows all designs on one picture", async () => {
+    const { bot, render } = await withGroup();
+    const reply = await bot.handle(msg(OWNER, { text: "design" }), ctx);
+    expect(reply?.text).toContain("current design is *Royal purple*");
+    expect(text(reply?.images?.[0]?.data)).toBe("sheet:Your Member");
+    expect(render.designSheet.mock.calls[0]![2]).toEqual({ accent: undefined, credit: "Made with Flyer Bot" });
+  });
+
+  it("changes the design by number or name, and shows a preview", async () => {
+    const { bot, groups, render } = await withGroup();
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const reply = await bot.handle(msg(OWNER, { text: "design 2" }), ctx);
+    expect(reply?.text).toContain("Emerald and gold");
+    expect(groups[0]!.theme).toBe("emerald");
+    expect(text(reply?.images?.[0]?.data)).toBe("birthday:Ada Okafor:nologo");
+    const style = (render.birthday.mock.calls.at(-1)![0] as { style: { theme: { id: string } } }).style;
+    expect(style.theme.id).toBe("emerald");
+
+    await bot.handle(msg(OWNER, { text: "design midnight" }), ctx);
+    expect(groups[0]!.theme).toBe("midnight");
+    expect((await bot.handle(msg(OWNER, { text: "design 99" }), ctx))?.text).toContain("don't have a design");
+  });
+
+  it("changes and resets the highlight colour", async () => {
+    const { bot, groups } = await withGroup();
+    await bot.handle(msg(OWNER, { text: "colour red" }), ctx);
+    expect(groups[0]!.accent).toBe("#e63946");
+    await bot.handle(msg(OWNER, { text: "color #1A7F37" }), ctx);
+    expect(groups[0]!.accent).toBe("#1a7f37");
+    expect((await bot.handle(msg(OWNER, { text: "colour sparkly" }), ctx))?.text).toContain("Try one of");
+    await bot.handle(msg(OWNER, { text: "colour reset" }), ctx);
+    expect(groups[0]!.accent).toBeNull();
+  });
+
+  it("uses an uploaded background until it's switched off", async () => {
+    const { bot, groups, render } = await withGroup();
+    const reply = await bot.handle(photo(OWNER, "background"), ctx);
+    expect(reply?.text).toContain("Background saved");
+    expect(groups[0]!.backgroundPath).toBe("g1/background");
+    const style = (render.birthday.mock.calls.at(-1)![0] as { style: { background?: Uint8Array } }).style;
+    expect(style.background).toBeDefined();
+
+    await bot.handle(msg(OWNER, { text: "background off" }), ctx);
+    expect(groups[0]!.backgroundPath).toBeNull();
+  });
+
+  it("puts the credit and colour on event flyers", async () => {
+    const { bot, render } = await withGroup();
+    await bot.handle(msg(OWNER, { text: "colour gold" }), ctx);
+    await bot.handle(photo(OWNER, "Homecoming"), ctx);
+    const style = (render.event.mock.calls.at(-1)![0] as { style: { accent?: string; credit?: string } }).style;
+    expect(style).toMatchObject({ accent: "#f5c451", credit: "Made with Flyer Bot" });
   });
 });
 

@@ -63,6 +63,9 @@ const flyerBot = flyerConfig
       store: createSupabaseFlyerStore(supabase),
       wishes: createWishWriter({ apiKey: flyerConfig.anthropicApiKey, model: flyerConfig.model }),
       owners: flyerConfig.ownerWaIds,
+      openSignup: flyerConfig.openSignup,
+      brandName: flyerConfig.brandName,
+      credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
     })
   : undefined;
