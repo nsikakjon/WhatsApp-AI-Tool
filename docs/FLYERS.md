@@ -23,7 +23,8 @@ and an admin forwards the flyer, which takes a few seconds:
 ## 1. Create the tables (Supabase)
 
 Supabase > SQL Editor > New query > paste the whole of
-`supabase/migrations/0005_flyers.sql` > Run.
+`supabase/migrations/0005_flyers.sql` > Run. Then do the same with
+`supabase/migrations/0006_flyer_members_optional_photo.sql`.
 
 This also creates a private storage bucket called `flyer-photos`, where
 member photos and logos are saved (Supabase > Storage).
@@ -88,6 +89,31 @@ Dates can also be written `14/03` or `March 14`. The bot replies with a
 preview of their birthday flyer. Sending the same name again replaces the
 photo and birthday.
 
+### Adding everyone at once from a spreadsheet
+
+Make a sheet with three columns, **Name**, **Birthday** and **Photo**, one
+member per row (a template is in `docs/templates/flyer-members.csv`). Then
+either:
+
+- **Google Sheets**: tap Share, set "Anyone with the link" to Viewer, copy the
+  link and paste it into the chat with the bot, or
+- **Excel or Google Sheets file**: File > Download > CSV, then send that file
+  to the bot (paperclip > Document).
+
+The bot replies with how many people it found, saves them, and messages you
+a summary when it's done. Good to know:
+
+- **Photo** is a link to each picture. Google Drive links work if the picture
+  is shared as "Anyone with the link". A Google Form with a file-upload
+  question gives you exactly this, so members can fill in their own details.
+- Without a photo link, a member's flyer shows their initials until you send
+  their photo captioned `photo Ada Okafor`.
+- Birthdays can be `14/03`, `14/03/1990`, `14 March` or `1990-03-14`. The bot
+  works out whether the sheet writes the day or the month first.
+- Sending the same list again updates people instead of adding them twice.
+- Column names can vary ("Full name", "Date of birth", "Upload your photo").
+
+
 Other commands:
 
 | Send                  | You get                                      |
@@ -97,6 +123,7 @@ Other commands:
 | `today`               | today's birthday flyers, right now           |
 | `flyer Ada`           | Ada's birthday flyer and a message           |
 | `remove Ada Okafor`   | removes Ada                                  |
+| photo captioned `photo Ada Okafor` | adds or changes Ada's photo     |
 | `groups`, `switch …`  | lists your groups, changes group             |
 | `help`                | the full list                                |
 

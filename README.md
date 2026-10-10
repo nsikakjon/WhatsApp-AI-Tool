@@ -47,7 +47,8 @@ Runs on its own WhatsApp number when `FLYER_PHONE_NUMBER_ID` is set. Setup and
 commands: [docs/FLYERS.md](docs/FLYERS.md).
 
 1. Group admins (alumni, friends groups) send members' photos captioned
-   "add Ada Okafor, 14 March", and the group logo captioned "logo".
+   "add Ada Okafor, 14 March", or a whole list at once as a CSV file or Google
+   Sheets link, and the group logo captioned "logo".
 2. On each birthday morning the bot makes the member's birthday flyer, with a
    short message written by Claude Haiku, and sends it to the admins to
    forward to the group and tag the member.
@@ -100,6 +101,7 @@ src/
       render.ts          draws the flyer pictures
       themes.ts          the flyer designs (colours and layouts): edit here
       dates.ts           reads birthdays, Lagos dates
+      import.ts          reads member lists (CSV, Google Sheets) and photo links
       wish.ts            the AI step (a short birthday message)
       store.ts           groups, admins, members, photos and sent flyers
 assets/fonts/            fonts used on flyers (open licence)
