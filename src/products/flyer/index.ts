@@ -16,6 +16,7 @@ import {
   type FlyerStyle,
 } from "./render.js";
 import { COLOUR_NAMES, findTheme, parseColour, THEMES, themeById } from "./themes.js";
+import { fetchPicture, fetchSheet, isCsv, MAX_ROWS, parseCsv, rowsFromTable, type ImportRow } from "./import.js";
 import type { FlyerStore, Group, Member, Picture } from "./store.js";
 import type { WishWriter } from "./wish.js";
 
@@ -51,6 +52,10 @@ export interface FlyerBotOptions {
     designSheet: typeof renderDesignSheet;
   };
   log?: Pick<Console, "info" | "error">;
+  /** For downloading Google Sheets and photo links. */
+  fetch?: typeof fetch;
+  /** Called with work that carries on after replying (a spreadsheet import), so tests can wait for it. */
+  onBackground?: (work: Promise<void>) => void;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -86,6 +91,7 @@ const HELP = `Here's what I can do:
    Homecoming: Sat 12 Dec, 4pm, Alumni Hall
 🏷️ *Logo*: send your group logo with the caption *logo* (send it as a file/document to keep a see-through background)
 🎨 *Design*: send *design* to see the flyer designs and pick one
+📋 *Import a list*: send a CSV file, or paste a Google Sheets link, with columns *Name*, *Birthday* and *Photo* (a photo link, e.g. from Google Drive)
 
 Other commands:
 • *members*: everyone and their birthdays
@@ -93,6 +99,7 @@ Other commands:
 • *today*: today's birthday flyers
 • *flyer Ada*: see Ada's birthday flyer now
 • *remove Ada Okafor*
+• a photo captioned *photo Ada Okafor*: add or change Ada's photo
 • *add admin 08012345678*: let someone else manage this group
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
@@ -175,9 +182,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
   /** A member to show designs with: the group's first member, or an outline before there are any. */
   async function sampleFor(group: Group) {
-    const first = (await opts.store.members(group.id))[0];
+    const members = await opts.store.members(group.id);
+    const first = members.find((m) => m.photoPath) ?? members[0];
     return {
-      photo: first ? await opts.store.loadPicture(first.photoPath) : await placeholderPortrait(),
+      photo: first?.photoPath ? await opts.store.loadPicture(first.photoPath) : await placeholderPortrait(),
       name: first?.name ?? "Your Member",
       dateLabel: first ? formatMonthDay(first.birthday) : "14 October",
       groupName: group.name,
@@ -188,7 +196,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   async function birthdayFlyer(member: Member, group: Group): Promise<Uint8Array> {
     return render.birthday({
       style: await styleFor(group),
-      photo: await opts.store.loadPicture(member.photoPath),
+      photo: member.photoPath ? await opts.store.loadPicture(member.photoPath) : undefined,
       name: member.name,
       dateLabel: formatMonthDay(member.birthday),
       groupName: group.name,
@@ -196,23 +204,90 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     });
   }
 
-  async function downloadPicture(
-    msg: IncomingMessage,
-    download: (id: string) => Promise<{ data: Blob; mimeType: string }>,
-  ): Promise<Picture | null> {
-    const file = await download(msg.mediaId!);
-    if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) return null;
-    return { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType };
+  /**
+   * Checks a member list and replies straight away; saving everyone (and
+   * downloading their photos) carries on afterwards, with a summary at the end.
+   */
+  function startImport(group: Group, csv: string, sendLater: (r: Reply) => Promise<void>): Reply {
+    const rows = rowsFromTable(parseCsv(csv));
+    if (!rows.length) {
+      return {
+        text: "I couldn't find any names in that list. Please use columns called *Name*, *Birthday* and *Photo* (a photo link), one member per row.",
+      };
+    }
+    if (rows.length > MAX_ROWS) return { text: `That list has ${rows.length} rows. Please send at most ${MAX_ROWS} at a time.` };
+
+    const work = importRows(group, rows)
+      .then((summary) => sendLater({ text: summary }))
+      .catch((err) => {
+        log.error(`Import for ${group.name} failed:`, err);
+        return sendLater({ text: "Sorry, the import stopped part-way. Send *members* to see who was saved, then try again." });
+      });
+    opts.onBackground?.(work);
+    const withPhotos = rows.filter((r) => r.photoUrl).length;
+    return {
+      text: `Found ${rows.length} members${withPhotos ? `, ${withPhotos} with photo links` : ""}. Saving them now; I'll message you when it's done.`,
+    };
   }
 
-  async function handlePicture(
-    msg: IncomingMessage,
-    group: Group,
-    caption: string,
-    download: (id: string) => Promise<{ data: Blob; mimeType: string }>,
-  ): Promise<Reply> {
-    const picture = await downloadPicture(msg, download);
-    if (!picture) return { text: "Please send a photo (JPG or PNG)." };
+  async function importRows(group: Group, rows: ImportRow[]): Promise<string> {
+    let added = 0;
+    let updated = 0;
+    const noPhoto: string[] = [];
+    const badDates: string[] = [];
+    const failed: string[] = [];
+
+    const queue = [...rows];
+    const worker = async () => {
+      for (let row = queue.shift(); row; row = queue.shift()) {
+        if (!row.birthday) {
+          badDates.push(`row ${row.line} (${row.name}: "${row.birthdayText || "blank"}")`);
+          continue;
+        }
+        let picture: Picture | null = null;
+        if (row.photoUrl) {
+          try {
+            picture = await fetchPicture(row.photoUrl, opts.fetch);
+          } catch (err) {
+            log.info(`Import: no photo for row ${row.line}: ${(err as Error).message}`);
+          }
+        }
+        try {
+          const saved = await opts.store.saveMember(group.id, row.name, row.birthday, picture);
+          if (saved.isNew) added++;
+          else updated++;
+          if (!saved.photoPath) noPhoto.push(saved.name);
+        } catch (err) {
+          log.error(`Import: couldn't save row ${row.line}:`, err);
+          failed.push(`row ${row.line} (${row.name})`);
+        }
+      }
+    };
+    // A few at a time: quick, without hammering Google or the database.
+    await Promise.all([worker(), worker(), worker(), worker()]);
+
+    const list = (items: string[]) => (items.length > 15 ? `${items.slice(0, 15).join(", ")} and ${items.length - 15} more` : items.join(", "));
+    const parts = [`✅ Import finished for *${group.name}*: ${added + updated} saved (${added} new, ${updated} updated).`];
+    if (noPhoto.length) {
+      parts.push(
+        `📷 ${noPhoto.length} without a photo, so their flyers show their initials for now: ${list(noPhoto)}.\nTo add one, send their photo captioned *photo* and their name, e.g. *photo ${noPhoto[0]}*. (Photo links must be shared as "Anyone with the link".)`,
+      );
+    }
+    if (badDates.length) parts.push(`⚠️ Couldn't read the birthday on ${list(badDates)}. Fix them and send the list again; nobody gets added twice.`);
+    if (failed.length) parts.push(`⚠️ Couldn't save ${list(failed)}. Please try those again.`);
+    parts.push("Send *members* to see everyone, or *design* to see the flyers.");
+    return parts.join("\n\n");
+  }
+
+  async function handlePicture(group: Group, caption: string, picture: Picture): Promise<Reply> {
+    const photoFor = caption.match(/^photo\s+(.+)$/i);
+    if (photoFor) {
+      const found = findMember(await opts.store.members(group.id), photoFor[1]!);
+      if (found.length !== 1) return { text: notFound(found, photoFor[1]!) };
+      const m = found[0]!;
+      const member = await opts.store.saveMember(group.id, m.name, m.birthday, picture);
+      return { text: `Photo saved for ${member.name} ✅`, images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }] };
+    }
 
     if (/^logo$/i.test(caption)) {
       await opts.store.saveLogo(group.id, picture);
@@ -424,9 +499,26 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         };
       }
 
-      const isPicture = (msg.type === "image" || msg.type === "document") && msg.mediaId;
-      if (isPicture) return handlePicture(msg, group, text, ctx.downloadMedia);
+      if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
+        const file = await ctx.downloadMedia(msg.mediaId);
+        if (isCsv(file.mimeType)) return startImport(group, await file.data.text(), ctx.sendLater);
+        if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) {
+          return {
+            text: "Please send a photo (JPG or PNG), or a member list as a CSV file. From Excel or Google Sheets: File > Download > CSV.",
+          };
+        }
+        return handlePicture(group, text, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
+      }
       if (!text) return { text: `*${group.name}*\n\n${HELP}` };
+
+      const sheetLink = text.match(/https:\/\/docs\.google\.com\/spreadsheets\/\S+/);
+      if (sheetLink) {
+        try {
+          return startImport(group, await fetchSheet(sheetLink[0], opts.fetch), ctx.sendLater);
+        } catch (err) {
+          return { text: `I couldn't open that sheet: ${(err as Error).message}.` };
+        }
+      }
       return handleCommand(text, msg.from, group, groups);
     },
 

@@ -56,16 +56,16 @@ function memoryStore() {
       Object.assign(groups.find((g) => g.id === groupId)!, style);
     },
     async saveMember(groupId, name, birthday, photo) {
-      const path = `${groupId}/${name}`;
-      pictures.set(path, photo.data);
+      const path = photo ? `${groupId}/${name}` : null;
+      if (photo && path) pictures.set(path, photo.data);
       const existing = members.find((m) => m.groupId === groupId && m.name.toLowerCase() === name.toLowerCase());
       if (existing) {
-        Object.assign(existing, { birthday, photoPath: path });
-        return existing;
+        Object.assign(existing, { birthday }, path ? { photoPath: path } : {});
+        return { ...existing, isNew: false };
       }
-      const member = { id: `m${members.length + 1}`, groupId, name, birthday, photoPath: path };
+      const member: Member = { id: `m${members.length + 1}`, groupId, name, birthday, photoPath: path };
       members.push(member);
-      return member;
+      return { ...member, isNew: true };
     },
     async removeMember(id) {
       members.splice(members.findIndex((m) => m.id === id), 1);
@@ -100,6 +100,17 @@ function memoryStore() {
   return { store, groups, members, claims };
 }
 
+const background: Array<Promise<void>> = [];
+const webFetch = (async (url: string) => {
+  if (url.includes("docs.google.com")) {
+    return new Response("Name,Birthday,Photo\nNkem Obi,2/5,https://pics.example.com/nkem.jpg\nBola,sometime,", {
+      headers: { "content-type": "text/csv" },
+    });
+  }
+  if (url.includes("broken")) return new Response("no", { status: 404 });
+  return new Response(new Uint8Array([9]), { headers: { "content-type": "image/jpeg" } });
+}) as unknown as typeof fetch;
+
 function setup(opts: { openSignup?: boolean } = {}) {
   const mem = memoryStore();
   const render = {
@@ -121,6 +132,8 @@ function setup(opts: { openSignup?: boolean } = {}) {
     sendHour: 7,
     render: render as never,
     log: silent,
+    fetch: webFetch,
+    onBackground: (work) => void background.push(work),
   });
   return { bot, render, ...mem };
 }
@@ -136,7 +149,9 @@ const ctx = {
   contactId: "c1",
   history: [],
   downloadMedia: async () => ({ data: new Blob(["jpg"]), mimeType: "image/jpeg" }),
+  sendLater: async (r: { text: string }) => void later.push(r.text),
 };
+const later: string[] = [];
 const text = (b: Uint8Array | undefined) => Buffer.from(b ?? []).toString();
 
 async function withGroup() {
@@ -178,6 +193,56 @@ describe("flyer bot: setup", () => {
     expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Lekki Crew (current)");
     await bot.handle(msg(OWNER, { text: "switch unilag" }), ctx);
     expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Unilag Class of 2010 (current)");
+  });
+});
+
+describe("flyer bot: importing a member list", () => {
+  const csvCtx = (csv: string) => ({ ...ctx, downloadMedia: async () => ({ data: new Blob([csv]), mimeType: "text/csv" }) });
+  const settle = async () => {
+    await Promise.all(background.splice(0));
+  };
+
+  it("imports a CSV file, downloading photos, and reports what's missing", async () => {
+    const { bot, members } = await withGroup();
+    later.length = 0;
+    const csv = "Name,Birthday,Photo\nAda Okafor,14/03,https://pics.example.com/ada.jpg\nTunde,1 Jan,https://pics.example.com/broken.jpg\nBola,someday,";
+    const reply = await bot.handle(msg(OWNER, { type: "document", mediaId: "d1" }), csvCtx(csv));
+    expect(reply?.text).toBe("Found 3 members, 2 with photo links. Saving them now; I'll message you when it's done.");
+    await settle();
+
+    expect(members.map((m) => [m.name, m.photoPath !== null]).sort()).toEqual([["Ada Okafor", true], ["Tunde", false]]);
+    expect(later[0]).toContain("2 saved (2 new, 0 updated)");
+    expect(later[0]).toContain("1 without a photo");
+    expect(later[0]).toContain("*photo Tunde*");
+    expect(later[0]).toContain('row 4 (Bola: "someday")');
+  });
+
+  it("imports from a Google Sheets link and updates people already there", async () => {
+    const { bot, members } = await withGroup();
+    await bot.handle(photo(OWNER, "add Nkem Obi, 1 May"), ctx);
+    later.length = 0;
+    const reply = await bot.handle(msg(OWNER, { text: "https://docs.google.com/spreadsheets/d/abc/edit#gid=0" }), ctx);
+    expect(reply?.text).toContain("Found 2 members");
+    await settle();
+    expect(members.find((m) => m.name === "Nkem Obi")?.birthday).toEqual({ month: 5, day: 2 });
+    expect(later[0]).toContain("1 saved (0 new, 1 updated)");
+  });
+
+  it("explains when the list has no names, or the file isn't a list", async () => {
+    const { bot } = await withGroup();
+    expect((await bot.handle(msg(OWNER, { type: "document", mediaId: "d1" }), csvCtx("\n\n")))?.text).toContain("couldn't find any names");
+  });
+
+  it("adds a photo to a member who has none, and draws initials until then", async () => {
+    const { bot, members, render } = await withGroup();
+    await bot.handle(msg(OWNER, { type: "document", mediaId: "d1" }), csvCtx("Tunde Bakare,1 Jan"));
+    await settle();
+    await bot.handle(msg(OWNER, { text: "flyer tunde" }), ctx);
+    expect((render.birthday.mock.calls.at(-1)![0] as { photo?: Uint8Array }).photo).toBeUndefined();
+
+    const reply = await bot.handle(photo(OWNER, "photo tunde"), ctx);
+    expect(reply?.text).toBe("Photo saved for Tunde Bakare ✅");
+    expect(members[0]!.photoPath).not.toBeNull();
   });
 });
 
@@ -295,7 +360,7 @@ describe("flyer bot: members and flyers", () => {
     const { bot } = await withGroup();
     const pdf = { ...ctx, downloadMedia: async () => ({ data: new Blob(["%PDF"]), mimeType: "application/pdf" }) };
     const reply = await bot.handle(msg(OWNER, { type: "document", mediaId: "d1", caption: "logo" }), pdf);
-    expect(reply?.text).toContain("Please send a photo");
+    expect(reply?.text).toContain("Please send a photo (JPG or PNG), or a member list as a CSV file");
   });
 
   it("lists members, removes one and makes a flyer on request", async () => {
