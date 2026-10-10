@@ -22,8 +22,9 @@ Runs when `ACTIVE_PRODUCT=quote`.
 4. The customer replies YES: the quote becomes a confirmed order and the owner
    gets a WhatsApp alert. Payment (Paystack) comes later.
 
-To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, load
-the price list, then set the quote bot variables from `.env.example` on Railway.
+To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, then
+`supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote
+bot variables from `.env.example` on Railway.
 
 ## Setup
 
