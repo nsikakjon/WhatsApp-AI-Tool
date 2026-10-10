@@ -13,6 +13,10 @@ export interface Group {
   /** A colour replacing the design's accent, or null. */
   accent: string | null;
   backgroundPath: string | null;
+  /** The plan's id (see plans.ts). */
+  plan: string;
+  /** When a paid plan runs out; null for never. */
+  planUntil: Date | null;
 }
 
 export interface Member {
@@ -60,6 +64,13 @@ export interface FlyerStore {
   claimBirthday(memberId: string, year: number): Promise<boolean>;
   /** Undoes a claim when the flyer couldn't be sent, so the next run tries again. */
   releaseBirthday(memberId: string, year: number): Promise<void>;
+  /** Active groups whose name contains this text, for owners managing customers' groups. */
+  findGroups(nameQuery: string): Promise<Group[]>;
+  /** Puts a group on a plan until a date (null: no end date). */
+  setPlan(groupId: string, plan: string, until: Date | null): Promise<void>;
+  adminCount(groupId: string): Promise<number>;
+  /** Each plan's monthly price in kobo (null: price on request), from the database. */
+  planPrices(): Promise<Map<string, number | null>>;
 }
 
 const UNIQUE_VIOLATION = "23505";
@@ -88,7 +99,7 @@ function toMember(row: MemberRow): Member {
   };
 }
 
-const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path";
+const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until";
 
 interface GroupRow {
   id: string;
@@ -97,6 +108,8 @@ interface GroupRow {
   theme: string;
   accent: string | null;
   background_path: string | null;
+  plan: string;
+  plan_until: string | null;
 }
 
 function toGroup(row: GroupRow): Group {
@@ -107,6 +120,8 @@ function toGroup(row: GroupRow): Group {
     theme: row.theme,
     accent: row.accent,
     backgroundPath: row.background_path,
+    plan: row.plan,
+    planUntil: row.plan_until ? new Date(row.plan_until) : null,
   };
 }
 
@@ -250,6 +265,43 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     async releaseBirthday(memberId, year) {
       const { error } = await db.from("flyer_birthday_sends").delete().eq("member_id", memberId).eq("year", year);
       if (error) throw new Error(`releaseBirthday failed: ${error.message}`);
+    },
+
+    async findGroups(nameQuery) {
+      // Escape the characters that have a meaning in a LIKE pattern.
+      const pattern = `%${nameQuery.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const { data, error } = await db
+        .from("flyer_groups")
+        .select(GROUP_COLUMNS)
+        .eq("active", true)
+        .ilike("name", pattern)
+        .order("name")
+        .limit(20);
+      if (error) throw new Error(`findGroups failed: ${error.message}`);
+      return (data ?? []).map((r) => toGroup(r as GroupRow));
+    },
+
+    async setPlan(groupId, plan, until) {
+      const { error } = await db
+        .from("flyer_groups")
+        .update({ plan, plan_until: until ? until.toISOString() : null })
+        .eq("id", groupId);
+      if (error) throw new Error(`setPlan failed: ${error.message}`);
+    },
+
+    async adminCount(groupId) {
+      const { count, error } = await db
+        .from("flyer_admins")
+        .select("wa_id", { count: "exact", head: true })
+        .eq("group_id", groupId);
+      if (error) throw new Error(`adminCount failed: ${error.message}`);
+      return count ?? 0;
+    },
+
+    async planPrices() {
+      const { data, error } = await db.from("flyer_plans").select("id, monthly_price_kobo");
+      if (error) throw new Error(`planPrices failed: ${error.message}`);
+      return new Map((data ?? []).map((r) => [r.id as string, r.monthly_price_kobo === null ? null : Number(r.monthly_price_kobo)]));
     },
   };
 }
