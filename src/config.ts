@@ -15,6 +15,16 @@ export interface Config {
     url: string;
     serviceRoleKey: string;
   };
+  /** Which product answers messages: "echo" (test) or "quote" (quote and order bot). */
+  activeProduct: "echo" | "quote";
+  /** Only set when activeProduct is "quote". */
+  quote?: {
+    anthropicApiKey: string;
+    model: string;
+    businessName: string;
+    orderPrefix: string;
+    ownerWaId?: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -26,6 +36,11 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const activeProduct = env.ACTIVE_PRODUCT || "echo";
+  if (activeProduct !== "echo" && activeProduct !== "quote") {
+    throw new Error(`ACTIVE_PRODUCT must be "echo" or "quote" (got "${activeProduct}")`);
+  }
+
   return {
     port: Number(env.PORT ?? 3000),
     whatsapp: {
@@ -39,5 +54,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       url: required(env, "SUPABASE_URL"),
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
+    activeProduct,
+    quote:
+      activeProduct === "quote"
+        ? {
+            anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+            model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+            businessName: env.QUOTE_BUSINESS_NAME || "KahnPrints",
+            orderPrefix: env.QUOTE_ORDER_PREFIX || "KP",
+            ownerWaId: env.QUOTE_OWNER_WA_ID?.replace(/\D/g, "") || undefined,
+          }
+        : undefined,
   };
 }
