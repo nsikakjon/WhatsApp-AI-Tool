@@ -14,7 +14,9 @@ WhatsApp > Meta > our server > database > reply. It still runs when
 
 Runs when `ACTIVE_PRODUCT=quote`.
 
-1. A customer says what they want ("500 A5 flyers, both sides").
+1. A customer says what they want ("500 A5 flyers, both sides"), typed or as a
+   voice note (voice notes are turned into text by Groq Whisper when
+   `GROQ_API_KEY` is set).
 2. Claude Haiku works out which price-list items and how many. It never sees
    or writes prices.
 3. The code prices it from the price list in Supabase and replies with an
@@ -48,6 +50,7 @@ src/
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
     money.ts             kobo <-> naira formatting
+    voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/
     echo/                Phase 0 test product: repeats your text back
     quote/               Phase 1 quote and order bot

@@ -15,6 +15,8 @@ export interface Config {
     url: string;
     serviceRoleKey: string;
   };
+  /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
+  groq?: { apiKey: string; model: string };
   /** Which product answers messages: "echo" (test) or "quote" (quote and order bot). */
   activeProduct: "echo" | "quote";
   /** Only set when activeProduct is "quote". */
@@ -54,6 +56,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       url: required(env, "SUPABASE_URL"),
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
+    groq: env.GROQ_API_KEY
+      ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }
+      : undefined,
     activeProduct,
     quote:
       activeProduct === "quote"
