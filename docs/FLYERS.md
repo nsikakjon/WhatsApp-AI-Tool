@@ -51,6 +51,9 @@ Service > Variables > add:
 | `FLYER_PHONE_NUMBER_ID` | the Phone number ID from step 2                              |
 | `FLYER_OWNER_WA_IDS`    | your WhatsApp number, e.g. `2348024777076` (comma-separate several) |
 | `FLYER_SEND_HOUR`       | `8` (8am Lagos time), or another hour                        |
+| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `Flyer Bot`                 |
+| `FLYER_OPEN_SIGNUP`     | `true` so anyone can set up their own group (see "Selling it") |
+| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with Flyer Bot · wa.me/2348012345678` |
 
 `ANTHROPIC_API_KEY` is already set for the quote bot and is reused to write
 the birthday messages. Railway redeploys by itself. The deploy log should say
@@ -97,7 +100,28 @@ Other commands:
 | `groups`, `switch …`  | lists your groups, changes group             |
 | `help`                | the full list                                |
 
-## 6. Event flyers
+## 6. Choosing and changing the design
+
+Admins can change how their group's flyers look, on WhatsApp:
+
+| Send                                        | What happens                                  |
+| ------------------------------------------- | --------------------------------------------- |
+| `design`                                    | one picture showing all designs, numbered     |
+| `design 2` (or `design emerald`)            | switches to that design and shows a preview   |
+| `colour gold` (or a code like `#1a7f37`)    | changes the highlight colour; `colour reset` undoes it |
+| a picture with the caption `background`     | uses it behind birthday flyers; `background off` undoes it |
+
+The `background` option is the easiest way to get a fully custom look: design
+a 1080 × 1350 background in Canva (leave the middle and the bottom clear for
+the photo and name), download it as a picture, and send it to the bot.
+
+**Changing or adding designs for everyone**: the designs live in
+`src/products/flyer/themes.ts`, one block per design with its colours and
+layout ("circle" for a round photo, "full" for a big photo). Change a colour
+code there, or copy a block to add a new design, and it goes live on the next
+deploy. Ask Claude to do it if you prefer: "make design 3 blue and white".
+
+## 7. Event flyers
 
 Send any photo with the words you want on it as the caption, for example:
 
@@ -108,7 +132,7 @@ Homecoming 2026: Saturday 12 December, 4pm, Alumni Hall
 You get the photo back with the logo in the corner and the caption across the
 bottom, ready to forward.
 
-## 7. Birthday mornings
+## 8. Birthday mornings
 
 From `FLYER_SEND_HOUR`, each admin gets the birthday flyer with a short
 message as its caption, plus a reminder to forward and tag.
@@ -132,6 +156,25 @@ Admins who chat with the bot daily are fine. Otherwise there are two options:
   Once Meta approves it, add `FLYER_TEMPLATE_NAME=birthday_flyer` on Railway.
   Admins then get the flyer every birthday morning whether or not they've
   messaged recently. Meta charges a small fee per template message.
+
+## Selling it
+
+With `FLYER_OPEN_SIGNUP=true`, anyone who messages the flyer number gets a
+short introduction and can set up one group of their own by sending
+`new group <name>`. You get a WhatsApp message for every sign-up, so you can
+follow up personally. Owners (`FLYER_OWNER_WA_IDS`) can set up any number of
+groups, for example to set one up on a customer's behalf.
+
+To bring people in:
+
+- **A chat link**: `https://wa.me/<flyer number>?text=Hi` opens a chat with the
+  bot. Put it in your WhatsApp status, Instagram bio and flyers, or turn it
+  into a QR code.
+- **Every flyer is an advert**: set `FLYER_CREDIT` so each flyer carries your
+  name and chat link in small print. Everyone in every group sees it.
+- **Charging**: there's no payment step yet (Paystack is paused). For now,
+  sign customers up, then collect payment yourself. Turning off the credit
+  line for paying groups, and Paystack subscriptions, can be added later.
 
 ## If something doesn't work
 

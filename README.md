@@ -53,6 +53,10 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
    forward to the group and tag the member.
 3. Any other photo comes back as an event flyer: the photo with the logo and
    its caption on it.
+4. Admins pick from six designs (`design`), their own colour or their own
+   background picture. Designs live in `src/products/flyer/themes.ts`.
+5. With open sign-up, anyone who messages the number can set up their own
+   group, and the owner gets an alert for each sign-up.
 
 ## Setup
 
@@ -94,6 +98,7 @@ src/
     flyer/               Phase 3 birthday and event flyers
       index.ts           admin commands, adding members, due birthday flyers
       render.ts          draws the flyer pictures
+      themes.ts          the flyer designs (colours and layouts): edit here
       dates.ts           reads birthdays, Lagos dates
       wish.ts            the AI step (a short birthday message)
       store.ts           groups, admins, members, photos and sent flyers
