@@ -39,6 +39,8 @@ export function buildSystemPrompt(businessName: string, catalog: CatalogEntry[])
 The shop sells exactly these items:
 ${list}
 
+Some items are priced by the team case by case; still list them as items with their quantity, and the system will pass them on.
+
 Read the customer's latest message, using the earlier chat for context, and fill in:
 - intent:
   - "quote" when they ask for a price or want to order items from the list. Put each item in items with its ref and quantity. If they changed an earlier request, give the full updated list.

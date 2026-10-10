@@ -16,6 +16,7 @@ const variants: Variant[] = [
     ],
   },
   { id: "v-card", name: "Business cards: 350gsm matte", minQuantity: 100, tiers: [{ minQuantity: 100, unitPriceKobo: 5_000 }] },
+  { id: "v-dtf", name: "DTF transfers: A3", minQuantity: 1, tiers: [] },
 ];
 
 function memoryOrders() {
@@ -95,6 +96,36 @@ describe("quote product", () => {
     expect(orders).toHaveLength(0);
   });
 
+  it("hands items with no set price to the owner instead of pricing them", async () => {
+    const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-dtf", quantity: 20 }], message: null });
+    const reply = await product.handle(text("20 A3 dtf"), ctx);
+    expect(reply?.text).toBe("Thanks! The team will send you a price for: 20 x DTF transfers: A3.");
+    expect(reply?.text).not.toContain("₦");
+    expect(reply?.notify).toEqual([
+      {
+        to: "2348000000001",
+        text: "Quote request from Ada (+2348012345678), please reply to them with a price:\n• 20 x DTF transfers: A3",
+      },
+    ]);
+    expect(orders).toHaveLength(0);
+  });
+
+  it("quotes priced items and hands off the rest in the same reply", async () => {
+    const { product, orders } = setup({
+      intent: "quote",
+      items: [
+        { variantId: "v-flyer", quantity: 100 },
+        { variantId: "v-dtf", quantity: 5 },
+      ],
+      message: null,
+    });
+    const reply = await product.handle(text("100 flyers and 5 dtf"), ctx);
+    expect(reply?.text).toContain("*Total: ₦15,000*");
+    expect(reply?.text).toContain("The team will send you a price for: 5 x DTF transfers: A3.");
+    expect(reply?.notify?.[0]?.text).toContain("• 5 x DTF transfers: A3");
+    expect(orders[0]?.lines).toHaveLength(1);
+  });
+
   it("confirms the open quote and alerts the owner", async () => {
     const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
     await quote.product.handle(text("100 flyers"), ctx);
@@ -142,7 +173,7 @@ describe("quote product", () => {
     const { product } = setup({ intent: "other", items: [], message: "Flyers are ₦120 each!" });
     const reply = await product.handle(text("how much are flyers"), ctx);
     expect(reply?.text).not.toContain("₦");
-    expect(reply?.text).toContain("I can give you a quote for: Flyers, Business cards");
+    expect(reply?.text).toContain("I can give you a quote for: Flyers, Business cards, DTF transfers");
   });
 
   it("falls back politely when the AI fails", async () => {
