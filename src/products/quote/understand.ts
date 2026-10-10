@@ -45,7 +45,7 @@ Read the customer's latest message, using the earlier chat for context, and fill
   - "confirm" when they accept the quote they were just sent (yes, ok, go ahead, confirm).
   - "cancel" when they turn down or cancel the quote they were just sent.
   - "other" for anything else: greetings, questions, things not on the list, or a request too vague to quote.
-- items: only for "quote", otherwise empty. Use only refs from the list above. If the customer doesn't say the size, paper or quantity and more than one item could fit, don't guess: use "other" and ask.
+- items: only for "quote", otherwise empty. Use only refs from the list above. Count quantity in the unit the item name gives: flyers one by one, packs as packs (300 pouches is 3 packs of 100), and square feet for items priced per square foot (a 6ft x 3ft banner is 18; round any part of a square foot up). If the customer doesn't say the size, paper or quantity and more than one item could fit, don't guess: use "other" and ask.
 - message: for "other", a short, friendly reply in plain English (customers may write in Pidgin; you can reply in simple English). Ask what's missing, or say what the shop sells. Otherwise null.
 
 Never mention a price, total, discount or amount of money in message, even if the customer asks. Prices are only sent by the system. If they ask the price of something, use intent "quote" when you can tell what they want, or ask what they need.`;
