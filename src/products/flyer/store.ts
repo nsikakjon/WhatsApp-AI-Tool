@@ -20,7 +20,8 @@ export interface Member {
   groupId: string;
   name: string;
   birthday: MonthDay;
-  photoPath: string;
+  /** Null until a photo is added (e.g. members imported from a spreadsheet). */
+  photoPath: string | null;
 }
 
 export interface Picture {
@@ -41,8 +42,11 @@ export interface FlyerStore {
   saveBackground(groupId: string, picture: Picture | null): Promise<void>;
   /** Changes the group's design and/or accent colour (null clears the colour). */
   setStyle(groupId: string, style: { theme?: string; accent?: string | null }): Promise<void>;
-  /** Adds a member, or updates their birthday and photo if the name is already in the group. */
-  saveMember(groupId: string, name: string, birthday: MonthDay, photo: Picture): Promise<Member>;
+  /**
+   * Adds a member, or updates their birthday (and photo, if one is given) if
+   * the name is already in the group. Returns whether they were new.
+   */
+  saveMember(groupId: string, name: string, birthday: MonthDay, photo: Picture | null): Promise<Member & { isNew: boolean }>;
   removeMember(memberId: string): Promise<void>;
   members(groupId: string): Promise<Member[]>;
   /** Members with one of these birthdays, in active groups, with each group and its admins. */
@@ -71,7 +75,7 @@ interface MemberRow {
   name: string;
   birth_month: number;
   birth_day: number;
-  photo_path: string;
+  photo_path: string | null;
 }
 
 function toMember(row: MemberRow): Member {
@@ -176,9 +180,13 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     },
 
     async saveMember(groupId, name, birthday, photo) {
-      const path = `${groupId}/members/${crypto.randomUUID()}.${extFor(photo.mimeType)}`;
-      await upload(path, photo);
-      const row = { group_id: groupId, name, birth_month: birthday.month, birth_day: birthday.day, photo_path: path };
+      let path: string | null = null;
+      if (photo) {
+        path = `${groupId}/members/${crypto.randomUUID()}.${extFor(photo.mimeType)}`;
+        await upload(path, photo);
+      }
+      const row: Record<string, unknown> = { group_id: groupId, name, birth_month: birthday.month, birth_day: birthday.day };
+      if (path) row.photo_path = path;
 
       const existing = (await this.members(groupId)).find((m) => m.name.toLowerCase() === name.toLowerCase());
       const query = existing
@@ -186,14 +194,15 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
         : db.from("flyer_members").insert(row);
       const { data, error } = await query.select(MEMBER_COLUMNS).single();
       if (error) throw new Error(`saveMember failed: ${error.message}`);
-      if (existing) await db.storage.from(BUCKET).remove([existing.photoPath]);
-      return toMember(data as MemberRow);
+      // A new photo replaces the old one, which is then deleted.
+      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove([existing.photoPath]);
+      return { ...toMember(data as MemberRow), isNew: !existing };
     },
 
     async removeMember(memberId) {
       const { data, error } = await db.from("flyer_members").delete().eq("id", memberId).select("photo_path");
       if (error) throw new Error(`removeMember failed: ${error.message}`);
-      const paths = (data ?? []).map((r) => r.photo_path as string);
+      const paths = (data ?? []).map((r) => r.photo_path as string | null).filter((p): p is string => !!p);
       if (paths.length) await db.storage.from(BUCKET).remove(paths);
     },
 

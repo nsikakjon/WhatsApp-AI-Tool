@@ -37,7 +37,8 @@ export interface FlyerStyle {
 const DEFAULT_STYLE: FlyerStyle = { theme: themeById(undefined) };
 
 export interface BirthdayFlyerInput {
-  photo: Uint8Array;
+  /** Their photo. Without one, the flyer shows their initials instead. */
+  photo?: Uint8Array;
   name: string;
   /** Shown under the name, e.g. "14 October". */
   dateLabel: string;
@@ -73,7 +74,7 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
     if (theme.confetti) drawConfetti(ctx, seedFrom(input.name), accent);
   }
 
-  const photo = await loadImage(input.photo);
+  const photo = await loadImage(input.photo ?? (await initialsPortrait(input.name, theme.background, accent)));
   const logo = input.logo ? await loadImage(input.logo) : undefined;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
@@ -294,6 +295,33 @@ export async function renderDesignSheet(
     ctx.fillText(`${i + 1}. ${theme.label}`, x, y + thumbH + 14);
   }
   return canvas.encode("jpeg", 85);
+}
+
+/** A stand-in photo for someone without one: their initials on the design's colours. */
+async function initialsPortrait(name: string, background: [string, string], accent: string): Promise<Buffer> {
+  loadFonts();
+  const canvas = createCanvas(800, 1000);
+  const ctx = canvas.getContext("2d");
+  const bg = ctx.createLinearGradient(0, 0, 800, 1000);
+  bg.addColorStop(0, background[1]);
+  bg.addColorStop(1, background[0]);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 800, 1000);
+  // Soften it so it reads as a photo area on any design.
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(0, 0, 800, 1000);
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  ctx.fillStyle = accent;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `300px "Poppins SemiBold"`;
+  ctx.fillText(initials || "?", 400, 380);
+  return canvas.encode("jpeg", 90);
 }
 
 /** A plain head-and-shoulders outline, used as the example photo before a group has members. */
