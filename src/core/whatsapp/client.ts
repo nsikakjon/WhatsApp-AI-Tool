@@ -15,6 +15,15 @@ export interface WhatsAppClient {
     image: OutgoingImage,
     fromNumberId?: string,
   ): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a pre-approved template message, the only kind WhatsApp delivers
+   * more than 24 hours after the person last messaged us.
+   */
+  sendTemplate(
+    to: string,
+    template: OutgoingTemplate,
+    fromNumberId?: string,
+  ): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
@@ -24,6 +33,17 @@ export interface OutgoingImage {
   /** image/jpeg or image/png (the only picture types WhatsApp accepts). */
   mimeType: string;
   caption?: string;
+}
+
+export interface OutgoingTemplate {
+  /** The template's name in WhatsApp Manager, e.g. "birthday_flyer". */
+  name: string;
+  /** Its language code, e.g. "en". */
+  language: string;
+  /** A picture for a template with an image header. */
+  headerImage?: OutgoingImage;
+  /** Values for {{1}}, {{2}}, ... in the template's body, in order. */
+  bodyParams: string[];
 }
 
 export interface WhatsAppClientOptions {
@@ -55,27 +75,55 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     return { waMessageId: data.messages?.[0]?.id ?? "", raw: data as unknown };
   }
 
+  async function uploadImage(fromNumberId: string | undefined, image: OutgoingImage): Promise<string> {
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", image.mimeType);
+    const ext = image.mimeType === "image/png" ? "png" : "jpg";
+    form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `image.${ext}`);
+    const res = await doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, {
+      method: "POST",
+      headers: auth,
+      body: form,
+    });
+    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok || !data.id) {
+      throw new Error(`WhatsApp image upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+    }
+    return data.id;
+  }
+
   return {
     async sendText(to, body, fromNumberId) {
       return send(fromNumberId, { to, type: "text", text: { preview_url: false, body } });
     },
 
     async sendImage(to, image, fromNumberId) {
-      const number = fromNumberId || opts.phoneNumberId;
-      const form = new FormData();
-      form.append("messaging_product", "whatsapp");
-      form.append("type", image.mimeType);
-      const ext = image.mimeType === "image/png" ? "png" : "jpg";
-      form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `image.${ext}`);
-      const upRes = await doFetch(`${graph}/${number}/media`, { method: "POST", headers: auth, body: form });
-      const up = (await upRes.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
-      if (!upRes.ok || !up.id) {
-        throw new Error(`WhatsApp image upload failed (${upRes.status}): ${up.error?.message ?? "unknown error"}`);
-      }
-      return send(number, {
+      const mediaId = await uploadImage(fromNumberId, image);
+      return send(fromNumberId, {
         to,
         type: "image",
-        image: image.caption ? { id: up.id, caption: image.caption } : { id: up.id },
+        image: image.caption ? { id: mediaId, caption: image.caption } : { id: mediaId },
+      });
+    },
+
+    async sendTemplate(to, template, fromNumberId) {
+      const components: unknown[] = [];
+      if (template.headerImage) {
+        const mediaId = await uploadImage(fromNumberId, template.headerImage);
+        components.push({ type: "header", parameters: [{ type: "image", image: { id: mediaId } }] });
+      }
+      if (template.bodyParams.length) {
+        components.push({
+          type: "body",
+          // WhatsApp rejects template values containing line breaks or tabs.
+          parameters: template.bodyParams.map((text) => ({ type: "text", text: text.replace(/\s+/g, " ").trim() })),
+        });
+      }
+      return send(fromNumberId, {
+        to,
+        type: "template",
+        template: { name: template.name, language: { code: template.language }, components },
       });
     },
 

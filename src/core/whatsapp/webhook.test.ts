@@ -33,6 +33,9 @@ function memoryStore() {
     async recentHistory() {
       return [];
     },
+    async lastInboundAt() {
+      return null;
+    },
     async setInboundText(waMessageId, text) {
       inboundText.set(waMessageId, text);
     },
@@ -52,6 +55,10 @@ function setup(
       sent.push({ to, body });
       sentFrom.push(fromNumberId);
       if (to === "FAIL") throw new Error("send failed");
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendTemplate(to, template) {
+      sent.push({ to, body: `[template] ${template.name}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
     async sendImage(to, image, fromNumberId) {
