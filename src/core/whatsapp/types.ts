@@ -9,8 +9,15 @@ export interface IncomingMessage {
   contactName?: string;
   /** text, image, audio, document, location, etc. */
   type: string;
-  /** The text, for text messages. */
+  /**
+   * The text: what was typed for text messages, or what was said for voice
+   * notes once the core has transcribed them.
+   */
   text?: string;
+  /** True when `text` came from transcribing a voice note. */
+  transcribed?: boolean;
+  /** WhatsApp's id for an attached file (voice note, image, ...), used to download it. */
+  mediaId?: string;
   /** Unix time (seconds) WhatsApp says the message was sent. */
   timestamp: number;
   /** The original message object from Meta, kept for logging and storage. */
