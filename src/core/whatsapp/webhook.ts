@@ -11,7 +11,7 @@ export interface WebhookDeps {
   appSecret: string;
   store: MessageStore;
   whatsapp: WhatsAppClient;
-  /** Picks which product handles a message. Phase 0 always returns echo. */
+  /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   log?: Pick<Console, "info" | "warn" | "error">;
 }
@@ -81,8 +81,9 @@ async function handleMessage(
     return;
   }
 
+  const history = await deps.store.recentHistory(contactId, HISTORY_LIMIT, msg.waMessageId);
   const product = deps.route(msg);
-  const reply = await product.handle(msg);
+  const reply = await product.handle(msg, { contactId, history });
   if (!reply) return;
 
   const sent = await deps.whatsapp.sendText(msg.from, reply.text);
@@ -92,4 +93,24 @@ async function handleMessage(
     body: reply.text,
     raw: sent.raw,
   });
+
+  // Alerts to other people (e.g. the business owner). A failed alert is logged
+  // but doesn't undo the customer's reply, which has already gone out.
+  for (const note of reply.notify ?? []) {
+    try {
+      const noteContactId = await deps.store.upsertContact(note.to);
+      const noteSent = await deps.whatsapp.sendText(note.to, note.text);
+      await deps.store.recordOutbound(noteContactId, {
+        waMessageId: noteSent.waMessageId,
+        type: "text",
+        body: note.text,
+        raw: noteSent.raw,
+      });
+    } catch (err) {
+      log.error(`Failed to send notification to ${note.to}:`, err);
+    }
+  }
 }
+
+// How many earlier messages a product sees, so it can follow the conversation.
+const HISTORY_LIMIT = 10;

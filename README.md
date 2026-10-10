@@ -3,11 +3,28 @@
 A server that receives WhatsApp messages for a business and replies to them.
 See [CLAUDE.md](CLAUDE.md) for the full plan, stack and rules.
 
-## Phase 0 (current)
+## Phase 0
 
-The bot echoes back whatever text it receives ("You said: ..."), and saves every
-contact and message in Supabase. This proves the whole chain works: WhatsApp >
-Meta > our server > database > reply.
+The echo bot repeats back whatever text it receives ("You said: ..."), and saves
+every contact and message in Supabase. This proves the whole chain works:
+WhatsApp > Meta > our server > database > reply. It still runs when
+`ACTIVE_PRODUCT=echo` (the default).
+
+## Phase 1 (in progress): KahnPrints quote and order bot
+
+Runs when `ACTIVE_PRODUCT=quote`.
+
+1. A customer says what they want ("500 A5 flyers, both sides").
+2. Claude Haiku works out which price-list items and how many. It never sees
+   or writes prices.
+3. The code prices it from the price list in Supabase and replies with an
+   itemised quote and an order number (e.g. KP-1001).
+4. The customer replies YES: the quote becomes a confirmed order and the owner
+   gets a WhatsApp alert. Payment (Paystack) comes later.
+
+To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, then
+`supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote
+bot variables from `.env.example` on Railway.
 
 ## Setup
 
@@ -30,8 +47,14 @@ src/
       signature.ts       checks each webhook really came from Meta
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
+    money.ts             kobo <-> naira formatting
   products/
     echo/                Phase 0 test product: repeats your text back
+    quote/               Phase 1 quote and order bot
+      index.ts           the conversation: quote, confirm, cancel, owner alert
+      understand.ts      the AI step (what does the customer want?)
+      pricing.ts         works out prices from the price list
+      store.ts           reads the price list, saves quotes and orders
 supabase/migrations/     database tables (run in Supabase's SQL Editor)
 ```
 

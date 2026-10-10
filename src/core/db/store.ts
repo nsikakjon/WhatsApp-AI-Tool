@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { HistoryEntry } from "../product.js";
 import type { IncomingMessage } from "../whatsapp/types.js";
 
 // Everything the core needs to save. Kept as an interface so tests can use an
@@ -17,6 +18,11 @@ export interface MessageStore {
     contactId: string,
     out: { waMessageId: string; type: string; body: string; raw: unknown },
   ): Promise<void>;
+  /**
+   * The last `limit` text messages with this contact, oldest first. Excludes
+   * the message with `excludeWaMessageId` (the one being handled right now).
+   */
+  recentHistory(contactId: string, limit: number, excludeWaMessageId?: string): Promise<HistoryEntry[]>;
 }
 
 // Postgres error code for "unique constraint violated".
@@ -60,6 +66,23 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         raw: out.raw,
       });
       if (error) throw new Error(`recordOutbound failed: ${error.message}`);
+    },
+
+    async recentHistory(contactId, limit, excludeWaMessageId) {
+      const query = db
+        .from("messages")
+        .select("direction, body, wa_message_id")
+        .eq("contact_id", contactId)
+        .not("body", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(limit + 1);
+      const { data, error } = await query;
+      if (error) throw new Error(`recentHistory failed: ${error.message}`);
+      return (data ?? [])
+        .filter((row) => row.wa_message_id !== excludeWaMessageId)
+        .slice(0, limit)
+        .reverse()
+        .map((row) => ({ direction: row.direction as HistoryEntry["direction"], text: row.body as string }));
     },
   };
 }

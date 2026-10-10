@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app.js";
 import { echoProduct } from "../../products/echo/index.js";
+import type { Product } from "../product.js";
 import type { MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 
@@ -26,15 +27,19 @@ function memoryStore() {
     async recordOutbound(_contactId, out) {
       outbound.push(out.body);
     },
+    async recentHistory() {
+      return [];
+    },
   };
   return { store, contacts, outbound };
 }
 
-function setup() {
+function setup(product: Product = echoProduct) {
   const sent: Array<{ to: string; body: string }> = [];
   const whatsapp: WhatsAppClient = {
     async sendText(to, body) {
       sent.push({ to, body });
+      if (to === "FAIL") throw new Error("send failed");
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
   };
@@ -44,7 +49,7 @@ function setup() {
     appSecret: APP_SECRET,
     store: mem.store,
     whatsapp,
-    route: () => echoProduct,
+    route: () => product,
     log: silent,
   });
   return { app, sent, ...mem };
@@ -177,5 +182,29 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     });
     await post(app, body, sign(body));
     expect(sent[0]?.body).toBe("I got your audio message. For now I can only echo text.");
+  });
+
+  it("sends a product's extra notifications after the reply, and survives one failing", async () => {
+    const notifying: Product = {
+      name: "notifying",
+      async handle() {
+        return {
+          text: "Thanks!",
+          notify: [
+            { to: "FAIL", text: "never arrives" },
+            { to: "2348099999999", text: "New order" },
+          ],
+        };
+      },
+    };
+    const { app, sent } = setup(notifying);
+    const body = textWebhook("wamid.notify", "Hi");
+    const res = await post(app, body, sign(body));
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([
+      { to: "2348012345678", body: "Thanks!" },
+      { to: "FAIL", body: "never arrives" },
+      { to: "2348099999999", body: "New order" },
+    ]);
   });
 });
