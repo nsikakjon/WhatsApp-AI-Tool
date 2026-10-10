@@ -85,6 +85,21 @@ Still on **WhatsApp** > **Configuration**, under **Webhook fields**, click
 **Manage** and turn on (**Subscribe**) the **messages** field. Without this,
 Meta won't send you anything.
 
+### Step 6b: Link the app to your WhatsApp account
+
+Meta's **Test** button can reach the server even when messages from real phones
+don't. If you send a message from your phone and nothing at all appears in
+Railway's logs, the WhatsApp account isn't forwarding its messages to your app yet:
+
+1. On the API Setup / **Step 1. Try it out** page, copy the **WhatsApp Business
+   Account ID** (not the Phone number ID).
+2. Open <https://developers.facebook.com/tools/explorer>.
+3. Set **Meta App** to your app, add the permissions
+   `whatsapp_business_management` and `whatsapp_business_messaging`, and click
+   **Generate Access Token**.
+4. Change **GET** to **POST**, enter `YOUR_WABA_ID/subscribed_apps`, and click
+   **Submit**. You should see `{"success": true}`.
+
 ## Step 7: Test it
 
 1. From the WhatsApp number you added in step 3, send any text to the test number,
@@ -124,7 +139,7 @@ Do this once things work, otherwise the bot stops replying the next day.
 | What you see | Likely cause and fix |
 | --- | --- |
 | Meta: "The callback URL or verify token couldn't be validated" | Railway isn't running (check `/health`), the URL is missing `/webhooks/whatsapp`, or the verify token doesn't match Railway's `WHATSAPP_VERIFY_TOKEN` exactly (watch for spaces). |
-| You message the test number and nothing happens, and Railway logs show nothing | The **messages** webhook field isn't subscribed (step 6), or you messaged from a number that isn't in the recipient list. |
+| You message the test number and nothing happens, and Railway logs show nothing | The **messages** webhook field isn't subscribed (step 6), the app isn't linked to the WhatsApp account (step 6b), or you messaged from a number that isn't in the recipient list. |
 | Logs: `Rejected WhatsApp webhook with invalid signature` | `WHATSAPP_APP_SECRET` in Railway is wrong. Copy it again from App settings > Basic. |
 | Logs: `WhatsApp send failed (401)` | Access token expired or was pasted wrong. Generate a new one (step 3, or step 8 for permanent). |
 | Logs: `WhatsApp send failed` mentioning "not in allowed list" (error 131030) | The number you're messaging from isn't on the test recipient list. Add it (step 3). |

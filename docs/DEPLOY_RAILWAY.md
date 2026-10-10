@@ -56,6 +56,10 @@ account, and a Railway account. All have free tiers that are enough for Phase 0.
 
    - `WHATSAPP_VERIFY_TOKEN`: invent this yourself. Any long random string,
      e.g. from a password generator. You'll type the same value into Meta later.
+   - `SUPABASE_URL` must end at `.supabase.co`, with nothing after it (no
+     `/rest/v1/` and no trailing `/`).
+   - `SUPABASE_SERVICE_ROLE_KEY` is the **secret** key (`sb_secret_...`, or the
+     legacy `service_role` key starting `eyJ`), not the `sb_publishable_...` one.
    - The other three `WHATSAPP_` values come from the Meta setup guide
      ([META_SETUP.md](META_SETUP.md), steps 3 and 4).
    - Don't add `PORT`: Railway sets it automatically.
@@ -83,6 +87,7 @@ Open the service, then **Deployments** > the latest deployment > **View logs**
 | Log line | Meaning |
 | --- | --- |
 | `Server listening on port ...` | Started fine. |
+| `upsertContact failed: Invalid path specified in request URL` | `SUPABASE_URL` has extra text after `.supabase.co`. |
 | `Missing required environment variable: X` | A variable from step 4 is missing or misspelled. |
 | `WhatsApp webhook verified` | Meta's webhook check passed. |
 | `WhatsApp webhook verification failed` | The verify token in Meta doesn't match `WHATSAPP_VERIFY_TOKEN`. |
