@@ -15,7 +15,7 @@ const silent = { info: () => {}, error: () => {} };
 const OWNER = "2348000000001";
 const ADMIN = "2348000000002";
 
-function memoryStore() {
+function memoryStore(plan = "organisation") {
   const groups: Group[] = [];
   const admins: Array<{ groupId: string; waId: string; usedAt: number }> = [];
   const members: Member[] = [];
@@ -31,7 +31,16 @@ function memoryStore() {
         .map((a) => groups.find((g) => g.id === a.groupId)!);
     },
     async createGroup(name, adminWaId) {
-      const group: Group = { id: `g${groups.length + 1}`, name, logoPath: null, theme: "royal", accent: null, backgroundPath: null };
+      const group: Group = {
+        id: `g${groups.length + 1}`,
+        name,
+        logoPath: null,
+        theme: "royal",
+        accent: null,
+        backgroundPath: null,
+        plan,
+        planUntil: null,
+      };
       groups.push(group);
       await store.addAdmin(group.id, adminWaId);
       return group;
@@ -96,6 +105,23 @@ function memoryStore() {
     async releaseBirthday(memberId, year) {
       claims.delete(`${memberId}:${year}`);
     },
+    async findGroups(q) {
+      return groups.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
+    },
+    async setPlan(groupId, plan, until) {
+      Object.assign(groups.find((g) => g.id === groupId)!, { plan, planUntil: until });
+    },
+    async adminCount(groupId) {
+      return admins.filter((a) => a.groupId === groupId).length;
+    },
+    async planPrices() {
+      return new Map<string, number | null>([
+        ["free", 0],
+        ["standard", 300000],
+        ["premium", 750000],
+        ["organisation", null],
+      ]);
+    },
   };
   return { store, groups, members, claims };
 }
@@ -111,8 +137,10 @@ const webFetch = (async (url: string) => {
   return new Response(new Uint8Array([9]), { headers: { "content-type": "image/jpeg" } });
 }) as unknown as typeof fetch;
 
-function setup(opts: { openSignup?: boolean } = {}) {
-  const mem = memoryStore();
+// Groups start on the plan with everything, so these tests are about the features;
+// the "plans" tests below start on Free.
+function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } = {}) {
+  const mem = memoryStore(opts.plan);
   const render = {
     birthday: vi.fn(async (input: { name: string; logo?: Uint8Array }) =>
       Buffer.from(`birthday:${input.name}:${input.logo ? "logo" : "nologo"}`),
@@ -134,6 +162,7 @@ function setup(opts: { openSignup?: boolean } = {}) {
     log: silent,
     fetch: webFetch,
     onBackground: (work) => void background.push(work),
+    now: opts.now,
   });
   return { bot, render, ...mem };
 }
@@ -154,8 +183,8 @@ const ctx = {
 const later: string[] = [];
 const text = (b: Uint8Array | undefined) => Buffer.from(b ?? []).toString();
 
-async function withGroup() {
-  const s = setup();
+async function withGroup(opts: Parameters<typeof setup>[0] = {}) {
+  const s = setup(opts);
   await s.bot.handle(msg(OWNER, { text: "new group Unilag Class of 2010" }), ctx);
   return s;
 }
@@ -320,11 +349,98 @@ describe("flyer bot: designs", () => {
   });
 
   it("puts the credit and colour on event flyers", async () => {
-    const { bot, render } = await withGroup();
+    const { bot, render } = await withGroup({ plan: "standard" });
     await bot.handle(msg(OWNER, { text: "colour gold" }), ctx);
     await bot.handle(photo(OWNER, "Homecoming"), ctx);
     const style = (render.event.mock.calls.at(-1)![0] as { style: { accent?: string; credit?: string } }).style;
     expect(style).toMatchObject({ accent: "#f5c451", credit: "Made with Flyer Bot" });
+  });
+});
+
+describe("flyer bot: plans", () => {
+  it("lists the plans with prices from the database", async () => {
+    const { bot } = setup();
+    const reply = await bot.handle(msg("2348099999999", { text: "plans" }), ctx);
+    expect(reply?.text).toContain("*Standard* (₦3,000 a month)");
+    expect(reply?.text).toContain("*Premium* (₦7,500 a month)");
+    expect(reply?.text).toContain("*Organisation* (price on request)");
+  });
+
+  it("stops a Free group at 20 members, but still updates existing ones", async () => {
+    const { bot, members } = await withGroup({ plan: "free" });
+    for (let i = 1; i <= 20; i++) await bot.handle(photo(OWNER, `add Member ${i}, 1 March`), ctx);
+    expect(members).toHaveLength(20);
+    const full = await bot.handle(photo(OWNER, "add Member 21, 1 March"), ctx);
+    expect(full?.text).toContain("the most the *Free* plan allows");
+    expect(full?.text).toContain("upgrade standard");
+    expect(members).toHaveLength(20);
+    const update = await bot.handle(photo(OWNER, "add Member 3, 2 April"), ctx);
+    expect(update?.text).toContain("Saved Member 3");
+  });
+
+  it("locks paid features on Free and points to the right plan", async () => {
+    const { bot, render } = await withGroup({ plan: "free" });
+    expect((await bot.handle(msg(OWNER, { text: "design 2" }), ctx))?.text).toContain("upgrade standard");
+    expect((await bot.handle(msg(OWNER, { text: "design 4" }), ctx))?.text).toContain("Design changed");
+    expect((await bot.handle(msg(OWNER, { text: "colour gold" }), ctx))?.text).toContain("Changing the colour isn't included");
+    expect((await bot.handle(photo(OWNER, "background"), ctx))?.text).toContain("upgrade premium");
+    expect((await bot.handle(photo(OWNER, "Homecoming"), ctx))?.text).toContain("event flyers isn't included");
+    expect(render.event).not.toHaveBeenCalled();
+    expect((await bot.handle(msg(OWNER, { text: "add admin 08011111111" }), ctx))?.text).toContain("allows 1 admin");
+    expect((await bot.handle(msg(OWNER, { text: "https://docs.google.com/spreadsheets/d/abc/edit" }), ctx))?.text).toContain(
+      "Importing a list isn't included",
+    );
+  });
+
+  it("imports only up to the member limit and says who was left out", async () => {
+    const { bot, members } = await withGroup({ plan: "standard" });
+    const rows = Array.from({ length: 203 }, (_, i) => `Person ${i + 1},1/1,`).join("\n");
+    const withCsv = { ...ctx, downloadMedia: async () => ({ data: new Blob([`Name,Birthday,Photo\n${rows}`]), mimeType: "text/csv" }) };
+    later.length = 0;
+    await bot.handle(msg(OWNER, { type: "document", mediaId: "csv" }), withCsv);
+    await Promise.all(background);
+    expect(members).toHaveLength(200);
+    expect(later.at(-1)).toContain("3 not added");
+    expect(later.at(-1)).toContain("upgrade premium");
+  });
+
+  it("puts the credit line on Standard flyers but not Premium ones", async () => {
+    for (const [plan, credit] of [["standard", "Made with Flyer Bot"], ["premium", undefined]] as const) {
+      const { bot, render } = await withGroup({ plan });
+      await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+      const style = (render.birthday.mock.calls.at(-1)![0] as { style: { credit?: string } }).style;
+      expect(style.credit).toBe(credit);
+    }
+  });
+
+  it("lets owners set a plan, extends it when renewed early, and drops to Free when it runs out", async () => {
+    let now = new Date("2026-10-10T10:00:00Z");
+    const { bot, groups, render } = await withGroup({ plan: "free", now: () => now });
+    const set = await bot.handle(msg(OWNER, { text: "set plan premium 1 month for unilag class of 2010" }), ctx);
+    expect(set?.text).toContain("*Premium* until 10 November 2026");
+    await bot.handle(msg(OWNER, { text: "set plan premium 1 month for Unilag" }), ctx);
+    expect(groups[0]!.planUntil?.toISOString()).toBe("2026-12-10T10:00:00.000Z");
+    expect((await bot.handle(msg(OWNER, { text: "plan" }), ctx))?.text).toContain("on the *Premium* plan until 10 December 2026");
+
+    await bot.handle(msg(OWNER, { text: "colour gold" }), ctx);
+    now = new Date("2026-12-11T10:00:00Z");
+    expect((await bot.handle(msg(OWNER, { text: "plan" }), ctx))?.text).toContain("ran out on 10 December 2026");
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const style = (render.birthday.mock.calls.at(-1)![0] as { style: { accent?: string; credit?: string } }).style;
+    expect(style).toMatchObject({ accent: undefined, credit: "Made with Flyer Bot" });
+  });
+
+  it("only owners can set plans", async () => {
+    const { bot, groups } = await withGroup({ plan: "free" });
+    await bot.handle(msg(ADMIN, { text: "set plan premium 1 month for Unilag" }), ctx);
+    expect(groups[0]!.plan).toBe("free");
+  });
+
+  it("passes upgrade requests to the owners", async () => {
+    const { bot } = await withGroup({ plan: "free" });
+    const reply = await bot.handle(msg(OWNER, { text: "upgrade standard" }), ctx);
+    expect(reply?.text).toContain("how to pay for *Standard*");
+    expect(reply?.notify?.[0]?.text).toContain("set plan standard 1 month for Unilag Class of 2010");
   });
 });
 

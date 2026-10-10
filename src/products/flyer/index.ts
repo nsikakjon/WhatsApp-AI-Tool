@@ -17,6 +17,16 @@ import {
 } from "./render.js";
 import { COLOUR_NAMES, findTheme, parseColour, THEMES, themeById } from "./themes.js";
 import { fetchPicture, fetchSheet, isCsv, MAX_ROWS, parseCsv, rowsFromTable, type ImportRow } from "./import.js";
+import {
+  addMonths,
+  allowsDesign,
+  cheapestWith,
+  currentPlan,
+  findPlan,
+  formatNaira,
+  PLANS,
+  type Plan,
+} from "./plans.js";
 import type { FlyerStore, Group, Member, Picture } from "./store.js";
 import type { WishWriter } from "./wish.js";
 
@@ -56,6 +66,8 @@ export interface FlyerBotOptions {
   fetch?: typeof fetch;
   /** Called with work that carries on after replying (a spreadsheet import), so tests can wait for it. */
   onBackground?: (work: Promise<void>) => void;
+  /** The current time; tests replace it to check when plans run out. */
+  now?: () => Date;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -104,6 +116,7 @@ Other commands:
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
 • *groups*: your groups (and *switch <name>*)
+• *plan*: your group's plan; *plans* for prices
 
 On each birthday I'll send you the flyer in the morning, ready to forward to the group.`;
 
@@ -152,6 +165,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     designSheet: renderDesignSheet,
   };
   const owners = new Set(opts.owners);
+  const now = opts.now ?? (() => new Date());
+  const planOf = (group: Group) => currentPlan(group, now());
 
   async function logoFor(group: Group): Promise<Uint8Array | undefined> {
     if (!group.logoPath) return undefined;
@@ -172,12 +187,56 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         log.error(`Could not load the background for ${group.name}:`, err);
       }
     }
+    // Anything the group's plan doesn't include (for example after a paid
+    // plan runs out) falls back to the plain version, without losing the setting.
+    const plan = planOf(group);
+    const theme = plan.designs === "all" || plan.designs.includes(group.theme) ? group.theme : plan.designs[0]!;
     return {
-      theme: themeById(group.theme),
-      accent: group.accent ?? undefined,
-      background,
-      credit: opts.credit || undefined,
+      theme: themeById(theme),
+      accent: plan.colour ? (group.accent ?? undefined) : undefined,
+      background: plan.ownBackground ? background : undefined,
+      credit: plan.credit ? opts.credit || undefined : undefined,
     };
+  }
+
+  /** The reply when a group's plan doesn't include something: why, then the cheapest plan that does. */
+  function needsPlan(why: string, has: (p: Plan) => boolean): Reply {
+    const plan = cheapestWith(has);
+    return {
+      text: `${why} Upgrade to *${plan.label}* for this: send *upgrade ${plan.id}* and we'll get you set up, or *plans* to compare.`,
+    };
+  }
+
+  const notOn = (what: string, group: Group) => `${what} isn't included on the *${planOf(group).label}* plan.`;
+
+  /** Null if the group has room for one more member, otherwise the reply saying it's full. */
+  async function fullReply(group: Group, name: string): Promise<Reply | null> {
+    const max = planOf(group).maxMembers;
+    if (max === null) return null;
+    const members = await opts.store.members(group.id);
+    if (members.length < max || members.some((m) => m.name.toLowerCase() === name.toLowerCase())) return null;
+    return needsPlan(`${group.name} has ${members.length} members, the most the *${planOf(group).label}* plan allows.`, (p) => p.maxMembers === null || p.maxMembers > max);
+  }
+
+  async function plansText(): Promise<string> {
+    let prices = new Map<string, number | null>();
+    try {
+      prices = await opts.store.planPrices();
+    } catch (err) {
+      log.error("Could not load plan prices:", err);
+    }
+    const price = (p: Plan) => {
+      const kobo = prices.get(p.id);
+      if (p.id === "free") return "free";
+      return kobo === undefined || kobo === null ? "price on request" : `${formatNaira(kobo)} a month`;
+    };
+    const lines = PLANS.map((p) => `*${p.label}* (${price(p)}): ${p.summary}.`);
+    return `${opts.brandName} plans:\n\n${lines.join("\n\n")}\n\nSend *upgrade* and the plan's name, e.g. *upgrade standard*.`;
+  }
+
+  function formatDate(date: Date): string {
+    const d = lagosNow(date);
+    return `${formatMonthDay(d)} ${d.year}`;
   }
 
   /** A member to show designs with: the group's first member, or an outline before there are any. */
@@ -209,6 +268,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
    * downloading their photos) carries on afterwards, with a summary at the end.
    */
   function startImport(group: Group, csv: string, sendLater: (r: Reply) => Promise<void>): Reply {
+    if (!planOf(group).importList) return needsPlan(notOn("Importing a list", group), (p) => p.importList);
     const rows = rowsFromTable(parseCsv(csv));
     if (!rows.length) {
       return {
@@ -236,8 +296,23 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const noPhoto: string[] = [];
     const badDates: string[] = [];
     const failed: string[] = [];
+    const overLimit: string[] = [];
 
-    const queue = [...rows];
+    // New names beyond the plan's member limit are left out; people already in the group are still updated.
+    const max = planOf(group).maxMembers;
+    const known = new Set((await opts.store.members(group.id)).map((m) => m.name.toLowerCase()));
+    let room = max === null ? Infinity : max - known.size;
+    const queue = rows.filter((row) => {
+      const key = row.name.toLowerCase();
+      if (known.has(key) || !row.birthday) return true;
+      if (room <= 0) {
+        overLimit.push(row.name);
+        return false;
+      }
+      room--;
+      known.add(key);
+      return true;
+    });
     const worker = async () => {
       for (let row = queue.shift(); row; row = queue.shift()) {
         if (!row.birthday) {
@@ -275,6 +350,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
     if (badDates.length) parts.push(`⚠️ Couldn't read the birthday on ${list(badDates)}. Fix them and send the list again; nobody gets added twice.`);
     if (failed.length) parts.push(`⚠️ Couldn't save ${list(failed)}. Please try those again.`);
+    if (overLimit.length) {
+      const bigger = cheapestWith((p) => p.maxMembers === null || p.maxMembers > max!);
+      parts.push(
+        `🔒 ${overLimit.length} not added, because the *${planOf(group).label}* plan holds up to ${max} members: ${list(overLimit)}. Send *upgrade ${bigger.id}* to add everyone.`,
+      );
+    }
     parts.push("Send *members* to see everyone, or *design* to see the flyers.");
     return parts.join("\n\n");
   }
@@ -295,6 +376,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
 
     if (/^background$/i.test(caption)) {
+      if (!planOf(group).ownBackground) return needsPlan(notOn("Your own background picture", group), (p) => p.ownBackground);
       await opts.store.saveBackground(group.id, picture);
       const sample = await sampleFor({ ...group });
       const flyer = await render.birthday({ ...sample, style: { ...(await styleFor(group)), background: picture.data } });
@@ -312,6 +394,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (!parsed.birthday) {
         return { text: `I couldn't read the birthday for ${parsed.name}. Try a date like 14 March or 14/03.` };
       }
+      const full = await fullReply(group, parsed.name);
+      if (full) return full;
       const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, picture);
       const flyer = await birthdayFlyer(member, group);
       return {
@@ -320,6 +404,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
+    if (!planOf(group).eventFlyers) {
+      return needsPlan(
+        `To add a member, put *add*, their name and birthday in the caption, e.g. *add Ada Okafor, 14 March*.\n\n${notOn("Turning photos into event flyers", group)}`,
+        (p) => p.eventFlyers,
+      );
+    }
     const flyer = await render.event({
       photo: picture.data,
       caption,
@@ -342,8 +432,13 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         credit: opts.credit || undefined,
       });
       const current = themeById(group.theme);
+      const plan = planOf(group);
+      const included =
+        plan.designs === "all"
+          ? ""
+          : `\n\nYour *${plan.label}* plan includes ${THEMES.flatMap((t, i) => (allowsDesign(plan, t.id) ? [`${i + 1}`] : [])).join(" and ")}; send *upgrade standard* for all of them.`;
       return {
-        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.`,
+        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.${included}`,
         images: [{ data: sheet, mimeType: JPEG }],
       };
     }
@@ -352,6 +447,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     if (design) {
       const theme = findTheme(design[1]!);
       if (!theme) return { text: `I don't have a design called "${design[1]}". Send *design* to see them all.` };
+      if (!allowsDesign(planOf(group), theme.id)) return needsPlan(notOn(`The *${theme.label}* design`, group), (p) => allowsDesign(p, theme.id));
       await opts.store.setStyle(group.id, { theme: theme.id });
       const updated = { ...group, theme: theme.id };
       const flyer = await render.birthday({ ...(await sampleFor(updated)), style: await styleFor(updated) });
@@ -362,6 +458,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const colour = text.match(/^colou?r\s+(.+)$/i);
     if (colour) {
       const wanted = colour[1]!.trim().toLowerCase();
+      if (!planOf(group).colour && wanted !== "reset" && wanted !== "off") return needsPlan(notOn("Changing the colour", group), (p) => p.colour);
       const accent = wanted === "reset" || wanted === "off" ? null : parseColour(wanted);
       if (accent === null && wanted !== "reset" && wanted !== "off") {
         return { text: `Try one of: ${COLOUR_NAMES.join(", ")}. Or a colour code like #1a7f37.` };
@@ -436,9 +533,43 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     if (addAdmin) {
       const number = normalizeNumber(addAdmin[1]!);
       if (!number) return { text: "Please send their WhatsApp number, e.g. add admin 08012345678" };
+      const maxAdmins = planOf(group).maxAdmins;
+      if (maxAdmins !== null && (await opts.store.adminCount(group.id)) >= maxAdmins) {
+        return needsPlan(`The *${planOf(group).label}* plan allows ${maxAdmins} admin${maxAdmins === 1 ? "" : "s"}.`, (p) => p.maxAdmins === null || p.maxAdmins > maxAdmins);
+      }
       await opts.store.addAdmin(group.id, number);
       return {
         text: `Done. ${number} can now manage ${group.name}. Ask them to send "hi" to this number so I can send them birthday flyers.`,
+      };
+    }
+
+    if (lower === "plan" || lower === "my plan") {
+      const plan = planOf(group);
+      const lapsed = plan.id !== group.plan;
+      const until = !lapsed && plan.id !== "free" && group.planUntil ? ` until ${formatDate(group.planUntil)}` : "";
+      const count = (await opts.store.members(group.id)).length;
+      const limit = plan.maxMembers === null ? "" : ` of ${plan.maxMembers}`;
+      return {
+        text: [
+          `*${group.name}* is on the *${plan.label}* plan${until}${lapsed ? ` (your ${group.plan} plan ran out on ${formatDate(group.planUntil!)})` : ""}.`,
+          `Members: ${count}${limit}.`,
+          `Includes: ${plan.summary}.`,
+          "Send *plans* to compare, or *upgrade* and a plan's name.",
+        ].join("\n"),
+      };
+    }
+
+    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+))?$/i);
+    if (upgrade) {
+      const wanted = upgrade[1] ? findPlan(upgrade[1]) : group.plan !== "free" ? findPlan(group.plan) : null;
+      if (!wanted || wanted.id === "free") return { text: await plansText() };
+      const contact = `${from}${group.name ? ` for "${group.name}"` : ""}`;
+      return {
+        text: `Thanks! We'll message you shortly with how to pay for *${wanted.label}*. Your group switches over as soon as it's paid.`,
+        notify: opts.owners.map((to) => ({
+          to,
+          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} 1 month for ${group.name}`,
+        })),
       };
     }
 
@@ -459,6 +590,36 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     return { text: `*${group.name}*\n\n${HELP}` };
   }
 
+  /** Owners: "set plan standard 3 months for Unilag Class of 2010". */
+  async function setGroupPlan(planName: string, count: string | undefined, unit: string | undefined, groupName: string): Promise<Reply> {
+    const plan = findPlan(planName);
+    if (!plan) return { text: `Plans are: ${PLANS.map((p) => p.id).join(", ")}. E.g. set plan standard 1 month for Unilag Class of 2010` };
+    const matches = await opts.store.findGroups(groupName.trim());
+    const exact = matches.filter((g) => g.name.toLowerCase() === groupName.trim().toLowerCase());
+    const found = exact.length ? exact : matches;
+    if (found.length !== 1) {
+      return {
+        text: found.length
+          ? `More than one group matches "${groupName}": ${found.map((g) => g.name).join(", ")}. Please use the full name.`
+          : `No group called "${groupName}".`,
+      };
+    }
+    const group = found[0]!;
+    if (plan.id === "free") {
+      await opts.store.setPlan(group.id, "free", null);
+      return { text: `${group.name} is now on the Free plan.` };
+    }
+    const months = Number(count ?? 1) * (unit?.toLowerCase().startsWith("year") ? 12 : 1);
+    if (!Number.isInteger(months) || months < 1 || months > 60) return { text: "Please give between 1 month and 5 years." };
+    // Renewing early adds the time on top of what's left.
+    const current = currentPlan(group, now());
+    const start = current.id !== "free" && group.planUntil && group.planUntil > now() ? group.planUntil : now();
+    const until = addMonths(start, months);
+    await opts.store.setPlan(group.id, plan.id, until);
+    log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
+    return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
+  }
+
   return {
     name: "flyer",
 
@@ -466,6 +627,11 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const text = (msg.text ?? msg.caption ?? "").trim();
       const isOwner = owners.has(msg.from);
       const groups = await opts.store.groupsForAdmin(msg.from);
+
+      if (/^(plans|prices|pricing)$/i.test(text)) return { text: await plansText() };
+
+      const setPlan = isOwner ? text.match(/^set plan\s+(\S+)(?:\s+(\d+)\s*(months?|years?))?\s+(?:for\s+)?(.+)$/i) : null;
+      if (setPlan) return setGroupPlan(setPlan[1]!, setPlan[2], setPlan[3], setPlan[4]!);
 
       const newGroup = text.match(/^new group\s+(.+)$/i);
       if (newGroup) {
@@ -494,7 +660,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         if (isOwner) return { text: "Welcome! Set up your first group by sending, for example:\nnew group Unilag Class of 2010" };
         return {
           text: opts.openSignup
-            ? `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work) and remind you on each birthday morning, and I brand your event photos with your group's logo.\n\nTo start, send *new group* and your group's name, e.g.\nnew group Unilag Class of 2010`
+            ? `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work) and remind you on each birthday morning, and I brand your event photos with your group's logo.\n\nIt's free for groups of up to 20 people (send *plans* for bigger groups).\n\nTo start, send *new group* and your group's name, e.g.\nnew group Unilag Class of 2010`
             : "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.",
         };
       }
