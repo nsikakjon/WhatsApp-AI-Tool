@@ -28,6 +28,19 @@ To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, then
 `supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote
 bot variables from `.env.example` on Railway.
 
+## Phase 2 (in progress): construction site progress reporter
+
+Runs on its own WhatsApp number when `SITE_PHONE_NUMBER_ID` is set. Setup steps:
+[docs/SITE_REPORTER.md](docs/SITE_REPORTER.md).
+
+1. Site staff registered in Supabase send updates: messages, photos or voice
+   notes. Each is logged against their site; photos are saved to Supabase
+   Storage.
+2. Every evening (6pm Lagos time by default) Claude Haiku sorts the day's
+   updates into a short report (work done, problems, materials needed, next
+   steps) and it goes to the site's managers on WhatsApp. Managers can also
+   send `report` any time.
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
@@ -49,6 +62,8 @@ src/
       signature.ts       checks each webhook really came from Meta
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
+      outbox.ts          sends and saves alerts and scheduled messages
+    schedule.ts          runs a task on a timer (daily reports)
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/
@@ -58,6 +73,11 @@ src/
       understand.ts      the AI step (what does the customer want?)
       pricing.ts         works out prices from the price list
       store.ts           reads the price list, saves quotes and orders
+    site/                Phase 2 construction site progress reporter
+      index.ts           logs updates, answers "report", finds due reports
+      summarise.ts       the AI step (sort the day's updates into a report)
+      report.ts          formats the report, Lagos dates and times
+      store.ts           sites, teams, updates, photos and sent reports
 supabase/migrations/     database tables (run in Supabase's SQL Editor)
 ```
 
