@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../../app.js";
 import { echoProduct } from "../../products/echo/index.js";
 import type { Product } from "../product.js";
+import type { Transcriber } from "../voice/transcribe.js";
 import type { MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 
@@ -14,6 +15,7 @@ function memoryStore() {
   const contacts = new Map<string, string>();
   const seen = new Set<string>();
   const outbound: string[] = [];
+  const inboundText = new Map<string, string>();
   const store: MessageStore = {
     async upsertContact(waId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
@@ -30,17 +32,24 @@ function memoryStore() {
     async recentHistory() {
       return [];
     },
+    async setInboundText(waMessageId, text) {
+      inboundText.set(waMessageId, text);
+    },
   };
-  return { store, contacts, outbound };
+  return { store, contacts, outbound, inboundText };
 }
 
-function setup(product: Product = echoProduct) {
+function setup(product: Product = echoProduct, transcriber?: Transcriber) {
   const sent: Array<{ to: string; body: string }> = [];
   const whatsapp: WhatsAppClient = {
     async sendText(to, body) {
       sent.push({ to, body });
       if (to === "FAIL") throw new Error("send failed");
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async downloadMedia(mediaId) {
+      if (mediaId === "broken") throw new Error("download failed");
+      return { data: new Blob(["audio"]), mimeType: "audio/ogg" };
     },
   };
   const mem = memoryStore();
@@ -49,6 +58,7 @@ function setup(product: Product = echoProduct) {
     appSecret: APP_SECRET,
     store: mem.store,
     whatsapp,
+    transcriber,
     route: () => product,
     log: silent,
   });
@@ -206,5 +216,41 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
       { to: "FAIL", body: "never arrives" },
       { to: "2348099999999", body: "New order" },
     ]);
+  });
+
+  function voiceWebhook(id: string, mediaId: string) {
+    return JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                messages: [{ from: "2348012345678", id, timestamp: "1", type: "audio", audio: { id: mediaId, mime_type: "audio/ogg; codecs=opus" } }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  it("transcribes voice notes and hands the text to the product", async () => {
+    const transcriber: Transcriber = { transcribe: async () => "I need fifty flyers" };
+    const { app, sent, inboundText } = setup(echoProduct, transcriber);
+    const body = voiceWebhook("wamid.voice", "media-1");
+    await post(app, body, sign(body));
+    expect(sent[0]?.body).toBe("You said: I need fifty flyers");
+    expect(inboundText.get("wamid.voice")).toBe("I need fifty flyers");
+  });
+
+  it("still answers when a voice note can't be downloaded", async () => {
+    const transcriber: Transcriber = { transcribe: async () => "never used" };
+    const { app, sent } = setup(echoProduct, transcriber);
+    const body = voiceWebhook("wamid.voice2", "broken");
+    const res = await post(app, body, sign(body));
+    expect(res.status).toBe(200);
+    expect(sent[0]?.body).toBe("I got your audio message. For now I can only echo text.");
   });
 });

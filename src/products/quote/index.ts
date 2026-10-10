@@ -31,8 +31,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
   return {
     name: "quote",
     async handle(msg, ctx): Promise<Reply> {
-      if (msg.type !== "text" || !msg.text) {
-        return { text: "Please type your request for now (for example: 500 A5 flyers, double-sided). Voice notes are coming soon." };
+      // Voice notes arrive here with `text` already filled in by the core.
+      if (!msg.text) {
+        return {
+          text:
+            msg.type === "audio"
+              ? "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?"
+              : "Please send your request as a message or voice note (for example: 100 A5 flyers).",
+        };
       }
 
       const variants = await opts.catalog.activeVariants();

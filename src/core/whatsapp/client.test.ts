@@ -41,4 +41,23 @@ describe("WhatsApp client", () => {
     });
     await expect(client.sendText("1", "x")).rejects.toThrow("Invalid OAuth access token");
   });
+
+  it("downloads media in two steps, sending the token both times", async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, auth: (init.headers as Record<string, string>).Authorization });
+      if (url.endsWith("/media-1")) {
+        return new Response(JSON.stringify({ url: "https://lookaside.example/file", mime_type: "audio/ogg" }), { status: 200 });
+      }
+      return new Response("AUDIO", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const client = createWhatsAppClient({ accessToken: "TOKEN", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    const media = await client.downloadMedia("media-1");
+
+    expect(calls.map((c) => c.url)).toEqual(["https://graph.facebook.com/v23.0/media-1", "https://lookaside.example/file"]);
+    expect(calls.every((c) => c.auth === "Bearer TOKEN")).toBe(true);
+    expect(media.mimeType).toBe("audio/ogg");
+    expect(await media.data.text()).toBe("AUDIO");
+  });
 });

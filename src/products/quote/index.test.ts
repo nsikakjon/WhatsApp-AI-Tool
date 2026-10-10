@@ -181,11 +181,24 @@ describe("quote product", () => {
     expect((await product.handle(text("hi"), ctx))?.text).toContain("Sorry, I didn't catch that");
   });
 
-  it("asks for text when sent other message types", async () => {
+  it("handles a transcribed voice note like a typed message", async () => {
+    const { product, seen } = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    const reply = await product.handle({ ...text("100 flyers"), type: "audio", transcribed: true }, ctx);
+    expect(reply?.text).toContain("*Total: ₦15,000*");
+    expect(seen[0]?.text).toBe("100 flyers");
+  });
+
+  it("asks the customer to type when a voice note couldn't be understood", async () => {
     const { product, seen } = setup({ intent: "other", items: [], message: null });
     const reply = await product.handle({ ...text("x"), type: "audio", text: undefined }, ctx);
-    expect(reply?.text).toContain("Please type your request");
+    expect(reply?.text).toContain("couldn't make out that voice note");
     expect(seen).toHaveLength(0);
+  });
+
+  it("asks for a message when sent a photo or other file", async () => {
+    const { product } = setup({ intent: "other", items: [], message: null });
+    const reply = await product.handle({ ...text("x"), type: "image", text: undefined }, ctx);
+    expect(reply?.text).toContain("Please send your request as a message or voice note");
   });
 
   it("says so when the price list is empty", async () => {

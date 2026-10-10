@@ -27,6 +27,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           contactName: names.get(msg.from) ?? undefined,
           type: msg.type,
           text: msg.type === "text" ? msg.text?.body : undefined,
+          mediaId: (msg.audio ?? msg.image ?? msg.document ?? msg.video)?.id,
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -49,6 +50,10 @@ interface WebhookBody {
           type?: string;
           timestamp?: string;
           text?: { body?: string };
+          audio?: { id?: string };
+          image?: { id?: string };
+          document?: { id?: string };
+          video?: { id?: string };
         }>;
       };
     }>;

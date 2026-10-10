@@ -35,4 +35,9 @@ describe("loadConfig", () => {
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });
+
+  it("turns on voice notes only when a Groq key is set", () => {
+    expect(loadConfig(base).groq).toBeUndefined();
+    expect(loadConfig({ ...base, GROQ_API_KEY: "g" }).groq).toEqual({ apiKey: "g", model: "whisper-large-v3" });
+  });
 });

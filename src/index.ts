@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createSupabaseStore } from "./core/db/store.js";
+import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { echoProduct } from "./products/echo/index.js";
@@ -37,9 +38,12 @@ const app = createApp({
   appSecret: config.whatsapp.appSecret,
   store: createSupabaseStore(supabase),
   whatsapp: createWhatsAppClient(config.whatsapp),
+  transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   route: () => product,
 });
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
-  console.log(`Server listening on port ${info.port} (product: ${product.name})`);
+  console.log(
+    `Server listening on port ${info.port} (product: ${product.name}, voice notes: ${config.groq ? "on" : "off"})`,
+  );
 });
