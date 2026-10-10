@@ -3,6 +3,7 @@ import type { MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
+import { sendAndRecord } from "./outbox.js";
 import { extractMessages } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage } from "./types.js";
@@ -113,14 +114,7 @@ async function handleMessage(
   // but doesn't undo the customer's reply, which has already gone out.
   for (const note of reply.notify ?? []) {
     try {
-      const noteContactId = await deps.store.upsertContact(note.to);
-      const noteSent = await deps.whatsapp.sendText(note.to, note.text, fromNumber);
-      await deps.store.recordOutbound(noteContactId, {
-        waMessageId: noteSent.waMessageId,
-        type: "text",
-        body: note.text,
-        raw: noteSent.raw,
-      });
+      await sendAndRecord(deps, note.to, note.text, fromNumber);
     } catch (err) {
       log.error(`Failed to send notification to ${note.to}:`, err);
     }
