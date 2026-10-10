@@ -41,6 +41,19 @@ Runs on its own WhatsApp number when `SITE_PHONE_NUMBER_ID` is set. Setup steps:
    steps) and it goes to the site's managers on WhatsApp. Managers can also
    send `report` any time.
 
+## Phase 3 (in progress): birthday and event flyers for WhatsApp groups
+
+Runs on its own WhatsApp number when `FLYER_PHONE_NUMBER_ID` is set. Setup and
+commands: [docs/FLYERS.md](docs/FLYERS.md).
+
+1. Group admins (alumni, friends groups) send members' photos captioned
+   "add Ada Okafor, 14 March", and the group logo captioned "logo".
+2. On each birthday morning the bot makes the member's birthday flyer, with a
+   short message written by Claude Haiku, and sends it to the admins to
+   forward to the group and tag the member.
+3. Any other photo comes back as an event flyer: the photo with the logo and
+   its caption on it.
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
@@ -63,7 +76,7 @@ src/
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
       outbox.ts          sends and saves alerts and scheduled messages
-    schedule.ts          runs a task on a timer (daily reports)
+    schedule.ts          runs a task on a timer (daily reports, birthdays)
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/
@@ -78,6 +91,13 @@ src/
       summarise.ts       the AI step (sort the day's updates into a report)
       report.ts          formats the report, Lagos dates and times
       store.ts           sites, teams, updates, photos and sent reports
+    flyer/               Phase 3 birthday and event flyers
+      index.ts           admin commands, adding members, due birthday flyers
+      render.ts          draws the flyer pictures
+      dates.ts           reads birthdays, Lagos dates
+      wish.ts            the AI step (a short birthday message)
+      store.ts           groups, admins, members, photos and sent flyers
+assets/fonts/            fonts used on flyers (open licence)
 supabase/migrations/     database tables (run in Supabase's SQL Editor)
 ```
 
