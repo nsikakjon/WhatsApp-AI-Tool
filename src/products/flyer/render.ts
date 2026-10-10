@@ -3,6 +3,7 @@
 // Pure drawing code: it takes image bytes and text, and returns a JPEG.
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
+import { themeById, type Theme } from "./themes.js";
 
 // The fonts ship with the code (assets/fonts), so flyers look the same on
 // Railway as on a laptop, whatever fonts the server has installed.
@@ -20,8 +21,20 @@ function loadFonts() {
 const WIDTH = 1080;
 const HEIGHT = 1350; // 4:5 portrait, the shape WhatsApp shows largest in a chat
 
-const GOLD = "#f5c451";
 const WHITE = "#ffffff";
+
+/** How a group's flyers look: its chosen design plus any changes it made. */
+export interface FlyerStyle {
+  theme: Theme;
+  /** Replaces the design's accent colour. */
+  accent?: string;
+  /** A background picture the group uploaded, used instead of the design's colours. */
+  background?: Uint8Array;
+  /** Small print at the bottom, e.g. "Made with FlyerBot · wa.me/234...". */
+  credit?: string;
+}
+
+const DEFAULT_STYLE: FlyerStyle = { theme: themeById(undefined) };
 
 export interface BirthdayFlyerInput {
   photo: Uint8Array;
@@ -30,89 +43,144 @@ export interface BirthdayFlyerInput {
   dateLabel: string;
   groupName: string;
   logo?: Uint8Array;
+  style?: FlyerStyle;
 }
 
 export interface EventFlyerInput {
   photo: Uint8Array;
   caption: string;
   logo?: Uint8Array;
+  style?: FlyerStyle;
 }
 
 export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Buffer> {
   loadFonts();
+  const style = input.style ?? DEFAULT_STYLE;
+  const theme = style.theme;
+  const accent = style.accent ?? theme.accent;
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
 
-  // Background: deep purple to wine, with soft confetti.
-  const bg = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
-  bg.addColorStop(0, "#1d1350");
-  bg.addColorStop(1, "#6b1757");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  drawConfetti(ctx, seedFrom(input.name));
-
-  // Group logo and name at the top.
-  let y = 70;
-  if (input.logo) {
-    const logo = await loadImage(input.logo);
-    const box = fitInside(logo, 150, 120);
-    ctx.drawImage(logo, (WIDTH - box.w) / 2, y, box.w, box.h);
-    y += box.h + 16;
+  // Background: the group's own picture, or the design's colours.
+  if (style.background) {
+    drawCover(ctx, await loadImage(style.background), 0, 0, WIDTH, HEIGHT);
   } else {
-    y += 20;
+    const bg = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+    bg.addColorStop(0, theme.background[0]);
+    bg.addColorStop(1, theme.background[1]);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    if (theme.confetti) drawConfetti(ctx, seedFrom(input.name), accent);
   }
+
+  const photo = await loadImage(input.photo);
+  const logo = input.logo ? await loadImage(input.logo) : undefined;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  fitText(ctx, input.groupName.toUpperCase(), "Poppins SemiBold", 30, WIDTH - 160);
-  ctx.fillText(input.groupName.toUpperCase(), WIDTH / 2, y);
-  y += 56;
 
-  // "Happy BIRTHDAY"
-  ctx.fillStyle = GOLD;
-  ctx.font = `110px "Great Vibes"`;
-  ctx.fillText("Happy", WIDTH / 2, y);
-  y += 118;
-  ctx.fillStyle = WHITE;
-  ctx.font = `104px "Poppins ExtraBold"`;
-  ctx.fillText("BIRTHDAY", WIDTH / 2, y);
-  y += 140;
+  if (theme.layout === "full") {
+    // Photo across the top, fading into the background colour below.
+    const photoHeight = 860;
+    drawCover(ctx, photo, 0, 0, WIDTH, photoHeight);
+    if (!style.background) {
+      const fade = ctx.createLinearGradient(0, photoHeight - 300, 0, photoHeight);
+      fade.addColorStop(0, withAlpha(theme.background[0], 0));
+      fade.addColorStop(1, theme.background[0]);
+      ctx.fillStyle = fade;
+      ctx.fillRect(0, photoHeight - 300, WIDTH, 300);
+    }
+    if (logo) {
+      const box = fitInside(logo, 150, 150);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.45)";
+      ctx.shadowBlur = 18;
+      ctx.drawImage(logo, WIDTH - 54 - box.w, 54, box.w, box.h);
+      ctx.restore();
+    }
+    let y = photoHeight - 70;
+    ctx.fillStyle = accent;
+    ctx.font = `100px "Great Vibes"`;
+    ctx.fillText("Happy", WIDTH / 2, y);
+    y += 100;
+    ctx.fillStyle = theme.text;
+    ctx.font = `92px "Poppins ExtraBold"`;
+    ctx.fillText("BIRTHDAY", WIDTH / 2, y);
+    y += 120;
+    fitText(ctx, input.name, "Poppins SemiBold", 66, WIDTH - 140);
+    ctx.fillText(input.name, WIDTH / 2, y);
+    y += 86;
+    ctx.fillStyle = accent;
+    ctx.font = `36px "Poppins"`;
+    ctx.fillText(`${input.dateLabel}  •  ${input.groupName}`, WIDTH / 2, y);
+  } else {
+    // Group logo and name at the top.
+    let y = 70;
+    if (logo) {
+      const box = fitInside(logo, 150, 120);
+      ctx.drawImage(logo, (WIDTH - box.w) / 2, y, box.w, box.h);
+      y += box.h + 16;
+    } else {
+      y += 20;
+    }
+    ctx.fillStyle = theme.muted;
+    fitText(ctx, input.groupName.toUpperCase(), "Poppins SemiBold", 30, WIDTH - 160);
+    ctx.fillText(input.groupName.toUpperCase(), WIDTH / 2, y);
+    y += 56;
 
-  // Round photo with a gold ring.
-  const photo = await loadImage(input.photo);
-  const radius = 255;
-  const cx = WIDTH / 2;
-  const cy = y + radius + 14;
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.45)";
-  ctx.shadowBlur = 40;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius + 14, 0, Math.PI * 2);
-  ctx.fillStyle = GOLD;
-  ctx.fill();
-  ctx.restore();
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.clip();
-  drawCover(ctx, photo, cx - radius, cy - radius, radius * 2, radius * 2);
-  ctx.restore();
-  y = cy + radius + 50;
+    // "Happy BIRTHDAY"
+    ctx.fillStyle = accent;
+    ctx.font = `110px "Great Vibes"`;
+    ctx.fillText("Happy", WIDTH / 2, y);
+    y += 118;
+    ctx.fillStyle = theme.text;
+    ctx.font = `104px "Poppins ExtraBold"`;
+    ctx.fillText("BIRTHDAY", WIDTH / 2, y);
+    y += 140;
 
-  // Name and date.
-  ctx.fillStyle = WHITE;
-  fitText(ctx, input.name, "Poppins SemiBold", 76, WIDTH - 140);
-  ctx.fillText(input.name, WIDTH / 2, y);
-  y += 104;
-  ctx.fillStyle = GOLD;
-  ctx.font = `40px "Poppins"`;
-  ctx.fillText(input.dateLabel, WIDTH / 2, y);
+    // Round photo with a coloured ring.
+    const radius = 255;
+    const cx = WIDTH / 2;
+    const cy = y + radius + 14;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 40;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 14, 0, Math.PI * 2);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    drawCover(ctx, photo, cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx.restore();
+    y = cy + radius + 44;
+
+    // Name and date.
+    ctx.fillStyle = theme.text;
+    fitText(ctx, input.name, "Poppins SemiBold", 76, WIDTH - 140);
+    ctx.fillText(input.name, WIDTH / 2, y);
+    y += 100;
+    ctx.fillStyle = accent;
+    ctx.font = `40px "Poppins"`;
+    ctx.fillText(input.dateLabel, WIDTH / 2, y);
+  }
+
+  if (style.credit) {
+    ctx.fillStyle = theme.muted;
+    fitText(ctx, style.credit, "Poppins", 22, WIDTH - 80);
+    ctx.textBaseline = "bottom";
+    ctx.fillText(style.credit, WIDTH / 2, HEIGHT - 18);
+  }
 
   return canvas.encode("jpeg", 90);
 }
 
 export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> {
   loadFonts();
+  const style = input.style ?? DEFAULT_STYLE;
+  const accent = style.accent ?? style.theme.accent;
   const photo = await loadImage(input.photo);
   // Keep the photo's shape, between a 4:5 portrait and a 1.91:1 landscape
   // (WhatsApp crops anything outside that range in the chat preview).
@@ -124,17 +192,25 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
   drawCover(ctx, photo, 0, 0, width, height);
 
   const pad = Math.round(width * 0.05);
+  // Leave room for the small print under the caption.
+  const bottom = height - pad - (style.credit ? 24 : 0);
 
   // Caption on a dark fade at the bottom so it reads on any photo.
   const caption = input.caption.trim();
-  if (caption) {
-    ctx.font = `10px "Poppins SemiBold"`;
-    // Smaller text on wide photos, so the caption never covers more than about a third.
-    const maxSize = Math.min(64, Math.round(height * 0.06));
-    const { lines, size } = wrapToFit(ctx, caption, "Poppins SemiBold", maxSize, 26, width - pad * 2, 4);
-    const lineHeight = Math.round(size * 1.25);
-    const textHeight = lines.length * lineHeight;
-    const fadeTop = height - textHeight - pad * 2 - 120;
+  if (caption || style.credit) {
+    let textHeight = 0;
+    let lines: string[] = [];
+    let lineHeight = 0;
+    if (caption) {
+      // Smaller text on wide photos, so the caption never covers more than about a third.
+      const maxSize = Math.min(64, Math.round(height * 0.06));
+      const fit = wrapToFit(ctx, caption, "Poppins SemiBold", maxSize, 26, width - pad * 2, 4);
+      lines = fit.lines;
+      lineHeight = Math.round(fit.size * 1.25);
+      textHeight = lines.length * lineHeight;
+      ctx.font = `${fit.size}px "Poppins SemiBold"`;
+    }
+    const fadeTop = caption ? bottom - textHeight - pad - 120 : height - 120;
     const fade = ctx.createLinearGradient(0, fadeTop, 0, height);
     fade.addColorStop(0, "rgba(0,0,0,0)");
     fade.addColorStop(0.45, "rgba(0,0,0,0.6)");
@@ -142,20 +218,30 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
     ctx.fillStyle = fade;
     ctx.fillRect(0, fadeTop, width, height - fadeTop);
 
-    ctx.fillStyle = WHITE;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 8;
-    let y = height - pad - textHeight;
-    for (const line of lines) {
-      ctx.fillText(line, pad, y);
-      y += lineHeight;
+    if (caption) {
+      ctx.fillStyle = WHITE;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 8;
+      let y = bottom - textHeight;
+      for (const line of lines) {
+        ctx.fillText(line, pad, y);
+        y += lineHeight;
+      }
+      ctx.shadowBlur = 0;
+      // A short line in the accent colour above the caption.
+      ctx.fillStyle = accent;
+      ctx.fillRect(pad, bottom - textHeight - 28, 120, 8);
     }
-    ctx.shadowBlur = 0;
-    // A short gold rule above the caption.
-    ctx.fillStyle = GOLD;
-    ctx.fillRect(pad, height - pad - textHeight - 28, 120, 8);
+
+    if (style.credit) {
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      fitText(ctx, style.credit, "Poppins", 20, width - pad * 2);
+      ctx.fillText(style.credit, width - pad, height - 16);
+    }
   }
 
   // Logo in the top-right corner.
@@ -171,6 +257,69 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
   }
 
   return canvas.encode("jpeg", 90);
+}
+
+/**
+ * One picture showing every design, numbered, so an admin can pick one by
+ * replying "design 2". Uses one of the group's members as the example.
+ */
+export async function renderDesignSheet(
+  sample: Omit<BirthdayFlyerInput, "style">,
+  themes: Theme[],
+  extras: Omit<FlyerStyle, "theme"> = {},
+): Promise<Buffer> {
+  loadFonts();
+  const cols = 3;
+  const rows = Math.ceil(themes.length / cols);
+  const thumbW = 340;
+  const thumbH = Math.round(thumbW * (HEIGHT / WIDTH));
+  const gap = 30;
+  const labelH = 64;
+  const width = cols * thumbW + (cols + 1) * gap;
+  const height = rows * (thumbH + labelH) + (rows + 1) * gap;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillRect(0, 0, width, height);
+
+  for (const [i, theme] of themes.entries()) {
+    const flyer = await loadImage(await renderBirthdayFlyer({ ...sample, style: { ...extras, theme } }));
+    const x = gap + (i % cols) * (thumbW + gap);
+    const y = gap + Math.floor(i / cols) * (thumbH + labelH + gap);
+    ctx.drawImage(flyer, x, y, thumbW, thumbH);
+    ctx.fillStyle = "#222222";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    fitText(ctx, `${i + 1}. ${theme.label}`, "Poppins SemiBold", 26, thumbW);
+    ctx.fillText(`${i + 1}. ${theme.label}`, x, y + thumbH + 14);
+  }
+  return canvas.encode("jpeg", 85);
+}
+
+/** A plain head-and-shoulders outline, used as the example photo before a group has members. */
+export async function placeholderPortrait(): Promise<Buffer> {
+  const canvas = createCanvas(800, 1000);
+  const ctx = canvas.getContext("2d");
+  const bg = ctx.createLinearGradient(0, 0, 0, 1000);
+  bg.addColorStop(0, "#c9d6e3");
+  bg.addColorStop(1, "#8aa1b8");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 800, 1000);
+  ctx.fillStyle = "#5b6b7c";
+  ctx.beginPath();
+  ctx.ellipse(400, 360, 150, 180, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(400, 980, 330, 360, 0, 0, Math.PI * 2);
+  ctx.fill();
+  return canvas.encode("jpeg", 90);
+}
+
+/** "#0d1b3d" with 0 alpha -> "rgba(13,27,61,0)". */
+function withAlpha(hex: string, alpha: number): string {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return hex;
+  return `rgba(${parseInt(m[1]!, 16)},${parseInt(m[2]!, 16)},${parseInt(m[3]!, 16)},${alpha})`;
 }
 
 /** Draws an image to fill the box, cropping the overflow (like CSS object-fit: cover). */
@@ -236,9 +385,9 @@ function wrap(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
   return lines;
 }
 
-function drawConfetti(ctx: SKRSContext2D, seed: number) {
+function drawConfetti(ctx: SKRSContext2D, seed: number, accent: string) {
   const rand = mulberry32(seed);
-  const colours = [GOLD, "#ff7eb6", "#7ee0ff", "#ffffff"];
+  const colours = [accent, "#ff7eb6", "#7ee0ff", "#ffffff"];
   for (let i = 0; i < 70; i++) {
     ctx.save();
     ctx.globalAlpha = 0.25 + rand() * 0.35;
