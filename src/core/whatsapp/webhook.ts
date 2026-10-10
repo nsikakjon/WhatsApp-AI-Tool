@@ -83,10 +83,12 @@ async function handleMessage(
 
   const history = await deps.store.recentHistory(contactId, HISTORY_LIMIT, msg.waMessageId);
   const product = deps.route(msg);
+  log.info(`Message ${msg.waMessageId} (${msg.type}) from ${mask(msg.from)} -> ${product.name}`);
   const reply = await product.handle(msg, { contactId, history });
   if (!reply) return;
 
   const sent = await deps.whatsapp.sendText(msg.from, reply.text);
+  log.info(`Replied to ${mask(msg.from)}`);
   await deps.store.recordOutbound(contactId, {
     waMessageId: sent.waMessageId,
     type: "text",
@@ -110,6 +112,11 @@ async function handleMessage(
       log.error(`Failed to send notification to ${note.to}:`, err);
     }
   }
+}
+
+/** Hides most of a phone number in logs, e.g. 2348012345678 -> ...5678. */
+function mask(waId: string): string {
+  return `...${waId.slice(-4)}`;
 }
 
 // How many earlier messages a product sees, so it can follow the conversation.
