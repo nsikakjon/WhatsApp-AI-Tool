@@ -14,7 +14,15 @@ import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
 import { runEvery } from "./core/schedule.js";
-import { sendAndRecord } from "./core/whatsapp/outbox.js";
+import {
+  canMessageFreely,
+  sendAndRecord,
+  sendImageAndRecord,
+  sendTemplateAndRecord,
+} from "./core/whatsapp/outbox.js";
+import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
+import { createSupabaseFlyerStore } from "./products/flyer/store.js";
+import { createWishWriter } from "./products/flyer/wish.js";
 
 const config = loadConfig();
 
@@ -48,6 +56,17 @@ const siteReporter = siteConfig
     })
   : undefined;
 
+// The flyer bot answers its own WhatsApp number (FLYER_PHONE_NUMBER_ID).
+const flyerConfig = config.flyer;
+const flyerBot = flyerConfig
+  ? createFlyerBot({
+      store: createSupabaseFlyerStore(supabase),
+      wishes: createWishWriter({ apiKey: flyerConfig.anthropicApiKey, model: flyerConfig.model }),
+      owners: flyerConfig.ownerWaIds,
+      sendHour: flyerConfig.sendHour,
+    })
+  : undefined;
+
 const store = createSupabaseStore(supabase);
 const whatsapp = createWhatsAppClient(config.whatsapp);
 
@@ -57,8 +76,11 @@ const app = createApp({
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
-  route: (msg) =>
-    siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId ? siteReporter : product,
+  route: (msg) => {
+    if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
+    if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
+    return product;
+  },
 });
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -74,8 +96,39 @@ if (siteReporter && siteConfig) {
   });
 }
 
+// Every 5 minutes, send any birthday flyers that are due to group admins.
+// An admin who messaged the bot in the last day gets the flyer with its
+// message and a forwarding tip. Anyone else gets the approved template (if
+// set up), or the flyer waits until they next message the bot that day.
+if (flyerBot && flyerConfig) {
+  const deps = { store, whatsapp };
+  const from = flyerConfig.phoneNumberId;
+  const template = flyerConfig.template;
+  runEvery(5 * 60 * 1000, () =>
+    flyerBot.sendDueBirthdays(new Date(), {
+      canReach: async (to) => template !== undefined || (await canMessageFreely(store, to)),
+      send: async (d) => {
+        const image = { data: d.flyer, mimeType: "image/jpeg" };
+        if (await canMessageFreely(store, d.to)) {
+          await sendImageAndRecord(deps, d.to, { ...image, caption: d.wish }, from);
+          await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName), from);
+        } else if (template) {
+          await sendTemplateAndRecord(
+            deps,
+            d.to,
+            { ...template, headerImage: image, bodyParams: [d.memberName, d.groupName, d.wish] },
+            from,
+          );
+        } else {
+          throw new Error("admin hasn't messaged the bot in the last day and no template is set");
+        }
+      },
+    }),
+  );
+}
+
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
   );
 });

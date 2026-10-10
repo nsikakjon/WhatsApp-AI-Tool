@@ -1,5 +1,5 @@
 import type { MessageStore } from "../db/store.js";
-import type { OutgoingImage, WhatsAppClient } from "./client.js";
+import type { OutgoingImage, OutgoingTemplate, WhatsAppClient } from "./client.js";
 
 /**
  * Sends a text that isn't a direct reply (an alert or a scheduled report) and
@@ -31,4 +31,34 @@ export async function sendImageAndRecord(
     body: image.caption ?? "",
     raw: sent.raw,
   });
+}
+
+/** Sends a pre-approved template message and saves it with the recipient's messages. */
+export async function sendTemplateAndRecord(
+  deps: { store: MessageStore; whatsapp: WhatsAppClient },
+  to: string,
+  template: OutgoingTemplate,
+  fromNumberId?: string,
+): Promise<void> {
+  const contactId = await deps.store.upsertContact(to);
+  const sent = await deps.whatsapp.sendTemplate(to, template, fromNumberId);
+  await deps.store.recordOutbound(contactId, {
+    waMessageId: sent.waMessageId,
+    type: "template",
+    body: `[${template.name}] ${template.bodyParams.join(" | ")}`,
+    raw: sent.raw,
+  });
+}
+
+// WhatsApp allows ordinary messages for 24 hours after the person's last
+// message. We stop an hour early to be safe.
+const WINDOW_MS = 23 * 60 * 60 * 1000;
+
+/**
+ * True if we can still send this person ordinary messages (they messaged us
+ * in the last day). Outside that, only template messages are delivered.
+ */
+export async function canMessageFreely(store: MessageStore, waId: string, now = new Date()): Promise<boolean> {
+  const last = await store.lastInboundAt(waId);
+  return last !== null && now.getTime() - last.getTime() < WINDOW_MS;
 }

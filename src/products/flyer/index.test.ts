@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { MonthDay } from "./dates.js";
-import { createFlyerBot, forwardTip, normalizeNumber, parseAddCaption, type BirthdayDelivery } from "./index.js";
+import {
+  createFlyerBot,
+  forwardTip,
+  normalizeNumber,
+  parseAddCaption,
+  type BirthdayDeliverer,
+  type BirthdayDelivery,
+} from "./index.js";
 import type { FlyerStore, Group, Member } from "./store.js";
 
 const silent = { info: () => {}, error: () => {} };
@@ -213,6 +220,10 @@ describe("flyer bot: members and flyers", () => {
   });
 });
 
+function collect(sent: BirthdayDelivery[], reachable = (_to: string) => true): BirthdayDeliverer {
+  return { canReach: async (to) => reachable(to), send: async (d) => void sent.push(d) };
+}
+
 describe("flyer bot: birthday mornings", () => {
   // 14 March 2027, 08:00 in Lagos.
   const morning = new Date("2027-03-14T07:00:00Z");
@@ -221,7 +232,7 @@ describe("flyer bot: birthday mornings", () => {
     const { bot } = await withGroup();
     await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
     const sent: BirthdayDelivery[] = [];
-    await bot.sendDueBirthdays(new Date("2027-03-14T05:00:00Z"), async (d) => void sent.push(d));
+    await bot.sendDueBirthdays(new Date("2027-03-14T05:00:00Z"), collect(sent));
     expect(sent).toHaveLength(0);
   });
 
@@ -232,8 +243,8 @@ describe("flyer bot: birthday mornings", () => {
     await bot.handle(photo(OWNER, "add Tunde Bakare, 15 March"), ctx);
 
     const sent: BirthdayDelivery[] = [];
-    await bot.sendDueBirthdays(morning, async (d) => void sent.push(d));
-    await bot.sendDueBirthdays(morning, async (d) => void sent.push(d));
+    await bot.sendDueBirthdays(morning, collect(sent));
+    await bot.sendDueBirthdays(morning, collect(sent));
 
     expect(sent.map((d) => d.to)).toEqual([OWNER, ADMIN]);
     expect(sent[0]).toMatchObject({
@@ -247,11 +258,25 @@ describe("flyer bot: birthday mornings", () => {
   it("tries again next time if no admin could be reached", async () => {
     const { bot } = await withGroup();
     await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
-    await bot.sendDueBirthdays(morning, async () => {
-      throw new Error("WhatsApp down");
+    await bot.sendDueBirthdays(morning, {
+      canReach: async () => true,
+      send: async () => {
+        throw new Error("WhatsApp down");
+      },
     });
     const sent: BirthdayDelivery[] = [];
-    await bot.sendDueBirthdays(morning, async (d) => void sent.push(d));
+    await bot.sendDueBirthdays(morning, collect(sent));
+    expect(sent).toHaveLength(1);
+  });
+
+  it("skips admins it can't reach yet, and sends once one can be reached", async () => {
+    const { bot, claims } = await withGroup();
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const sent: BirthdayDelivery[] = [];
+    await bot.sendDueBirthdays(morning, collect(sent, () => false));
+    expect(sent).toHaveLength(0);
+    expect(claims.size).toBe(0);
+    await bot.sendDueBirthdays(morning, collect(sent));
     expect(sent).toHaveLength(1);
   });
 
@@ -259,7 +284,7 @@ describe("flyer bot: birthday mornings", () => {
     const { bot } = await withGroup();
     await bot.handle(photo(OWNER, "add Leap Baby, 29 Feb"), ctx);
     const sent: BirthdayDelivery[] = [];
-    await bot.sendDueBirthdays(new Date("2027-02-28T09:00:00Z"), async (d) => void sent.push(d));
+    await bot.sendDueBirthdays(new Date("2027-02-28T09:00:00Z"), collect(sent));
     expect(sent.map((d) => d.memberName)).toEqual(["Leap Baby"]);
   });
 });

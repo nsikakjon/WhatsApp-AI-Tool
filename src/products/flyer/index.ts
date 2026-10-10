@@ -45,14 +45,20 @@ export interface BirthdayDelivery {
   wish: string;
 }
 
+export interface BirthdayDeliverer {
+  /** False when this admin can't be messaged right now; they're tried again on the next run. */
+  canReach(to: string): Promise<boolean>;
+  send(d: BirthdayDelivery): Promise<void>;
+}
+
 export interface FlyerBot extends Product {
   /**
    * Makes today's birthday flyers that haven't gone out yet and hands each to
-   * `deliver`, once per admin. A birthday is recorded first so it's never sent
+   * `delivery`, once per admin. A birthday is recorded first so it's never sent
    * twice; if it couldn't reach any admin, the record is undone so the next
    * run tries again.
    */
-  sendDueBirthdays(now: Date, deliver: (d: BirthdayDelivery) => Promise<void>): Promise<void>;
+  sendDueBirthdays(now: Date, delivery: BirthdayDeliverer): Promise<void>;
 }
 
 const HELP = `Here's what I can do:
@@ -295,12 +301,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       return handleCommand(text, msg.from, group, groups);
     },
 
-    async sendDueBirthdays(now, deliver) {
+    async sendDueBirthdays(now, delivery) {
       const today = lagosNow(now);
       if (today.hour < opts.sendHour) return;
       const due = await opts.store.birthdaysOn(birthdaysCelebratedOn(today.year, today.month, today.day));
 
-      for (const { member, group, admins } of due) {
+      for (const { member, group, admins: all } of due) {
+        const admins = [];
+        for (const to of all) if (await delivery.canReach(to)) admins.push(to);
         if (!admins.length) continue;
         if (!(await opts.store.claimBirthday(member.id, today.year))) continue;
         let delivered = 0;
@@ -309,7 +317,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           const wish = await opts.wishes.write({ name: member.name, groupName: group.name });
           for (const to of admins) {
             try {
-              await deliver({ to, memberName: member.name, groupName: group.name, flyer, wish });
+              await delivery.send({ to, memberName: member.name, groupName: group.name, flyer, wish });
               delivered++;
             } catch (err) {
               log.error(`Birthday flyer for ${member.name} didn't reach admin ...${to.slice(-4)}:`, err);
