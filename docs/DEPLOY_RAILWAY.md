@@ -102,7 +102,7 @@ Every push to the repository's main branch redeploys automatically.
 
 ## Running it on your own computer (optional)
 
-Only needed if you want to try changes before pushing. Needs Node.js 20 or newer.
+Only needed if you want to try changes before pushing. Needs Node.js 22 or newer.
 
 ```bash
 npm install
