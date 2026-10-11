@@ -3,7 +3,8 @@
 // Pure drawing code: it takes image bytes and text, and returns a JPEG.
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
-import { renderGoldStars } from "./goldstars.js";
+import { renderGoldStars, SAMPLE_WISH } from "./goldstars.js";
+import { renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
 import { themeById, type Theme } from "./themes.js";
 
 // The fonts ship with the code (assets/fonts), so flyers look the same on
@@ -46,7 +47,7 @@ export interface BirthdayFlyerInput {
   groupName: string;
   logo?: Uint8Array;
   style?: FlyerStyle;
-  /** The birthday message. Only the "stars" design prints it; previews use a sample. */
+  /** The birthday message, printed by the gold stars, gala and white and gold designs; previews use a sample. */
   wish?: string;
 }
 
@@ -56,6 +57,14 @@ export interface EventFlyerInput {
   logo?: Uint8Array;
   style?: FlyerStyle;
 }
+
+/** The ready-made designs from designs4.ts, by layout. They draw everything themselves. */
+const READY_MADE = {
+  gala: renderGala,
+  sunflower: renderSunflower,
+  whitegold: renderWhiteGold,
+  calendar: renderCalendar,
+};
 
 export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Buffer> {
   loadFonts();
@@ -70,6 +79,17 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
       groupName: input.groupName,
       wish: input.wish,
       logo: input.logo,
+      credit: style.credit,
+    });
+  }
+  const ready = READY_MADE[theme.layout as keyof typeof READY_MADE];
+  if (ready) {
+    return ready({
+      photo: input.photo ?? (await initialsPortrait(input.name, theme.background, accent)),
+      name: input.name,
+      dateLabel: input.dateLabel,
+      groupName: input.groupName,
+      wish: input.wish || SAMPLE_WISH,
       credit: style.credit,
     });
   }

@@ -164,9 +164,22 @@ The `background` option is the easiest way to get a fully custom look: design
 a 1080 × 1350 background in Canva (leave the middle and the bottom clear for
 the photo and name), download it as a picture, and send it to the bot.
 
-Design 7, **Gold stars and glitter**, is different from the others: it prints
-the birthday message on the flyer itself, beside the photo, signed "with love,"
-and the group's name. It ignores the colour and background settings.
+Designs 7 to 11 are ready-made designs that draw everything themselves, so
+they ignore the colour and background settings:
+
+- 7, **Gold stars and glitter**: prints the birthday message beside the photo,
+  signed "with love," and the group's name.
+- 8, **Evening gala**: the photo graded like an evening party, gold lettering,
+  a round date seal and the birthday message at the bottom.
+- 9, **Sunflowers**: warm orange with sunflowers, a silver "Birthday" and a
+  name tag.
+- 10, **White and gold**: a script "Birthday" title, a date seal and the
+  birthday message beside the photo.
+- 11, **Calendar**: the birthday circled on that month's calendar.
+
+Long birthday messages shrink to fit; the full message is always in the
+caption under the flyer too. The four designs from 8 to 11 live in
+`src/products/flyer/designs4.ts`.
 
 **Changing or adding designs for everyone**: the designs live in
 `src/products/flyer/themes.ts`, one block per design with its colours and

@@ -66,7 +66,7 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
    forward to the group and tag the member.
 3. Any other photo comes back as an event flyer: the photo with the logo and
    its caption on it.
-4. Admins pick from seven designs (`design`), their own colour or their own
+4. Admins pick from eleven designs (`design`), their own colour or their own
    background picture. Designs live in `src/products/flyer/themes.ts`.
 5. With open sign-up, anyone who messages the number can set up their own
    group, and the owner gets an alert for each sign-up.
@@ -117,6 +117,8 @@ src/
       index.ts           admin commands, adding members, due birthday flyers
       render.ts          draws the flyer pictures
       themes.ts          the flyer designs (colours and layouts): edit here
+      goldstars.ts       draws design 7 (gold stars)
+      designs4.ts        draws designs 8 to 11 (gala, sunflowers, white and gold, calendar)
       dates.ts           reads birthdays, Lagos dates
       import.ts          reads member lists (CSV, Google Sheets) and photo links
       wish.ts            the AI step (a short birthday message)

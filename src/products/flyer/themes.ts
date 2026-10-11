@@ -15,8 +15,11 @@ export interface Theme {
    * "stars": a gold card with a big round photo, the birthday message beside it,
    *   and foil balloon stars (drawn in goldstars.ts; the colours below are only
    *   used for the photo outline when a member has no photo).
+   * "gala", "sunflower", "whitegold", "calendar": the four ready-made designs
+   *   in designs4.ts. They draw their own colours; the ones below are only used
+   *   for the initials picture when a member has no photo.
    */
-  layout: "circle" | "full" | "stars";
+  layout: "circle" | "full" | "stars" | "gala" | "sunflower" | "whitegold" | "calendar";
   /** Background, top-left to bottom-right. Use the same colour twice for a flat one. */
   background: [string, string];
   /** "Happy", the photo ring, the date, and the line on event flyers. */
@@ -96,6 +99,45 @@ export const THEMES: Theme[] = [
     layout: "stars",
     background: ["#c98a2c", "#e8a33a"],
     accent: "#fff3c4",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },  {
+    id: "gala",
+    label: "Evening gala",
+    layout: "gala",
+    background: ["#2a1109", "#5a2414"],
+    accent: "#f3cf6b",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "sunflower",
+    label: "Sunflowers",
+    layout: "sunflower",
+    background: ["#e8731c", "#f59a2c"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "whitegold",
+    label: "White and gold",
+    layout: "whitegold",
+    background: ["#b8862f", "#e2c172"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "calendar",
+    label: "Calendar",
+    layout: "calendar",
+    background: ["#c62828", "#e0524f"],
+    accent: "#ffffff",
     text: "#ffffff",
     muted: "rgba(255,255,255,0.85)",
     confetti: false,
