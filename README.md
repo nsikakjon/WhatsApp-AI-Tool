@@ -41,6 +41,18 @@ Runs on its own WhatsApp number when `SITE_PHONE_NUMBER_ID` is set. Setup steps:
    steps) and it goes to the site's managers on WhatsApp. Managers can also
    send `report` any time.
 
+## Real estate lead qualifier (in progress)
+
+Runs on its own WhatsApp number when `LEADS_PHONE_NUMBER_ID` is set. Setup
+steps: [docs/LEADS.md](docs/LEADS.md).
+
+1. Someone enquires about a property. Claude Haiku asks what they want: buy
+   or rent, property type, area, budget, timeline and how they'll pay.
+2. The code scores each lead out of 100 (hot, warm or cold) and saves it in
+   Supabase.
+3. Agents get a WhatsApp alert for every hot lead, or whenever someone asks
+   for an agent. Agents can text `leads` to see the latest enquiries.
+
 ## Phase 3 (in progress): birthday and event flyers for WhatsApp groups
 
 Runs on its own WhatsApp number when `FLYER_PHONE_NUMBER_ID` is set. Setup and
@@ -96,6 +108,11 @@ src/
       summarise.ts       the AI step (sort the day's updates into a report)
       report.ts          formats the report, Lagos dates and times
       store.ts           sites, teams, updates, photos and sent reports
+    leads/               real estate lead qualifier
+      index.ts           the conversation, agent alerts, "leads" list
+      understand.ts      the AI step (pull out answers, write next question)
+      qualify.ts         the questions and the lead score
+      store.ts           saves leads in Supabase
     flyer/               Phase 3 birthday and event flyers
       index.ts           admin commands, adding members, due birthday flyers
       render.ts          draws the flyer pictures

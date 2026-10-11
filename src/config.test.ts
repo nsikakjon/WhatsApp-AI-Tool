@@ -52,6 +52,20 @@ describe("loadConfig", () => {
     });
   });
 
+  it("switches on the lead qualifier only when its number is set, and needs agents", () => {
+    expect(loadConfig(base).leads).toBeUndefined();
+    const on = { ...base, LEADS_PHONE_NUMBER_ID: "leads", ANTHROPIC_API_KEY: "a" };
+    expect(() => loadConfig(on)).toThrow("LEADS_AGENT_WA_IDS");
+    expect(() => loadConfig({ ...on, LEADS_AGENT_WA_IDS: " , " })).toThrow("at least one");
+    expect(loadConfig({ ...on, LEADS_AGENT_WA_IDS: "+234 801 234 5678, 2348098765432" }).leads).toEqual({
+      phoneNumberId: "leads",
+      anthropicApiKey: "a",
+      model: "claude-haiku-5-5",
+      businessName: "our real estate team",
+      agentWaIds: ["2348012345678", "2348098765432"],
+    });
+  });
+
   it("rejects a report hour that isn't 0 to 23", () => {
     expect(() => loadConfig({ ...base, SITE_REPORT_HOUR: "25" })).toThrow("SITE_REPORT_HOUR");
   });
