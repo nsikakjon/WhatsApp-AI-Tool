@@ -22,7 +22,8 @@ Runs when `ACTIVE_PRODUCT=quote`.
 3. The code prices it from the price list in Supabase and replies with an
    itemised quote and an order number (e.g. KP-1001).
 4. The customer replies YES: the quote becomes a confirmed order and the owner
-   gets a WhatsApp alert. Payment (Paystack) comes later.
+   gets a WhatsApp alert. Online payment for orders comes later
+   (Flutterwave is already set up for flyer plans: docs/PAYMENTS.md).
 
 To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, then
 `supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote

@@ -257,11 +257,16 @@ Anyone can send `plans` to see them with prices, and `plan` to see their
 group's plan, member count and end date. When an admin tries something their
 plan doesn't include, the bot says which plan has it.
 
-**Getting paid (for now, by hand):**
+**Getting paid automatically (Flutterwave):** once payments are set up
+(see [PAYMENTS.md](PAYMENTS.md)), `upgrade standard` replies with a payment
+link, and the group switches over by itself as soon as it's paid. Admins can
+pay for up to 12 months at once (`upgrade premium 3 months`).
+
+**Getting paid by hand** (when Flutterwave is off, or for Organisation):
 
 1. The admin sends `upgrade standard` (or `upgrade premium`). You get a
    WhatsApp message with their number, group and plan.
-2. Send them your bank details or a Paystack payment link and collect the money.
+2. Send them your bank details and collect the money.
 3. Once paid, send the bot (from your owner number):
    ```
    set plan standard 1 month for Unilag Class of 2010
