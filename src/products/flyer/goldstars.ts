@@ -356,15 +356,16 @@ export async function renderGoldStars({
   // Headline and name, bottom left.
   ctx.fillStyle = "#2b2b2b";
   ctx.font = '150px "Poppins ExtraBold"';
-  ctx.fillText("Happy", 70, 1075);
+  ctx.fillText("Happy", 70, 1058);
   ctx.font = '64px "Poppins ExtraBold"';
-  ctx.fillText("BIRTHDAY", 82, 1168);
+  ctx.fillText("BIRTHDAY", 82, 1146);
   ctx.save();
   ctx.font = '112px "Great Vibes"';
-  ctx.fillStyle = "#ffffff";
-  ctx.shadowColor = "rgba(80,40,0,0.45)";
-  ctx.shadowBlur = 10;
-  ctx.shadowOffsetY = 3;
+  // Deep chocolate script with a soft light halo, so it reads on the pale bloom and the gold.
+  ctx.fillStyle = "#4a2300";
+  ctx.shadowColor = "rgba(255,248,230,0.9)";
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 0;
   let size = 112;
   while (ctx.measureText(name).width > 500 && size > 48) {
     size -= 4;
