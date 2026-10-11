@@ -27,6 +27,18 @@ export interface Config {
     orderPrefix: string;
     ownerWaId?: string;
   };
+  /**
+   * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
+   * messages to that WhatsApp number go to the site reporter, and everything
+   * else still goes to ACTIVE_PRODUCT.
+   */
+  site?: {
+    phoneNumberId: string;
+    anthropicApiKey: string;
+    model: string;
+    /** Lagos hour (0-23) when the daily report is sent. */
+    reportHour: number;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -41,6 +53,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const activeProduct = env.ACTIVE_PRODUCT || "echo";
   if (activeProduct !== "echo" && activeProduct !== "quote") {
     throw new Error(`ACTIVE_PRODUCT must be "echo" or "quote" (got "${activeProduct}")`);
+  }
+
+  const reportHour = Number(env.SITE_REPORT_HOUR || 18);
+  if (!Number.isInteger(reportHour) || reportHour < 0 || reportHour > 23) {
+    throw new Error(`SITE_REPORT_HOUR must be a whole hour from 0 to 23 (got "${env.SITE_REPORT_HOUR}")`);
   }
 
   return {
@@ -70,5 +87,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             ownerWaId: env.QUOTE_OWNER_WA_ID?.replace(/\D/g, "") || undefined,
           }
         : undefined,
+    site: env.SITE_PHONE_NUMBER_ID
+      ? {
+          phoneNumberId: env.SITE_PHONE_NUMBER_ID,
+          anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+          model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+          reportHour,
+        }
+      : undefined,
   };
 }

@@ -26,6 +26,9 @@ describe("WhatsApp client", () => {
       type: "text",
       text: { body: "Hi" },
     });
+
+    await client.sendText("2348012345678", "Hi", "OTHER_PNID");
+    expect(captured?.url).toBe("https://graph.facebook.com/v23.0/OTHER_PNID/messages");
   });
 
   it("throws with Meta's error message when the send fails", async () => {

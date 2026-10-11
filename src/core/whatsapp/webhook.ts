@@ -3,6 +3,7 @@ import type { MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
+import { sendAndRecord } from "./outbox.js";
 import { extractMessages } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage } from "./types.js";
@@ -91,10 +92,16 @@ async function handleMessage(
   const history = await deps.store.recentHistory(contactId, HISTORY_LIMIT, msg.waMessageId);
   const product = deps.route(msg);
   log.info(`Message ${msg.waMessageId} (${msg.type}) from ${mask(msg.from)} -> ${product.name}`);
-  const reply = await product.handle(msg, { contactId, history });
+  const reply = await product.handle(msg, {
+    contactId,
+    history,
+    downloadMedia: (mediaId) => deps.whatsapp.downloadMedia(mediaId),
+  });
   if (!reply) return;
 
-  const sent = await deps.whatsapp.sendText(msg.from, reply.text);
+  // Answer from the same number the person messaged.
+  const fromNumber = msg.businessNumberId;
+  const sent = await deps.whatsapp.sendText(msg.from, reply.text, fromNumber);
   log.info(`Replied to ${mask(msg.from)}`);
   await deps.store.recordOutbound(contactId, {
     waMessageId: sent.waMessageId,
@@ -107,14 +114,7 @@ async function handleMessage(
   // but doesn't undo the customer's reply, which has already gone out.
   for (const note of reply.notify ?? []) {
     try {
-      const noteContactId = await deps.store.upsertContact(note.to);
-      const noteSent = await deps.whatsapp.sendText(note.to, note.text);
-      await deps.store.recordOutbound(noteContactId, {
-        waMessageId: noteSent.waMessageId,
-        type: "text",
-        body: note.text,
-        raw: noteSent.raw,
-      });
+      await sendAndRecord(deps, note.to, note.text, fromNumber);
     } catch (err) {
       log.error(`Failed to send notification to ${note.to}:`, err);
     }

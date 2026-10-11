@@ -40,4 +40,19 @@ describe("loadConfig", () => {
     expect(loadConfig(base).groq).toBeUndefined();
     expect(loadConfig({ ...base, GROQ_API_KEY: "g" }).groq).toEqual({ apiKey: "g", model: "whisper-large-v3" });
   });
+
+  it("switches on the site reporter only when its number is set", () => {
+    expect(loadConfig(base).site).toBeUndefined();
+    expect(() => loadConfig({ ...base, SITE_PHONE_NUMBER_ID: "site" })).toThrow("ANTHROPIC_API_KEY");
+    expect(loadConfig({ ...base, SITE_PHONE_NUMBER_ID: "site", ANTHROPIC_API_KEY: "a" }).site).toEqual({
+      phoneNumberId: "site",
+      anthropicApiKey: "a",
+      model: "claude-haiku-5-5",
+      reportHour: 18,
+    });
+  });
+
+  it("rejects a report hour that isn't 0 to 23", () => {
+    expect(() => loadConfig({ ...base, SITE_REPORT_HOUR: "25" })).toThrow("SITE_REPORT_HOUR");
+  });
 });
