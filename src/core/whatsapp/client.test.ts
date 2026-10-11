@@ -45,6 +45,62 @@ describe("WhatsApp client", () => {
     await expect(client.sendText("1", "x")).rejects.toThrow("Invalid OAuth access token");
   });
 
+  it("uploads a picture, then sends it with its caption", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: init.body });
+      if (url.endsWith("/media")) return new Response(JSON.stringify({ id: "media-9" }), { status: 200 });
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.img" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "TOKEN", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+
+    const result = await client.sendImage("2348012345678", { data: new Uint8Array([1, 2]), mimeType: "image/jpeg", caption: "Hi" }, "OTHER");
+
+    expect(result.waMessageId).toBe("wamid.img");
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://graph.facebook.com/v23.0/OTHER/media",
+      "https://graph.facebook.com/v23.0/OTHER/messages",
+    ]);
+    const form = calls[0]!.body as FormData;
+    expect(form.get("messaging_product")).toBe("whatsapp");
+    expect((form.get("file") as Blob).size).toBe(2);
+    expect(JSON.parse(calls[1]!.body as string)).toMatchObject({
+      to: "2348012345678",
+      type: "image",
+      image: { id: "media-9", caption: "Hi" },
+    });
+  });
+
+  it("sends a template with a picture header and body values", async () => {
+    const bodies: unknown[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      if (url.endsWith("/media")) return new Response(JSON.stringify({ id: "media-7" }), { status: 200 });
+      bodies.push(JSON.parse(init.body as string));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.t" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "TOKEN", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+
+    await client.sendTemplate("234", {
+      name: "birthday_flyer",
+      language: "en",
+      headerImage: { data: new Uint8Array([1]), mimeType: "image/jpeg" },
+      bodyParams: ["Ada", "Happy\nbirthday"],
+    });
+
+    expect(bodies[0]).toMatchObject({
+      to: "234",
+      type: "template",
+      template: {
+        name: "birthday_flyer",
+        language: { code: "en" },
+        components: [
+          { type: "header", parameters: [{ type: "image", image: { id: "media-7" } }] },
+          { type: "body", parameters: [{ type: "text", text: "Ada" }, { type: "text", text: "Happy birthday" }] },
+        ],
+      },
+    });
+  });
+
   it("downloads media in two steps, sending the token both times", async () => {
     const calls: Array<{ url: string; auth?: string }> = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {

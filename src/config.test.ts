@@ -69,4 +69,25 @@ describe("loadConfig", () => {
   it("rejects a report hour that isn't 0 to 23", () => {
     expect(() => loadConfig({ ...base, SITE_REPORT_HOUR: "25" })).toThrow("SITE_REPORT_HOUR");
   });
+
+  it("switches on the flyer bot only when its number is set", () => {
+    expect(loadConfig(base).flyer).toBeUndefined();
+    expect(() => loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f" })).toThrow("FLYER_OWNER_WA_IDS");
+    expect(loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "+234 801 234 5678, 2348000000002" }).flyer).toEqual({
+      phoneNumberId: "f",
+      ownerWaIds: ["2348012345678", "2348000000002"],
+      openSignup: true,
+      brandName: "Flyer Bot",
+      credit: "",
+      sendHour: 8,
+      anthropicApiKey: undefined,
+      model: "claude-haiku-5-5",
+      template: undefined,
+    });
+    expect(
+      loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "1", FLYER_TEMPLATE_NAME: "birthday_flyer" }).flyer?.template,
+    ).toEqual({ name: "birthday_flyer", language: "en" });
+    expect(loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "1", FLYER_OPEN_SIGNUP: "false" }).flyer?.openSignup).toBe(false);
+    expect(() => loadConfig({ ...base, FLYER_SEND_HOUR: "24" })).toThrow("FLYER_SEND_HOUR");
+  });
 });

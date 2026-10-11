@@ -25,6 +25,12 @@ export interface MessageStore {
    * the message with `excludeWaMessageId` (the one being handled right now).
    */
   recentHistory(contactId: string, limit: number, excludeWaMessageId?: string): Promise<HistoryEntry[]>;
+  /**
+   * When this person last messaged us, or null if never. WhatsApp only lets us
+   * send them ordinary messages within 24 hours of that; after that, only
+   * pre-approved template messages get through.
+   */
+  lastInboundAt(waId: string): Promise<Date | null>;
 }
 
 // Postgres error code for "unique constraint violated".
@@ -90,6 +96,19 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         .slice(0, limit)
         .reverse()
         .map((row) => ({ direction: row.direction as HistoryEntry["direction"], text: row.body as string }));
+    },
+
+    async lastInboundAt(waId) {
+      const { data, error } = await db
+        .from("messages")
+        .select("created_at, contacts!inner(wa_id)")
+        .eq("contacts.wa_id", waId)
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(`lastInboundAt failed: ${error.message}`);
+      return data ? new Date(data.created_at as string) : null;
     },
   };
 }

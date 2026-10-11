@@ -6,8 +6,44 @@ export interface WhatsAppClient {
    * `fromNumberId` picks which of our numbers sends it (default: the one in settings).
    */
   sendText(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a picture (e.g. a flyer) with an optional caption: uploads it to
+   * WhatsApp first, then sends it. Returns WhatsApp's ID for the sent message.
+   */
+  sendImage(
+    to: string,
+    image: OutgoingImage,
+    fromNumberId?: string,
+  ): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a pre-approved template message, the only kind WhatsApp delivers
+   * more than 24 hours after the person last messaged us.
+   */
+  sendTemplate(
+    to: string,
+    template: OutgoingTemplate,
+    fromNumberId?: string,
+  ): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
+}
+
+export interface OutgoingImage {
+  data: Uint8Array;
+  /** image/jpeg or image/png (the only picture types WhatsApp accepts). */
+  mimeType: string;
+  caption?: string;
+}
+
+export interface OutgoingTemplate {
+  /** The template's name in WhatsApp Manager, e.g. "birthday_flyer". */
+  name: string;
+  /** Its language code, e.g. "en". */
+  language: string;
+  /** A picture for a template with an image header. */
+  headerImage?: OutgoingImage;
+  /** Values for {{1}}, {{2}}, ... in the template's body, in order. */
+  bodyParams: string[];
 }
 
 export interface WhatsAppClientOptions {
@@ -22,34 +58,73 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
   const graph = `https://graph.facebook.com/${opts.graphApiVersion}`;
   const auth = { Authorization: `Bearer ${opts.accessToken}` };
 
+  async function send(fromNumberId: string | undefined, message: Record<string, unknown>) {
+    const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
+    const res = await doFetch(url, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...message }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      messages?: Array<{ id: string }>;
+      error?: { message?: string; code?: number };
+    };
+    if (!res.ok) {
+      throw new Error(`WhatsApp send failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+    }
+    return { waMessageId: data.messages?.[0]?.id ?? "", raw: data as unknown };
+  }
+
+  async function uploadImage(fromNumberId: string | undefined, image: OutgoingImage): Promise<string> {
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", image.mimeType);
+    const ext = image.mimeType === "image/png" ? "png" : "jpg";
+    form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `image.${ext}`);
+    const res = await doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, {
+      method: "POST",
+      headers: auth,
+      body: form,
+    });
+    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok || !data.id) {
+      throw new Error(`WhatsApp image upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+    }
+    return data.id;
+  }
+
   return {
     async sendText(to, body, fromNumberId) {
-      const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
-      const res = await doFetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${opts.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to,
-          type: "text",
-          text: { preview_url: false, body },
-        }),
-      });
+      return send(fromNumberId, { to, type: "text", text: { preview_url: false, body } });
+    },
 
-      const data = (await res.json().catch(() => ({}))) as {
-        messages?: Array<{ id: string }>;
-        error?: { message?: string; code?: number };
-      };
-      if (!res.ok) {
-        throw new Error(
-          `WhatsApp send failed (${res.status}): ${data.error?.message ?? "unknown error"}`,
-        );
+    async sendImage(to, image, fromNumberId) {
+      const mediaId = await uploadImage(fromNumberId, image);
+      return send(fromNumberId, {
+        to,
+        type: "image",
+        image: image.caption ? { id: mediaId, caption: image.caption } : { id: mediaId },
+      });
+    },
+
+    async sendTemplate(to, template, fromNumberId) {
+      const components: unknown[] = [];
+      if (template.headerImage) {
+        const mediaId = await uploadImage(fromNumberId, template.headerImage);
+        components.push({ type: "header", parameters: [{ type: "image", image: { id: mediaId } }] });
       }
-      return { waMessageId: data.messages?.[0]?.id ?? "", raw: data };
+      if (template.bodyParams.length) {
+        components.push({
+          type: "body",
+          // WhatsApp rejects template values containing line breaks or tabs.
+          parameters: template.bodyParams.map((text) => ({ type: "text", text: text.replace(/\s+/g, " ").trim() })),
+        });
+      }
+      return send(fromNumberId, {
+        to,
+        type: "template",
+        template: { name: template.name, language: { code: template.language }, components },
+      });
     },
 
     async downloadMedia(mediaId) {

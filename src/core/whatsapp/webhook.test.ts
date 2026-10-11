@@ -33,6 +33,9 @@ function memoryStore() {
     async recentHistory() {
       return [];
     },
+    async lastInboundAt() {
+      return null;
+    },
     async setInboundText(waMessageId, text) {
       inboundText.set(waMessageId, text);
     },
@@ -52,6 +55,15 @@ function setup(
       sent.push({ to, body });
       sentFrom.push(fromNumberId);
       if (to === "FAIL") throw new Error("send failed");
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendTemplate(to, template) {
+      sent.push({ to, body: `[template] ${template.name}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendImage(to, image, fromNumberId) {
+      sent.push({ to, body: `[image] ${image.caption ?? ""}` });
+      sentFrom.push(fromNumberId);
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
     async downloadMedia(mediaId) {
@@ -145,6 +157,38 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     await post(app, body, sign(body));
     expect(sent.map((s) => s.body)).toEqual(["from other", "alert"]);
     expect(sentFrom).toEqual(["PNID", "PNID"]);
+  });
+
+  it("sends pictures after the text, and no text when the text is empty", async () => {
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg" };
+    let text = "Here it is";
+    const pics: Product = { name: "pics", handle: async () => ({ text, images: [{ ...image, caption: "Flyer" }] }) };
+    const { app, sent } = setup(pics);
+    let body = textWebhook("wamid.pic1", "Hello");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer"]);
+
+    text = "";
+    body = textWebhook("wamid.pic2", "Hello");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer", "[image] Flyer"]);
+  });
+
+  it("lets a product send a follow-up reply after answering", async () => {
+    let later: ((r: { text: string }) => Promise<void>) | undefined;
+    const slow: Product = {
+      name: "slow",
+      handle: async (_msg, ctx) => {
+        later = ctx.sendLater;
+        return { text: "Working on it" };
+      },
+    };
+    const { app, sent, outbound } = setup(slow);
+    const body = textWebhook("wamid.later", "go");
+    await post(app, body, sign(body));
+    await later!({ text: "All done" });
+    expect(sent.map((s) => s.body)).toEqual(["Working on it", "All done"]);
+    expect(outbound).toContain("All done");
   });
 
   it("passes a photo's caption and media id to the product", async () => {

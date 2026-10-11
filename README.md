@@ -53,6 +53,24 @@ steps: [docs/LEADS.md](docs/LEADS.md).
 3. Agents get a WhatsApp alert for every hot lead, or whenever someone asks
    for an agent. Agents can text `leads` to see the latest enquiries.
 
+## Phase 3 (in progress): birthday and event flyers for WhatsApp groups
+
+Runs on its own WhatsApp number when `FLYER_PHONE_NUMBER_ID` is set. Setup and
+commands: [docs/FLYERS.md](docs/FLYERS.md).
+
+1. Group admins (alumni, friends groups) send members' photos captioned
+   "add Ada Okafor, 14 March", or a whole list at once as a CSV file or Google
+   Sheets link, and the group logo captioned "logo".
+2. On each birthday morning the bot makes the member's birthday flyer, with a
+   short message written by Claude Haiku, and sends it to the admins to
+   forward to the group and tag the member.
+3. Any other photo comes back as an event flyer: the photo with the logo and
+   its caption on it.
+4. Admins pick from eleven designs (`design`), their own colour or their own
+   background picture. Designs live in `src/products/flyer/themes.ts`.
+5. With open sign-up, anyone who messages the number can set up their own
+   group, and the owner gets an alert for each sign-up.
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
@@ -75,7 +93,7 @@ src/
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
       outbox.ts          sends and saves alerts and scheduled messages
-    schedule.ts          runs a task on a timer (daily reports)
+    schedule.ts          runs a task on a timer (daily reports, birthdays)
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/
@@ -95,6 +113,17 @@ src/
       understand.ts      the AI step (pull out answers, write next question)
       qualify.ts         the questions and the lead score
       store.ts           saves leads in Supabase
+    flyer/               Phase 3 birthday and event flyers
+      index.ts           admin commands, adding members, due birthday flyers
+      render.ts          draws the flyer pictures
+      themes.ts          the flyer designs (colours and layouts): edit here
+      goldstars.ts       draws design 7 (gold stars)
+      designs4.ts        draws designs 8 to 11 (gala, sunflowers, white and gold, calendar)
+      dates.ts           reads birthdays, Lagos dates
+      import.ts          reads member lists (CSV, Google Sheets) and photo links
+      wish.ts            the AI step (a short birthday message)
+      store.ts           groups, admins, members, photos and sent flyers
+assets/fonts/            fonts used on flyers (open licence)
 supabase/migrations/     database tables (run in Supabase's SQL Editor)
 ```
 

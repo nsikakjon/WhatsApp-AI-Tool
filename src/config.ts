@@ -51,6 +51,28 @@ export interface Config {
     /** WhatsApp numbers (digits only) of the agents who get hot-lead alerts. */
     agentWaIds: string[];
   };
+  /**
+   * Birthday and event flyers for WhatsApp groups. Only set when
+   * FLYER_PHONE_NUMBER_ID is: messages to that number go to the flyer bot.
+   */
+  flyer?: {
+    phoneNumberId: string;
+    /** WhatsApp numbers that run the service: can always create groups, and hear about sign-ups. */
+    ownerWaIds: string[];
+    /** Let anyone set up a group of their own. */
+    openSignup: boolean;
+    /** The service's name, used when greeting new people. */
+    brandName: string;
+    /** Small print on every flyer. Empty for none. */
+    credit: string;
+    /** Lagos hour (0-23) from which birthday flyers go out. */
+    sendHour: number;
+    /** Writes the birthday messages. Without it, ready-made messages are used. */
+    anthropicApiKey?: string;
+    model: string;
+    /** Approved WhatsApp template for flyers to admins who haven't messaged in 24 hours. */
+    template?: { name: string; language: string };
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -70,6 +92,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const reportHour = Number(env.SITE_REPORT_HOUR || 18);
   if (!Number.isInteger(reportHour) || reportHour < 0 || reportHour > 23) {
     throw new Error(`SITE_REPORT_HOUR must be a whole hour from 0 to 23 (got "${env.SITE_REPORT_HOUR}")`);
+  }
+
+  const flyerHour = Number(env.FLYER_SEND_HOUR || 8);
+  if (!Number.isInteger(flyerHour) || flyerHour < 0 || flyerHour > 23) {
+    throw new Error(`FLYER_SEND_HOUR must be a whole hour from 0 to 23 (got "${env.FLYER_SEND_HOUR}")`);
   }
 
   return {
@@ -114,6 +141,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
           businessName: env.LEADS_BUSINESS_NAME || "our real estate team",
           agentWaIds: agentNumbers(required(env, "LEADS_AGENT_WA_IDS")),
+        }
+      : undefined,
+    flyer: env.FLYER_PHONE_NUMBER_ID
+      ? {
+          phoneNumberId: env.FLYER_PHONE_NUMBER_ID,
+          ownerWaIds: required(env, "FLYER_OWNER_WA_IDS")
+            .split(",")
+            .map((n) => n.replace(/\D/g, ""))
+            .filter(Boolean),
+          openSignup: !/^(false|no|off|0)$/i.test(env.FLYER_OPEN_SIGNUP ?? ""),
+          brandName: env.FLYER_BRAND_NAME || "Flyer Bot",
+          credit: env.FLYER_CREDIT ?? "",
+          sendHour: flyerHour,
+          anthropicApiKey: env.ANTHROPIC_API_KEY || undefined,
+          model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+          template: env.FLYER_TEMPLATE_NAME
+            ? { name: env.FLYER_TEMPLATE_NAME, language: env.FLYER_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
         }
       : undefined,
   };

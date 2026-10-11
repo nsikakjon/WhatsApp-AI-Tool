@@ -95,6 +95,7 @@ const ctx = {
   contactId: "c1",
   history: [],
   downloadMedia: async () => ({ data: new Blob(["jpg"]), mimeType: "image/jpeg" }),
+  sendLater: async () => {},
 };
 
 describe("site reporter: logging updates", () => {
