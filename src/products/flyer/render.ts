@@ -3,6 +3,7 @@
 // Pure drawing code: it takes image bytes and text, and returns a JPEG.
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
+import { renderGoldStars } from "./goldstars.js";
 import { themeById, type Theme } from "./themes.js";
 
 // The fonts ship with the code (assets/fonts), so flyers look the same on
@@ -45,6 +46,8 @@ export interface BirthdayFlyerInput {
   groupName: string;
   logo?: Uint8Array;
   style?: FlyerStyle;
+  /** The birthday message. Only the "stars" design prints it; previews use a sample. */
+  wish?: string;
 }
 
 export interface EventFlyerInput {
@@ -59,6 +62,17 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
   const style = input.style ?? DEFAULT_STYLE;
   const theme = style.theme;
   const accent = style.accent ?? theme.accent;
+  if (theme.layout === "stars") {
+    return renderGoldStars({
+      photo: input.photo ?? (await initialsPortrait(input.name, theme.background, accent)),
+      name: input.name,
+      dateLabel: input.dateLabel,
+      groupName: input.groupName,
+      wish: input.wish,
+      logo: input.logo,
+      credit: style.credit,
+    });
+  }
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
 

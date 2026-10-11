@@ -519,6 +519,13 @@ describe("flyer bot: plans", () => {
     }
   });
 
+  it("gives the drawing step the birthday message, for the design that prints it", async () => {
+    const { bot, render } = await withGroup();
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx);
+    expect(render.birthday.mock.calls.at(-1)![0]).toMatchObject({ wish: "Happy birthday Ada Okafor from Unilag Class of 2010" });
+  });
+
   it("passes upgrade requests to the owners", async () => {
     const { bot } = await withGroup({ plan: "free" });
     const reply = await bot.handle(msg(OWNER, { text: "upgrade standard" }), ctx);

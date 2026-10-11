@@ -12,8 +12,11 @@ export interface Theme {
   /**
    * "circle": round photo in the middle with a coloured ring.
    * "full": the photo fills the top of the flyer and fades into the colour below.
+   * "stars": a gold card with a big round photo, the birthday message beside it,
+   *   and foil balloon stars (drawn in goldstars.ts; the colours below are only
+   *   used for the photo outline when a member has no photo).
    */
-  layout: "circle" | "full";
+  layout: "circle" | "full" | "stars";
   /** Background, top-left to bottom-right. Use the same colour twice for a flat one. */
   background: [string, string];
   /** "Happy", the photo ring, the date, and the line on event flyers. */
@@ -85,6 +88,16 @@ export const THEMES: Theme[] = [
     accent: "#d4af37",
     text: "#ffffff",
     muted: "rgba(255,255,255,0.75)",
+    confetti: false,
+  },
+  {
+    id: "goldstars",
+    label: "Gold stars and glitter",
+    layout: "stars",
+    background: ["#c98a2c", "#e8a33a"],
+    accent: "#fff3c4",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
     confetti: false,
   },
 ];

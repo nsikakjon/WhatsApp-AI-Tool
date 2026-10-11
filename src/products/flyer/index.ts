@@ -254,7 +254,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     };
   }
 
-  async function birthdayFlyer(member: Member, group: Group): Promise<Uint8Array> {
+  async function birthdayFlyer(member: Member, group: Group, wish?: string): Promise<Uint8Array> {
     return render.birthday({
       style: await styleFor(group),
       photo: member.photoPath ? await opts.store.loadPicture(member.photoPath) : undefined,
@@ -262,6 +262,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       dateLabel: formatMonthDay(member.birthday),
       groupName: group.name,
       logo: await logoFor(group),
+      wish,
     });
   }
 
@@ -500,7 +501,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const images = [];
       for (const m of celebrants) {
         const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
-        images.push({ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: withCredit(group, wish) });
+        images.push({ data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) });
       }
       return { text: forwardTip(celebrants.map((m) => m.name), group.name), images };
     }
@@ -511,7 +512,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (found.length !== 1) return { text: notFound(found, flyerFor[1]!) };
       const m = found[0]!;
       const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
-      return { text: "", images: [{ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: withCredit(group, wish) }] };
+      return { text: "", images: [{ data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) }] };
     }
 
     const remove = text.match(/^(?:remove|delete)\s+(.+)$/i);
@@ -830,8 +831,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         if (!(await opts.store.claimBirthday(member.id, today.year))) continue;
         let delivered = 0;
         try {
-          const flyer = await birthdayFlyer(member, group);
-          const wish = withCredit(group, await opts.wishes.write({ name: member.name, groupName: group.name }));
+          const written = await opts.wishes.write({ name: member.name, groupName: group.name });
+          const flyer = await birthdayFlyer(member, group, written);
+          const wish = withCredit(group, written);
           for (const to of admins) {
             try {
               await delivery.send({ to, memberName: member.name, groupName: group.name, flyer, wish });
