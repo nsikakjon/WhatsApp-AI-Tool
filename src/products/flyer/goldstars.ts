@@ -276,6 +276,41 @@ export async function renderGoldStars({
   glitter(ctx, rand, pc.x - pc.r - 40, pc.y - 60, pc.r * 2 + 20, pc.r + 120, 900, ["#fff8e1", "#ffe08a", "#ffffff"]);
   ctx.restore();
 
+  // Date badge on the photo's lower-right edge: the day big, the month under it.
+  {
+    const br = 82;
+    const bx = pc.x + Math.cos(0.72) * pc.r;
+    const by = pc.y + Math.sin(0.72) * pc.r;
+    const [day = "", ...rest] = dateLabel.trim().split(/\s+/);
+    const month = rest.join(" ").slice(0, 3).toUpperCase();
+    ctx.save();
+    ctx.shadowColor = "rgba(70,35,0,0.4)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+    const ring = ctx.createLinearGradient(bx - br, by - br, bx + br, by + br);
+    ring.addColorStop(0, "#fff3c4");
+    ring.addColorStop(0.5, "#d9a03a");
+    ring.addColorStop(1, "#8a5a12");
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#fffaf0";
+    ctx.beginPath();
+    ctx.arc(bx, by, br - 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#2b2b2b";
+    ctx.font = '64px "Poppins ExtraBold"';
+    ctx.fillText(day, bx, by + 14);
+    ctx.fillStyle = "#b8801f";
+    ctx.font = '24px "Poppins SemiBold"';
+    ctx.fillText(month, bx, by + 46);
+    ctx.textAlign = "left";
+  }
+
   // Wish on the right.
   const tx = 760,
     tw = 230;
@@ -337,9 +372,6 @@ export async function renderGoldStars({
   }
   ctx.fillText(name, 90, 1250);
   ctx.restore();
-  ctx.fillStyle = "#7a4a10";
-  ctx.font = '30px "Poppins SemiBold"';
-  ctx.fillText(dateLabel, 92, 1325);
 
   // The big gold star in front, bottom right.
   foilStar(ctx, 815, 1045, 225, 0.05, "gold");
