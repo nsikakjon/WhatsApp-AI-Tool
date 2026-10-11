@@ -41,6 +41,18 @@ Runs on its own WhatsApp number when `SITE_PHONE_NUMBER_ID` is set. Setup steps:
    steps) and it goes to the site's managers on WhatsApp. Managers can also
    send `report` any time.
 
+## Real estate lead qualifier (in progress)
+
+Runs on its own WhatsApp number when `LEADS_PHONE_NUMBER_ID` is set. Setup
+steps: [docs/LEADS.md](docs/LEADS.md).
+
+1. Someone enquires about a property. Claude Haiku asks what they want: buy
+   or rent, property type, area, budget, timeline and how they'll pay.
+2. The code scores each lead out of 100 (hot, warm or cold) and saves it in
+   Supabase.
+3. Agents get a WhatsApp alert for every hot lead, or whenever someone asks
+   for an agent. Agents can text `leads` to see the latest enquiries.
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
@@ -78,6 +90,11 @@ src/
       summarise.ts       the AI step (sort the day's updates into a report)
       report.ts          formats the report, Lagos dates and times
       store.ts           sites, teams, updates, photos and sent reports
+    leads/               real estate lead qualifier
+      index.ts           the conversation, agent alerts, "leads" list
+      understand.ts      the AI step (pull out answers, write next question)
+      qualify.ts         the questions and the lead score
+      store.ts           saves leads in Supabase
 supabase/migrations/     database tables (run in Supabase's SQL Editor)
 ```
 

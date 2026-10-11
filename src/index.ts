@@ -13,6 +13,9 @@ import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
+import { createLeadQualifier } from "./products/leads/index.js";
+import { createSupabaseLeadStore } from "./products/leads/store.js";
+import { createClaudeLeadUnderstander } from "./products/leads/understand.js";
 import { runEvery } from "./core/schedule.js";
 import { sendAndRecord } from "./core/whatsapp/outbox.js";
 
@@ -48,6 +51,21 @@ const siteReporter = siteConfig
     })
   : undefined;
 
+// The lead qualifier answers its own WhatsApp number (LEADS_PHONE_NUMBER_ID).
+const leadsConfig = config.leads;
+const leadQualifier = leadsConfig
+  ? createLeadQualifier({
+      store: createSupabaseLeadStore(supabase),
+      ai: createClaudeLeadUnderstander({
+        apiKey: leadsConfig.anthropicApiKey,
+        model: leadsConfig.model,
+        businessName: leadsConfig.businessName,
+      }),
+      businessName: leadsConfig.businessName,
+      agentWaIds: leadsConfig.agentWaIds,
+    })
+  : undefined;
+
 const store = createSupabaseStore(supabase);
 const whatsapp = createWhatsAppClient(config.whatsapp);
 
@@ -57,8 +75,11 @@ const app = createApp({
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
-  route: (msg) =>
-    siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId ? siteReporter : product,
+  route: (msg) => {
+    if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
+    if (leadQualifier && msg.businessNumberId === leadsConfig?.phoneNumberId) return leadQualifier;
+    return product;
+  },
 });
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -76,6 +97,6 @@ if (siteReporter && siteConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
   );
 });
