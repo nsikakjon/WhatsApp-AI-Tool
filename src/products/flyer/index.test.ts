@@ -9,6 +9,8 @@ import {
   type BirthdayDeliverer,
   type BirthdayDelivery,
 } from "./index.js";
+import type { PaymentLinks } from "../../core/payments/payments.js";
+import type { Payment } from "../../core/payments/store.js";
 import type { ChatState, FlyerStore, Group, Member } from "./store.js";
 
 const silent = { info: () => {}, error: () => {} };
@@ -109,6 +111,9 @@ function memoryStore(plan = "organisation") {
     async findGroups(q) {
       return groups.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
     },
+    async groupById(groupId) {
+      return groups.find((g) => g.id === groupId) ?? null;
+    },
     async setPlan(groupId, plan, until) {
       Object.assign(groups.find((g) => g.id === groupId)!, { plan, planUntil: until });
     },
@@ -147,7 +152,7 @@ const webFetch = (async (url: string) => {
 
 // Groups start on the plan with everything, so these tests are about the features;
 // the "plans" tests below start on Free.
-function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } = {}) {
+function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; payments?: PaymentLinks } = {}) {
   const mem = memoryStore(opts.plan);
   const render = {
     birthday: vi.fn(async (input: { name: string; logo?: Uint8Array }) =>
@@ -171,6 +176,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } =
     fetch: webFetch,
     onBackground: (work) => void background.push(work),
     now: opts.now,
+    payments: opts.payments,
   });
   return { bot, render, ...mem };
 }
@@ -524,6 +530,72 @@ describe("flyer bot: plans", () => {
     const reply = await bot.handle(msg(OWNER, { text: "upgrade standard" }), ctx);
     expect(reply?.text).toContain("how to pay for *Standard*");
     expect(reply?.notify?.[0]?.text).toContain("set plan standard 1 month for Unilag Class of 2010");
+  });
+});
+
+describe("flyer bot: online payments", () => {
+  const JAN = new Date("2026-01-15T09:00:00Z");
+
+  function paying(failLink = false) {
+    const createLink = vi.fn(async (req: Parameters<PaymentLinks["createLink"]>[0]) => {
+      if (failLink) throw new Error("Flutterwave down");
+      return `https://checkout.flutterwave.com/pay/${req.purpose.plan}`;
+    });
+    return { createLink };
+  }
+
+  const paymentFor = (purpose: Record<string, unknown>, amountKobo: number): Payment => ({
+    id: "p1",
+    txRef: "duro-flyer-1",
+    product: "flyer",
+    waId: OWNER,
+    purpose,
+    amountKobo,
+    currency: "NGN",
+    status: "paid",
+  });
+
+  it("sends a payment link priced from the database for the months asked", async () => {
+    const payments = paying();
+    const { bot, groups } = await withGroup({ plan: "free", payments, now: () => JAN });
+    const reply = await bot.handle(msg(OWNER, { text: "upgrade standard 3 months" }), ctx);
+    expect(payments.createLink).toHaveBeenCalledWith(
+      expect.objectContaining({ product: "flyer", waId: OWNER, amountKobo: 900000, purpose: { groupId: groups[0]!.id, plan: "standard", months: 3 } }),
+    );
+    expect(reply?.text).toContain("₦9,000");
+    expect(reply?.text).toContain("https://checkout.flutterwave.com/pay/standard");
+    expect(reply?.notify).toBeUndefined();
+  });
+
+  it("falls back to the owners when there's no price or Flutterwave fails", async () => {
+    const down = await withGroup({ plan: "free", payments: paying(true) });
+    const reply = await down.bot.handle(msg(OWNER, { text: "upgrade standard" }), ctx);
+    expect(reply?.text).toContain("how to pay for *Standard*");
+    expect(reply?.notify?.[0]?.text).toContain("set plan standard 1 month for");
+
+    const payments = paying();
+    const { bot } = await withGroup({ plan: "free", payments });
+    const org = await bot.handle(msg(OWNER, { text: "upgrade organisation" }), ctx);
+    expect(payments.createLink).not.toHaveBeenCalled();
+    expect(org?.notify?.[0]?.text).toContain("set plan organisation");
+  });
+
+  it("limits a single payment to 12 months", async () => {
+    const { bot } = await withGroup({ plan: "free", payments: paying() });
+    expect((await bot.handle(msg(OWNER, { text: "upgrade premium 2 years" }), ctx))?.text).toContain("1 to 12 months");
+  });
+
+  it("switches the group's plan on once paid, and tells the payer and owners", async () => {
+    const { bot, groups } = await withGroup({ plan: "free", now: () => JAN });
+    const messages = await bot.planPaid(paymentFor({ groupId: groups[0]!.id, plan: "standard", months: 1 }, 300000));
+    expect(groups[0]).toMatchObject({ plan: "standard", planUntil: new Date("2026-02-15T09:00:00Z") });
+    expect(messages[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("₦3,000 received") });
+    expect(messages.some((m) => m.text.startsWith("💰 Paid"))).toBe(true);
+  });
+
+  it("refuses a payment for a group that doesn't exist, so it can be retried", async () => {
+    const { bot } = await withGroup({ plan: "free" });
+    await expect(bot.planPaid(paymentFor({ groupId: "nope", plan: "standard", months: 1 }, 300000))).rejects.toThrow();
   });
 });
 

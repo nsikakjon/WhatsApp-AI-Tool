@@ -72,6 +72,8 @@ export interface FlyerStore {
   releaseBirthday(memberId: string, year: number): Promise<void>;
   /** Active groups whose name contains this text, for owners managing customers' groups. */
   findGroups(nameQuery: string): Promise<Group[]>;
+  /** One group by its id, e.g. the one a payment was for; null if it's gone. */
+  groupById(groupId: string): Promise<Group | null>;
   /** Puts a group on a plan until a date (null: no end date). */
   setPlan(groupId: string, plan: string, until: Date | null): Promise<void>;
   adminCount(groupId: string): Promise<number>;
@@ -289,6 +291,12 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
         .limit(20);
       if (error) throw new Error(`findGroups failed: ${error.message}`);
       return (data ?? []).map((r) => toGroup(r as GroupRow));
+    },
+
+    async groupById(groupId) {
+      const { data, error } = await db.from("flyer_groups").select(GROUP_COLUMNS).eq("id", groupId).maybeSingle();
+      if (error) throw new Error(`groupById failed: ${error.message}`);
+      return data ? toGroup(data as GroupRow) : null;
     },
 
     async setPlan(groupId, plan, until) {

@@ -61,6 +61,20 @@ export interface Config {
     /** Approved WhatsApp template for flyers to admins who haven't messaged in 24 hours. */
     template?: { name: string; language: string };
   };
+  /**
+   * Online payments through Flutterwave payment links. Only set when
+   * FLUTTERWAVE_SECRET_KEY is; without it, upgrades are paid by hand.
+   */
+  flutterwave?: {
+    secretKey: string;
+    /** The secret hash also typed into Flutterwave's webhook settings. */
+    webhookHash: string;
+    /** This server's public address, e.g. https://duro.up.railway.app (for the after-payment page). */
+    publicUrl: string;
+    /** Email put on payments, since Flutterwave requires one. */
+    customerEmail: string;
+    apiUrl: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -138,6 +152,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           template: env.FLYER_TEMPLATE_NAME
             ? { name: env.FLYER_TEMPLATE_NAME, language: env.FLYER_TEMPLATE_LANGUAGE || "en" }
             : undefined,
+        }
+      : undefined,
+    flutterwave: env.FLUTTERWAVE_SECRET_KEY
+      ? {
+          secretKey: env.FLUTTERWAVE_SECRET_KEY,
+          webhookHash: required(env, "FLUTTERWAVE_WEBHOOK_HASH"),
+          publicUrl: required(env, "PUBLIC_URL").replace(/\/+$/, ""),
+          customerEmail: required(env, "FLUTTERWAVE_CUSTOMER_EMAIL"),
+          apiUrl: env.FLUTTERWAVE_API_URL || "https://api.flutterwave.com/v3",
         }
       : undefined,
   };

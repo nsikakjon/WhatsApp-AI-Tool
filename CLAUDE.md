@@ -27,7 +27,7 @@ The owner is not a developer, so explanations matter as much as the code.
 | Messaging          | Meta WhatsApp Cloud API                  |
 | Voice notes        | Groq Whisper (speech to text)            |
 | AI                 | Anthropic API, Claude Haiku              |
-| Payments           | Paystack                                 |
+| Payments           | Flutterwave (payment links)              |
 | Hosting            | Railway                                  |
 
 ## Architecture
@@ -54,7 +54,7 @@ These are non-negotiable.
 
 2. **Prices always come from the database, never from the AI.**
    - The AI may understand what the customer wants, but any price, total or
-     discount shown to a customer or charged through Paystack is looked up and
+     discount shown to a customer or charged through Flutterwave is looked up and
      calculated in code from the database.
    - Never let a model-generated number reach a quote, invoice or payment.
 
@@ -65,9 +65,10 @@ These are non-negotiable.
 
 4. **Every webhook verifies its signature and is idempotent.**
    - WhatsApp: verify the `X-Hub-Signature-256` header against the app secret.
-   - Paystack: verify the `x-paystack-signature` header against the secret key.
+   - Flutterwave: check the `verif-hash` header matches the secret hash, then
+     confirm the transaction with Flutterwave's verify API before acting on it.
    - Reject requests that fail verification before doing any work.
-   - Record each event's unique ID (WhatsApp message ID, Paystack reference/event)
+   - Record each event's unique ID (WhatsApp message ID, Flutterwave tx_ref/transaction ID)
      and skip duplicates, so a retried webhook never sends a second reply,
      creates a second order or marks a payment twice.
 

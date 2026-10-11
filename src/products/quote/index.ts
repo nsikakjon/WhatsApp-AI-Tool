@@ -10,7 +10,7 @@ import type { Understander } from "./understand.js";
 // 2. The AI works out which items and how many (understand.ts).
 // 3. Code prices it from the database (pricing.ts) and saves the quote.
 // 4. The customer replies YES, the quote becomes an order, and the owner gets
-//    a WhatsApp alert. (Payment by Paystack comes later.)
+//    a WhatsApp alert. (Online payment comes later.)
 
 export interface QuoteProductOptions {
   businessName: string;
