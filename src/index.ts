@@ -23,6 +23,9 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
+import { createPayments, type PaidHandler, type Payments } from "./core/payments/payments.js";
+import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
 
@@ -56,6 +59,25 @@ const siteReporter = siteConfig
     })
   : undefined;
 
+const store = createSupabaseStore(supabase);
+const whatsapp = createWhatsAppClient(config.whatsapp);
+
+// Online payments (Flutterwave), when FLUTTERWAVE_SECRET_KEY is set. Each
+// product that sells something registers what happens once it's paid, and
+// which WhatsApp number its thank-you messages come from.
+const paidHandlers: Record<string, PaidHandler> = {};
+const productNumbers: Record<string, string | undefined> = {};
+const payments: Payments | undefined = config.flutterwave
+  ? createPayments({
+      flutterwave: createFlutterwaveClient(config.flutterwave),
+      store: createSupabasePaymentStore(supabase),
+      redirectUrl: `${config.flutterwave.publicUrl}/payments/done`,
+      customerEmail: config.flutterwave.customerEmail,
+      onPaid: paidHandlers,
+      send: (product, to, text) => sendAndRecord({ store, whatsapp }, to, text, productNumbers[product]),
+    })
+  : undefined;
+
 // The flyer bot answers its own WhatsApp number (FLYER_PHONE_NUMBER_ID).
 const flyerConfig = config.flyer;
 const flyerBot = flyerConfig
@@ -67,11 +89,13 @@ const flyerBot = flyerConfig
       brandName: flyerConfig.brandName,
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
+      payments,
     })
   : undefined;
-
-const store = createSupabaseStore(supabase);
-const whatsapp = createWhatsAppClient(config.whatsapp);
+if (flyerBot && flyerConfig) {
+  paidHandlers.flyer = (payment) => flyerBot.planPaid(payment);
+  productNumbers.flyer = flyerConfig.phoneNumberId;
+}
 
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
@@ -84,7 +108,7 @@ const app = createApp({
     if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
     return product;
   },
-});
+}, payments && config.flutterwave ? { payments, webhookHash: config.flutterwave.webhookHash } : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -132,6 +156,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, payments: ${payments ? "Flutterwave" : "off"})`,
   );
 });

@@ -1,3 +1,5 @@
+import type { PaymentLinks } from "../../core/payments/payments.js";
+import type { Payment } from "../../core/payments/store.js";
 import type { Product, Reply } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import {
@@ -68,6 +70,8 @@ export interface FlyerBotOptions {
   onBackground?: (work: Promise<void>) => void;
   /** The current time; tests replace it to check when plans run out. */
   now?: () => Date;
+  /** Online payment links (Flutterwave). Without it, owners take payment by hand and send "set plan". */
+  payments?: PaymentLinks;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -93,6 +97,11 @@ export interface FlyerBot extends Product {
    * run tries again.
    */
   sendDueBirthdays(now: Date, delivery: BirthdayDeliverer): Promise<void>;
+  /**
+   * A plan payment went through: switches the group onto the plan and returns
+   * the messages for the payer and the owners. Called once per payment.
+   */
+  planPaid(payment: Payment): Promise<Array<{ to: string; text: string }>>;
 }
 
 const HELP = `Here's what I can do:
@@ -552,16 +561,20 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
-    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+))?$/i);
+    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+?))?(?:\s+(?:for\s+)?(\d+)\s*(months?|years?))?$/i);
     if (upgrade) {
       const wanted = upgrade[1] ? findPlan(upgrade[1]) : group.plan !== "free" ? findPlan(group.plan) : null;
       if (!wanted || wanted.id === "free") return { text: await plansText() };
+      const months = Number(upgrade[2] ?? 1) * (upgrade[3]?.toLowerCase().startsWith("year") ? 12 : 1);
+      if (!Number.isInteger(months) || months < 1 || months > 12) return { text: "You can pay for 1 to 12 months at a time, e.g. *upgrade standard 3 months*." };
+      const link = await paymentLink(group, wanted, months, from);
+      if (link) return link;
       const contact = `${from}${group.name ? ` for "${group.name}"` : ""}`;
       return {
         text: `Thanks! We'll message you shortly with how to pay for *${wanted.label}*. Your group switches over as soon as it's paid.`,
         notify: opts.owners.map((to) => ({
           to,
-          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} 1 month for ${group.name}`,
+          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} ${months} month${months === 1 ? "" : "s"} for ${group.name}`,
         })),
       };
     }
@@ -610,13 +623,50 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
     const months = Number(count ?? 1) * (unit?.toLowerCase().startsWith("year") ? 12 : 1);
     if (!Number.isInteger(months) || months < 1 || months > 60) return { text: "Please give between 1 month and 5 years." };
-    // Renewing early adds the time on top of what's left.
+    const until = await extendPlan(group, plan, months);
+    log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
+    return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
+  }
+
+  /** Puts a group on a plan for some months. Renewing early adds the time on top of what's left. */
+  async function extendPlan(group: Group, plan: Plan, months: number): Promise<Date> {
     const current = currentPlan(group, now());
     const start = current.id !== "free" && group.planUntil && group.planUntil > now() ? group.planUntil : now();
     const until = addMonths(start, months);
     await opts.store.setPlan(group.id, plan.id, until);
-    log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
-    return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
+    return until;
+  }
+
+  /**
+   * A Flutterwave link to pay for a plan, or null when online payment isn't
+   * available (switched off, price on request, or Flutterwave is down), in
+   * which case the owners handle it by hand. The price comes from the database.
+   */
+  async function paymentLink(group: Group, plan: Plan, months: number, from: string): Promise<Reply | null> {
+    if (!opts.payments) return null;
+    try {
+      const monthly = (await opts.store.planPrices()).get(plan.id);
+      if (monthly === undefined || monthly === null || monthly <= 0) return null;
+      const amountKobo = monthly * months;
+      const link = await opts.payments.createLink({
+        product: "flyer",
+        waId: from,
+        amountKobo,
+        purpose: { groupId: group.id, plan: plan.id, months },
+        title: `${opts.brandName}: ${plan.label}, ${months} month${months === 1 ? "" : "s"}`,
+        payerName: group.name,
+      });
+      return {
+        text: [
+          `*${plan.label}* for *${group.name}*, ${months} month${months === 1 ? "" : "s"}: *${formatNaira(amountKobo)}*.`,
+          `Pay by card, bank transfer or USSD here:\n${link}`,
+          "Your group switches over as soon as the payment goes through, and I'll message you here.",
+        ].join("\n\n"),
+      };
+    } catch (err) {
+      log.error(`Couldn't make a payment link for "${group.name}":`, err);
+      return null;
+    }
   }
 
   /** Null if this person may set up another group, otherwise the reply saying why not. */
@@ -816,6 +866,25 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         }
       }
       return handleCommand(text, msg.from, group, groups);
+    },
+
+    async planPaid(payment) {
+      const { groupId, plan: planId, months } = payment.purpose as { groupId?: string; plan?: string; months?: number };
+      const plan = findPlan(String(planId ?? ""));
+      const group = groupId ? await opts.store.groupById(groupId) : null;
+      if (!plan || !group || !Number.isInteger(months) || months! < 1) {
+        throw new Error(`Payment ${payment.txRef} is for something we can't find: ${JSON.stringify(payment.purpose)}`);
+      }
+      const until = await extendPlan(group, plan, months!);
+      log.info(`Flyer group "${group.name}" paid for ${plan.id} until ${until.toISOString()}`);
+      const paid = formatNaira(payment.amountKobo);
+      return [
+        { to: payment.waId, text: `✅ Payment of ${paid} received, thank you! *${group.name}* is on *${plan.label}* until ${formatDate(until)}.` },
+        ...opts.owners.map((to) => ({
+          to,
+          text: `💰 Paid: ${payment.waId} paid ${paid} for *${plan.label}* (${months} month${months === 1 ? "" : "s"}) for ${group.name}. Active until ${formatDate(until)}.`,
+        })),
+      ];
     },
 
     async sendDueBirthdays(now, delivery) {
