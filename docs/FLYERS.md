@@ -25,7 +25,8 @@ and an admin forwards the flyer, which takes a few seconds:
 Supabase > SQL Editor > New query > paste the whole of
 `supabase/migrations/0005_flyers.sql` > Run. Then do the same with
 `supabase/migrations/0006_flyer_members_optional_photo.sql`, and then
-`supabase/migrations/0007_flyer_plans.sql`.
+`supabase/migrations/0007_flyer_plans.sql`, and
+`supabase/migrations/0008_flyer_chat_state.sql`.
 
 This also creates a private storage bucket called `flyer-photos`, where
 member photos and logos are saved (Supabase > Storage).
@@ -53,9 +54,9 @@ Service > Variables > add:
 | `FLYER_PHONE_NUMBER_ID` | the Phone number ID from step 2                              |
 | `FLYER_OWNER_WA_IDS`    | your WhatsApp number, e.g. `2348024777076` (comma-separate several) |
 | `FLYER_SEND_HOUR`       | `8` (8am Lagos time), or another hour                        |
-| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `Flyer Bot`                 |
+| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `Duro Flyers`               |
 | `FLYER_OPEN_SIGNUP`     | `true` so anyone can set up their own group (see "Selling it") |
-| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with Flyer Bot · wa.me/2348012345678` |
+| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with Duro · wa.me/2348012345678` |
 
 `ANTHROPIC_API_KEY` is already set for the quote bot and is reused to write
 the birthday messages. Railway redeploys by itself. The deploy log should say
@@ -63,20 +64,40 @@ the birthday messages. Railway redeploys by itself. The deploy log should say
 
 ## 4. Set up a group (on WhatsApp)
 
-From an owner phone, message the flyer number:
+Message the flyer number (anything, e.g. "Hi") and the bot walks you
+through it:
 
-```
-new group Unilag Class of 2010
-```
+1. **Name**: it asks what the group is called. Reply with the name, e.g.
+   `Unilag Class of 2010`. You're now that group's admin.
+2. **Logo**: send the group's logo, or reply `skip`. Send it **as a
+   document** (paperclip > Document) if it has a see-through background;
+   photos lose it.
+3. **Design**: it shows all the designs with your group's name on them.
+   Reply with a number, or `skip`.
+4. **Members**: it explains how to add them (next section).
 
-You're now that group's admin. To let someone else run it:
+Sending anything else part-way (for example `members`) leaves the guided
+setup; `cancel` stops it. You can also skip straight to it with
+`new group Unilag Class of 2010`.
+
+To let someone else run the group:
 
 ```
 add admin 08012345678
 ```
 
-Then send the group's logo with the caption `logo`. Send it **as a document**
-(paperclip > Document) if it has a see-through background; photos lose it.
+### More than one group
+
+One WhatsApp number can run several groups. Send `groups` to see them,
+numbered, with the current one marked, and `switch 2` (or `switch Unilag`) to
+change. Everything you send after that (members, designs, event photos) is for
+that group. Birthday flyers for every group arrive by themselves.
+
+- **Owners** can set up any number of groups.
+- **Everyone else** gets one group on the Free plan. Once their groups are on
+  paid plans, they can send `new group` to add more. So an association with
+  several chapters pays for each, or you put them on Organisation.
+- Being added as an admin of someone else's group (`add admin`) doesn't count.
 
 ## 5. Add members
 
@@ -198,8 +219,27 @@ To bring people in:
 - **A chat link**: `https://wa.me/<flyer number>?text=Hi` opens a chat with the
   bot. Put it in your WhatsApp status, Instagram bio and flyers, or turn it
   into a QR code.
-- **Every flyer is an advert**: set `FLYER_CREDIT` so each flyer carries your
-  name and chat link in small print. Everyone in every group sees it.
+- **Every flyer is an advert**: set `FLYER_CREDIT`, e.g.
+  `Made with Duro · wa.me/2348012345678`. On Free and Standard groups it's
+  printed at the bottom of each flyer, and also added under the birthday
+  message that goes with it. WhatsApp keeps that message when the admin
+  forwards the flyer, and turns `wa.me/...` into a link anyone in the group
+  can tap to start chatting with the bot, where the guided setup takes over.
+  (The text printed on the picture can't be tapped, but people can type it.)
+
+## Support
+
+Anyone can send `support` (or "talk to a person"). The bot asks what they need,
+then forwards their message to every owner number with their name, number,
+group and plan. To answer, send the bot:
+
+```
+reply 2348012345678 Thanks, that's fixed now.
+```
+
+They get it from the bot as "Duro Flyers support: ...". It only arrives if
+they messaged in the last 24 hours (WhatsApp's rule), which is normally the
+case since they just wrote in.
 - **Charging**: see "Plans" below.
 
 ## Plans
