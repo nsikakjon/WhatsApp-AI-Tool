@@ -76,4 +76,24 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "1", FLYER_OPEN_SIGNUP: "false" }).flyer?.openSignup).toBe(false);
     expect(() => loadConfig({ ...base, FLYER_SEND_HOUR: "24" })).toThrow("FLYER_SEND_HOUR");
   });
+
+  it("switches Flutterwave payments on only with a secret key, and then needs the rest", () => {
+    expect(loadConfig(base).flutterwave).toBeUndefined();
+    expect(() => loadConfig({ ...base, FLUTTERWAVE_SECRET_KEY: "k" })).toThrow("FLUTTERWAVE_WEBHOOK_HASH");
+    expect(
+      loadConfig({
+        ...base,
+        FLUTTERWAVE_SECRET_KEY: "k",
+        FLUTTERWAVE_WEBHOOK_HASH: "h",
+        PUBLIC_URL: "https://duro.up.railway.app/",
+        FLUTTERWAVE_CUSTOMER_EMAIL: "me@example.com",
+      }).flutterwave,
+    ).toEqual({
+      secretKey: "k",
+      webhookHash: "h",
+      publicUrl: "https://duro.up.railway.app",
+      customerEmail: "me@example.com",
+      apiUrl: "https://api.flutterwave.com/v3",
+    });
+  });
 });
