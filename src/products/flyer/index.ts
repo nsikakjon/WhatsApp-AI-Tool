@@ -115,12 +115,14 @@ Other commands:
 • *add admin 08012345678*: let someone else manage this group
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
-• *groups*: your groups (and *switch <name>*)
+• *groups*: your groups; *switch 2* to change group; *new group* to add one
 • *plan*: your group's plan; *plans* for prices
+• *support*: message a person on our team
 
 On each birthday I'll send you the flyer in the morning, ready to forward to the group.`;
 
 const JPEG = "image/jpeg";
+const GREETING = /^(hi+|hello|hey|hiya|good (morning|afternoon|evening|day)|start|yo|howdy|sup|ok|okay)[!.\s]*$/i;
 
 /** Turns "0801 234 5678" or "+234 801 234 5678" into 2348012345678. */
 export function normalizeNumber(text: string): string | null {
@@ -427,19 +429,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const today = lagosNow(new Date());
 
     if (lower === "design" || lower === "designs") {
-      const sheet = await render.designSheet(await sampleFor(group), THEMES, {
-        accent: group.accent ?? undefined,
-        credit: opts.credit || undefined,
-      });
       const current = themeById(group.theme);
-      const plan = planOf(group);
-      const included =
-        plan.designs === "all"
-          ? ""
-          : `\n\nYour *${plan.label}* plan includes ${THEMES.flatMap((t, i) => (allowsDesign(plan, t.id) ? [`${i + 1}`] : [])).join(" and ")}; send *upgrade standard* for all of them.`;
       return {
-        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.${included}`,
-        images: [{ data: sheet, mimeType: JPEG }],
+        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.${designsNote(planOf(group))}`,
+        images: [{ data: await designSheet(group), mimeType: JPEG }],
       };
     }
 
@@ -507,7 +500,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const images = [];
       for (const m of celebrants) {
         const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
-        images.push({ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: wish });
+        images.push({ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: withCredit(group, wish) });
       }
       return { text: forwardTip(celebrants.map((m) => m.name), group.name), images };
     }
@@ -518,7 +511,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (found.length !== 1) return { text: notFound(found, flyerFor[1]!) };
       const m = found[0]!;
       const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
-      return { text: "", images: [{ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: wish }] };
+      return { text: "", images: [{ data: await birthdayFlyer(m, group), mimeType: JPEG, caption: withCredit(group, wish) }] };
     }
 
     const remove = text.match(/^(?:remove|delete)\s+(.+)$/i);
@@ -573,18 +566,24 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
+    // Numbered alphabetically, so the numbers don't move when switching.
+    const byName = [...groups].sort((a, b) => a.name.localeCompare(b.name));
     if (lower === "groups") {
-      const list = groups.map((g, i) => `• ${g.name}${i === 0 ? " (current)" : ""}`).join("\n");
-      return { text: `Your groups:\n${list}\n\nSend *switch <name>* to change group.` };
+      const list = byName.map((g, i) => `${i + 1}. ${g.name} (${planOf(g).label})${g.id === group.id ? " ← current" : ""}`).join("\n");
+      return {
+        text: `Your groups:\n${list}\n\nSend *switch* and a number or name to change group, e.g. *switch 2*. Send *new group* to set up another.`,
+      };
     }
 
-    const switchTo = text.match(/^(?:switch|use)\s+(.+)$/i);
+    const switchTo = text.match(/^(?:switch|use)\s+(?:to\s+)?(.+)$/i);
     if (switchTo) {
-      const q = switchTo[1]!.toLowerCase();
-      const target = groups.find((g) => g.name.toLowerCase() === q) ?? groups.find((g) => g.name.toLowerCase().includes(q));
+      const q = switchTo[1]!.toLowerCase().trim();
+      const target = /^\d+$/.test(q)
+        ? byName[Number(q) - 1]
+        : (groups.find((g) => g.name.toLowerCase() === q) ?? groups.find((g) => g.name.toLowerCase().includes(q)));
       if (!target) return { text: `You're not an admin of a group called "${switchTo[1]}". Send *groups* to see yours.` };
       await opts.store.useGroup(target.id, from);
-      return { text: `Now working on ${target.name}.` };
+      return { text: `Now working on *${target.name}*. Everything you send now is for this group.` };
     }
 
     return { text: `*${group.name}*\n\n${HELP}` };
@@ -620,6 +619,90 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
   }
 
+  /** Null if this person may set up another group, otherwise the reply saying why not. */
+  function canCreateGroup(isOwner: boolean, groups: Group[]): Reply | null {
+    if (isOwner) return null;
+    if (!opts.openSignup) return { text: "Sorry, only the account owner can set up new groups." };
+    // One Free group each; people whose groups are all on paid plans can add more.
+    const free = groups.find((g) => planOf(g).id === "free");
+    if (!free) return null;
+    return {
+      text: `Each person can run one group on the Free plan, and *${free.name}* is on Free. To set up another group, upgrade it first (send *upgrade standard*), or send *support* to ask about the *Organisation* plan for several groups.`,
+    };
+  }
+
+  function designsNote(plan: Plan): string {
+    if (plan.designs === "all") return "";
+    const numbers = THEMES.flatMap((t, i) => (allowsDesign(plan, t.id) ? [`${i + 1}`] : []));
+    return `\n\nYour *${plan.label}* plan includes designs ${numbers.join(" and ")}; send *upgrade standard* for all of them.`;
+  }
+
+  async function designSheet(group: Group): Promise<Uint8Array> {
+    const style = await styleFor(group);
+    return render.designSheet(await sampleFor(group), THEMES, { accent: style.accent, credit: style.credit });
+  }
+
+  function setupDone(): string {
+    return [
+      "*Step 3 of 3: add your members.*",
+      "• One at a time: send a member's photo with the caption *add Ada Okafor, 14 March*",
+      "• All at once (Standard plan and up): paste a Google Sheets link, or send a CSV file, with columns *Name*, *Birthday* and *Photo*",
+      "",
+      "That's it! On each birthday morning I'll send you the member's flyer to forward to the group. Send *help* any time to see everything I can do, or *support* to reach a person.",
+    ].join("\n");
+  }
+
+  /**
+   * Steps 1 (logo) and 2 (design) of setting up a new group. Returns null when
+   * the message isn't an answer to the step, so it's handled as usual.
+   */
+  async function setupStep(
+    step: "logo" | "design",
+    group: Group,
+    msg: IncomingMessage,
+    text: string,
+    ctx: { downloadMedia: (id: string) => Promise<{ data: Blob; mimeType: string }> },
+  ): Promise<Reply | null> {
+    const skip = /^(skip|next|later|no)$/i.test(text);
+    const step2 = async (lead: string): Promise<Reply> => {
+      await opts.store.setChatState(msg.from, { step: "design", groupId: group.id });
+      return {
+        text: `${lead}*Step 2 of 3: pick a design.* Here they all are with your group's name on them. Reply with a number, e.g. *1*, or *skip* to keep design 1.${designsNote(planOf(group))}`,
+        images: [{ data: await designSheet(group), mimeType: JPEG }],
+      };
+    };
+
+    if (step === "logo") {
+      if (skip) return step2("No problem, you can send it later with the caption *logo*.\n\n");
+      const isPicture = (msg.type === "image" || msg.type === "document") && msg.mediaId;
+      if (!isPicture || !/^(logo)?$/i.test(text)) return null;
+      const file = await ctx.downloadMedia(msg.mediaId!);
+      if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) return null;
+      await opts.store.saveLogo(group.id, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
+      const withLogo = (await opts.store.groupsForAdmin(msg.from)).find((g) => g.id === group.id) ?? group;
+      group = withLogo;
+      return step2("Logo saved ✅\n\n");
+    }
+
+    if (skip) {
+      await opts.store.setChatState(msg.from, null);
+      return { text: setupDone() };
+    }
+    const theme = findTheme(text.replace(/^design\s+/i, ""));
+    if (!theme) return null;
+    if (!allowsDesign(planOf(group), theme.id)) return needsPlan(notOn(`The *${theme.label}* design`, group), (p) => allowsDesign(p, theme.id));
+    await opts.store.setStyle(group.id, { theme: theme.id });
+    await opts.store.setChatState(msg.from, null);
+    const updated = { ...group, theme: theme.id };
+    const flyer = await render.birthday({ ...(await sampleFor(updated)), style: await styleFor(updated) });
+    return { text: `Design set to *${theme.label}* ✅ (change it any time with *design*)\n\n${setupDone()}`, images: [{ data: flyer, mimeType: JPEG }] };
+  }
+
+  /** The birthday message, with the "Made with" line on plans that carry it, so it travels with the forwarded flyer. */
+  function withCredit(group: Group, wish: string): string {
+    return planOf(group).credit && opts.credit ? `${wish}\n\n${opts.credit}` : wish;
+  }
+
   return {
     name: "flyer",
 
@@ -627,28 +710,66 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const text = (msg.text ?? msg.caption ?? "").trim();
       const isOwner = owners.has(msg.from);
       const groups = await opts.store.groupsForAdmin(msg.from);
+      const who = msg.contactName ? `${msg.contactName} (${msg.from})` : msg.from;
+      const isPicture = (msg.type === "image" || msg.type === "document") && !!msg.mediaId;
 
       if (/^(plans|prices|pricing)$/i.test(text)) return { text: await plansText() };
 
-      const setPlan = isOwner ? text.match(/^set plan\s+(\S+)(?:\s+(\d+)\s*(months?|years?))?\s+(?:for\s+)?(.+)$/i) : null;
-      if (setPlan) return setGroupPlan(setPlan[1]!, setPlan[2], setPlan[3], setPlan[4]!);
-
-      const newGroup = text.match(/^new group\s+(.+)$/i);
-      if (newGroup) {
-        // Owners can set up any number of groups; with open sign-up, anyone else can set up one.
-        if (!isOwner && !(opts.openSignup && groups.length === 0)) {
+      if (isOwner) {
+        const setPlan = text.match(/^set plan\s+(\S+)(?:\s+(\d+)\s*(months?|years?))?\s+(?:for\s+)?(.+)$/i);
+        if (setPlan) return setGroupPlan(setPlan[1]!, setPlan[2], setPlan[3], setPlan[4]!);
+        const answer = text.match(/^reply\s+(\+?[\d\s]{10,18}?)\s*[:,]?\s+(\D[\s\S]*)$/i);
+        if (answer) {
+          const to = normalizeNumber(answer[1]!);
+          if (!to) return { text: "Please start with their number, e.g. reply 2348012345678 Thanks, that's fixed now." };
           return {
-            text: opts.openSignup
-              ? "You already run a group here. To set up another one, please contact us."
-              : "Sorry, only the account owner can set up new groups.",
+            text: `Sent to ${to} ✅ (it only arrives if they've messaged in the last 24 hours)`,
+            notify: [{ to, text: `💬 *${opts.brandName} support:* ${answer[2]!.trim()}` }],
           };
         }
-        const name = newGroup[1]!.trim().slice(0, 80);
-        const group = await opts.store.createGroup(name, msg.from);
-        log.info(`New flyer group "${group.name}" set up by ...${msg.from.slice(-4)}`);
-        const who = msg.contactName ? `${msg.contactName} (${msg.from})` : msg.from;
+      }
+
+      // Support: "support my flyer has the wrong date", or "support" and then the message.
+      const state = await opts.store.chatState(msg.from);
+      if (state && /^(cancel|stop)$/i.test(text)) {
+        await opts.store.setChatState(msg.from, null);
+        return { text: groups.length ? "OK, cancelled." : "OK, cancelled. Message me any time to set up a group." };
+      }
+      const support = text.match(/^(?:support|help me|talk to (?:a )?(?:person|human|someone)|agent|complain(?:t)?)\b[:\s]*([\s\S]*)$/i);
+      if (support || state?.step === "support") {
+        const body = support ? support[1]!.trim() : text;
+        if (!body) {
+          await opts.store.setChatState(msg.from, { step: "support", groupId: groups[0]?.id ?? null });
+          return { text: "What do you need help with? Type your message and I'll pass it to a person on our team." };
+        }
+        await opts.store.setChatState(msg.from, null);
+        const where = groups[0] ? ` (group: ${groups[0].name}, ${planOf(groups[0]).label} plan)` : "";
+        log.info(`Support message from ...${msg.from.slice(-4)}`);
         return {
-          text: `Created *${group.name}* ✅ You're its admin.\n\n${HELP}`,
+          text: "Thanks, I've passed that to our team. They'll reply to you here.",
+          notify: opts.owners.map((to) => ({
+            to,
+            text: `🆘 Support from ${who}${where}:\n${body}\n\nTo answer, send: reply ${msg.from} <your message>`,
+          })),
+        };
+      }
+
+      const newGroup = text.match(/^new group\b\s*(.*)$/i);
+      if (newGroup || state?.step === "name") {
+        const blocked = canCreateGroup(isOwner, groups);
+        if (blocked) return blocked;
+        const name = newGroup ? newGroup[1]!.trim() : text;
+        if (!name || isPicture || GREETING.test(name)) {
+          await opts.store.setChatState(msg.from, { step: "name", groupId: null });
+          return {
+            text: `What's your group called? Reply with its name as it should appear on the flyers, e.g. *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`,
+          };
+        }
+        const group = await opts.store.createGroup(name.slice(0, 80), msg.from);
+        await opts.store.setChatState(msg.from, { step: "logo", groupId: group.id });
+        log.info(`New flyer group "${group.name}" set up by ...${msg.from.slice(-4)}`);
+        return {
+          text: `Created *${group.name}* ✅ You're its admin. Three quick steps to get it ready:\n\n*Step 1 of 3: your logo.* Send your group's logo as a picture. (Send it as a document to keep a see-through background.) No logo? Reply *skip*.`,
           notify: isOwner
             ? undefined
             : opts.owners.map((to) => ({ to, text: `🎉 New sign-up: ${who} set up "${group.name}" on ${opts.brandName}.` })),
@@ -657,16 +778,25 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
       const group = groups[0];
       if (!group) {
-        if (isOwner) return { text: "Welcome! Set up your first group by sending, for example:\nnew group Unilag Class of 2010" };
+        if (!isOwner && !opts.openSignup) {
+          return { text: "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you." };
+        }
+        await opts.store.setChatState(msg.from, { step: "name", groupId: null });
         return {
-          text: opts.openSignup
-            ? `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work) and remind you on each birthday morning, and I brand your event photos with your group's logo.\n\nIt's free for groups of up to 20 people (send *plans* for bigger groups).\n\nTo start, send *new group* and your group's name, e.g.\nnew group Unilag Class of 2010`
-            : "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.",
+          text: `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), send them to you on each birthday morning ready to forward, and brand your event photos with your group's logo.\n\nIt's free for groups of up to 20 people (send *plans* for bigger groups). Questions? Send *support*.\n\nLet's set up your group. *What's it called?* Reply with its name, e.g. *Unilag Class of 2010*.`,
         };
       }
 
-      if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
-        const file = await ctx.downloadMedia(msg.mediaId);
+      // Steps 1 and 2 of setting up a new group. Anything that isn't an answer
+      // ends the guided setup and is handled as a normal message.
+      if (state && (state.step === "logo" || state.step === "design") && state.groupId === group.id) {
+        const guided = await setupStep(state.step, group, msg, text, ctx);
+        if (guided) return guided;
+        await opts.store.setChatState(msg.from, null);
+      }
+
+      if (isPicture) {
+        const file = await ctx.downloadMedia(msg.mediaId!);
         if (isCsv(file.mimeType)) return startImport(group, await file.data.text(), ctx.sendLater);
         if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) {
           return {
@@ -701,7 +831,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         let delivered = 0;
         try {
           const flyer = await birthdayFlyer(member, group);
-          const wish = await opts.wishes.write({ name: member.name, groupName: group.name });
+          const wish = withCredit(group, await opts.wishes.write({ name: member.name, groupName: group.name }));
           for (const to of admins) {
             try {
               await delivery.send({ to, memberName: member.name, groupName: group.name, flyer, wish });

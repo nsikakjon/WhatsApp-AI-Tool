@@ -9,7 +9,7 @@ import {
   type BirthdayDeliverer,
   type BirthdayDelivery,
 } from "./index.js";
-import type { FlyerStore, Group, Member } from "./store.js";
+import type { ChatState, FlyerStore, Group, Member } from "./store.js";
 
 const silent = { info: () => {}, error: () => {} };
 const OWNER = "2348000000001";
@@ -21,6 +21,7 @@ function memoryStore(plan = "organisation") {
   const members: Member[] = [];
   const pictures = new Map<string, Uint8Array>();
   const claims = new Set<string>();
+  const chat = new Map<string, ChatState>();
   let clock = 0;
 
   const store: FlyerStore = {
@@ -114,6 +115,13 @@ function memoryStore(plan = "organisation") {
     async adminCount(groupId) {
       return admins.filter((a) => a.groupId === groupId).length;
     },
+    async chatState(waId) {
+      return chat.get(waId) ?? null;
+    },
+    async setChatState(waId, state) {
+      if (state) chat.set(waId, state);
+      else chat.delete(waId);
+    },
     async planPrices() {
       return new Map<string, number | null>([
         ["free", 0],
@@ -123,7 +131,7 @@ function memoryStore(plan = "organisation") {
       ]);
     },
   };
-  return { store, groups, members, claims };
+  return { store, groups, members, claims, chat };
 }
 
 const background: Array<Promise<void>> = [];
@@ -219,9 +227,12 @@ describe("flyer bot: setup", () => {
   it("switches between groups", async () => {
     const { bot } = await withGroup();
     await bot.handle(msg(OWNER, { text: "new group Lekki Crew" }), ctx);
-    expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Lekki Crew (current)");
+    const list = (await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text;
+    expect(list).toContain("1. Lekki Crew (Organisation) ← current");
+    expect(list).toContain("2. Unilag Class of 2010 (Organisation)");
     await bot.handle(msg(OWNER, { text: "switch unilag" }), ctx);
-    expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("Unilag Class of 2010 (current)");
+    expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("2. Unilag Class of 2010 (Organisation) ← current");
+    expect((await bot.handle(msg(OWNER, { text: "switch 1" }), ctx))?.text).toContain("Now working on *Lekki Crew*");
   });
 });
 
@@ -276,21 +287,58 @@ describe("flyer bot: importing a member list", () => {
 });
 
 describe("flyer bot: open sign-up", () => {
-  it("greets strangers with how to start, and lets them set up one group", async () => {
-    const { bot, groups } = setup({ openSignup: true });
+  it("walks a stranger through setting up a group: name, logo, design, then members", async () => {
+    const { bot, groups, chat } = setup({ openSignup: true, plan: "free" });
     const hello = await bot.handle(msg(ADMIN, { text: "Hi" }), ctx);
     expect(hello?.text).toContain("I'm Flyer Bot");
-    expect(hello?.text).toContain("new group");
+    expect(hello?.text).toContain("What's it called?");
 
-    const created = await bot.handle(msg(ADMIN, { text: "new group Lekki Crew", contactName: "Bola" }), ctx);
+    expect((await bot.handle(msg(ADMIN, { text: "hello" }), ctx))?.text).toContain("What's your group called?");
+    expect(groups).toHaveLength(0);
+
+    const created = await bot.handle(msg(ADMIN, { text: "Lekki Crew", contactName: "Bola" }), ctx);
     expect(created?.text).toContain("Created *Lekki Crew*");
+    expect(created?.text).toContain("Step 1 of 3");
     expect(created?.notify).toEqual([
       { to: OWNER, text: `🎉 New sign-up: Bola (${ADMIN}) set up "Lekki Crew" on Flyer Bot.` },
     ]);
 
+    const logo = await bot.handle(photo(ADMIN), ctx);
+    expect(logo?.text).toContain("Logo saved");
+    expect(logo?.text).toContain("Step 2 of 3");
+    expect(logo?.text).toContain("includes designs 1 and 4");
+    expect(text(logo?.images?.[0]?.data)).toBe("sheet:Your Member");
+    expect(groups[0]!.logoPath).not.toBeNull();
+
+    expect((await bot.handle(msg(ADMIN, { text: "3" }), ctx))?.text).toContain("upgrade standard");
+    const design = await bot.handle(msg(ADMIN, { text: "4" }), ctx);
+    expect(design?.text).toContain("Design set to *Classic cream*");
+    expect(design?.text).toContain("Step 3 of 3");
+    expect(groups[0]!.theme).toBe("classic");
+    expect(chat.size).toBe(0);
+  });
+
+  it("lets people skip setup steps, or leave setup by doing something else", async () => {
+    const { bot, chat } = setup({ openSignup: true });
+    await bot.handle(msg(ADMIN, { text: "new group Lekki Crew" }), ctx);
+    const skipped = await bot.handle(msg(ADMIN, { text: "skip" }), ctx);
+    expect(skipped?.text).toContain("Step 2 of 3");
+    const members = await bot.handle(msg(ADMIN, { text: "members" }), ctx);
+    expect(members?.text).toContain("No members in Lekki Crew yet");
+    expect(chat.size).toBe(0);
+  });
+
+  it("allows one Free group each, and more once the others are paid for", async () => {
+    const { bot, groups } = setup({ openSignup: true, plan: "free" });
+    await bot.handle(msg(ADMIN, { text: "new group Lekki Crew" }), ctx);
     const second = await bot.handle(msg(ADMIN, { text: "new group Another" }), ctx);
-    expect(second?.text).toContain("already run a group");
+    expect(second?.text).toContain("one group on the Free plan");
     expect(groups).toHaveLength(1);
+
+    await bot.handle(msg(OWNER, { text: "set plan standard 1 month for Lekki Crew" }), ctx);
+    const third = await bot.handle(msg(ADMIN, { text: "new group Another" }), ctx);
+    expect(third?.text).toContain("Created *Another*");
+    expect(groups).toHaveLength(2);
   });
 
   it("lets owners set up many groups without alerting themselves", async () => {
@@ -301,13 +349,36 @@ describe("flyer bot: open sign-up", () => {
   });
 });
 
+describe("flyer bot: support", () => {
+  it("passes a support message to the owners, and their answer back", async () => {
+    const { bot } = await withGroup();
+    await bot.handle(msg(OWNER, { text: `add admin ${ADMIN}` }), ctx);
+    const ask = await bot.handle(msg(ADMIN, { text: "support" }), ctx);
+    expect(ask?.text).toContain("What do you need help with?");
+    const sent = await bot.handle(msg(ADMIN, { text: "My flyer shows the wrong date", contactName: "Bola" }), ctx);
+    expect(sent?.text).toContain("passed that to our team");
+    expect(sent?.notify?.[0]).toMatchObject({ to: OWNER });
+    expect(sent?.notify?.[0]?.text).toContain("Bola (2348000000002) (group: Unilag Class of 2010, Organisation plan):\nMy flyer shows the wrong date");
+    expect(sent?.notify?.[0]?.text).toContain(`reply ${ADMIN} <your message>`);
+
+    const answer = await bot.handle(msg(OWNER, { text: `reply ${ADMIN} Fixed it, send flyer Ada to check` }), ctx);
+    expect(answer?.notify).toEqual([{ to: ADMIN, text: "💬 *Flyer Bot support:* Fixed it, send flyer Ada to check" }]);
+  });
+
+  it("takes a support message in one go, even from someone without a group", async () => {
+    const { bot } = setup({ openSignup: true });
+    const sent = await bot.handle(msg(ADMIN, { text: "support how much is premium?" }), ctx);
+    expect(sent?.notify?.[0]?.text).toContain("how much is premium?");
+  });
+});
+
 describe("flyer bot: designs", () => {
   it("shows all designs on one picture", async () => {
     const { bot, render } = await withGroup();
     const reply = await bot.handle(msg(OWNER, { text: "design" }), ctx);
     expect(reply?.text).toContain("current design is *Royal purple*");
     expect(text(reply?.images?.[0]?.data)).toBe("sheet:Your Member");
-    expect(render.designSheet.mock.calls[0]![2]).toEqual({ accent: undefined, credit: "Made with Flyer Bot" });
+    expect(render.designSheet.mock.calls[0]![2]).toEqual({ accent: undefined, credit: undefined });
   });
 
   it("changes the design by number or name, and shows a preview", async () => {
@@ -434,6 +505,18 @@ describe("flyer bot: plans", () => {
     const { bot, groups } = await withGroup({ plan: "free" });
     await bot.handle(msg(ADMIN, { text: "set plan premium 1 month for Unilag" }), ctx);
     expect(groups[0]!.plan).toBe("free");
+  });
+
+  it("adds the clickable credit line to the birthday message on Free, so it travels with the flyer", async () => {
+    for (const [plan, caption] of [
+      ["free", "Happy birthday Ada Okafor from Unilag Class of 2010\n\nMade with Flyer Bot"],
+      ["premium", "Happy birthday Ada Okafor from Unilag Class of 2010"],
+    ] as const) {
+      const { bot } = await withGroup({ plan });
+      await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+      const reply = await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx);
+      expect(reply?.images?.[0]?.caption).toBe(caption);
+    }
   });
 
   it("passes upgrade requests to the owners", async () => {

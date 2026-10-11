@@ -33,6 +33,12 @@ export interface Picture {
   mimeType: string;
 }
 
+/** Where someone is in a guided conversation: setting up a group, or writing to support. */
+export interface ChatState {
+  step: "name" | "logo" | "design" | "support";
+  groupId: string | null;
+}
+
 export interface FlyerStore {
   /** Groups this WhatsApp number is an admin of, most recently used first. */
   groupsForAdmin(waId: string): Promise<Group[]>;
@@ -71,6 +77,10 @@ export interface FlyerStore {
   adminCount(groupId: string): Promise<number>;
   /** Each plan's monthly price in kobo (null: price on request), from the database. */
   planPrices(): Promise<Map<string, number | null>>;
+  /** Where this number is in a guided conversation, or null. Stale ones (over a day old) count as null. */
+  chatState(waId: string): Promise<ChatState | null>;
+  /** Saves where this number is in a guided conversation; null clears it. */
+  setChatState(waId: string, state: ChatState | null): Promise<void>;
 }
 
 const UNIQUE_VIOLATION = "23505";
@@ -302,6 +312,27 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await db.from("flyer_plans").select("id, monthly_price_kobo");
       if (error) throw new Error(`planPrices failed: ${error.message}`);
       return new Map((data ?? []).map((r) => [r.id as string, r.monthly_price_kobo === null ? null : Number(r.monthly_price_kobo)]));
+    },
+
+    async chatState(waId) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await db
+        .from("flyer_chat_state")
+        .select("step, group_id")
+        .eq("wa_id", waId)
+        .gte("updated_at", since)
+        .maybeSingle();
+      if (error) throw new Error(`chatState failed: ${error.message}`);
+      return data ? { step: data.step as ChatState["step"], groupId: data.group_id as string | null } : null;
+    },
+
+    async setChatState(waId, state) {
+      const { error } = state
+        ? await db
+            .from("flyer_chat_state")
+            .upsert({ wa_id: waId, step: state.step, group_id: state.groupId, updated_at: new Date().toISOString() })
+        : await db.from("flyer_chat_state").delete().eq("wa_id", waId);
+      if (error) throw new Error(`setChatState failed: ${error.message}`);
     },
   };
 }
