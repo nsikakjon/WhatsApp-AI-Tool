@@ -39,6 +39,18 @@ export interface Config {
     /** Lagos hour (0-23) when the daily report is sent. */
     reportHour: number;
   };
+  /**
+   * Real estate lead qualifier. Only set when LEADS_PHONE_NUMBER_ID is:
+   * messages to that WhatsApp number go to the lead qualifier.
+   */
+  leads?: {
+    phoneNumberId: string;
+    anthropicApiKey: string;
+    model: string;
+    businessName: string;
+    /** WhatsApp numbers (digits only) of the agents who get hot-lead alerts. */
+    agentWaIds: string[];
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -95,5 +107,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           reportHour,
         }
       : undefined,
+    leads: env.LEADS_PHONE_NUMBER_ID
+      ? {
+          phoneNumberId: env.LEADS_PHONE_NUMBER_ID,
+          anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+          model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+          businessName: env.LEADS_BUSINESS_NAME || "our real estate team",
+          agentWaIds: agentNumbers(required(env, "LEADS_AGENT_WA_IDS")),
+        }
+      : undefined,
   };
+}
+
+/** "+234 801 234 5678, 2348098765432" -> ["2348012345678", "2348098765432"] */
+function agentNumbers(list: string): string[] {
+  const numbers = list.split(",").map((n) => n.replace(/\D/g, "")).filter(Boolean);
+  if (!numbers.length) throw new Error("LEADS_AGENT_WA_IDS must list at least one WhatsApp number");
+  return numbers;
 }
