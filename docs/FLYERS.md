@@ -54,9 +54,9 @@ Service > Variables > add:
 | `FLYER_PHONE_NUMBER_ID` | the Phone number ID from step 2                              |
 | `FLYER_OWNER_WA_IDS`    | your WhatsApp number, e.g. `2348024777076` (comma-separate several) |
 | `FLYER_SEND_HOUR`       | `8` (8am Lagos time), or another hour                        |
-| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `Yarn Oga Flyers`               |
+| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `YarnOga Flyers`               |
 | `FLYER_OPEN_SIGNUP`     | `true` so anyone can set up their own group (see "Selling it") |
-| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with Yarn Oga · wa.me/2348012345678` |
+| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with YarnOga · wa.me/2348012345678` |
 
 `ANTHROPIC_API_KEY` is already set for the quote bot and is reused to write
 the birthday messages. Railway redeploys by itself. The deploy log should say
@@ -237,7 +237,7 @@ To bring people in:
   bot. Put it in your WhatsApp status, Instagram bio and flyers, or turn it
   into a QR code.
 - **Every flyer is an advert**: set `FLYER_CREDIT`, e.g.
-  `Made with Yarn Oga · wa.me/2348012345678`. On Free and Standard groups it's
+  `Made with YarnOga · wa.me/2348012345678`. On Free and Standard groups it's
   printed at the bottom of each flyer, and also added under the birthday
   message that goes with it. WhatsApp keeps that message when the admin
   forwards the flyer, and turns `wa.me/...` into a link anyone in the group
@@ -254,7 +254,7 @@ group and plan. To answer, send the bot:
 reply 2348012345678 Thanks, that's fixed now.
 ```
 
-They get it from the bot as "Yarn Oga Flyers support: ...". It only arrives if
+They get it from the bot as "YarnOga Flyers support: ...". It only arrives if
 they messaged in the last 24 hours (WhatsApp's rule), which is normally the
 case since they just wrote in.
 - **Charging**: see "Plans" below.
