@@ -110,7 +110,7 @@ async function handleMessage(
   await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
 }
 
-/** Sends a product's reply: its text, then its pictures, then any alerts to other people. */
+/** Sends a product's reply: its text, then its pictures, then any list of choices, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
   to: string,
@@ -132,6 +132,15 @@ async function sendReply(
   for (const image of reply.images ?? []) {
     await sendImageAndRecord(deps, to, image, fromNumber);
     log.info(`Sent a picture to ${mask(to)}`);
+  }
+  if (reply.list) {
+    const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "interactive",
+      body: reply.list.body,
+      raw: sent.raw,
+    });
   }
 
   // Alerts to other people (e.g. the business owner). A failed alert is logged

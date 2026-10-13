@@ -24,6 +24,12 @@ export interface WhatsAppClient {
     template: OutgoingTemplate,
     fromNumberId?: string,
   ): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a tappable list: a message with a button that opens up to 10
+   * choices. When the person taps one, it comes back as a message whose text
+   * is that choice's id (see parse.ts).
+   */
+  sendList(to: string, list: OutgoingList, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
@@ -33,6 +39,19 @@ export interface OutgoingImage {
   /** image/jpeg or image/png (the only picture types WhatsApp accepts). */
   mimeType: string;
   caption?: string;
+}
+
+export interface OutgoingList {
+  /** The message above the button (up to 1024 characters). */
+  body: string;
+  /** The button's label that opens the list (up to 20 characters). */
+  button: string;
+  /**
+   * The choices, at most 10. `id` comes back as the message text when tapped,
+   * so it can simply be the command a person would type (e.g. "design 8").
+   * Titles are cut to 24 characters and descriptions to 72.
+   */
+  rows: Array<{ id: string; title: string; description?: string }>;
 }
 
 export interface OutgoingTemplate {
@@ -124,6 +143,24 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
         to,
         type: "template",
         template: { name: template.name, language: { code: template.language }, components },
+      });
+    },
+
+    async sendList(to, list, fromNumberId) {
+      const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+      const rows = list.rows.slice(0, 10).map((r) => ({
+        id: r.id.slice(0, 200),
+        title: cut(r.title, 24),
+        ...(r.description ? { description: cut(r.description, 72) } : {}),
+      }));
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          body: { text: cut(list.body, 1024) },
+          action: { button: cut(list.button, 20), sections: [{ title: cut(list.button, 24), rows }] },
+        },
       });
     },
 

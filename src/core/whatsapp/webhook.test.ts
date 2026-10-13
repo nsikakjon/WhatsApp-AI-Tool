@@ -66,6 +66,10 @@ function setup(
       sentFrom.push(fromNumberId);
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
+    async sendList(to, list) {
+      sent.push({ to, body: `[list] ${list.body} | ${list.rows.map((r) => r.id).join(", ")}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
     async downloadMedia(mediaId) {
       if (mediaId === "broken") throw new Error("download failed");
       return { data: new Blob(["audio"]), mimeType: "audio/ogg" };
@@ -206,6 +210,33 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(seen).toMatchObject({ type: "image", mediaId: "img-1", caption: "Slab done", businessNumberId: "PNID" });
     expect(seen?.text).toBeUndefined();
     expect(sent).toHaveLength(0);
+  });
+
+  it("sends a list of choices after the pictures", async () => {
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg" };
+    const list = { body: "Pick one", button: "See designs", rows: [{ id: "design 1", title: "Royal purple" }] };
+    const picker: Product = { name: "picker", handle: async () => ({ text: "Designs", images: [image], list }) };
+    const { app, sent, outbound } = setup(picker);
+    const body = textWebhook("wamid.list", "design");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Designs", "[image] ", "[list] Pick one | design 1"]);
+    expect(outbound).toContain("Pick one");
+  });
+
+  it("hands a tapped list choice to the product as its id", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.tap", timestamp: "1", type: "interactive",
+          interactive: { type: "list_reply", list_reply: { id: "design 8", title: "8. Evening gala" } } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({ type: "interactive", text: "design 8" });
   });
 
   it("rejects a missing signature without doing any work", async () => {
