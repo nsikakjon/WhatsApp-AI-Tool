@@ -102,7 +102,7 @@ const HELP = `Here's what I can do:
 🖼️ *Event flyer*: send any photo with the text you want on it, e.g.
    Homecoming: Sat 12 Dec, 4pm, Alumni Hall
 🏷️ *Logo*: send your group logo with the caption *logo* (send it as a file/document to keep a see-through background)
-🎨 *Design*: send *design* to see the flyer designs and pick one
+🎨 *Design*: send *design* to browse the flyer designs and pick one; *see 8* shows design 8 full size
 📋 *Import a list*: send a CSV file, or paste a Google Sheets link, with columns *Name*, *Birthday* and *Photo* (a photo link, e.g. from Google Drive)
 
 Other commands:
@@ -122,6 +122,17 @@ Other commands:
 On each birthday I'll send you the flyer in the morning, ready to forward to the group.`;
 
 const JPEG = "image/jpeg";
+/** How many designs go on one picture when admins browse them. */
+const DESIGNS_PER_PAGE = 6;
+/** "see 8", "see design 8", "see gala". */
+const SEE_DESIGN = /^see\s+(?:design\s+)?(.+)$/i;
+
+/** The page number in "designs page 2", "design page 2", "page 2" or "more designs" (page 2); null otherwise. */
+function designPageWanted(text: string): number | null {
+  if (/^more designs?$/i.test(text)) return 2;
+  const m = text.match(/^(?:designs?\s+)?page\s+(\d{1,3})$/i);
+  return m ? Number(m[1]) : null;
+}
 const GREETING = /^(hi+|hello|hey|hiya|good (morning|afternoon|evening|day)|start|yo|howdy|sup|ok|okay)[!.\s]*$/i;
 
 /** Turns "0801 234 5678" or "+234 801 234 5678" into 2348012345678. */
@@ -431,11 +442,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
     if (lower === "design" || lower === "designs") {
       const current = themeById(group.theme);
-      return {
-        text: `Your current design is *${current.label}*. Reply *design* and a number to change it, e.g. *design 2*.${designsNote(planOf(group))}`,
-        images: [{ data: await designSheet(group), mimeType: JPEG }],
-      };
+      return designPage(group, 1, `Your current design is *${current.label}*.\n\n`);
     }
+
+    const page = designPageWanted(text);
+    if (page !== null) return designPage(group, page, "");
+
+    const see = text.match(SEE_DESIGN);
+    if (see) return seeDesign(group, see[1]!);
 
     const design = text.match(/^design\s+(.+)$/i);
     if (design) {
@@ -638,9 +652,60 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     return `\n\nYour *${plan.label}* plan includes designs ${numbers.join(" and ")}; send *upgrade standard* for all of them.`;
   }
 
-  async function designSheet(group: Group): Promise<Uint8Array> {
+  /**
+   * One page of designs: a picture of up to six, with the group's name on
+   * them, then a tappable list to pick one or turn the page. Designs keep
+   * their numbers across pages, so "design 14" works from anywhere.
+   */
+  async function designPage(group: Group, wanted: number, lead: string, ask?: string): Promise<Reply> {
+    const pages = Math.ceil(THEMES.length / DESIGNS_PER_PAGE);
+    const page = Math.min(Math.max(wanted, 1), pages);
+    const first = (page - 1) * DESIGNS_PER_PAGE;
+    const plan = planOf(group);
+    const current = themeById(group.theme).id;
+    const items = THEMES.slice(first, first + DESIGNS_PER_PAGE).map((theme, i) => ({
+      theme,
+      number: first + i + 1,
+      note:
+        theme.id === current
+          ? "Your design"
+          : allowsDesign(plan, theme.id)
+            ? undefined
+            : `${cheapestWith((p) => allowsDesign(p, theme.id)).label} plan`,
+    }));
+    const last = first + items.length;
     const style = await styleFor(group);
-    return render.designSheet(await sampleFor(group), THEMES, { accent: style.accent, credit: style.credit });
+    const sheet = await render.designSheet(await sampleFor(group), items, { accent: style.accent, credit: style.credit });
+
+    const range = pages > 1 ? `Designs ${first + 1} to ${last} of ${THEMES.length}. ` : "";
+    const how = ask ?? "Tap *Choose a design* to pick one, or reply *design* and a number, e.g. *design 2*.";
+    const more = page < pages ? " Tap *More designs* in the list to see the next ones." : "";
+    const rows = items.map((it) => ({ id: `design ${it.number}`, title: `${it.number}. ${it.theme.label}`, description: it.note }));
+    if (page < pages) {
+      const to = Math.min(last + DESIGNS_PER_PAGE, THEMES.length);
+      rows.push({ id: `designs page ${page + 1}`, title: "More designs ▶", description: `Designs ${last + 1} to ${to}` });
+    }
+    if (page > 1) rows.push({ id: `designs page ${page - 1}`, title: "◀ Back", description: `Designs ${first - DESIGNS_PER_PAGE + 1} to ${first}` });
+    return {
+      text: `${lead}${range}${how}${more} To see one full size first, reply *see* and its number, e.g. *see ${first + 1}*.${designsNote(plan)}`,
+      images: [{ data: sheet, mimeType: JPEG }],
+      list: { body: `Designs ${first + 1} to ${last}: tap one to use it on your flyers.`, button: "Choose a design", rows },
+    };
+  }
+
+  /** "see 8": one design full size with the group's name, without switching to it. */
+  async function seeDesign(group: Group, query: string): Promise<Reply> {
+    const theme = findTheme(query);
+    if (!theme) return { text: `I don't have a design called "${query}". Send *design* to see them all.` };
+    const number = THEMES.indexOf(theme) + 1;
+    const flyer = await render.birthday({ ...(await sampleFor(group)), style: { ...(await styleFor(group)), theme } });
+    const locked = allowsDesign(planOf(group), theme.id)
+      ? ""
+      : ` It's on the *${cheapestWith((p) => allowsDesign(p, theme.id)).label}* plan (send *plans* to compare).`;
+    return {
+      text: `This is design ${number}, *${theme.label}*. Reply *design ${number}* to use it.${locked}`,
+      images: [{ data: flyer, mimeType: JPEG }],
+    };
   }
 
   function setupDone(): string {
@@ -665,12 +730,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     ctx: { downloadMedia: (id: string) => Promise<{ data: Blob; mimeType: string }> },
   ): Promise<Reply | null> {
     const skip = /^(skip|next|later|no)$/i.test(text);
-    const step2 = async (lead: string): Promise<Reply> => {
+    const step2 = async (lead: string, page = 1): Promise<Reply> => {
       await opts.store.setChatState(msg.from, { step: "design", groupId: group.id });
-      return {
-        text: `${lead}*Step 2 of 3: pick a design.* Here they all are with your group's name on them. Reply with a number, e.g. *1*, or *skip* to keep design 1.${designsNote(planOf(group))}`,
-        images: [{ data: await designSheet(group), mimeType: JPEG }],
-      };
+      return designPage(
+        group,
+        page,
+        page === 1 ? `${lead}*Step 2 of 3: pick a design.* Here they are with your group's name on them. ` : "",
+        "Tap *Choose a design* to pick one, or reply with a number, e.g. *1*, or *skip* to keep design 1.",
+      );
     };
 
     if (step === "logo") {
@@ -688,6 +755,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     if (skip) {
       await opts.store.setChatState(msg.from, null);
       return { text: setupDone() };
+    }
+    // Turning the page or looking at one design keeps the guided setup going.
+    const page = designPageWanted(text);
+    if (page !== null) return step2("", page);
+    const see = text.match(SEE_DESIGN);
+    if (see) {
+      await opts.store.setChatState(msg.from, { step: "design", groupId: group.id });
+      return seeDesign(group, see[1]!);
     }
     const theme = findTheme(text.replace(/^design\s+/i, ""));
     if (!theme) return null;

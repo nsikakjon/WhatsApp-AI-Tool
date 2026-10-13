@@ -294,22 +294,30 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
   return canvas.encode("jpeg", 90);
 }
 
+/** One design on a design sheet: its number (what admins type) and an optional note under its name. */
+export interface DesignSheetItem {
+  theme: Theme;
+  number: number;
+  /** e.g. "Standard plan" for one the group's plan doesn't include. */
+  note?: string;
+}
+
 /**
- * One picture showing every design, numbered, so an admin can pick one by
- * replying "design 2". Uses one of the group's members as the example.
+ * One picture showing a page of designs, numbered, so an admin can pick one by
+ * replying "design 8". Uses one of the group's members as the example.
  */
 export async function renderDesignSheet(
   sample: Omit<BirthdayFlyerInput, "style">,
-  themes: Theme[],
+  items: DesignSheetItem[],
   extras: Omit<FlyerStyle, "theme"> = {},
 ): Promise<Buffer> {
   loadFonts();
   const cols = 3;
-  const rows = Math.ceil(themes.length / cols);
+  const rows = Math.ceil(items.length / cols);
   const thumbW = 340;
   const thumbH = Math.round(thumbW * (HEIGHT / WIDTH));
   const gap = 30;
-  const labelH = 64;
+  const labelH = 96;
   const width = cols * thumbW + (cols + 1) * gap;
   const height = rows * (thumbH + labelH) + (rows + 1) * gap;
   const canvas = createCanvas(width, height);
@@ -317,16 +325,22 @@ export async function renderDesignSheet(
   ctx.fillStyle = "#f2f2f2";
   ctx.fillRect(0, 0, width, height);
 
-  for (const [i, theme] of themes.entries()) {
-    const flyer = await loadImage(await renderBirthdayFlyer({ ...sample, style: { ...extras, theme } }));
+  for (const [i, item] of items.entries()) {
+    const flyer = await loadImage(await renderBirthdayFlyer({ ...sample, style: { ...extras, theme: item.theme } }));
     const x = gap + (i % cols) * (thumbW + gap);
     const y = gap + Math.floor(i / cols) * (thumbH + labelH + gap);
     ctx.drawImage(flyer, x, y, thumbW, thumbH);
-    ctx.fillStyle = "#222222";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    fitText(ctx, `${i + 1}. ${theme.label}`, "Poppins SemiBold", 26, thumbW);
-    ctx.fillText(`${i + 1}. ${theme.label}`, x, y + thumbH + 14);
+    const label = `${item.number}. ${item.theme.label}`;
+    ctx.fillStyle = "#222222";
+    fitText(ctx, label, "Poppins SemiBold", 26, thumbW);
+    ctx.fillText(label, x, y + thumbH + 12);
+    if (item.note) {
+      ctx.fillStyle = "#8a6d1f";
+      fitText(ctx, item.note, "Poppins", 22, thumbW);
+      ctx.fillText(item.note, x, y + thumbH + 50);
+    }
   }
   return canvas.encode("jpeg", 85);
 }

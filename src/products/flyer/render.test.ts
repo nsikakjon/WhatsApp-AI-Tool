@@ -22,7 +22,7 @@ describe("flyer drawing", () => {
   it("draws an event flyer and a design sheet", async () => {
     const photo = await placeholderPortrait();
     expect(isJpeg(await renderEventFlyer({ photo, caption: "Homecoming" }))).toBe(true);
-    const sheet = await renderDesignSheet({ photo, name: "Ada", dateLabel: "14 March", groupName: "G" }, THEMES.slice(0, 2));
+    const sheet = await renderDesignSheet({ photo, name: "Ada", dateLabel: "14 March", groupName: "G" }, THEMES.slice(0, 2).map((theme, i) => ({ theme, number: i + 1, note: i ? "Standard plan" : undefined })));
     expect(isJpeg(sheet)).toBe(true);
   });
 });

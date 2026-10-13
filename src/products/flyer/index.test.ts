@@ -10,6 +10,7 @@ import {
   type BirthdayDelivery,
 } from "./index.js";
 import type { ChatState, FlyerStore, Group, Member } from "./store.js";
+import { THEMES } from "./themes.js";
 
 const silent = { info: () => {}, error: () => {} };
 const OWNER = "2348000000001";
@@ -310,6 +311,13 @@ describe("flyer bot: open sign-up", () => {
     expect(text(logo?.images?.[0]?.data)).toBe("sheet:Your Member");
     expect(groups[0]!.logoPath).not.toBeNull();
 
+    expect(logo?.list?.rows[0]?.id).toBe("design 1");
+
+    // Turning the page or looking closer keeps the setup going.
+    expect((await bot.handle(msg(ADMIN, { text: "designs page 2" }), ctx))?.text).toContain("Designs 7 to");
+    expect((await bot.handle(msg(ADMIN, { text: "see 7" }), ctx))?.text).toContain("Gold stars");
+    expect(chat.get(ADMIN)?.step).toBe("design");
+
     expect((await bot.handle(msg(ADMIN, { text: "3" }), ctx))?.text).toContain("upgrade standard");
     const design = await bot.handle(msg(ADMIN, { text: "4" }), ctx);
     expect(design?.text).toContain("Design set to *Classic cream*");
@@ -373,12 +381,48 @@ describe("flyer bot: support", () => {
 });
 
 describe("flyer bot: designs", () => {
-  it("shows all designs on one picture", async () => {
+  it("shows the designs six at a time, with a list to pick one or turn the page", async () => {
     const { bot, render } = await withGroup();
     const reply = await bot.handle(msg(OWNER, { text: "design" }), ctx);
     expect(reply?.text).toContain("current design is *Royal purple*");
+    expect(reply?.text).toContain(`Designs 1 to 6 of ${THEMES.length}`);
     expect(text(reply?.images?.[0]?.data)).toBe("sheet:Your Member");
+    const items = render.designSheet.mock.calls[0]![1] as Array<{ number: number; note?: string }>;
+    expect(items.map((i) => i.number)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(items[0]!.note).toBe("Your design");
     expect(render.designSheet.mock.calls[0]![2]).toEqual({ accent: undefined, credit: undefined });
+    const rows = reply?.list?.rows ?? [];
+    expect(rows.map((r) => r.id)).toEqual(["design 1", "design 2", "design 3", "design 4", "design 5", "design 6", "designs page 2"]);
+    expect(rows[1]!.title).toBe("2. Emerald and gold");
+
+    // Tapping "More designs" sends its id back as text.
+    const next = await bot.handle(msg(OWNER, { text: "designs page 2" }), ctx);
+    expect(next?.text).toContain("Designs 7 to");
+    const nextItems = render.designSheet.mock.calls[1]![1] as Array<{ number: number }>;
+    expect(nextItems[0]!.number).toBe(7);
+    expect(next?.list?.rows.at(-1)).toMatchObject({ id: "designs page 1", title: "◀ Back" });
+    expect((await bot.handle(msg(OWNER, { text: "more designs" }), ctx))?.text).toContain("Designs 7 to");
+    expect((await bot.handle(msg(OWNER, { text: "page 99" }), ctx))?.text).toContain(`of ${THEMES.length}`);
+  });
+
+  it("marks designs the group's plan doesn't include", async () => {
+    const { bot, render } = await withGroup({ plan: "free" });
+    const reply = await bot.handle(msg(OWNER, { text: "design" }), ctx);
+    const items = render.designSheet.mock.calls[0]![1] as Array<{ number: number; note?: string }>;
+    expect(items.map((i) => i.note)).toEqual(["Your design", "Standard plan", "Standard plan", undefined, "Standard plan", "Standard plan"]);
+    expect(reply?.list?.rows[3]).toEqual({ id: "design 4", title: "4. Classic cream", description: undefined });
+  });
+
+  it("shows one design full size without switching to it", async () => {
+    const { bot, groups, render } = await withGroup({ plan: "free" });
+    const reply = await bot.handle(msg(OWNER, { text: "see 8" }), ctx);
+    expect(reply?.text).toContain("design 8, *Evening gala*");
+    expect(reply?.text).toContain("Reply *design 8* to use it");
+    expect(reply?.text).toContain("*Standard* plan");
+    const style = (render.birthday.mock.calls.at(-1)![0] as { style: { theme: { id: string } } }).style;
+    expect(style.theme.id).toBe("gala");
+    expect(groups[0]!.theme).toBe("royal");
+    expect((await bot.handle(msg(OWNER, { text: "see design 99" }), ctx))?.text).toContain("don't have a design");
   });
 
   it("changes the design by number or name, and shows a preview", async () => {
