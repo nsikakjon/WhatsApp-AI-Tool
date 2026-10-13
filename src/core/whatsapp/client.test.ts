@@ -101,6 +101,26 @@ describe("WhatsApp client", () => {
     });
   });
 
+  it("sends a list of choices, cutting titles to WhatsApp's limits", async () => {
+    let captured: { url: string; init: RequestInit } | undefined;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      captured = { url, init };
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.list" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    const rows = Array.from({ length: 12 }, (_, i) => ({ id: `design ${i + 1}`, title: `${i + 1}. A very long design name here`, description: "Standard plan" }));
+    const result = await client.sendList("2348012345678", { body: "Pick a design", button: "See designs", rows });
+
+    expect(result.waMessageId).toBe("wamid.list");
+    const sent = JSON.parse(captured?.init.body as string);
+    expect(sent).toMatchObject({ type: "interactive", interactive: { type: "list", body: { text: "Pick a design" } } });
+    expect(sent.interactive.action.button).toBe("See designs");
+    const sentRows = sent.interactive.action.sections[0].rows;
+    expect(sentRows).toHaveLength(10);
+    expect(sentRows[0]).toEqual({ id: "design 1", title: "1. A very long design n…", description: "Standard plan" });
+    expect(sentRows[0].title.length).toBe(24);
+  });
+
   it("downloads media in two steps, sending the token both times", async () => {
     const calls: Array<{ url: string; auth?: string }> = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {

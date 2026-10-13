@@ -1,4 +1,4 @@
-import type { OutgoingImage } from "./whatsapp/client.js";
+import type { OutgoingImage, OutgoingList } from "./whatsapp/client.js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
 // The contract every product module (echo, quote bot, site reporter, lead
@@ -10,6 +10,8 @@ export interface Reply {
   text: string;
   /** Pictures to send after the text, e.g. a finished flyer. */
   images?: OutgoingImage[];
+  /** A tappable list of choices, sent after the pictures. */
+  list?: OutgoingList;
   /**
    * Extra messages to other people, e.g. a new-order alert to the business
    * owner. The core sends these after the main reply.

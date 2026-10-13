@@ -28,7 +28,9 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           businessNumberId: value.metadata?.phone_number_id,
           contactName: names.get(msg.from) ?? undefined,
           type: msg.type,
-          text: msg.type === "text" ? msg.text?.body : undefined,
+          // A tap on a list or button we sent comes back as the choice's id,
+          // which products treat like typed text.
+          text: msg.type === "text" ? msg.text?.body : msg.type === "interactive" ? choiceId(msg.interactive) : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
           timestamp: Number(msg.timestamp ?? 0),
@@ -38,6 +40,16 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
     }
   }
   return result;
+}
+
+function choiceId(interactive: InteractiveReply | undefined): string | undefined {
+  return interactive?.list_reply?.id ?? interactive?.button_reply?.id ?? undefined;
+}
+
+interface InteractiveReply {
+  type?: string;
+  list_reply?: { id?: string; title?: string };
+  button_reply?: { id?: string; title?: string };
 }
 
 interface WebhookBody {
@@ -58,6 +70,7 @@ interface WebhookBody {
           image?: { id?: string; caption?: string };
           document?: { id?: string; caption?: string };
           video?: { id?: string; caption?: string };
+          interactive?: InteractiveReply;
         }>;
       };
     }>;
