@@ -210,7 +210,7 @@ Admins who chat with the bot daily are fine. Otherwise there are two options:
   sends the bot anything (even "hi") that day. `today` also works.
 - **With a template (recommended)**: create one in WhatsApp Manager >
   Message templates > Create template:
-  - Category: **Utility**. Name: `birthday_flyer`. Language: English.
+  - Category: **Marketing** (Meta rejects this wording as Utility). Name: `birthday_flyer`. Language: English.
   - Header: **Image** (upload any sample flyer as the example).
   - Body:
     ```
