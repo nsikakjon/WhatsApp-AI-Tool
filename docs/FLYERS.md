@@ -54,9 +54,9 @@ Service > Variables > add:
 | `FLYER_PHONE_NUMBER_ID` | the Phone number ID from step 2                              |
 | `FLYER_OWNER_WA_IDS`    | your WhatsApp number, e.g. `2348024777076` (comma-separate several) |
 | `FLYER_SEND_HOUR`       | `8` (8am Lagos time), or another hour                        |
-| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `Yarn Oga Flyers`               |
+| `FLYER_BRAND_NAME`      | the name you sell it under, e.g. `YarnOga Flyers`               |
 | `FLYER_OPEN_SIGNUP`     | `true` so anyone can set up their own group (see "Selling it") |
-| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with Yarn Oga · wa.me/2348012345678` |
+| `FLYER_CREDIT`          | optional small print on flyers, e.g. `Made with YarnOga · wa.me/2348012345678` |
 
 `ANTHROPIC_API_KEY` is already set for the quote bot and is reused to write
 the birthday messages. Railway redeploys by itself. The deploy log should say
@@ -155,8 +155,11 @@ Admins can change how their group's flyers look, on WhatsApp:
 
 | Send                                        | What happens                                  |
 | ------------------------------------------- | --------------------------------------------- |
-| `design`                                    | one picture showing all designs, numbered     |
+| `design`                                    | the first six designs on one picture, numbered, and a **Choose a design** button |
+| tap **Choose a design**, then a design      | switches to it and shows a preview            |
+| tap **More designs** (or send `designs page 2`) | the next six designs                      |
 | `design 2` (or `design emerald`)            | switches to that design and shows a preview   |
+| `see 8`                                     | design 8 full size with the group's name, without switching |
 | `colour gold` (or a code like `#1a7f37`)    | changes the highlight colour; `colour reset` undoes it |
 | a picture with the caption `background`     | uses it behind birthday flyers; `background off` undoes it |
 
@@ -180,6 +183,11 @@ they ignore the colour and background settings:
 Long birthday messages shrink to fit; the full message is always in the
 caption under the flyer too. The four designs from 8 to 11 live in
 `src/products/flyer/designs4.ts`.
+
+Designs are shown six to a page so the list stays easy to browse however many
+there are. Each design keeps its number on every page, so `design 14` always
+means the same design. Designs the group's plan doesn't include are marked with
+the plan that has them; admins can still look at them with `see`.
 
 **Changing or adding designs for everyone**: the designs live in
 `src/products/flyer/themes.ts`, one block per design with its colours and
@@ -237,7 +245,7 @@ To bring people in:
   bot. Put it in your WhatsApp status, Instagram bio and flyers, or turn it
   into a QR code.
 - **Every flyer is an advert**: set `FLYER_CREDIT`, e.g.
-  `Made with Yarn Oga · wa.me/2348012345678`. On Free and Standard groups it's
+  `Made with YarnOga · wa.me/2348012345678`. On Free and Standard groups it's
   printed at the bottom of each flyer, and also added under the birthday
   message that goes with it. WhatsApp keeps that message when the admin
   forwards the flyer, and turns `wa.me/...` into a link anyone in the group
@@ -254,7 +262,7 @@ group and plan. To answer, send the bot:
 reply 2348012345678 Thanks, that's fixed now.
 ```
 
-They get it from the bot as "Yarn Oga Flyers support: ...". It only arrives if
+They get it from the bot as "YarnOga Flyers support: ...". It only arrives if
 they messaged in the last 24 hours (WhatsApp's rule), which is normally the
 case since they just wrote in.
 - **Charging**: see "Plans" below.
