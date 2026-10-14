@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SharedLocation } from "../../core/whatsapp/types.js";
 
 // Reading sites and teams, and saving updates, photos and reports. Kept behind
 // an interface so tests can use an in-memory version instead of a real database.
@@ -11,12 +12,16 @@ export interface Member {
   siteName: string;
 }
 
-export type UpdateKind = "text" | "photo" | "voice";
+export type UpdateKind = "text" | "photo" | "voice" | "location";
 
 export interface SiteUpdate {
   memberName: string;
   kind: UpdateKind;
   body: string | null;
+  /** Where a photo update's picture is saved. */
+  photoPath?: string | null;
+  /** The pin of a location update. */
+  location?: SharedLocation | null;
   createdAt: Date;
 }
 
@@ -34,6 +39,12 @@ export interface SiteStore {
   lastUpdate(memberId: string): Promise<{ kind: UpdateKind; createdAt: Date } | null>;
   /** Saves a photo to storage and returns where it was saved. */
   savePhoto(siteId: string, waMessageId: string, photo: { data: Blob; mimeType: string }): Promise<string>;
+  /** Downloads a saved photo (for the PDF report). */
+  photo(path: string): Promise<Uint8Array>;
+  /** Saves a site's logo, replacing any earlier one. */
+  saveLogo(siteId: string, image: { data: Blob; mimeType: string }): Promise<void>;
+  /** The site's logo, or null if none has been set. */
+  logo(siteId: string): Promise<Uint8Array | null>;
   /** Logs an update. Returns "duplicate" if this WhatsApp message was already logged. */
   addUpdate(update: {
     siteId: string;
@@ -42,6 +53,7 @@ export interface SiteStore {
     kind: UpdateKind;
     body: string | null;
     photoPath: string | null;
+    location?: SharedLocation | null;
   }): Promise<"new" | "duplicate">;
   /** Every update for a site between two moments, oldest first. */
   updatesBetween(siteId: string, from: Date, to: Date): Promise<SiteUpdate[]>;
@@ -104,6 +116,33 @@ export function createSupabaseSiteStore(db: SupabaseClient): SiteStore {
       return path;
     },
 
+    async photo(path) {
+      const { data, error } = await db.storage.from(PHOTO_BUCKET).download(path);
+      if (error || !data) throw new Error(`photo download failed: ${error?.message ?? "no data"}`);
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async saveLogo(siteId, image) {
+      const ext = image.mimeType.includes("png") ? "png" : image.mimeType.includes("webp") ? "webp" : "jpg";
+      const path = `logos/${siteId}.${ext}`;
+      const { error } = await db.storage
+        .from(PHOTO_BUCKET)
+        .upload(path, image.data, { contentType: image.mimeType, upsert: true });
+      if (error) throw new Error(`saveLogo upload failed: ${error.message}`);
+      const { error: dbError } = await db.from("site_sites").update({ logo_path: path }).eq("id", siteId);
+      if (dbError) throw new Error(`saveLogo failed: ${dbError.message}`);
+    },
+
+    async logo(siteId) {
+      const { data, error } = await db.from("site_sites").select("logo_path").eq("id", siteId).maybeSingle();
+      if (error) throw new Error(`logo lookup failed: ${error.message}`);
+      const path = data?.logo_path as string | null | undefined;
+      if (!path) return null;
+      const file = await db.storage.from(PHOTO_BUCKET).download(path);
+      if (file.error || !file.data) throw new Error(`logo download failed: ${file.error?.message ?? "no data"}`);
+      return new Uint8Array(await file.data.arrayBuffer());
+    },
+
     async addUpdate(u) {
       const { error } = await db.from("site_updates").insert({
         site_id: u.siteId,
@@ -112,6 +151,10 @@ export function createSupabaseSiteStore(db: SupabaseClient): SiteStore {
         kind: u.kind,
         body: u.body,
         photo_path: u.photoPath,
+        latitude: u.location?.latitude ?? null,
+        longitude: u.location?.longitude ?? null,
+        location_name: u.location?.name ?? null,
+        location_address: u.location?.address ?? null,
       });
       if (!error) return "new";
       if (error.code === UNIQUE_VIOLATION) return "duplicate";
@@ -121,7 +164,7 @@ export function createSupabaseSiteStore(db: SupabaseClient): SiteStore {
     async updatesBetween(siteId, from, to) {
       const { data, error } = await db
         .from("site_updates")
-        .select("kind, body, created_at, site_members(name)")
+        .select("kind, body, photo_path, latitude, longitude, location_name, location_address, created_at, site_members(name)")
         .eq("site_id", siteId)
         .gte("created_at", from.toISOString())
         .lt("created_at", to.toISOString())
@@ -131,6 +174,16 @@ export function createSupabaseSiteStore(db: SupabaseClient): SiteStore {
         memberName: (row.site_members as unknown as { name: string } | null)?.name ?? "Someone",
         kind: row.kind as UpdateKind,
         body: row.body as string | null,
+        photoPath: row.photo_path as string | null,
+        location:
+          row.latitude === null || row.longitude === null
+            ? null
+            : {
+                latitude: Number(row.latitude),
+                longitude: Number(row.longitude),
+                name: (row.location_name as string | null) ?? undefined,
+                address: (row.location_address as string | null) ?? undefined,
+              },
         createdAt: new Date(row.created_at as string),
       }));
     },
