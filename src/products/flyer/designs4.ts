@@ -16,6 +16,8 @@ type Fade = (ctx: Ctx, w: number, h: number) => CanvasGradient;
 /** What every design here takes. dateLabel is like "22 October". */
 export interface DesignInput {
   photo?: Uint8Array;
+  /** The person cut out of the photo (a see-through PNG), when there is one. */
+  cutout?: Uint8Array;
   name: string;
   dateLabel: string;
   groupName: string;
@@ -23,9 +25,9 @@ export interface DesignInput {
   credit?: string;
   year?: number;
 }
-const W = 1080,
+export const W = 1080,
   H = 1350;
-const MONTHS = [
+export const MONTHS = [
   "January",
   "February",
   "March",
@@ -42,7 +44,7 @@ const MONTHS = [
 
 // ---------- shared helpers ----------
 
-function rng(seed: string): () => number {
+export function rng(seed: string): () => number {
   let s = 7;
   for (const c of seed) s = (s * 31 + c.charCodeAt(0)) >>> 0;
   return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32;
@@ -56,22 +58,51 @@ export function parseDate(label: string): { day: number; month: number } | null 
   return month < 0 ? null : { day: Number(m[1]), month };
 }
 
-function ordinal(n: number): string {
+export function ordinal(n: number): string {
   const s = ["TH", "ST", "ND", "RD"],
     v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 /** Draws the image to cover the box; fx/fy pick which part stays in view (0.5 = centre). */
-function cover(ctx: Ctx, img: Image | Canvas, x: number, y: number, w: number, h: number, fx = 0.5, fy = 0.3) {
+export function cover(ctx: Ctx, img: Image | Canvas, x: number, y: number, w: number, h: number, fx = 0.5, fy = 0.3) {
   const s = Math.max(w / img.width, h / img.height);
   const iw = img.width * s,
     ih = img.height * s;
   ctx.drawImage(img, x + (w - iw) * fx, y + (h - ih) * fy, iw, ih);
 }
 
+/**
+ * The cut-out person on their own w x h layer: as big as fits, centred, feet
+ * (or shoulders) on the bottom edge, which fades out from `fadeFrom` (0-1 of
+ * the height) so the cut edge melts into the design.
+ */
+export function personLayer(img: Image, w: number, h: number, fadeFrom = 0.85): Canvas {
+  const c = createCanvas(w, h);
+  const ctx = c.getContext("2d");
+  const s = Math.min(w / img.width, h / img.height);
+  const iw = img.width * s,
+    ih = img.height * s;
+  ctx.drawImage(img, (w - iw) / 2, h - ih, iw, ih);
+  if (fadeFrom < 1) {
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.fillStyle = fadeBottom(fadeFrom, 1)(ctx, w, h);
+    ctx.fillRect(0, 0, w, h);
+  }
+  return c;
+}
+
+/** Draws a layer with a soft shadow behind it, so a cut-out person stands off the background. */
+export function withShadow(ctx: Ctx, layer: Canvas, x: number, y: number, colour = "rgba(0,0,0,0.35)", blur = 30) {
+  ctx.save();
+  ctx.shadowColor = colour;
+  ctx.shadowBlur = blur;
+  ctx.drawImage(layer, x, y);
+  ctx.restore();
+}
+
 /** The photo on its own layer, faded out by each gradient in `fades` (applied one after another). */
-function fadedPhoto(img: Image, w: number, h: number, fades: Fade[], fx?: number, fy?: number): Canvas {
+export function fadedPhoto(img: Image, w: number, h: number, fades: Fade[], fx?: number, fy?: number): Canvas {
   const c = createCanvas(w, h);
   const ctx = c.getContext("2d");
   cover(ctx, img, 0, 0, w, h, fx, fy);
@@ -83,7 +114,7 @@ function fadedPhoto(img: Image, w: number, h: number, fades: Fade[], fx?: number
   }
   return c;
 }
-const fadeTop =
+export const fadeTop =
   (from: number, to: number): Fade =>
   (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, h * from, 0, h * to);
@@ -91,7 +122,7 @@ const fadeTop =
     g.addColorStop(1, "#000");
     return g;
   };
-const fadeBottom =
+export const fadeBottom =
   (from: number, to: number): Fade =>
   (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, h * from, 0, h * to);
@@ -99,7 +130,7 @@ const fadeBottom =
     g.addColorStop(1, "rgba(0,0,0,0)");
     return g;
   };
-const fadeSides =
+export const fadeSides =
   (edge: number): Fade =>
   (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, 0, w, 0);
@@ -111,7 +142,7 @@ const fadeSides =
   };
 
 /** Keeps an oval in the middle of the layer and fades everything outside it. */
-const fadeOval =
+export const fadeOval =
   (inner = 0.55): Fade =>
   (ctx, w, h) => {
     ctx.setTransform(1, 0, 0, h / w, 0, 0);
@@ -123,7 +154,7 @@ const fadeOval =
   };
 
 /** Text with extra space between letters, drawn centred, left or right. */
-function spaced(
+export function spaced(
   ctx: Ctx,
   text: string,
   x: number,
@@ -146,7 +177,7 @@ function spaced(
 }
 
 /** Letters placed around a circle, reading clockwise from the top. */
-function circleText(ctx: Ctx, text: string, cx: number, cy: number, r: number, startAngle = -Math.PI / 2) {
+export function circleText(ctx: Ctx, text: string, cx: number, cy: number, r: number, startAngle = -Math.PI / 2) {
   const total = [...text].reduce((a, ch) => a + ctx.measureText(ch).width, 0);
   let a = startAngle - total / r / 2;
   ctx.save();
@@ -165,7 +196,7 @@ function circleText(ctx: Ctx, text: string, cx: number, cy: number, r: number, s
 }
 
 /** Repeats `word ·` until it fills the whole ring. */
-function ringText(ctx: Ctx, word: string, cx: number, cy: number, r: number) {
+export function ringText(ctx: Ctx, word: string, cx: number, cy: number, r: number) {
   const unit = `${word} • `;
   const n = Math.max(1, Math.floor((2 * Math.PI * r) / ctx.measureText(unit).width));
   const spare = 2 * Math.PI * r - n * ctx.measureText(unit).width;
@@ -186,15 +217,15 @@ function ringText(ctx: Ctx, word: string, cx: number, cy: number, r: number) {
   ctx.restore();
 }
 
-function metal(ctx: Ctx, y0: number, y1: number, stops: string[]): CanvasGradient {
+export function metal(ctx: Ctx, y0: number, y1: number, stops: string[]): CanvasGradient {
   const g = ctx.createLinearGradient(0, y0, 0, y1);
   stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
   return g;
 }
-const GOLD = ["#fff6c8", "#f3cf6b", "#c8901f", "#8a5a12", "#e9bd55", "#fff1b0"];
+export const GOLD = ["#fff6c8", "#f3cf6b", "#c8901f", "#8a5a12", "#e9bd55", "#fff1b0"];
 const SILVER = ["#ffffff", "#f4f6f8", "#c9cfd6", "#8e96a1", "#e6eaee", "#ffffff"];
 
-function fitFont(ctx: Ctx, text: string, weightFamily: string, max: number, min: number, maxWidth: number): number {
+export function fitFont(ctx: Ctx, text: string, weightFamily: string, max: number, min: number, maxWidth: number): number {
   let size = max;
   ctx.font = `${size}px ${weightFamily}`;
   while (ctx.measureText(text).width > maxWidth && size > min) {
@@ -204,7 +235,7 @@ function fitFont(ctx: Ctx, text: string, weightFamily: string, max: number, min:
   return size;
 }
 
-function wrap(ctx: Ctx, text: string, maxWidth: number): string[] {
+export function wrap(ctx: Ctx, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
   let line = "";
   for (const w of text.split(/\s+/)) {
@@ -224,7 +255,7 @@ function wrap(ctx: Ctx, text: string, maxWidth: number): string[] {
  * max down to min so the whole message fits. If it is still too long at min,
  * the last line ends in "...". Emoji are dropped (the fonts have none).
  */
-function fitWish(
+export function fitWish(
   ctx: Ctx,
   text: string | undefined,
   family: string,
@@ -255,7 +286,7 @@ function fitWish(
   return { lines, size: min };
 }
 
-function bokeh(
+export function bokeh(
   ctx: Ctx,
   rand: () => number,
   n: number,
@@ -283,7 +314,7 @@ function bokeh(
 }
 
 /** A glossy party balloon or Christmas-style ornament ball; `blur` softens it as if out of focus. */
-function balloon(
+export function balloon(
   ctx: Ctx,
   x: number,
   y: number,
@@ -322,7 +353,7 @@ function balloon(
   ctx.restore();
 }
 
-function sparkle(ctx: Ctx, x: number, y: number, r: number, colour: string) {
+export function sparkle(ctx: Ctx, x: number, y: number, r: number, colour: string) {
   ctx.fillStyle = colour;
   ctx.beginPath();
   ctx.moveTo(x, y - r);
@@ -333,7 +364,7 @@ function sparkle(ctx: Ctx, x: number, y: number, r: number, colour: string) {
   ctx.fill();
 }
 
-function creditLine(
+export function creditLine(
   ctx: Ctx,
   credit: string | undefined,
   colour: string,
@@ -356,13 +387,20 @@ function creditLine(
 
 // ---------- 1. Gala: dark cinematic photo, gold lettering, date seal ----------
 
-export async function renderGala({ photo, name, dateLabel, groupName, wish, credit }: DesignInput): Promise<Buffer> {
+export async function renderGala({ photo, cutout, name, dateLabel, groupName, wish, credit }: DesignInput): Promise<Buffer> {
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "gala");
   ctx.fillStyle = "#1a0b07";
   ctx.fillRect(0, 0, W, H);
-  if (photo) cover(ctx, await loadImage(photo), 0, 0, W, 1120, 0.5, 0.2);
+  // With a cut-out, the room is drawn empty and the person stands in it (below).
+  if (cutout) {
+    const room = ctx.createLinearGradient(0, 0, 0, 1120);
+    room.addColorStop(0, "#6b3420");
+    room.addColorStop(1, "#2a120a");
+    ctx.fillStyle = room;
+    ctx.fillRect(0, 0, W, 1120);
+  } else if (photo) cover(ctx, await loadImage(photo), 0, 0, W, 1120, 0.5, 0.2);
 
   // Warm, dark grade so any photo reads as an evening party.
   ctx.save();
@@ -402,6 +440,11 @@ export async function renderGala({ photo, name, dateLabel, groupName, wish, cred
   ctx.fillStyle = floor;
   ctx.fillRect(0, 0, W, H);
   bokeh(ctx, rand, 26, { x: 0, y: 0, w: W, h: H }, ["rgba(255,200,110,1)", "rgba(255,150,80,1)"], 8, 34);
+  if (cutout) {
+    // Warm rim light from the window side, then the person in front of the curtains.
+    const layer = personLayer(await loadImage(cutout), 820, 900, 0.8);
+    withShadow(ctx, layer, 60, 1140 - 900, "rgba(255,170,80,0.35)", 40);
+  }
 
   // Gold ribbon curls.
   ctx.save();
@@ -510,7 +553,7 @@ function sunflower(ctx: Ctx, x: number, y: number, r: number, blur: number, rot:
   ctx.restore();
 }
 
-export async function renderSunflower({ photo, name, dateLabel, groupName, credit }: DesignInput): Promise<Buffer> {
+export async function renderSunflower({ photo, cutout, name, dateLabel, groupName, credit }: DesignInput): Promise<Buffer> {
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "sun");
@@ -534,7 +577,9 @@ export async function renderSunflower({ photo, name, dateLabel, groupName, credi
   sunflower(ctx, 960, 1240, 220, 8, 0.7);
 
   // Photo, faded at the edges so it melts into the background.
-  if (photo) {
+  if (cutout) {
+    withShadow(ctx, personLayer(await loadImage(cutout), 760, 900, 0.78), (W - 760) / 2 + 40, 150, "rgba(120,40,0,0.35)");
+  } else if (photo) {
     const img = await loadImage(photo);
     const layer = fadedPhoto(img, 760, 900, [fadeOval(0.6), fadeBottom(0.7, 1)], 0.6, 0.25);
     ctx.drawImage(layer, (W - 760) / 2, 150);
@@ -612,6 +657,7 @@ export async function renderSunflower({ photo, name, dateLabel, groupName, credi
 
 export async function renderWhiteGold({
   photo,
+  cutout,
   name,
   dateLabel,
   groupName,
@@ -667,7 +713,9 @@ export async function renderWhiteGold({
   ctx.textAlign = "left";
 
   // Photo fading into the white page.
-  if (photo) {
+  if (cutout) {
+    withShadow(ctx, personLayer(await loadImage(cutout), 620, 800, 0.8), (W - 620) / 2, 520, "rgba(120,80,30,0.25)");
+  } else if (photo) {
     const img = await loadImage(photo);
     const layer = fadedPhoto(img, 620, 800, [fadeOval(0.55), fadeBottom(0.75, 1)], 0.5, 0.2);
     ctx.drawImage(layer, (W - 620) / 2, 520);
@@ -734,6 +782,7 @@ export async function renderWhiteGold({
 
 export async function renderCalendar({
   photo,
+  cutout,
   name,
   dateLabel,
   groupName,
@@ -774,7 +823,9 @@ export async function renderCalendar({
   spaced(ctx, MONTHS[d.month].toUpperCase(), W / 2, 330, 4, "center");
 
   // Photo rising from the bottom, behind the lower rows of the grid.
-  if (photo) {
+  if (cutout) {
+    withShadow(ctx, personLayer(await loadImage(cutout), 640, 760, 1), (W - 640) / 2, H - 760, "rgba(0,0,0,0.2)");
+  } else if (photo) {
     const img = await loadImage(photo);
     const layer = fadedPhoto(img, 600, 760, [fadeSides(0.16), fadeTop(0.02, 0.3)], 0.5, 0.2);
     ctx.drawImage(layer, (W - 600) / 2, H - 760);

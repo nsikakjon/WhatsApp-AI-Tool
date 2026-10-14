@@ -21,6 +21,7 @@ function memoryStore(plan = "organisation") {
   const admins: Array<{ groupId: string; waId: string; usedAt: number }> = [];
   const members: Member[] = [];
   const pictures = new Map<string, Uint8Array>();
+  const cutouts = new Map<string, Uint8Array | null>();
   const claims = new Set<string>();
   const chat = new Map<string, ChatState>();
   let clock = 0;
@@ -93,6 +94,12 @@ function memoryStore(plan = "organisation") {
           admins: admins.filter((a) => a.groupId === member.groupId).map((a) => a.waId),
         }));
     },
+    async loadCutout(photoPath) {
+      return cutouts.get(photoPath);
+    },
+    async saveCutout(photoPath, png) {
+      cutouts.set(photoPath, png);
+    },
     async loadPicture(path) {
       const pic = pictures.get(path);
       if (!pic) throw new Error(`no picture at ${path}`);
@@ -132,7 +139,7 @@ function memoryStore(plan = "organisation") {
       ]);
     },
   };
-  return { store, groups, members, claims, chat };
+  return { store, groups, members, claims, chat, cutouts };
 }
 
 const background: Array<Promise<void>> = [];
@@ -158,6 +165,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } =
       Buffer.from(`event:${input.caption}:${input.logo ? "logo" : "nologo"}`),
     ),
     designSheet: vi.fn(async (sample: { name: string }) => Buffer.from(`sheet:${sample.name}`)),
+    cutout: vi.fn(async (): Promise<Buffer | null> => Buffer.from("cut")),
   };
   const bot = createFlyerBot({
     store: mem.store,
@@ -584,6 +592,45 @@ describe("flyer bot: members and flyers", () => {
     const reply = await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
     expect(members).toMatchObject([{ name: "Ada Okafor", birthday: { month: 3, day: 14 } }]);
     expect(reply?.text).toContain("Saved Ada Okafor 🎂 14 March");
+    expect(text(reply?.images?.[0]?.data)).toBe("birthday:Ada Okafor:nologo");
+  });
+
+  it("cuts the person out once for designs that use cutouts, then reuses it", async () => {
+    const { bot, render, cutouts } = await withGroup();
+    await bot.handle(msg(OWNER, { text: "design midnight" }), ctx);
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx);
+    expect(render.cutout).toHaveBeenCalledTimes(1);
+    expect(text(cutouts.get("g1/Ada Okafor") ?? undefined)).toBe("cut");
+    const last = render.birthday.mock.calls.at(-1)![0] as { cutout?: Uint8Array };
+    expect(text(last.cutout)).toBe("cut");
+  });
+
+  it("doesn't cut out photos for designs that don't use cutouts", async () => {
+    const { bot, render } = await withGroup();
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    expect(render.cutout).not.toHaveBeenCalled();
+    const last = render.birthday.mock.calls.at(-1)![0] as { cutout?: Uint8Array };
+    expect(last.cutout).toBeUndefined();
+  });
+
+  it("remembers when no person was found and uses the plain photo", async () => {
+    const { bot, render } = await withGroup();
+    render.cutout.mockResolvedValue(null);
+    await bot.handle(msg(OWNER, { text: "design midnight" }), ctx);
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const reply = await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx);
+    expect(render.cutout).toHaveBeenCalledTimes(1);
+    expect(text(reply?.images?.[0]?.data)).toBe("birthday:Ada Okafor:nologo");
+    const last = render.birthday.mock.calls.at(-1)![0] as { cutout?: Uint8Array };
+    expect(last.cutout).toBeUndefined();
+  });
+
+  it("still makes the flyer when cutting out fails", async () => {
+    const { bot, render } = await withGroup();
+    render.cutout.mockRejectedValue(new Error("model broke"));
+    await bot.handle(msg(OWNER, { text: "design midnight" }), ctx);
+    const reply = await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
     expect(text(reply?.images?.[0]?.data)).toBe("birthday:Ada Okafor:nologo");
   });
 

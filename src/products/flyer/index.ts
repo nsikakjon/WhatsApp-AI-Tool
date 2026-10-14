@@ -9,12 +9,14 @@ import {
   type MonthDay,
 } from "./dates.js";
 import {
+  placeholderCutout,
   placeholderPortrait,
   renderBirthdayFlyer,
   renderDesignSheet,
   renderEventFlyer,
   type FlyerStyle,
 } from "./render.js";
+import { cutOut } from "./cutout.js";
 import { COLOUR_NAMES, findTheme, parseColour, THEMES, themeById } from "./themes.js";
 import { fetchPicture, fetchSheet, isCsv, MAX_ROWS, parseCsv, rowsFromTable, type ImportRow } from "./import.js";
 import {
@@ -60,6 +62,8 @@ export interface FlyerBotOptions {
     birthday: typeof renderBirthdayFlyer;
     event: typeof renderEventFlyer;
     designSheet: typeof renderDesignSheet;
+    /** Cuts the person out of a photo (see cutout.ts). */
+    cutout: typeof cutOut;
   };
   log?: Pick<Console, "info" | "error">;
   /** For downloading Google Sheets and photo links. */
@@ -176,6 +180,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     birthday: renderBirthdayFlyer,
     event: renderEventFlyer,
     designSheet: renderDesignSheet,
+    cutout: cutOut,
   };
   const owners = new Set(opts.owners);
   const now = opts.now ?? (() => new Date());
@@ -256,8 +261,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   async function sampleFor(group: Group) {
     const members = await opts.store.members(group.id);
     const first = members.find((m) => m.photoPath) ?? members[0];
+    const photo = first?.photoPath ? await opts.store.loadPicture(first.photoPath) : await placeholderPortrait();
     return {
-      photo: first?.photoPath ? await opts.store.loadPicture(first.photoPath) : await placeholderPortrait(),
+      photo,
+      cutout: first?.photoPath ? await cutoutOf(first.photoPath, photo) : await placeholderCutout(),
       name: first?.name ?? "Your Member",
       dateLabel: first ? formatMonthDay(first.birthday) : "14 October",
       groupName: group.name,
@@ -265,10 +272,31 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     };
   }
 
+  /**
+   * The person cut out of a saved photo, made the first time a design needs it
+   * and saved for next time. Undefined when there's no person in the photo or
+   * the cut-out fails; designs then use the plain photo.
+   */
+  async function cutoutOf(photoPath: string, photo: Uint8Array): Promise<Uint8Array | undefined> {
+    try {
+      const saved = await opts.store.loadCutout(photoPath);
+      if (saved !== undefined) return saved ?? undefined;
+      const made = await render.cutout(photo);
+      await opts.store.saveCutout(photoPath, made);
+      return made ?? undefined;
+    } catch (err) {
+      log.error("Could not cut out a photo:", err);
+      return undefined;
+    }
+  }
+
   async function birthdayFlyer(member: Member, group: Group, wish?: string): Promise<Uint8Array> {
+    const style = await styleFor(group);
+    const photo = member.photoPath ? await opts.store.loadPicture(member.photoPath) : undefined;
     return render.birthday({
-      style: await styleFor(group),
-      photo: member.photoPath ? await opts.store.loadPicture(member.photoPath) : undefined,
+      style,
+      photo,
+      cutout: photo && member.photoPath && style.theme.cutout ? await cutoutOf(member.photoPath, photo) : undefined,
       name: member.name,
       dateLabel: formatMonthDay(member.birthday),
       groupName: group.name,
