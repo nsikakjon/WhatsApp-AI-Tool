@@ -18,8 +18,29 @@ export interface Theme {
    * "gala", "sunflower", "whitegold", "calendar": the four ready-made designs
    *   in designs4.ts. They draw their own colours; the ones below are only used
    *   for the initials picture when a member has no photo.
+   * "goldportrait", "redpeach", "blackgold", "whiteconfetti", "bigdate",
+   *   "polaroidnote", "balloons": the seven ready-made designs in designs7.ts.
    */
-  layout: "circle" | "full" | "stars" | "gala" | "sunflower" | "whitegold" | "calendar";
+  layout:
+    | "circle"
+    | "full"
+    | "stars"
+    | "gala"
+    | "sunflower"
+    | "whitegold"
+    | "calendar"
+    | "goldportrait"
+    | "redpeach"
+    | "blackgold"
+    | "whiteconfetti"
+    | "bigdate"
+    | "polaroidnote"
+    | "balloons";
+  /**
+   * Stands the person in front of the design using their cut-out photo (the
+   * background removed, see cutout.ts), falling back to the plain photo.
+   */
+  cutout?: boolean;
   /** Background, top-left to bottom-right. Use the same colour twice for a flat one. */
   background: [string, string];
   /** "Happy", the photo ring, the date, and the line on event flyers. */
@@ -75,6 +96,7 @@ export const THEMES: Theme[] = [
   },
   {
     id: "photo",
+    cutout: true,
     label: "Big photo, navy",
     layout: "full",
     background: ["#0d1b3d", "#0d1b3d"],
@@ -85,6 +107,7 @@ export const THEMES: Theme[] = [
   },
   {
     id: "midnight",
+    cutout: true,
     label: "Big photo, black and gold",
     layout: "full",
     background: ["#0b0b0b", "#0b0b0b"],
@@ -104,6 +127,7 @@ export const THEMES: Theme[] = [
     confetti: false,
   },  {
     id: "gala",
+    cutout: true,
     label: "Evening gala",
     layout: "gala",
     background: ["#2a1109", "#5a2414"],
@@ -114,6 +138,7 @@ export const THEMES: Theme[] = [
   },
   {
     id: "sunflower",
+    cutout: true,
     label: "Sunflowers",
     layout: "sunflower",
     background: ["#e8731c", "#f59a2c"],
@@ -124,6 +149,7 @@ export const THEMES: Theme[] = [
   },
   {
     id: "whitegold",
+    cutout: true,
     label: "White and gold",
     layout: "whitegold",
     background: ["#b8862f", "#e2c172"],
@@ -134,9 +160,83 @@ export const THEMES: Theme[] = [
   },
   {
     id: "calendar",
+    cutout: true,
     label: "Calendar",
     layout: "calendar",
     background: ["#c62828", "#e0524f"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "goldportrait",
+    label: "Gold portrait",
+    layout: "goldportrait",
+    cutout: true,
+    background: ["#8c5a22", "#b7843a"],
+    accent: "#ffe2a8",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "redpeach",
+    label: "Red and peach",
+    layout: "redpeach",
+    cutout: true,
+    background: ["#cf1f2e", "#f7dcc6"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "blackgold",
+    label: "Black and gold rings",
+    layout: "blackgold",
+    background: ["#0b0b0b", "#2a2a2a"],
+    accent: "#d4af37",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "whiteconfetti",
+    label: "White confetti",
+    layout: "whiteconfetti",
+    background: ["#e8452c", "#f6c90e"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "bigdate",
+    label: "Big date, blue",
+    layout: "bigdate",
+    cutout: true,
+    background: ["#0a2a8f", "#2f6bff"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "polaroidnote",
+    label: "Polaroid note",
+    layout: "polaroidnote",
+    background: ["#c98a5c", "#f9ead6"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "balloons",
+    label: "Orange balloons",
+    layout: "balloons",
+    background: ["#ff6a00", "#ff8c1a"],
     accent: "#ffffff",
     text: "#ffffff",
     muted: "rgba(255,255,255,0.85)",

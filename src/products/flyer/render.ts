@@ -4,7 +4,8 @@
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { renderGoldStars, SAMPLE_WISH } from "./goldstars.js";
-import { renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
+import { personLayer, renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
+import { DESIGNS_7 } from "./designs7.js";
 import { themeById, type Theme } from "./themes.js";
 
 // The fonts ship with the code (assets/fonts), so flyers look the same on
@@ -17,6 +18,9 @@ function loadFonts() {
   GlobalFonts.registerFromPath(`${fontDir}Poppins-SemiBold.ttf`, "Poppins SemiBold");
   GlobalFonts.registerFromPath(`${fontDir}Poppins-ExtraBold.ttf`, "Poppins ExtraBold");
   GlobalFonts.registerFromPath(`${fontDir}GreatVibes-Regular.ttf`, "Great Vibes");
+  GlobalFonts.registerFromPath(`${fontDir}PlayfairDisplay-Bold.ttf`, "Playfair Display Bold");
+  GlobalFonts.registerFromPath(`${fontDir}PlayfairDisplay-Black.ttf`, "Playfair Display Black");
+  GlobalFonts.registerFromPath(`${fontDir}Pacifico-Regular.ttf`, "Pacifico");
   fontsLoaded = true;
 }
 
@@ -41,6 +45,8 @@ const DEFAULT_STYLE: FlyerStyle = { theme: themeById(undefined) };
 export interface BirthdayFlyerInput {
   /** Their photo. Without one, the flyer shows their initials instead. */
   photo?: Uint8Array;
+  /** The person cut out of their photo (see cutout.ts), for designs that stand them in front. */
+  cutout?: Uint8Array;
   name: string;
   /** Shown under the name, e.g. "14 October". */
   dateLabel: string;
@@ -58,12 +64,13 @@ export interface EventFlyerInput {
   style?: FlyerStyle;
 }
 
-/** The ready-made designs from designs4.ts, by layout. They draw everything themselves. */
+/** The ready-made designs from designs4.ts and designs7.ts, by layout. They draw everything themselves. */
 const READY_MADE = {
   gala: renderGala,
   sunflower: renderSunflower,
   whitegold: renderWhiteGold,
   calendar: renderCalendar,
+  ...DESIGNS_7,
 };
 
 export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Buffer> {
@@ -86,6 +93,8 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
   if (ready) {
     return ready({
       photo: input.photo ?? (await initialsPortrait(input.name, theme.background, accent)),
+      cutout: theme.cutout ? input.cutout : undefined,
+      logo: input.logo,
       name: input.name,
       dateLabel: input.dateLabel,
       groupName: input.groupName,
@@ -114,10 +123,25 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
   ctx.textBaseline = "top";
 
   if (theme.layout === "full") {
-    // Photo across the top, fading into the background colour below.
+    // Photo across the top, fading into the background colour below. With a
+    // cut-out, the person stands on the background instead, lit from behind.
     const photoHeight = 860;
-    drawCover(ctx, photo, 0, 0, WIDTH, photoHeight);
-    if (!style.background) {
+    if (input.cutout && theme.cutout) {
+      const glow = ctx.createRadialGradient(WIDTH / 2, 420, 40, WIDTH / 2, 420, 560);
+      glow.addColorStop(0, withAlpha(accent, 0.45));
+      glow.addColorStop(1, withAlpha(accent, 0));
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, WIDTH, photoHeight);
+      const layer = personLayer(await loadImage(input.cutout), 900, photoHeight - 40, 0.8);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.45)";
+      ctx.shadowBlur = 40;
+      ctx.drawImage(layer, (WIDTH - 900) / 2, 40);
+      ctx.restore();
+    } else {
+      drawCover(ctx, photo, 0, 0, WIDTH, photoHeight);
+    }
+    if (!style.background && !(input.cutout && theme.cutout)) {
       const fade = ctx.createLinearGradient(0, photoHeight - 300, 0, photoHeight);
       fade.addColorStop(0, withAlpha(theme.background[0], 0));
       fade.addColorStop(1, theme.background[0]);
@@ -370,6 +394,20 @@ async function initialsPortrait(name: string, background: [string, string], acce
   ctx.font = `300px "Poppins SemiBold"`;
   ctx.fillText(initials || "?", 400, 380);
   return canvas.encode("jpeg", 90);
+}
+
+/** The same outline on a see-through background: the example cut-out before a group has members. */
+export async function placeholderCutout(): Promise<Buffer> {
+  const canvas = createCanvas(800, 1000);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#5b6b7c";
+  ctx.beginPath();
+  ctx.ellipse(400, 360, 150, 180, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(400, 980, 330, 360, 0, 0, Math.PI * 2);
+  ctx.fill();
+  return canvas.encode("png");
 }
 
 /** A plain head-and-shoulders outline, used as the example photo before a group has members. */
