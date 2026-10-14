@@ -32,6 +32,18 @@ describe("loadConfig", () => {
     });
   });
 
+  it("reads invoice details, with | starting a new line", () => {
+    const config = loadConfig({
+      ...base,
+      ACTIVE_PRODUCT: "quote",
+      ANTHROPIC_API_KEY: "a",
+      QUOTE_BUSINESS_DETAILS: "Ikeja, Lagos",
+      QUOTE_PAYMENT_DETAILS: "Bank 0000000000 | Example Ltd",
+    });
+    expect(config.quote?.businessDetails).toBe("Ikeja, Lagos");
+    expect(config.quote?.paymentDetails).toBe("Bank 0000000000\nExample Ltd");
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });

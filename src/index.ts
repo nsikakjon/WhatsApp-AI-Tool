@@ -8,7 +8,7 @@ import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct } from "./products/quote/index.js";
-import { createSupabaseCatalog, createSupabaseOrders } from "./products/quote/store.js";
+import { createSupabaseBranding, createSupabaseCatalog, createSupabaseOrders } from "./products/quote/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
@@ -39,6 +39,9 @@ if (config.activeProduct === "quote" && config.quote) {
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
     ownerWaId: config.quote.ownerWaId,
+    businessDetails: config.quote.businessDetails,
+    paymentDetails: config.quote.paymentDetails,
+    branding: createSupabaseBranding(supabase),
     catalog: createSupabaseCatalog(supabase),
     orders: createSupabaseOrders(supabase),
     ai: createClaudeUnderstander({

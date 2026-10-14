@@ -1,7 +1,10 @@
 import { formatNaira } from "../../core/money.js";
-import type { Product, Reply } from "../../core/product.js";
+import type { Product, ProductContext, Reply } from "../../core/product.js";
+import type { OutgoingImage } from "../../core/whatsapp/client.js";
+import type { IncomingMessage } from "../../core/whatsapp/types.js";
+import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
-import type { CatalogStore, OrderStore, SavedOrder } from "./store.js";
+import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
 
 // Phase 1: the quote and order bot (first client: KahnPrints).
@@ -9,8 +12,14 @@ import type { Understander } from "./understand.js";
 // 1. The customer says what they want.
 // 2. The AI works out which items and how many (understand.ts).
 // 3. Code prices it from the database (pricing.ts) and saves the quote.
-// 4. The customer replies YES, the quote becomes an order, and the owner gets
-//    a WhatsApp alert. (Payment by Paystack comes later.)
+// 4. The customer replies YES, the quote becomes an order, the customer gets
+//    an invoice (a picture with the business logo) and the owner gets a
+//    WhatsApp alert.
+// 5. When the customer has paid, the owner sends "paid KP-1001" and the
+//    customer gets a receipt.
+//
+// The owner can also send the business logo (a photo captioned "logo"), and
+// "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -21,16 +30,30 @@ export interface QuoteProductOptions {
   catalog: CatalogStore;
   orders: OrderStore;
   ai: Understander;
+  /** Where the logo for invoices and receipts is kept. Without it, documents have no logo. */
+  branding?: BrandingStore;
+  /** Address or phone printed under the business name on invoices and receipts. */
+  businessDetails?: string;
+  /** Bank details printed on invoices, e.g. "GTBank 0123456789, KahnPrints Ltd". */
+  paymentDetails?: string;
+  /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
+  renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
   log?: Pick<Console, "error">;
 }
 
 export function createQuoteProduct(opts: QuoteProductOptions): Product {
   const log = opts.log ?? console;
   const ref = (o: SavedOrder) => `${opts.orderPrefix}-${o.orderNumber}`;
+  const draw = opts.renderDocument ?? renderDocument;
 
   return {
     name: "quote",
     async handle(msg, ctx): Promise<Reply> {
+      if (opts.ownerWaId && msg.from === opts.ownerWaId) {
+        const ownerReply = await ownerCommand(msg, ctx);
+        if (ownerReply) return ownerReply;
+      }
+
       // Voice notes arrive here with `text` already filled in by the core.
       if (!msg.text) {
         return {
@@ -132,8 +155,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       return { text: "There's no quote waiting for confirmation. Tell me what you'd like printed and I'll send you one." };
     }
 
+    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() });
     const reply: Reply = {
-      text: `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment and delivery.`,
+      text: invoice
+        ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. The ${opts.businessName} team will contact you shortly about delivery.`
+        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment and delivery.`,
+      ...(invoice ? { images: [invoice] } : {}),
     };
     if (opts.ownerWaId) {
       reply.notify = [
@@ -143,11 +170,115 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
             `New order ${ref(order)} from ${name ?? "a customer"} (+${waId}):`,
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
             `Total: ${formatNaira(order.totalKobo)}`,
+            "",
+            `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
           ].join("\n"),
         },
       ];
     }
     return reply;
+  }
+
+  /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */
+  async function documentImage(
+    kind: "invoice" | "receipt",
+    order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
+  ): Promise<OutgoingImage | null> {
+    try {
+      const logo = opts.branding ? await opts.branding.logo() : null;
+      const data = await draw({
+        kind,
+        businessName: opts.businessName,
+        logo: logo ?? undefined,
+        businessDetails: opts.businessDetails,
+        ref: `${opts.orderPrefix}-${order.orderNumber}`,
+        date: kind === "receipt" ? (order.paidAt ?? new Date()) : order.createdAt,
+        customerName: order.customerName ?? undefined,
+        customerWaId: order.customerWaId,
+        lines: order.lines,
+        totalKobo: order.totalKobo,
+        paymentDetails: opts.paymentDetails,
+      });
+      const label = kind === "invoice" ? "Invoice" : "Receipt";
+      return { data, mimeType: "image/jpeg", caption: `${label} ${opts.orderPrefix}-${order.orderNumber}` };
+    } catch (err) {
+      log.error(`Could not draw the ${kind} for order ${order.orderNumber}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Messages only the business owner can send: the logo, and invoice, receipt
+   * and paid commands. Returns null for anything else, so the owner can still
+   * try the bot like a customer.
+   */
+  async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
+    const caption = (msg.caption ?? "").trim();
+    if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
+      if (!/^logo$/i.test(caption)) {
+        return opts.branding
+          ? { text: "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." }
+          : null;
+      }
+      if (!opts.branding) return { text: "Logos can't be saved yet on this setup. Please let yarnOga support know." };
+      const file = await ctx.downloadMedia(msg.mediaId);
+      if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) {
+        return { text: "Please send the logo as a picture (PNG or JPEG). A PNG sent as a document keeps a see-through background." };
+      }
+      await opts.branding.saveLogo(new Uint8Array(await file.data.arrayBuffer()), file.mimeType);
+      return { text: "Logo saved ✅ It'll be on every invoice and receipt from now on." };
+    }
+
+    const text = (msg.text ?? "").trim();
+    if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
+    const command = text.match(/^(invoice|receipt|paid)\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
+    if (!command) return null;
+
+    const action = command[1]!.toLowerCase();
+    const number = Number(command[2]);
+    const label = `${opts.orderPrefix}-${number}`;
+    const order = await opts.orders.findOrder(number);
+    if (!order) return { text: `I can't find order ${label}. Please check the number.` };
+
+    if (action === "invoice") {
+      const invoice = await documentImage("invoice", order);
+      return invoice ? { text: `Invoice for ${label} (${formatNaira(order.totalKobo)}):`, images: [invoice] } : { text: DRAW_FAILED };
+    }
+
+    if (action === "receipt") {
+      if (order.status !== "paid") return { text: `${label} isn't marked paid yet. Send *paid ${label}* once the customer has paid.` };
+      const receipt = await documentImage("receipt", order);
+      return receipt ? { text: `Receipt for ${label}:`, images: [receipt] } : { text: DRAW_FAILED };
+    }
+
+    // paid
+    if (order.status === "cancelled") return { text: `${label} was cancelled, so I can't mark it paid.` };
+    if (order.status === "paid") {
+      const receipt = await documentImage("receipt", order);
+      return {
+        text: `${label} was already marked paid${order.paidAt ? ` on ${formatDocDate(order.paidAt)}` : ""}. Here's the receipt again:`,
+        ...(receipt ? { images: [receipt] } : {}),
+      };
+    }
+    if (!(await opts.orders.markPaid(order.id))) {
+      return { text: `${label} has just been updated by another message. Send *receipt ${label}* to see where it stands.` };
+    }
+    const paid = { ...order, status: "paid" as const, paidAt: new Date() };
+    const receipt = await documentImage("receipt", paid);
+    const who = order.customerName ?? `+${order.customerWaId}`;
+    return {
+      text: receipt
+        ? `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`
+        : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}, but couldn't draw the receipt.`,
+      ...(receipt ? { images: [receipt] } : {}),
+      notify: [
+        {
+          to: order.customerWaId,
+          text: `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!${receipt ? " Here's your receipt:" : ""}`,
+          ...(receipt ? { images: [receipt] } : {}),
+        },
+      ],
+    };
   }
 
   async function cancel(contactId: string): Promise<Reply> {
@@ -156,6 +287,18 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     await opts.orders.setStatus(order.id, "cancelled");
     return { text: `No problem, I've cancelled quote ${ref(order)}. Message me any time you need a new one.` };
   }
+}
+
+const DRAW_FAILED = "Sorry, I couldn't draw that just now. Please try again in a minute.";
+
+function ownerHelp(prefix: string): string {
+  return [
+    "Invoices and receipts:",
+    "• Send your logo as a picture with the caption *logo* to put it on every invoice and receipt.",
+    `• *paid ${prefix}-1001* marks an order paid and sends the customer a receipt.`,
+    `• *invoice ${prefix}-1001* or *receipt ${prefix}-1001* sends you a copy.`,
+    "Customers get their invoice automatically when they confirm an order.",
+  ].join("\n");
 }
 
 function defaultHelp(variants: Variant[]): string {

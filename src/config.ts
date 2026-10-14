@@ -26,6 +26,10 @@ export interface Config {
     businessName: string;
     orderPrefix: string;
     ownerWaId?: string;
+    /** Address or phone printed under the business name on invoices and receipts. */
+    businessDetails?: string;
+    /** Bank details printed on invoices. */
+    paymentDetails?: string;
   };
   /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
@@ -83,6 +87,12 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+/** Lets a one-line Railway variable hold several lines, written with " | " between them. */
+function multiline(value: string | undefined): string | undefined {
+  const text = value?.split("|").map((part) => part.trim()).filter(Boolean).join("\n");
+  return text || undefined;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const activeProduct = env.ACTIVE_PRODUCT || "echo";
   if (activeProduct !== "echo" && activeProduct !== "quote") {
@@ -124,6 +134,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             businessName: env.QUOTE_BUSINESS_NAME || "KahnPrints",
             orderPrefix: env.QUOTE_ORDER_PREFIX || "KP",
             ownerWaId: env.QUOTE_OWNER_WA_ID?.replace(/\D/g, "") || undefined,
+            businessDetails: multiline(env.QUOTE_BUSINESS_DETAILS),
+            paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
           }
         : undefined,
     site: env.SITE_PHONE_NUMBER_ID
