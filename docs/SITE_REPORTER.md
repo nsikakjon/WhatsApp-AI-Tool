@@ -14,6 +14,10 @@ Supabase > SQL Editor > New query > paste the whole of
 This also creates a private storage bucket called `site-photos`, where photos
 from site are saved (Supabase > Storage).
 
+Then do the same with `supabase/migrations/0013_site_locations_and_logo.sql`.
+It lets the bot save location pins and each site's logo. (If you set the site
+reporter up before October 2026, this is the only file you need to run now.)
+
 ## 2. Add a site and its team (Supabase)
 
 In a new SQL query, change the names and numbers below, then Run. Numbers are
@@ -69,8 +73,20 @@ Railway redeploys by itself. The deploy log should say `site reporter: on`.
 2. Send a few photos (with or without captions). You get one "Photo logged"
    reply per batch.
 3. Send a voice note. The bot replies with what it heard.
-4. From the manager phone, send `report`. You get today's report so far.
-5. After the report hour, managers get the day's report automatically.
+4. Send a location pin: in the chat tap 📎 (or +) > Location > "Send your
+   current location" or pick a place. Reply: `📍 Location logged for Test Site ✅`
+   with the place name, or the coordinates if you didn't pick a named place.
+5. From the manager phone, send your logo as a picture with the caption
+   `logo`. Reply: `Logo saved ✅`. Only managers can do this; each site has one
+   logo, and sending a new one replaces it.
+6. From the manager phone, send `report`. You get today's report so far as a
+   message, then the same report as a PDF: your logo at the top, the summary,
+   the locations (tap "Open in Google Maps"), every update and the photos.
+7. After the report hour, managers get the day's report automatically, also
+   with the PDF.
+
+If the PDF ever can't be made (for example a storage problem), the text report
+still goes out on its own and the Railway log says `PDF report failed`.
 
 ## If something doesn't work
 
