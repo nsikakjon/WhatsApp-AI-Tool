@@ -20,6 +20,7 @@ import { runEvery } from "./core/schedule.js";
 import {
   canMessageFreely,
   sendAndRecord,
+  sendDocumentAndRecord,
   sendImageAndRecord,
   sendTemplateAndRecord,
 } from "./core/whatsapp/outbox.js";
@@ -111,6 +112,7 @@ if (siteReporter && siteConfig) {
     for (const report of await siteReporter.dueReports(new Date())) {
       try {
         await sendAndRecord({ store, whatsapp }, report.to, report.text, siteConfig.phoneNumberId);
+        if (report.pdf) await sendDocumentAndRecord({ store, whatsapp }, report.to, report.pdf, siteConfig.phoneNumberId);
       } catch (err) {
         console.error(`Failed to send daily site report to ...${report.to.slice(-4)}:`, err);
       }
