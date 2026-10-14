@@ -167,7 +167,7 @@ The `background` option is the easiest way to get a fully custom look: design
 a 1080 × 1350 background in Canva (leave the middle and the bottom clear for
 the photo and name), download it as a picture, and send it to the bot.
 
-Designs 7 to 11 are ready-made designs that draw everything themselves, so
+Designs 7 to 18 are ready-made designs that draw everything themselves, so
 they ignore the colour and background settings:
 
 - 7, **Gold stars and glitter**: prints the birthday message beside the photo,
@@ -179,10 +179,41 @@ they ignore the colour and background settings:
 - 10, **White and gold**: a script "Birthday" title, a date seal and the
   birthday message beside the photo.
 - 11, **Calendar**: the birthday circled on that month's calendar.
+- 12, **Gold portrait**: gold and brown, a big "HAPPY BIRTHDAY", a date box
+  and the person standing at the bottom right.
+- 13, **Red and peach**: a red "Birth Day" title, a round date seal and the
+  person standing in the middle.
+- 14, **Black and gold rings**: the photo in a gold ring, with a date pill.
+- 15, **White confetti**: a round photo on white with confetti and a script
+  "Birthday".
+- 16, **Big date, blue**: the day of the month huge behind the person, with
+  heart bubbles and a round date badge.
+- 17, **Polaroid note**: the photo as a taped polaroid and a "dear, Ada / Many
+  more happy returns!" note.
+- 18, **Orange balloons**: orange rings, balloons and a polaroid photo.
 
 Long birthday messages shrink to fit; the full message is always in the
-caption under the flyer too. The four designs from 8 to 11 live in
-`src/products/flyer/designs4.ts`.
+caption under the flyer too. Designs 8 to 11 live in
+`src/products/flyer/designs4.ts`, and 12 to 18 in
+`src/products/flyer/designs7.ts`.
+
+### Cut-out photos
+
+Designs 5, 6 and 8 to 13 and 16 cut the person out of their photo (the
+background is removed), so they stand in front of the design the way they would
+in a Canva or Photoshop flyer. This runs on our own server with a free model
+(ISNet, open licence), so it costs nothing per photo.
+
+- Each photo is cut out once, the first time a design needs it, and the cut-out
+  is saved next to the photo in Supabase Storage. Later flyers reuse it.
+- Replacing a member's photo, or removing the member, removes the cut-out too.
+- If no person is found (a logo, a landscape) or the cut-out fails, the design
+  uses the normal photo instead, so a flyer is always made.
+- Clear photos of one person work best. Group photos are cut out as one block.
+- Cutting out uses about 700MB of memory for a second or two, one photo at a
+  time. The model is unloaded after two idle minutes. If Railway shows the
+  service running out of memory, raise its memory limit in the service's
+  settings.
 
 Designs are shown six to a page so the list stays easy to browse however many
 there are. Each design keeps its number on every page, so `design 14` always
