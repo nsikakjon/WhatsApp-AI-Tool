@@ -32,7 +32,7 @@ Owner messages (only from `QUOTE_OWNER_WA_ID`):
 - `paid KP-1001` marks an order paid and sends the receipt,
 - `invoice KP-1001` / `receipt KP-1001` sends the owner a copy to forward or print.
 
-To switch it on: run the `0002`, `0003` and `0011` files in `supabase/migrations/`, then
+To switch it on: run the `0002`, `0003` and `0012` files in `supabase/migrations/`, then
 `supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote
 bot variables from `.env.example` on Railway.
 
