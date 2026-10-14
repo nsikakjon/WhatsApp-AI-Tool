@@ -5,7 +5,7 @@
 // flyer_plans (Supabase > Table Editor), in kobo, so they can change without
 // a deploy and payments always read them from one place.
 
-export type PlanId = "free" | "standard" | "premium" | "deluxe";
+export type PlanId = "free" | "standard" | "premium" | "deluxe" | "organisation";
 
 export interface Plan {
   id: PlanId;
@@ -83,23 +83,31 @@ export const PLANS: Plan[] = [
     credit: false,
     summary: "unlimited members and admins, everything in Premium, several groups or chapters",
   },
+  {
+    id: "organisation",
+    label: "Organisation",
+    maxMembers: null,
+    maxAdmins: null,
+    designs: "all",
+    colour: true,
+    importList: true,
+    eventFlyers: true,
+    ownBackground: true,
+    credit: false,
+    summary: "everything in Deluxe, for large associations with many groups or chapters, set up for you",
+  },
 ];
 
 export const FREE = PLANS[0]!;
 
-// Deluxe replaced the old Organisation plan (2026-10-14); old names still work.
-const OLD_NAMES: Record<string, PlanId> = { organisation: "deluxe", organization: "deluxe" };
-
 export function planById(id: string): Plan {
-  const wanted = OLD_NAMES[id] ?? id;
-  return PLANS.find((p) => p.id === wanted) ?? FREE;
+  return PLANS.find((p) => p.id === id) ?? FREE;
 }
 
-/** Matches "standard", "Premium", "deluxe" (or the old "organisation") to a plan. */
+/** Matches "standard", "Premium", "organization" (either spelling) to a plan. */
 export function findPlan(query: string): Plan | null {
-  const q = query.trim().toLowerCase();
-  const wanted = OLD_NAMES[q] ?? q;
-  return PLANS.find((p) => p.id === wanted) ?? null;
+  const q = query.trim().toLowerCase().replace("organization", "organisation");
+  return PLANS.find((p) => p.id === q) ?? null;
 }
 
 /**

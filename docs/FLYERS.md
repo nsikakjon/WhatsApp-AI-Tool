@@ -97,7 +97,7 @@ that group. Birthday flyers for every group arrive by themselves.
 - **Owners** can set up any number of groups.
 - **Everyone else** gets one group on the Free plan. Once their groups are on
   paid plans, they can send `new group` to add more. So an association with
-  several chapters pays for each, or you put them on Deluxe.
+  several chapters pays for each, or you put them on Deluxe or Organisation.
 - Being added as an admin of someone else's group (`add admin`) doesn't count.
 
 ## 5. Add members
@@ -309,11 +309,10 @@ Every new group starts on **Free**. Paid plans unlock more:
 | Standard | 50        | 2         | ₦4,500   | ₦2,500                  | all designs, colours, spreadsheet import, event flyers       |
 | Premium  | 500       | 5         | ₦8,000   | ₦6,500                  | everything in Standard, own background, no "Made with" line  |
 | Deluxe   | unlimited | unlimited | ₦10,000  | ₦8,500                  | everything, for associations with several groups or chapters |
+| Organisation | unlimited | unlimited | on request | on request         | everything in Deluxe, for large associations, set up for you |
 
-Deluxe replaced the old Organisation plan on 14 October 2026. Groups that were
-on Organisation move to Deluxe when you run migration
-`0011_flyer_new_prices.sql`, and `set plan organisation ...` still works.
-Groups already over a new member limit keep everyone they have; they just
+Deluxe was added on 14 October 2026 (migration `0011_flyer_new_prices.sql`);
+Organisation stays as before, price on request. Groups already over a new member limit keep everyone they have; they just
 can't add more until they upgrade.
 
 Anyone can send `plans` to see them with prices, and `plan` to see their

@@ -16,7 +16,7 @@ const silent = { info: () => {}, error: () => {} };
 const OWNER = "2348000000001";
 const ADMIN = "2348000000002";
 
-function memoryStore(plan = "deluxe") {
+function memoryStore(plan = "organisation") {
   const groups: Group[] = [];
   const admins: Array<{ groupId: string; waId: string; usedAt: number }> = [];
   const members: Member[] = [];
@@ -136,6 +136,7 @@ function memoryStore(plan = "deluxe") {
         ["standard", 450000],
         ["premium", 800000],
         ["deluxe", 1000000],
+        ["organisation", null],
       ]);
     },
     async planYearlyPrices() {
@@ -144,6 +145,7 @@ function memoryStore(plan = "deluxe") {
         ["standard", 250000],
         ["premium", 650000],
         ["deluxe", 850000],
+        ["organisation", null],
       ]);
     },
   };
@@ -245,10 +247,10 @@ describe("flyer bot: setup", () => {
     const { bot } = await withGroup();
     await bot.handle(msg(OWNER, { text: "new group Lekki Crew" }), ctx);
     const list = (await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text;
-    expect(list).toContain("1. Lekki Crew (Deluxe) ← current");
-    expect(list).toContain("2. Unilag Class of 2010 (Deluxe)");
+    expect(list).toContain("1. Lekki Crew (Organisation) ← current");
+    expect(list).toContain("2. Unilag Class of 2010 (Organisation)");
     await bot.handle(msg(OWNER, { text: "switch unilag" }), ctx);
-    expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("2. Unilag Class of 2010 (Deluxe) ← current");
+    expect((await bot.handle(msg(OWNER, { text: "groups" }), ctx))?.text).toContain("2. Unilag Class of 2010 (Organisation) ← current");
     expect((await bot.handle(msg(OWNER, { text: "switch 1" }), ctx))?.text).toContain("Now working on *Lekki Crew*");
   });
 });
@@ -382,7 +384,7 @@ describe("flyer bot: support", () => {
     const sent = await bot.handle(msg(ADMIN, { text: "My flyer shows the wrong date", contactName: "Bola" }), ctx);
     expect(sent?.text).toContain("passed that to our team");
     expect(sent?.notify?.[0]).toMatchObject({ to: OWNER });
-    expect(sent?.notify?.[0]?.text).toContain("Bola (2348000000002) (group: Unilag Class of 2010, Deluxe plan):\nMy flyer shows the wrong date");
+    expect(sent?.notify?.[0]?.text).toContain("Bola (2348000000002) (group: Unilag Class of 2010, Organisation plan):\nMy flyer shows the wrong date");
     expect(sent?.notify?.[0]?.text).toContain(`reply ${ADMIN} <your message>`);
 
     const answer = await bot.handle(msg(OWNER, { text: `reply ${ADMIN} Fixed it, send flyer Ada to check` }), ctx);
@@ -496,13 +498,7 @@ describe("flyer bot: plans", () => {
     expect(reply?.text).toContain("*Standard* (₦4,500 a month, or ₦2,500 a month paid yearly (₦30,000 a year)): up to 50 members");
     expect(reply?.text).toContain("*Premium* (₦8,000 a month, or ₦6,500 a month paid yearly (₦78,000 a year)): up to 500 members");
     expect(reply?.text).toContain("*Deluxe* (₦10,000 a month, or ₦8,500 a month paid yearly (₦102,000 a year)): unlimited members");
-  });
-
-  it("treats the old Organisation plan as Deluxe", async () => {
-    const { bot, groups } = await withGroup({ plan: "organisation" });
-    expect((await bot.handle(msg(OWNER, { text: "plan" }), ctx))?.text).toContain("Deluxe");
-    await bot.handle(msg(OWNER, { text: "set plan organisation 1 month for Unilag Class of 2010" }), ctx);
-    expect(groups[0]!.plan).toBe("deluxe");
+    expect(reply?.text).toContain("*Organisation* (price on request)");
   });
 
   it("stops a Free group at 10 members, but still updates existing ones", async () => {
