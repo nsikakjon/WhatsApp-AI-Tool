@@ -307,8 +307,8 @@ Every new group starts on **Free**. Paid plans unlock more:
 | -------- | --------- | --------- | -------- | ----------------------- | ------------------------------------------------------------ |
 | Free     | 10        | 1         | free     |                         | 2 designs (1 and 4), logo, birthday flyers, "Made with" line |
 | Standard | 50        | 2         | ₦4,500   | ₦2,500                  | all designs, colours, spreadsheet import, event flyers       |
-| Premium  | 500       | 5         | ₦8,000   | ₦8,000                  | everything in Standard, own background, no "Made with" line  |
-| Deluxe   | unlimited | unlimited | ₦10,000  | ₦10,000                 | everything, for associations with several groups or chapters |
+| Premium  | 500       | 5         | ₦8,000   | ₦6,500                  | everything in Standard, own background, no "Made with" line  |
+| Deluxe   | unlimited | unlimited | ₦10,000  | ₦8,500                  | everything, for associations with several groups or chapters |
 
 Deluxe replaced the old Organisation plan on 14 October 2026. Groups that were
 on Organisation move to Deluxe when you run migration

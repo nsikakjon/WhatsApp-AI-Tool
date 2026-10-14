@@ -142,8 +142,8 @@ function memoryStore(plan = "deluxe") {
       return new Map<string, number | null>([
         ["free", null],
         ["standard", 250000],
-        ["premium", 800000],
-        ["deluxe", null],
+        ["premium", 650000],
+        ["deluxe", 850000],
       ]);
     },
   };
@@ -494,8 +494,8 @@ describe("flyer bot: plans", () => {
     const reply = await bot.handle(msg("2348099999999", { text: "plans" }), ctx);
     expect(reply?.text).toContain("*Free* (free): up to 10 members");
     expect(reply?.text).toContain("*Standard* (₦4,500 a month, or ₦2,500 a month paid yearly (₦30,000 a year)): up to 50 members");
-    expect(reply?.text).toContain("*Premium* (₦8,000 a month, or ₦8,000 a month paid yearly (₦96,000 a year)): up to 500 members");
-    expect(reply?.text).toContain("*Deluxe* (₦10,000 a month): unlimited members");
+    expect(reply?.text).toContain("*Premium* (₦8,000 a month, or ₦6,500 a month paid yearly (₦78,000 a year)): up to 500 members");
+    expect(reply?.text).toContain("*Deluxe* (₦10,000 a month, or ₦8,500 a month paid yearly (₦102,000 a year)): unlimited members");
   });
 
   it("treats the old Organisation plan as Deluxe", async () => {

@@ -15,5 +15,5 @@ delete from public.flyer_plans where id = 'organisation';
 
 update public.flyer_plans set monthly_price_kobo = 0,       monthly_price_paid_yearly_kobo = null    where id = 'free';
 update public.flyer_plans set monthly_price_kobo = 450000,  monthly_price_paid_yearly_kobo = 250000  where id = 'standard';
-update public.flyer_plans set monthly_price_kobo = 800000,  monthly_price_paid_yearly_kobo = 800000  where id = 'premium';
-update public.flyer_plans set monthly_price_kobo = 1000000, monthly_price_paid_yearly_kobo = 1000000 where id = 'deluxe';
+update public.flyer_plans set monthly_price_kobo = 800000,  monthly_price_paid_yearly_kobo = 650000  where id = 'premium';
+update public.flyer_plans set monthly_price_kobo = 1000000, monthly_price_paid_yearly_kobo = 850000  where id = 'deluxe';
