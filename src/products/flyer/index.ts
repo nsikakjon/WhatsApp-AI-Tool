@@ -26,6 +26,7 @@ import {
   currentPlan,
   findPlan,
   formatNaira,
+  planById,
   PLANS,
   type Plan,
 } from "./plans.js";
@@ -238,15 +239,20 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
   async function plansText(): Promise<string> {
     let prices = new Map<string, number | null>();
+    let yearly = new Map<string, number | null>();
     try {
-      prices = await opts.store.planPrices();
+      [prices, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
     } catch (err) {
       log.error("Could not load plan prices:", err);
     }
     const price = (p: Plan) => {
       const kobo = prices.get(p.id);
       if (p.id === "free") return "free";
-      return kobo === undefined || kobo === null ? "price on request" : `${formatNaira(kobo)} a month`;
+      if (kobo === undefined || kobo === null) return "price on request";
+      const perYear = yearly.get(p.id);
+      const yearlyText =
+        perYear === undefined || perYear === null ? "" : `, or ${formatNaira(perYear)} a month paid yearly (${formatNaira(perYear * 12)} a year)`;
+      return `${formatNaira(kobo)} a month${yearlyText}`;
     };
     const lines = PLANS.map((p) => `*${p.label}* (${price(p)}): ${p.summary}.`);
     return `${opts.brandName} plans:\n\n${lines.join("\n\n")}\n\nSend *upgrade* and the plan's name, e.g. *upgrade standard*.`;
@@ -581,7 +587,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
     if (lower === "plan" || lower === "my plan") {
       const plan = planOf(group);
-      const lapsed = plan.id !== group.plan;
+      const lapsed = plan.id !== planById(group.plan).id;
       const until = !lapsed && plan.id !== "free" && group.planUntil ? ` until ${formatDate(group.planUntil)}` : "";
       const count = (await opts.store.members(group.id)).length;
       const limit = plan.maxMembers === null ? "" : ` of ${plan.maxMembers}`;
@@ -670,7 +676,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const free = groups.find((g) => planOf(g).id === "free");
     if (!free) return null;
     return {
-      text: `Each person can run one group on the Free plan, and *${free.name}* is on Free. To set up another group, upgrade it first (send *upgrade standard*), or send *support* to ask about the *Organisation* plan for several groups.`,
+      text: `Each person can run one group on the Free plan, and *${free.name}* is on Free. To set up another group, upgrade it first (send *upgrade standard*), or send *upgrade deluxe* to run several groups or chapters.`,
     };
   }
 

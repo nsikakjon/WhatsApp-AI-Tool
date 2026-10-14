@@ -5,7 +5,7 @@
 // flyer_plans (Supabase > Table Editor), in kobo, so they can change without
 // a deploy and payments always read them from one place.
 
-export type PlanId = "free" | "standard" | "premium" | "organisation";
+export type PlanId = "free" | "standard" | "premium" | "deluxe" | "organisation";
 
 export interface Plan {
   id: PlanId;
@@ -34,7 +34,7 @@ export const PLANS: Plan[] = [
   {
     id: "free",
     label: "Free",
-    maxMembers: 20,
+    maxMembers: 10,
     maxAdmins: 1,
     designs: ["royal", "classic"],
     colour: false,
@@ -42,12 +42,12 @@ export const PLANS: Plan[] = [
     eventFlyers: false,
     ownBackground: false,
     credit: true,
-    summary: "up to 20 members, 2 designs, 1 admin",
+    summary: "up to 10 members, 2 designs, 1 admin",
   },
   {
     id: "standard",
     label: "Standard",
-    maxMembers: 200,
+    maxMembers: 50,
     maxAdmins: 2,
     designs: "all",
     colour: true,
@@ -55,12 +55,12 @@ export const PLANS: Plan[] = [
     eventFlyers: true,
     ownBackground: false,
     credit: true,
-    summary: "up to 200 members, all designs and colours, spreadsheet import, event flyers, 2 admins",
+    summary: "up to 50 members, all designs and colours, spreadsheet import, event flyers, 2 admins",
   },
   {
     id: "premium",
     label: "Premium",
-    maxMembers: null,
+    maxMembers: 500,
     maxAdmins: 5,
     designs: "all",
     colour: true,
@@ -68,7 +68,20 @@ export const PLANS: Plan[] = [
     eventFlyers: true,
     ownBackground: true,
     credit: false,
-    summary: "unlimited members, everything in Standard, your own background, no \"Made with\" line, 5 admins",
+    summary: "up to 500 members, everything in Standard, your own background, no \"Made with\" line, 5 admins",
+  },
+  {
+    id: "deluxe",
+    label: "Deluxe",
+    maxMembers: null,
+    maxAdmins: null,
+    designs: "all",
+    colour: true,
+    importList: true,
+    eventFlyers: true,
+    ownBackground: true,
+    credit: false,
+    summary: "unlimited members and admins, everything in Premium, several groups or chapters",
   },
   {
     id: "organisation",
@@ -81,7 +94,7 @@ export const PLANS: Plan[] = [
     eventFlyers: true,
     ownBackground: true,
     credit: false,
-    summary: "everything in Premium, unlimited admins, several groups or chapters, set up for you",
+    summary: "everything in Deluxe, for large associations with many groups or chapters, set up for you",
   },
 ];
 

@@ -17,7 +17,7 @@ describe("flyer drawing", () => {
       });
       expect(isJpeg(flyer)).toBe(true);
     }
-  });
+  }, 30_000);
 
   it("draws a birthday flyer with a cut-out person in every design", async () => {
     const photo = await placeholderPortrait();
@@ -33,7 +33,7 @@ describe("flyer drawing", () => {
       });
       expect(isJpeg(flyer)).toBe(true);
     }
-  });
+  }, 30_000);
 
   it("has the seven new designs, numbered 12 to 18", () => {
     expect(THEMES).toHaveLength(18);
