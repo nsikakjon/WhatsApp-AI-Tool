@@ -10,7 +10,7 @@ export interface UpdateForSummary {
   /** Lagos time, e.g. "09:14". */
   time: string;
   who: string;
-  kind: "text" | "photo" | "voice";
+  kind: "text" | "photo" | "voice" | "location";
   text: string | null;
 }
 
@@ -46,12 +46,12 @@ Fill in:
 
 Each list item is one short line. Merge repeated points. Leave a list empty if nothing fits.
 
-Only use what the updates say. Never invent progress, numbers, quantities, names or prices. If an update is unclear, leave it out rather than guess. Photos without a caption are only counted by the system; don't describe them.`;
+Only use what the updates say. Never invent progress, numbers, quantities, names or prices. If an update is unclear, leave it out rather than guess. Photos without a caption are only counted by the system; don't describe them. Location pins only show where someone was; the system lists them separately, so mention one only if a message explains why it matters.`;
 
 export function formatUpdatesForAi(updates: UpdateForSummary[]): string {
   return updates
     .map((u) => {
-      const label = u.kind === "photo" ? "photo" : u.kind === "voice" ? "voice note" : "message";
+      const label = u.kind === "photo" ? "photo" : u.kind === "voice" ? "voice note" : u.kind === "location" ? "location pin" : "message";
       return `[${u.time}] ${u.who} (${label}): ${u.text?.trim() || "(no caption)"}`;
     })
     .join("\n");

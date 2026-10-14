@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createSiteReporter } from "./index.js";
+import type { ReportPdfInput } from "./pdf.js";
 import { formatReport, lagosDate, lagosDayBounds, lagosHour } from "./report.js";
 import type { Member, SiteStore, SiteUpdate, UpdateKind } from "./store.js";
 import type { Summariser, Summary } from "./summarise.js";
@@ -13,9 +14,19 @@ const members: Record<string, Member> = {
 };
 
 function memoryStore() {
-  const updates: Array<{ siteId: string; memberId: string; waMessageId: string; kind: UpdateKind; body: string | null; photoPath: string | null; createdAt: Date }> = [];
+  const updates: Array<{
+    siteId: string;
+    memberId: string;
+    waMessageId: string;
+    kind: UpdateKind;
+    body: string | null;
+    photoPath: string | null;
+    location?: SiteUpdate["location"];
+    createdAt: Date;
+  }> = [];
   const reports = new Map<string, string>();
   const photos: string[] = [];
+  const logos = new Map<string, Uint8Array>();
   const store: SiteStore = {
     async findMember(waId) {
       return members[waId] ?? null;
@@ -30,6 +41,16 @@ function memoryStore() {
       photos.push(path);
       return path;
     },
+    async photo(path) {
+      if (!photos.includes(path)) throw new Error("not found");
+      return new Uint8Array([1]);
+    },
+    async saveLogo(siteId, image) {
+      logos.set(siteId, new Uint8Array(await image.data.arrayBuffer()));
+    },
+    async logo(siteId) {
+      return logos.get(siteId) ?? null;
+    },
     async addUpdate(u) {
       if (updates.some((x) => x.waMessageId === u.waMessageId)) return "duplicate";
       updates.push({ ...u, createdAt: new Date() });
@@ -42,6 +63,8 @@ function memoryStore() {
           memberName: Object.values(members).find((m) => m.id === u.memberId)!.name,
           kind: u.kind,
           body: u.body,
+          photoPath: u.photoPath,
+          location: u.location ?? null,
           createdAt: u.createdAt,
         }));
     },
@@ -57,7 +80,7 @@ function memoryStore() {
       return true;
     },
   };
-  return { store, updates, reports, photos };
+  return { store, updates, reports, photos, logos };
 }
 
 const summary: Summary = {
@@ -80,11 +103,17 @@ function fakeAi(fail = false) {
   return { ai, calls };
 }
 
-function setup(opts: { failAi?: boolean } = {}) {
+function setup(opts: { failAi?: boolean; failPdf?: boolean } = {}) {
   const mem = memoryStore();
   const { ai, calls } = fakeAi(opts.failAi);
-  const reporter = createSiteReporter({ store: mem.store, ai, reportHour: 18, log: silent });
-  return { reporter, aiCalls: calls, ...mem };
+  const pdfInputs: ReportPdfInput[] = [];
+  const renderPdf = async (input: ReportPdfInput) => {
+    pdfInputs.push(input);
+    if (opts.failPdf) throw new Error("drawing failed");
+    return new Uint8Array([37, 80, 68, 70]);
+  };
+  const reporter = createSiteReporter({ store: mem.store, ai, reportHour: 18, renderPdf, log: silent });
+  return { reporter, aiCalls: calls, pdfInputs, ...mem };
 }
 
 let n = 0;
@@ -144,6 +173,30 @@ describe("site reporter: logging updates", () => {
     expect(updates).toHaveLength(0);
   });
 
+  it("logs a location pin with its place name", async () => {
+    const { reporter, updates } = setup();
+    const location = { latitude: 6.4474, longitude: 3.4723, name: "Lekki Phase 1", address: "Admiralty Way, Lagos" };
+    const reply = await reporter.handle(msg("2348011111111", { type: "location", location }), ctx);
+    expect(reply?.text).toBe("📍 Location logged for Lekki Block B ✅\nLekki Phase 1, Admiralty Way, Lagos");
+    expect(updates[0]).toMatchObject({ kind: "location", body: null, location });
+  });
+
+  it("shows the coordinates when a pin has no place name", async () => {
+    const { reporter } = setup();
+    const reply = await reporter.handle(msg("2348011111111", { type: "location", location: { latitude: 6.5, longitude: 3.35 } }), ctx);
+    expect(reply?.text).toContain("6.50000, 3.35000");
+  });
+
+  it("lets a manager set the logo with a picture captioned logo, without logging it", async () => {
+    const { reporter, updates, logos } = setup();
+    const staff = await reporter.handle(msg("2348011111111", { type: "image", mediaId: "l1", caption: "Logo" }), ctx);
+    expect(staff?.text).toContain("Only site managers");
+    const manager = await reporter.handle(msg("2348022222222", { type: "image", mediaId: "l2", caption: " Logo " }), ctx);
+    expect(manager?.text).toContain("Logo saved");
+    expect(logos.has("s1")).toBe(true);
+    expect(updates).toHaveLength(0);
+  });
+
   it("doesn't log the same WhatsApp message twice", async () => {
     const { reporter, updates } = setup();
     const m = msg("2348011111111", { text: "Done" });
@@ -162,6 +215,29 @@ describe("site reporter: reports", () => {
     const manager = await reporter.handle(msg("2348022222222", { text: " Report " }), ctx);
     expect(manager?.text).toContain("*Lekki Block B: progress report for");
     expect(manager?.text).toContain("• Ground floor slab cast");
+    expect(manager?.documents?.[0]).toMatchObject({ mimeType: "application/pdf", filename: expect.stringMatching(/^Lekki Block B \d{4}-\d{2}-\d{2}\.pdf$/) });
+  });
+
+  it("puts the logo, photos and locations into the PDF", async () => {
+    const { reporter, pdfInputs } = setup();
+    await reporter.handle(msg("2348022222222", { type: "image", mediaId: "l1", caption: "logo" }), ctx);
+    await reporter.handle(msg("2348011111111", { type: "image", mediaId: "i1", caption: "Columns" }), ctx);
+    await reporter.handle(msg("2348011111111", { type: "location", location: { latitude: 6.4474, longitude: 3.4723 } }), ctx);
+    const reply = await reporter.handle(msg("2348022222222", { text: "report" }), ctx);
+    expect(reply?.text).toContain("*Locations shared*");
+    expect(reply?.text).toContain("https://maps.google.com/?q=6.44740,3.47230");
+    const input = pdfInputs[0]!;
+    expect(input.logo).not.toBeNull();
+    expect([...input.photos.keys()]).toHaveLength(1);
+    expect(input.report.updates.map((u) => u.kind)).toEqual(["photo", "location"]);
+  });
+
+  it("still sends the text report when the PDF can't be made", async () => {
+    const { reporter } = setup({ failPdf: true });
+    await reporter.handle(msg("2348011111111", { text: "Slab cast" }), ctx);
+    const reply = await reporter.handle(msg("2348022222222", { text: "report" }), ctx);
+    expect(reply?.text).toContain("progress report for");
+    expect(reply?.documents).toBeUndefined();
   });
 
   it("sends each site's daily report once, only after the report hour", async () => {
@@ -175,6 +251,7 @@ describe("site reporter: reports", () => {
     const due = await reporter.dueReports(after);
     expect(due).toHaveLength(1);
     expect(due[0]!.to).toBe("2348022222222");
+    expect(due[0]!.pdf?.mimeType).toBe("application/pdf");
     expect(reports.size).toBe(1);
     expect(await reporter.dueReports(after)).toEqual([]);
   });
