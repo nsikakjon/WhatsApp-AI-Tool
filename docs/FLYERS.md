@@ -26,7 +26,8 @@ Supabase > SQL Editor > New query > paste the whole of
 `supabase/migrations/0005_flyers.sql` > Run. Then do the same with
 `supabase/migrations/0006_flyer_members_optional_photo.sql`, and then
 `supabase/migrations/0007_flyer_plans.sql`, and
-`supabase/migrations/0008_flyer_chat_state.sql`.
+`supabase/migrations/0008_flyer_chat_state.sql`, and
+`supabase/migrations/0011_flyer_new_prices.sql`.
 
 This also creates a private storage bucket called `flyer-photos`, where
 member photos and logos are saved (Supabase > Storage).
@@ -96,7 +97,7 @@ that group. Birthday flyers for every group arrive by themselves.
 - **Owners** can set up any number of groups.
 - **Everyone else** gets one group on the Free plan. Once their groups are on
   paid plans, they can send `new group` to add more. So an association with
-  several chapters pays for each, or you put them on Organisation.
+  several chapters pays for each, or you put them on Deluxe.
 - Being added as an admin of someone else's group (`add admin`) doesn't count.
 
 ## 5. Add members
@@ -302,12 +303,18 @@ case since they just wrote in.
 
 Every new group starts on **Free**. Paid plans unlock more:
 
-| Plan         | Members   | Admins    | Includes                                                        |
-| ------------ | --------- | --------- | --------------------------------------------------------------- |
-| Free         | 20        | 1         | 2 designs (1 and 4), logo, birthday flyers, "Made with" line    |
-| Standard     | 200       | 2         | all designs, colours, spreadsheet import, event flyers          |
-| Premium      | unlimited | 5         | everything in Standard, own background, no "Made with" line     |
-| Organisation | unlimited | unlimited | everything, for associations with several groups or chapters    |
+| Plan     | Members   | Admins    | Monthly  | Paid yearly (per month) | Includes                                                     |
+| -------- | --------- | --------- | -------- | ----------------------- | ------------------------------------------------------------ |
+| Free     | 10        | 1         | free     |                         | 2 designs (1 and 4), logo, birthday flyers, "Made with" line |
+| Standard | 50        | 2         | ₦4,500   | ₦2,500                  | all designs, colours, spreadsheet import, event flyers       |
+| Premium  | 500       | 5         | ₦8,000   | ₦8,000                  | everything in Standard, own background, no "Made with" line  |
+| Deluxe   | unlimited | unlimited | ₦10,000  | ₦10,000                 | everything, for associations with several groups or chapters |
+
+Deluxe replaced the old Organisation plan on 14 October 2026. Groups that were
+on Organisation move to Deluxe when you run migration
+`0011_flyer_new_prices.sql`, and `set plan organisation ...` still works.
+Groups already over a new member limit keep everyone they have; they just
+can't add more until they upgrade.
 
 Anyone can send `plans` to see them with prices, and `plan` to see their
 group's plan, member count and end date. When an admin tries something their
@@ -331,8 +338,11 @@ deleted, birthday flyers keep going out for everyone, but the paid extras
 comes back until they renew.
 
 **Changing prices**: Supabase > Table Editor > `flyer_plans`. Prices are in
-**kobo** (₦1 = 100 kobo), so ₦3,000 is `300000`. Leave it empty for "price on
-request". The change shows up straight away, no deploy needed.
+**kobo** (₦1 = 100 kobo), so ₦4,500 is `450000`. `monthly_price_kobo` is the
+month-by-month price; `monthly_price_paid_yearly_kobo` is the price per month
+for someone paying a year at once (leave it empty for no yearly offer). Leave
+`monthly_price_kobo` empty for "price on request". The change shows up straight
+away, no deploy needed.
 
 **Changing what a plan includes** (member limits, designs and so on): edit
 `src/products/flyer/plans.ts`, or ask Claude, e.g. "let Free have 30 members".
