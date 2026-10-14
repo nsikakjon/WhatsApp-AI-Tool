@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeholderPortrait, renderBirthdayFlyer, renderDesignSheet, renderEventFlyer } from "./render.js";
+import { placeholderCutout, placeholderPortrait, renderBirthdayFlyer, renderDesignSheet, renderEventFlyer } from "./render.js";
 import { findTheme, parseColour, THEMES } from "./themes.js";
 
 const isJpeg = (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8;
@@ -17,6 +17,28 @@ describe("flyer drawing", () => {
       });
       expect(isJpeg(flyer)).toBe(true);
     }
+  });
+
+  it("draws a birthday flyer with a cut-out person in every design", async () => {
+    const photo = await placeholderPortrait();
+    const cutout = await placeholderCutout();
+    for (const theme of THEMES) {
+      const flyer = await renderBirthdayFlyer({
+        photo,
+        cutout,
+        name: "Ada Okafor",
+        dateLabel: "14 March",
+        groupName: "Class of 2010",
+        style: { theme, credit: "Made with Flyer Bot" },
+      });
+      expect(isJpeg(flyer)).toBe(true);
+    }
+  });
+
+  it("has the seven new designs, numbered 12 to 18", () => {
+    expect(THEMES).toHaveLength(18);
+    expect(findTheme("12")?.id).toBe("goldportrait");
+    expect(findTheme("18")?.id).toBe("balloons");
   });
 
   it("draws an event flyer and a design sheet", async () => {

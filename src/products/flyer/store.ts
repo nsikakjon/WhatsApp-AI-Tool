@@ -64,6 +64,13 @@ export interface FlyerStore {
   /** Downloads a saved photo or logo. */
   loadPicture(path: string): Promise<Uint8Array>;
   /**
+   * The saved cut-out of a member photo (see cutout.ts): the PNG, null if the
+   * photo has no person in it, or undefined if it hasn't been made yet.
+   */
+  loadCutout(photoPath: string): Promise<Uint8Array | null | undefined>;
+  /** Saves a member photo's cut-out; null records that it has no person in it. */
+  saveCutout(photoPath: string, png: Uint8Array | null): Promise<void>;
+  /**
    * Records that this year's birthday flyer is going out. Returns false if it
    * was already recorded, in which case it must not be sent again.
    */
@@ -85,6 +92,11 @@ export interface FlyerStore {
 
 const UNIQUE_VIOLATION = "23505";
 const BUCKET = "flyer-photos";
+
+/** A photo's cut-out is saved next to it. A one-byte file means "no person found". */
+export function cutoutPath(photoPath: string): string {
+  return `${photoPath}.cutout.png`;
+}
 
 function extFor(mimeType: string): string {
   return mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
@@ -220,7 +232,7 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await query.select(MEMBER_COLUMNS).single();
       if (error) throw new Error(`saveMember failed: ${error.message}`);
       // A new photo replaces the old one, which is then deleted.
-      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove([existing.photoPath]);
+      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove([existing.photoPath, cutoutPath(existing.photoPath)]);
       return { ...toMember(data as MemberRow), isNew: !existing };
     },
 
@@ -228,7 +240,7 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await db.from("flyer_members").delete().eq("id", memberId).select("photo_path");
       if (error) throw new Error(`removeMember failed: ${error.message}`);
       const paths = (data ?? []).map((r) => r.photo_path as string | null).filter((p): p is string => !!p);
-      if (paths.length) await db.storage.from(BUCKET).remove(paths);
+      if (paths.length) await db.storage.from(BUCKET).remove(paths.flatMap((p) => [p, cutoutPath(p)]));
     },
 
     async members(groupId) {
@@ -263,6 +275,17 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await db.storage.from(BUCKET).download(path);
       if (error || !data) throw new Error(`loadPicture failed: ${error?.message ?? "no data"}`);
       return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async loadCutout(photoPath) {
+      const { data, error } = await db.storage.from(BUCKET).download(cutoutPath(photoPath));
+      if (error || !data) return undefined; // not made yet
+      const bytes = new Uint8Array(await data.arrayBuffer());
+      return bytes.length > 1 ? bytes : null;
+    },
+
+    async saveCutout(photoPath, png) {
+      await upload(cutoutPath(photoPath), { data: png ?? new Uint8Array([0]), mimeType: "image/png" });
     },
 
     async claimBirthday(memberId, year) {
