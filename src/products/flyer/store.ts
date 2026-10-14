@@ -84,6 +84,8 @@ export interface FlyerStore {
   adminCount(groupId: string): Promise<number>;
   /** Each plan's monthly price in kobo (null: price on request), from the database. */
   planPrices(): Promise<Map<string, number | null>>;
+  /** Price per month, in kobo, when a plan is paid a year at a time; null when there's no yearly price. */
+  planYearlyPrices(): Promise<Map<string, number | null>>;
   /** Where this number is in a guided conversation, or null. Stale ones (over a day old) count as null. */
   chatState(waId: string): Promise<ChatState | null>;
   /** Saves where this number is in a guided conversation; null clears it. */
@@ -335,6 +337,14 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await db.from("flyer_plans").select("id, monthly_price_kobo");
       if (error) throw new Error(`planPrices failed: ${error.message}`);
       return new Map((data ?? []).map((r) => [r.id as string, r.monthly_price_kobo === null ? null : Number(r.monthly_price_kobo)]));
+    },
+
+    async planYearlyPrices() {
+      const { data, error } = await db.from("flyer_plans").select("id, monthly_price_paid_yearly_kobo");
+      if (error) throw new Error(`planYearlyPrices failed: ${error.message}`);
+      return new Map(
+        (data ?? []).map((r) => [r.id as string, r.monthly_price_paid_yearly_kobo === null ? null : Number(r.monthly_price_paid_yearly_kobo)]),
+      );
     },
 
     async chatState(waId) {
