@@ -147,7 +147,8 @@ async function sendReply(
   // but doesn't undo the customer's reply, which has already gone out.
   for (const note of reply.notify ?? []) {
     try {
-      await sendAndRecord(deps, note.to, note.text, fromNumber);
+      if (note.text) await sendAndRecord(deps, note.to, note.text, fromNumber);
+      for (const image of note.images ?? []) await sendImageAndRecord(deps, note.to, image, fromNumber);
     } catch (err) {
       log.error(`Failed to send notification to ${note.to}:`, err);
     }

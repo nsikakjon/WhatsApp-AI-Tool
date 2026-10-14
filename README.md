@@ -21,10 +21,18 @@ Runs when `ACTIVE_PRODUCT=quote`.
    or writes prices.
 3. The code prices it from the price list in Supabase and replies with an
    itemised quote and an order number (e.g. KP-1001).
-4. The customer replies YES: the quote becomes a confirmed order and the owner
-   gets a WhatsApp alert. Payment (Paystack) comes later.
+4. The customer replies YES: the quote becomes a confirmed order, the customer
+   gets an invoice (a picture with the business logo, the items, the total and
+   the bank details) and the owner gets a WhatsApp alert.
+5. When the customer has paid, the owner sends `paid KP-1001` to the bot: the
+   order is marked paid and the customer gets a receipt.
 
-To switch it on: run the `0002` and `0003` files in `supabase/migrations/`, then
+Owner messages (only from `QUOTE_OWNER_WA_ID`):
+- a picture with the caption `logo` sets the logo on invoices and receipts,
+- `paid KP-1001` marks an order paid and sends the receipt,
+- `invoice KP-1001` / `receipt KP-1001` sends the owner a copy to forward or print.
+
+To switch it on: run the `0002`, `0003` and `0012` files in `supabase/migrations/`, then
 `supabase/seed/kahnprints_price_list.sql` (the price list), then set the quote
 bot variables from `.env.example` on Railway.
 
@@ -99,7 +107,9 @@ src/
   products/
     echo/                Phase 0 test product: repeats your text back
     quote/               Phase 1 quote and order bot
-      index.ts           the conversation: quote, confirm, cancel, owner alert
+      index.ts           the conversation: quote, confirm, cancel, owner alert,
+                         logo, invoices, receipts
+      documents.ts       draws invoices and receipts as pictures
       understand.ts      the AI step (what does the customer want?)
       pricing.ts         works out prices from the price list
       store.ts           reads the price list, saves quotes and orders

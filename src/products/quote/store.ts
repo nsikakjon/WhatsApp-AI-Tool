@@ -26,6 +26,47 @@ export interface OrderStore {
    * longer 'quoted' (e.g. already confirmed), so a repeated YES does nothing.
    */
   setStatus(orderId: string, status: "confirmed" | "cancelled"): Promise<boolean>;
+  /** Looks an order up by its number (1042 in KP-1042), with who it's for. */
+  findOrder(orderNumber: number): Promise<OrderDetails | null>;
+  /**
+   * Marks a quoted or confirmed order as paid. Returns false if it wasn't one
+   * of those (already paid, or cancelled), so a repeated "paid" does nothing.
+   */
+  markPaid(orderId: string): Promise<boolean>;
+}
+
+export type OrderStatus = "quoted" | "confirmed" | "paid" | "cancelled";
+
+export interface OrderDetails extends SavedOrder {
+  status: OrderStatus;
+  customerWaId: string;
+  customerName: string | null;
+  createdAt: Date;
+  paidAt: Date | null;
+}
+
+/** The business logo printed on invoices and receipts. */
+export interface BrandingStore {
+  logo(): Promise<Uint8Array | null>;
+  saveLogo(data: Uint8Array, mimeType: string): Promise<void>;
+}
+
+const FILES_BUCKET = "quote-files";
+const LOGO_PATH = "logo";
+
+export function createSupabaseBranding(db: SupabaseClient): BrandingStore {
+  return {
+    async logo() {
+      const { data, error } = await db.storage.from(FILES_BUCKET).download(LOGO_PATH);
+      // No logo uploaded yet is normal: documents are drawn without one.
+      if (error || !data) return null;
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    async saveLogo(data, mimeType) {
+      const { error } = await db.storage.from(FILES_BUCKET).upload(LOGO_PATH, data, { contentType: mimeType, upsert: true });
+      if (error) throw new Error(`saveLogo failed: ${error.message}`);
+    },
+  };
 }
 
 export function createSupabaseCatalog(db: SupabaseClient): CatalogStore {
@@ -121,6 +162,44 @@ export function createSupabaseOrders(db: SupabaseClient): OrderStore {
         .maybeSingle();
       if (error) throw new Error(`latestOpenQuote failed: ${error.message}`);
       return data ? toSavedOrder(data as unknown as OrderRow) : null;
+    },
+
+    async findOrder(orderNumber) {
+      const { data, error } = await db
+        .from("quote_orders")
+        .select(
+          "id, order_number, total_kobo, status, created_at, paid_at, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
+        )
+        .eq("order_number", orderNumber)
+        .maybeSingle();
+      if (error) throw new Error(`findOrder failed: ${error.message}`);
+      if (!data) return null;
+      const row = data as unknown as OrderRow & {
+        status: OrderStatus;
+        created_at: string;
+        paid_at: string | null;
+        contacts: { wa_id: string; name: string | null };
+      };
+      return {
+        ...toSavedOrder(row),
+        status: row.status,
+        customerWaId: row.contacts.wa_id,
+        customerName: row.contacts.name,
+        createdAt: new Date(row.created_at),
+        paidAt: row.paid_at ? new Date(row.paid_at) : null,
+      };
+    },
+
+    async markPaid(orderId) {
+      const now = new Date().toISOString();
+      const { data, error } = await db
+        .from("quote_orders")
+        .update({ status: "paid", paid_at: now, updated_at: now })
+        .eq("id", orderId)
+        .in("status", ["quoted", "confirmed"])
+        .select("id");
+      if (error) throw new Error(`markPaid failed: ${error.message}`);
+      return (data ?? []).length > 0;
     },
 
     async setStatus(orderId, status) {

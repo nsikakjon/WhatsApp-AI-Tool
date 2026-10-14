@@ -14,9 +14,10 @@ export interface Reply {
   list?: OutgoingList;
   /**
    * Extra messages to other people, e.g. a new-order alert to the business
-   * owner. The core sends these after the main reply.
+   * owner, or a receipt to a customer. The core sends these after the main
+   * reply: the text, then any pictures.
    */
-  notify?: Array<{ to: string; text: string }>;
+  notify?: Array<{ to: string; text: string; images?: OutgoingImage[] }>;
 }
 
 /** One earlier message in the conversation, oldest first. */

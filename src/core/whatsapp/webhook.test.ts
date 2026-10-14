@@ -328,6 +328,26 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     ]);
   });
 
+  it("sends pictures attached to a notification, e.g. a receipt", async () => {
+    const notifying: Product = {
+      name: "notifying",
+      async handle() {
+        return {
+          text: "Marked paid",
+          notify: [{ to: "2348099999999", text: "Thanks for paying", images: [{ data: new Uint8Array([1]), mimeType: "image/jpeg", caption: "Receipt" }] }],
+        };
+      },
+    };
+    const { app, sent } = setup(notifying);
+    const body = textWebhook("wamid.notify-image", "paid 1001");
+    await post(app, body, sign(body));
+    expect(sent).toEqual([
+      { to: "2348012345678", body: "Marked paid" },
+      { to: "2348099999999", body: "Thanks for paying" },
+      { to: "2348099999999", body: "[image] Receipt" },
+    ]);
+  });
+
   function voiceWebhook(id: string, mediaId: string) {
     return JSON.stringify({
       object: "whatsapp_business_account",
