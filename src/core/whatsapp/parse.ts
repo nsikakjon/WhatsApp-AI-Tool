@@ -1,4 +1,4 @@
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, SharedLocation } from "./types.js";
 
 // Meta's webhook body looks like:
 // { object: "whatsapp_business_account",
@@ -33,6 +33,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           text: msg.type === "text" ? msg.text?.body : msg.type === "interactive" ? choiceId(msg.interactive) : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
+          location: msg.type === "location" ? sharedLocation(msg.location) : undefined,
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -44,6 +45,20 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
 
 function choiceId(interactive: InteractiveReply | undefined): string | undefined {
   return interactive?.list_reply?.id ?? interactive?.button_reply?.id ?? undefined;
+}
+
+function sharedLocation(loc: LocationPayload | undefined): SharedLocation | undefined {
+  const latitude = Number(loc?.latitude);
+  const longitude = Number(loc?.longitude);
+  if (!loc || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  return { latitude, longitude, name: loc.name || undefined, address: loc.address || undefined };
+}
+
+interface LocationPayload {
+  latitude?: number | string;
+  longitude?: number | string;
+  name?: string;
+  address?: string;
 }
 
 interface InteractiveReply {
@@ -71,6 +86,7 @@ interface WebhookBody {
           document?: { id?: string; caption?: string };
           video?: { id?: string; caption?: string };
           interactive?: InteractiveReply;
+          location?: LocationPayload;
         }>;
       };
     }>;

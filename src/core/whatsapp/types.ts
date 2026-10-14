@@ -23,10 +23,20 @@ export interface IncomingMessage {
   caption?: string;
   /** True when `text` came from transcribing a voice note. */
   transcribed?: boolean;
+  /** A location pin the sender shared (WhatsApp's "Location" attachment). */
+  location?: SharedLocation;
   /** WhatsApp's id for an attached file (voice note, image, ...), used to download it. */
   mediaId?: string;
   /** Unix time (seconds) WhatsApp says the message was sent. */
   timestamp: number;
   /** The original message object from Meta, kept for logging and storage. */
   raw: unknown;
+}
+
+/** A location pin from WhatsApp. Name and address are only there when the sender picked a named place. */
+export interface SharedLocation {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
 }

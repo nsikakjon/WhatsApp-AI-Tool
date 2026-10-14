@@ -1,5 +1,5 @@
 import type { MessageStore } from "../db/store.js";
-import type { OutgoingImage, OutgoingTemplate, WhatsAppClient } from "./client.js";
+import type { OutgoingDocument, OutgoingImage, OutgoingTemplate, WhatsAppClient } from "./client.js";
 
 /**
  * Sends a text that isn't a direct reply (an alert or a scheduled report) and
@@ -29,6 +29,23 @@ export async function sendImageAndRecord(
     waMessageId: sent.waMessageId,
     type: "image",
     body: image.caption ?? "",
+    raw: sent.raw,
+  });
+}
+
+/** Sends a file (e.g. a PDF report) and saves it with the recipient's messages. */
+export async function sendDocumentAndRecord(
+  deps: { store: MessageStore; whatsapp: WhatsAppClient },
+  to: string,
+  document: OutgoingDocument,
+  fromNumberId?: string,
+): Promise<void> {
+  const contactId = await deps.store.upsertContact(to);
+  const sent = await deps.whatsapp.sendDocument(to, document, fromNumberId);
+  await deps.store.recordOutbound(contactId, {
+    waMessageId: sent.waMessageId,
+    type: "document",
+    body: document.caption ?? document.filename,
     raw: sent.raw,
   });
 }

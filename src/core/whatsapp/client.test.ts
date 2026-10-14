@@ -71,6 +71,28 @@ describe("WhatsApp client", () => {
     });
   });
 
+  it("uploads a file, then sends it with its name and caption", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: init.body });
+      if (url.endsWith("/media")) return new Response(JSON.stringify({ id: "media-3" }), { status: 200 });
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.doc" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "TOKEN", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+
+    const doc = { data: new Uint8Array([1, 2, 3]), mimeType: "application/pdf", filename: "Report.pdf", caption: "Today" };
+    const result = await client.sendDocument("2348012345678", doc);
+
+    expect(result.waMessageId).toBe("wamid.doc");
+    const form = calls[0]!.body as FormData;
+    expect(form.get("type")).toBe("application/pdf");
+    expect((form.get("file") as File).name).toBe("Report.pdf");
+    expect(JSON.parse(calls[1]!.body as string)).toMatchObject({
+      type: "document",
+      document: { id: "media-3", filename: "Report.pdf", caption: "Today" },
+    });
+  });
+
   it("sends a template with a picture header and body values", async () => {
     const bodies: unknown[] = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {
