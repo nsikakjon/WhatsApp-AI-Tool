@@ -37,10 +37,27 @@ export interface MessageStore {
    * a copy of a message the bot itself sent).
    */
   recordOwnerReply(contactId: string, reply: OwnerReply): Promise<"new" | "duplicate">;
-  /** Keeps the bot quiet in this chat (our number + customer) until `until`. */
-  pauseChat(businessNumberId: string, waId: string, until: Date): Promise<void>;
-  /** Until when the bot is quiet in this chat, or null if it never was. */
-  chatPausedUntil(businessNumberId: string, waId: string): Promise<Date | null>;
+  /**
+   * Keeps the bot quiet in this chat (customer + our number) until `until`,
+   * or until `resumeBot` when `until` is null. `by` says who took over,
+   * e.g. "phone" (owner replied from the WhatsApp Business app) or "inbox".
+   */
+  pauseBot(contactId: string, businessNumberId: string, until: Date | null, by: string): Promise<void>;
+  /** Hands the chat back to the bot. */
+  resumeBot(contactId: string, businessNumberId: string): Promise<void>;
+  /** The current pause on this chat, or null if there is none. It may already have run out. */
+  botPause(contactId: string, businessNumberId: string): Promise<BotPause | null>;
+}
+
+export interface BotPause {
+  /** When the bot may answer again; null means not until a person hands the chat back. */
+  until: Date | null;
+  by: string;
+}
+
+/** True when the bot should stay quiet now. */
+export function isPauseActive(pause: BotPause | null, now: Date): boolean {
+  return pause !== null && (pause.until === null || pause.until > now);
 }
 
 // Postgres error code for "unique constraint violated".
@@ -137,28 +154,42 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
       throw new Error(`recordOwnerReply failed: ${error.message}`);
     },
 
-    async pauseChat(businessNumberId, waId, until) {
-      const { error } = await db.from("chat_pauses").upsert(
+    async pauseBot(contactId, businessNumberId, until, by) {
+      const { error } = await db.from("bot_pauses").upsert(
         {
+          contact_id: contactId,
           business_number_id: businessNumberId,
-          wa_id: waId,
-          paused_until: until.toISOString(),
+          paused_until: until ? until.toISOString() : null,
+          paused_by: by,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "business_number_id,wa_id" },
+        { onConflict: "contact_id,business_number_id" },
       );
-      if (error) throw new Error(`pauseChat failed: ${error.message}`);
+      if (error) throw new Error(`pauseBot failed: ${error.message}`);
     },
 
-    async chatPausedUntil(businessNumberId, waId) {
+    async resumeBot(contactId, businessNumberId) {
+      const { error } = await db
+        .from("bot_pauses")
+        .delete()
+        .eq("contact_id", contactId)
+        .eq("business_number_id", businessNumberId);
+      if (error) throw new Error(`resumeBot failed: ${error.message}`);
+    },
+
+    async botPause(contactId, businessNumberId) {
       const { data, error } = await db
-        .from("chat_pauses")
-        .select("paused_until")
+        .from("bot_pauses")
+        .select("paused_until, paused_by")
+        .eq("contact_id", contactId)
         .eq("business_number_id", businessNumberId)
-        .eq("wa_id", waId)
         .maybeSingle();
-      if (error) throw new Error(`chatPausedUntil failed: ${error.message}`);
-      return data ? new Date(data.paused_until as string) : null;
+      if (error) throw new Error(`botPause failed: ${error.message}`);
+      if (!data) return null;
+      return {
+        until: data.paused_until ? new Date(data.paused_until as string) : null,
+        by: data.paused_by as string,
+      };
     },
   };
 }

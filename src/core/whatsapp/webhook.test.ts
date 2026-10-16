@@ -4,7 +4,7 @@ import { createApp } from "../../app.js";
 import { echoProduct } from "../../products/echo/index.js";
 import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
-import type { MessageStore } from "../db/store.js";
+import type { BotPause, MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -17,7 +17,7 @@ function memoryStore() {
   const seen = new Set<string>();
   const outbound: string[] = [];
   const inboundText = new Map<string, string>();
-  const pauses = new Map<string, Date>();
+  const pauses = new Map<string, BotPause>();
   const store: MessageStore = {
     async upsertContact(waId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
@@ -46,11 +46,14 @@ function memoryStore() {
       outbound.push(`[owner] ${reply.text ?? ""}`);
       return "new";
     },
-    async pauseChat(businessNumberId, waId, until) {
-      pauses.set(`${businessNumberId}:${waId}`, until);
+    async pauseBot(contactId, businessNumberId, until, by) {
+      pauses.set(`${contactId}:${businessNumberId}`, { until, by });
     },
-    async chatPausedUntil(businessNumberId, waId) {
-      return pauses.get(`${businessNumberId}:${waId}`) ?? null;
+    async resumeBot(contactId, businessNumberId) {
+      pauses.delete(`${contactId}:${businessNumberId}`);
+    },
+    async botPause(contactId, businessNumberId) {
+      return pauses.get(`${contactId}:${businessNumberId}`) ?? null;
     },
   };
   return { store, contacts, outbound, inboundText, pauses };
@@ -481,6 +484,21 @@ describe("owner replies from the WhatsApp Business app (coexistence)", () => {
     expect(outbound).toEqual(["[owner] Hi"]);
   });
 
+  it("stays quiet in a chat taken over with no end time, even after owner replies", async () => {
+    const { app, sent, store, contacts, advance } = clockedSetup(60);
+    await send(app, textWebhook("wamid.c8", "Hello"));
+    const contactId = contacts.get("2348012345678")!;
+    await store.pauseBot(contactId, "PNID", null, "inbox");
+    await send(app, ownerEchoWebhook("wamid.o8", "I've got this"));
+    advance(24 * 60);
+    await send(app, textWebhook("wamid.c9", "Still there?"));
+    expect(sent).toHaveLength(1);
+
+    await store.resumeBot(contactId, "PNID");
+    await send(app, textWebhook("wamid.c10", "Hi again"));
+    expect(sent).toHaveLength(2);
+  });
+
   it("does nothing with owner replies when the pause is switched off", async () => {
     const { app, sent, outbound, pauses } = clockedSetup(0);
     await send(app, ownerEchoWebhook("wamid.o6", "Hi"));
@@ -492,8 +510,8 @@ describe("owner replies from the WhatsApp Business app (coexistence)", () => {
 
   it("still answers if the pause can't be checked (e.g. table missing)", async () => {
     const { app, sent, store } = clockedSetup(60);
-    store.chatPausedUntil = async () => {
-      throw new Error('relation "chat_pauses" does not exist');
+    store.botPause = async () => {
+      throw new Error('relation "bot_pauses" does not exist');
     };
     await send(app, textWebhook("wamid.c7", "Hello"));
     expect(sent).toHaveLength(1);

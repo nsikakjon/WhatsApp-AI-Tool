@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { MessageStore } from "../db/store.js";
+import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
@@ -105,7 +105,7 @@ async function handleMessage(
 
   // The owner is chatting with this customer from the WhatsApp Business app:
   // the message is saved (above) but the bot stays out of it.
-  if (await isPaused(deps, msg, log)) {
+  if (await isPaused(deps, contactId, msg, log)) {
     log.info(`Message ${msg.waMessageId} from ${mask(msg.from)}: owner is handling this chat, bot stays quiet`);
     return;
   }
@@ -153,22 +153,25 @@ async function handleOwnerReply(
     log.info(`Skipping duplicate owner reply ${reply.waMessageId}`);
     return;
   }
+  const numberId = reply.businessNumberId ?? "";
+  // A chat someone took over with no end time (e.g. from the inbox) stays that way.
+  const current = await deps.store.botPause(contactId, numberId);
+  if (current && current.until === null) return;
   const until = new Date(now(deps).getTime() + minutes * 60_000);
-  await deps.store.pauseChat(reply.businessNumberId ?? "", reply.to, until);
+  await deps.store.pauseBot(contactId, numberId, until, "phone");
   log.info(`Owner replied to ${mask(reply.to)}: bot paused in that chat for ${minutes} minutes`);
 }
 
 async function isPaused(
   deps: WebhookDeps,
+  contactId: string,
   msg: IncomingMessage,
   log: Pick<Console, "info" | "warn" | "error">,
 ): Promise<boolean> {
-  if (!deps.ownerReplyPauseMinutes || deps.ownerReplyPauseMinutes <= 0) return false;
   try {
-    const until = await deps.store.chatPausedUntil(msg.businessNumberId ?? "", msg.from);
-    return until !== null && until > now(deps);
+    return isPauseActive(await deps.store.botPause(contactId, msg.businessNumberId ?? ""), now(deps));
   } catch (err) {
-    // E.g. the chat_pauses table hasn't been created yet. Better to answer
+    // E.g. the bot_pauses table hasn't been created yet. Better to answer
     // than to leave every customer without a reply.
     log.error("Could not check whether the owner is handling this chat:", err);
     return false;
