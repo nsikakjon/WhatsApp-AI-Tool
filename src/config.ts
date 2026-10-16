@@ -49,6 +49,19 @@ export interface Config {
     model: string;
   };
   /**
+   * Broadcasts to customers who opted in (a paid add-on for quote bot
+   * businesses). Only set when BROADCASTS_ENABLED is true.
+   */
+  broadcasts?: {
+    /** Approved Marketing template: {{1}} = business name, {{2}} = the message. */
+    template: { name: string; language: string };
+    /** The same with a picture header. Without it, broadcasts are text only. */
+    imageTemplateName?: string;
+    perMinute: number;
+    /** Rough Meta charge per marketing message in kobo, for the owner's preview. */
+    costPerMessageKobo?: number;
+  };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -204,6 +217,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
+      : undefined,
+    broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")
+      ? {
+          template: {
+            name: required(env, "BROADCAST_TEMPLATE_NAME"),
+            language: env.BROADCAST_TEMPLATE_LANGUAGE || "en",
+          },
+          imageTemplateName: env.BROADCAST_IMAGE_TEMPLATE_NAME || undefined,
+          perMinute: wholeNumber(env, "BROADCASTS_PER_MINUTE", 30),
+          costPerMessageKobo: env.BROADCAST_COST_KOBO ? wholeNumber(env, "BROADCAST_COST_KOBO", 1) : undefined,
+        }
       : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
