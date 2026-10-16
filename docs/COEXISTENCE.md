@@ -26,7 +26,7 @@ of the messages you send from the app. That needs the steps below.
 1. **Nigeria may not be supported yet.** Meta doesn't publish an official
    country list. Some guides say Nigerian (+234) numbers were added in 2026,
    while other, newer guides still list Nigeria as not supported. The only way
-   to be sure is to try the sign-up in step 3: if Meta doesn't offer the
+   to be sure is to try the sign-up in step 6: if Meta doesn't offer the
    "connect your existing WhatsApp Business app" option for the number, it isn't
    available yet.
 2. **The number has to live in the WhatsApp Business app first.** Coexistence
@@ -34,21 +34,26 @@ of the messages you send from the app. That needs the steps below.
    already in the app, then connect it to the bot. Guides say Meta wants the
    app to be on version 2.24.17 or newer and the number to have been in active
    use in the app for at least 7 days.
-3. **The KahnPrints number (+234 811 433 0749) is currently connected straight
-   to the bot**, not to the app. Moving it means removing it from the bot,
-   putting it in the WhatsApp Business app, using it there for a week, then
-   connecting it back. **The bot won't answer KahnPrints customers during that
-   week.** You may prefer to try this first on a spare number.
-4. Connecting needs a small **sign-up page** (Meta calls it "Embedded Signup")
-   where you scan a QR code with the WhatsApp Business app. That page isn't
-   built yet; it's the next piece of work if you want to go ahead.
+3. **Each business connects its own number.** KahnPrints keeps
+   +234 811 433 0749, which is connected straight to the bot today. Our test
+   number is **+234 701 326 2131**: put it in the WhatsApp Business app on a
+   phone and use it there for a week. Don't run Meta's "register" step on it,
+   because that would take it out of the app.
+4. **yarnOga has to become a Meta "Tech Provider"** before other businesses
+   can connect through our sign-up page. That needs business verification and
+   Meta's App Review (steps 3 and 4 below). Your own numbers can usually be
+   connected while the app is still in development, because you are an admin
+   of the app.
 
 ## Steps on the Meta side
 
-### Step 1: Run the database change
+### Step 1: Run the database changes
 
-In Supabase: **SQL Editor** > **New query** > paste the contents of
-`supabase/migrations/0014_owner_reply_pause.sql` > **Run**.
+In Supabase: **SQL Editor** > **New query**. Paste the contents of each file,
+then click **Run**:
+
+1. `supabase/migrations/0014_owner_reply_pause.sql`
+2. `supabase/migrations/0016_whatsapp_connections.sql`
 
 ### Step 2: Switch on the new webhook field
 
@@ -58,19 +63,64 @@ In Supabase: **SQL Editor** > **New query** > paste the contents of
    Leave **messages** on as it is.
 
 This is what lets Meta tell the bot "the owner just replied to this person".
-It's safe to do now: nothing changes until a number is connected with
-coexistence.
+It's safe to do now, because nothing changes until a number is connected
+with coexistence.
 
-### Step 3: Connect the number with coexistence
+### Step 3: Verify the business (your CAC documents)
 
-This uses the sign-up page from point 4 above. Once it's built, the flow is:
+1. Go to <https://business.facebook.com> > **Settings** > **Security Centre**
+   (sometimes **Business info**) > **Start verification**.
+2. Enter the legal business name exactly as on the CAC certificate, plus the
+   address, phone number and website (yarnoga.com).
+3. Upload the CAC certificate of registration (and, if asked, a utility bill
+   or bank statement showing the same name and address).
+4. Meta checks it, usually within a few days. You'll get an email.
 
-1. Open the sign-up page, log in with Facebook and choose your business.
-2. When asked about the phone number, choose the option to **connect your
-   existing WhatsApp Business app**.
-3. Meta shows a QR code. On your phone, open the WhatsApp Business app and scan
-   it (the app guides you; it may ask whether to share your chat history).
-4. Tell Claude the new number's **Phone number ID** so Railway can be updated.
+### Step 4: Make the sign-up pop-up and ask Meta for approval
+
+1. In your bot app: **Add product** > **Facebook Login for Business**.
+2. **Facebook Login for Business** > **Settings**: under **Allowed domains
+   for the JavaScript SDK**, add your Railway address (for example
+   `https://your-app.up.railway.app`).
+3. **Facebook Login for Business** > **Configurations** > **Create
+   configuration**. Name it "WhatsApp sign-up", choose the login variation
+   **WhatsApp Embedded Signup**, and pick the permissions
+   `whatsapp_business_management` and `whatsapp_business_messaging`. Save,
+   then copy the **Configuration ID**.
+4. **App review** > **Permissions and features**: request **Advanced access**
+   for `whatsapp_business_management` and `whatsapp_business_messaging`.
+   Meta asks how you use them and usually wants a short screen recording of
+   the sign-up page and the bot replying. Claude can write the answers with
+   you when you get there.
+
+### Step 5: Switch the sign-up page on (Railway)
+
+In Railway > **Variables**, add:
+
+| Variable | Value |
+| --- | --- |
+| `SIGNUP_PASSWORD` | A password you invent for the page |
+| `META_APP_ID` | Meta app > **App settings** > **Basic** > **App ID** |
+| `META_SIGNUP_CONFIG_ID` | The Configuration ID from step 4 |
+
+While `SIGNUP_PASSWORD` is empty the page stays switched off, and nothing
+changes for the bots that are already live.
+
+### Step 6: Connect the number
+
+1. On a computer, open `https://<your-railway-address>/signup` and type the
+   password (any username works).
+2. Click **Connect my WhatsApp Business app**, log in with Facebook and choose
+   your business.
+3. Choose the option to **connect your existing WhatsApp Business app**.
+4. Meta shows a QR code. Scan it with the WhatsApp Business app on the phone
+   with that number. The app guides you and may ask whether to share your chat
+   history.
+5. The page then shows the number's **Phone number ID**. Send it to Claude so
+   the right bot is switched on for that number.
+6. In **Business Settings** > **System users**, give the `whatsapp-bot` system
+   user access to the new WhatsApp account (**Assign assets**, full control),
+   so the bot's key can send messages from that number.
 
 ## How to check it works
 
