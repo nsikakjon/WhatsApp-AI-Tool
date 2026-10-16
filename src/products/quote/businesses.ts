@@ -13,6 +13,11 @@ export interface QuoteRouterOptions {
   build(business: QuoteBusiness): Product;
   /** Answers messages to numbers that don't belong to a business. */
   fallback: Product;
+  /**
+   * Numbers that always go to `fallback`, whatever the businesses table says
+   * (the main number), so a mistyped row can never take over its customers.
+   */
+  fallbackNumberIds?: string[];
   /** How long to remember which business a number belongs to (default 60 seconds). */
   cacheMs?: number;
   now?: () => number;
@@ -46,7 +51,7 @@ export function createQuoteRouter(opts: QuoteRouterOptions): Product {
     name: "quote",
     async handle(msg, ctx) {
       let business: QuoteBusiness | null = null;
-      if (msg.businessNumberId) {
+      if (msg.businessNumberId && !opts.fallbackNumberIds?.includes(msg.businessNumberId)) {
         try {
           business = await businessFor(msg.businessNumberId);
         } catch (err) {

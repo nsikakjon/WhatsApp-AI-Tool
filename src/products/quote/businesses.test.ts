@@ -66,6 +66,16 @@ describe("quote router", () => {
     expect(await router.handle(msg(undefined), ctx)).toEqual({ text: "main" });
   });
 
+  it("never lets a business row take over the main number", async () => {
+    const router = createQuoteRouter({
+      businesses: memoryBusinesses([business({ phoneNumberId: "main-number" })]).store,
+      fallback: named("main"),
+      fallbackNumberIds: ["main-number"],
+      build: () => named("other"),
+    });
+    expect(await router.handle(msg("main-number"), ctx)).toEqual({ text: "main" });
+  });
+
   it("falls back to the main bot when the businesses table can't be read", async () => {
     const errors: unknown[] = [];
     const router = createQuoteRouter({

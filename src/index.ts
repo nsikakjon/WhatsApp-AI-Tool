@@ -75,6 +75,7 @@ if (quoteBusinesses) {
   product = createQuoteRouter({
     businesses: createSupabaseBusinesses(supabase),
     fallback: product,
+    fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) =>
       createQuoteProduct({
         businessName: business.name,
