@@ -199,6 +199,7 @@ async function sendReply(
       type: "text",
       body: reply.text,
       raw: sent.raw,
+      businessNumberId: fromNumber,
     });
   }
   for (const image of reply.images ?? []) {
@@ -212,6 +213,7 @@ async function sendReply(
       type: "interactive",
       body: reply.list.body,
       raw: sent.raw,
+      businessNumberId: fromNumber,
     });
   }
 

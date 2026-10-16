@@ -18,7 +18,14 @@ export interface MessageStore {
   /** Saves a message we sent. */
   recordOutbound(
     contactId: string,
-    out: { waMessageId: string; type: string; body: string; raw: unknown },
+    out: {
+      waMessageId: string;
+      type: string;
+      body: string;
+      raw: unknown;
+      /** Which of our numbers sent it. Leave out for the main number. */
+      businessNumberId?: string;
+    },
   ): Promise<void>;
   /**
    * The last `limit` text messages with this contact, oldest first. Excludes
@@ -82,6 +89,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         contact_id: contactId,
         direction: "inbound",
         wa_message_id: msg.waMessageId,
+        business_number_id: msg.businessNumberId ?? null,
         type: msg.type,
         body: msg.text ?? null,
         raw: msg.raw,
@@ -101,6 +109,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         contact_id: contactId,
         direction: "outbound",
         wa_message_id: out.waMessageId || null,
+        business_number_id: out.businessNumberId ?? null,
         type: out.type,
         body: out.body,
         raw: out.raw,
