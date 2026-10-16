@@ -38,7 +38,7 @@ button:disabled { opacity:.5; cursor:default; }
 .box { margin-top:16px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
 label { font-weight:600; }
 .hint { color:var(--muted); font-size:13px; margin:2px 0 8px; }
-textarea, input[type=text] { width:100%; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+textarea, input[type=text], select { width:100%; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
 textarea { min-height: 180px; }
 .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; }
 .summary { font-weight:600; }
@@ -71,6 +71,10 @@ const app = document.getElementById("app");
 let current = DATA.bots[0];
 let saved = new Map();
 let running = false;
+// Businesses on the quote bot, when it runs several; the picked one's id.
+let businesses = null;
+let business = null;
+const forBusiness = () => (current.id === "quote" ? business : null);
 
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
@@ -83,7 +87,7 @@ function el(tag, attrs, ...children) {
   return node;
 }
 
-function storageKey(bot) { return "bot-test-questions-" + bot.id; }
+function storageKey(bot) { const b = bot === current ? forBusiness() : null; return "bot-test-questions-" + bot.id + (b ? "-" + b : ""); }
 function loadQuestions(bot) {
   try { const s = localStorage.getItem(storageKey(bot)); if (s) return s; } catch {}
   return bot.questions.join("\\n");
@@ -112,6 +116,17 @@ function render() {
       el("button", { "aria-pressed": String(b === current), onclick: () => { if (!running) { current = b; start(); } } }, b.label))));
   }
 
+  if (current.id === "quote" && businesses && businesses.length > 1) {
+    const pick = el("select", { id: "business", onchange: () => { business = pick.value; start(); } },
+      ...businesses.map((b) => {
+        const opt = el("option", { value: b.id }, b.name + (b.live ? "" : " (not live yet)"));
+        opt.selected = b.id === business;
+        return opt;
+      }));
+    app.append(el("div", { class: "box" }, el("label", { for: "business" }, "Business to test"),
+      el("p", { class: "hint" }, "Each business is tested with its own price list. A business that isn't live yet can be tested before it's switched on."), pick));
+  }
+
   const area = el("textarea", { id: "questions", spellcheck: "true" });
   area.value = loadQuestions(current);
   area.addEventListener("input", () => keepQuestions(current, area.value));
@@ -129,9 +144,20 @@ function render() {
 
 async function start() {
   saved = new Map();
+  if (current.id === "quote" && businesses === null) {
+    try {
+      businesses = (await call("businesses")).businesses;
+      if (businesses.length) business = businesses[0].id;
+    } catch (err) {
+      businesses = [];
+      render();
+      return setStatus(err.message);
+    }
+  }
   render();
   try {
-    const { marks } = await call("marks?bot=" + current.id);
+    const b = forBusiness();
+    const { marks } = await call("marks?bot=" + current.id + (b ? "&business=" + encodeURIComponent(b) : ""));
     for (const m of marks) saved.set(key(m.question), m);
   } catch (err) {
     setStatus(err.message);
@@ -205,7 +231,7 @@ function item(question, answer, mark) {
 async function saveMark(question, answer, mark, note, label) {
   label.textContent = "Saving...";
   try {
-    await post("marks", { bot: current.id, question, answer: answer ? answer.text : "", mark, note });
+    await post("marks", { bot: current.id, business: forBusiness(), question, answer: answer ? answer.text : "", mark, note });
     label.textContent = "Saved";
   } catch (err) {
     label.textContent = err.message;
@@ -219,7 +245,7 @@ async function runAll(text) {
   if (!questions.length) return setStatus("Add at least one question.");
   if (tooLong) return setStatus("One question is longer than " + DATA.maxQuestion + " characters.");
   running = true;
-  document.querySelectorAll("button").forEach((b) => b.disabled = true);
+  document.querySelectorAll("button, select").forEach((b) => b.disabled = true);
   const list = document.getElementById("results");
   list.replaceChildren();
   const items = questions.map((q) => { const li = item(q, null, null); list.append(li); return [q, li]; });
@@ -228,7 +254,7 @@ async function runAll(text) {
   for (const [q, li] of items) {
     setStatus("Asking " + (done + 1) + " of " + items.length + "...");
     try {
-      li.setAnswer(await post("ask", { bot: current.id, question: q }));
+      li.setAnswer(await post("ask", { bot: current.id, business: forBusiness(), question: q }));
     } catch (err) {
       li.setError(err.message);
       if (/used up/.test(err.message)) { items.slice(done + 1).forEach(([, rest]) => rest.setError(err.message)); break; }
@@ -236,7 +262,7 @@ async function runAll(text) {
     done += 1;
   }
   running = false;
-  document.querySelectorAll(".tabs button, .box button").forEach((b) => b.disabled = false);
+  document.querySelectorAll(".tabs button, .box button, select").forEach((b) => b.disabled = false);
   setStatus("Done. Mark each answer good or poor.");
 }
 

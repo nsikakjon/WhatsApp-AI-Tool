@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Product } from "../core/product.js";
 import { createQuoteProduct } from "../products/quote/index.js";
 import type { Variant } from "../products/quote/pricing.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { DEFAULT_BUSINESS_ID, type QuoteBusiness } from "../products/quote/store.js";
+import { createTestBots, UnknownBusinessError } from "./bots.js";
 import { loadBotTestConfig } from "./config.js";
 import { createBotTest, type BotTestDeps } from "./index.js";
 import { renderTestPage } from "./page.js";
@@ -12,15 +15,15 @@ import { newestPerQuestion, type MarkStore, type SavedMark } from "./store.js";
 const AUTH = { Authorization: `Basic ${btoa("jay:a-long-test-password")}` };
 const JSON_AUTH = { ...AUTH, "Content-Type": "application/json" };
 
-function memoryMarks(): MarkStore & { rows: Array<SavedMark & { bot: string }> } {
-  const rows: Array<SavedMark & { bot: string }> = [];
+function memoryMarks(): MarkStore & { rows: Array<SavedMark & { bot: string; business: string | null }> } {
+  const rows: Array<SavedMark & { bot: string; business: string | null }> = [];
   return {
     rows,
-    async save(bot, m) {
-      rows.unshift({ ...m, bot, markedAt: new Date() });
+    async save(bot, business, m) {
+      rows.unshift({ ...m, bot, business, markedAt: new Date() });
     },
-    async latest(bot) {
-      return newestPerQuestion(rows.filter((r) => r.bot === bot));
+    async latest(bot, business) {
+      return newestPerQuestion(rows.filter((r) => r.bot === bot && r.business === business));
     },
   };
 }
@@ -37,7 +40,7 @@ function screen(overrides: Partial<BotTestDeps> = {}) {
   const marks = memoryMarks();
   const app = createBotTest({
     password: "a-long-test-password",
-    bots: { quote: echoBot },
+    bots: { make: { quote: async () => echoBot() } },
     marks,
     dailyLimit: 3,
     log: { error: () => {} },
@@ -126,6 +129,117 @@ describe("bot test screen", () => {
     expect(DEFAULT_QUESTIONS.leads.length).toBeGreaterThanOrEqual(20);
     expect(html).toContain("How much is 100 A5 flyers?");
     expect(html.match(/<\/script>/g)).toHaveLength(1);
+  });
+});
+
+describe("bot test screen with several businesses", () => {
+  const SHOP = "11111111-1111-1111-1111-111111111111";
+  const BAKERY = "22222222-2222-2222-2222-222222222222";
+  const named = (name: string): Product => ({
+    name: "fake",
+    async handle(msg) {
+      return { text: `${name}: ${msg.text}` };
+    },
+  });
+  function multiScreen() {
+    const marks = memoryMarks();
+    const app = createBotTest({
+      password: "a-long-test-password",
+      bots: {
+        make: {
+          quote: async (business) => {
+            if (!business) return named("main");
+            if (business === BAKERY) return named("bakery");
+            throw new UnknownBusinessError();
+          },
+        },
+        businesses: async () => [
+          { id: SHOP, name: "KahnPrints", live: true },
+          { id: BAKERY, name: "Ada's Bakery", live: false },
+        ],
+      },
+      marks,
+      dailyLimit: 10,
+      log: { error: () => {} },
+    });
+    const ask = (body: unknown) => app.request("/ask", { method: "POST", headers: JSON_AUTH, body: JSON.stringify(body) });
+    return { app, marks, ask };
+  }
+
+  it("lists the businesses to pick from", async () => {
+    const { app } = multiScreen();
+    const { businesses } = (await (await app.request("/businesses", { headers: AUTH })).json()) as { businesses: unknown[] };
+    expect(businesses).toHaveLength(2);
+  });
+
+  it("asks the chosen business's bot, even one that isn't live yet", async () => {
+    const { ask } = multiScreen();
+    expect(await (await ask({ bot: "quote", business: BAKERY, question: "cake?" })).json()).toMatchObject({ text: "bakery: cake?" });
+    expect(await (await ask({ bot: "quote", question: "hi" })).json()).toMatchObject({ text: "main: hi" });
+    const missing = await ask({ bot: "quote", business: "33333333-3333-3333-3333-333333333333", question: "hi" });
+    expect(missing.status).toBe(400);
+  });
+
+  it("keeps each business's marks apart", async () => {
+    const { app } = multiScreen();
+    await app.request("/marks", {
+      method: "POST",
+      headers: JSON_AUTH,
+      body: JSON.stringify({ bot: "quote", business: BAKERY, question: "cake?", answer: "x", mark: "poor" }),
+    });
+    const read = async (q: string) =>
+      ((await (await app.request(`/marks?bot=quote${q}`, { headers: AUTH })).json()) as { marks: unknown[] }).marks;
+    expect(await read(`&business=${BAKERY}`)).toHaveLength(1);
+    expect(await read(`&business=${SHOP}`)).toHaveLength(0);
+    expect(await read("")).toHaveLength(0);
+  });
+});
+
+describe("createTestBots", () => {
+  const business = (id: string, name: string, active: boolean): QuoteBusiness => ({
+    id,
+    name,
+    description: null,
+    orderPrefix: "AB",
+    phoneNumberId: null,
+    ownerWaId: "2348000000000",
+    businessDetails: null,
+    paymentDetails: null,
+    active,
+    updatedAt: new Date(),
+  });
+  const BAKERY = "22222222-2222-2222-2222-222222222222";
+  const asked: string[] = [];
+  const store = {
+    findByPhoneNumberId: async () => null,
+    get: async (id: string) => {
+      asked.push(id);
+      return id === BAKERY ? business(BAKERY, "Ada's Bakery", false) : null;
+    },
+    list: async () => [business(DEFAULT_BUSINESS_ID, "Business 1", true), business(BAKERY, "Ada's Bakery", false)],
+  };
+  const quote = { anthropicApiKey: "k", model: "m", businessName: "KahnPrints", orderPrefix: "KP" };
+  const db = {} as SupabaseClient;
+
+  it("uses Railway settings for business #1 and the table for the others", async () => {
+    const bots = createTestBots(db, { quote, quoteBusinesses: { anthropicApiKey: "k", model: "m" } }, store);
+    expect(await bots.businesses!()).toEqual([
+      { id: DEFAULT_BUSINESS_ID, name: "KahnPrints", live: true },
+      { id: BAKERY, name: "Ada's Bakery", live: false },
+    ]);
+    await bots.make.quote!(DEFAULT_BUSINESS_ID);
+    await bots.make.quote!();
+    expect(asked).toEqual([]);
+    await bots.make.quote!(BAKERY);
+    expect(asked).toEqual([BAKERY]);
+    await expect(bots.make.quote!("33333333-3333-3333-3333-333333333333")).rejects.toBeInstanceOf(UnknownBusinessError);
+  });
+
+  it("has no business list when the quote bot runs one business", () => {
+    const bots = createTestBots(db, { quote });
+    expect(bots.businesses).toBeUndefined();
+    expect(bots.make.quote).toBeDefined();
+    expect(bots.make.leads).toBeUndefined();
   });
 });
 

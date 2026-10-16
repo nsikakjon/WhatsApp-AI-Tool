@@ -34,6 +34,11 @@ To switch it off again, delete `BOT_TEST_PASSWORD` on Railway.
 
 ## Using it
 
+If the sales assistant runs several businesses (`QUOTE_MULTI_BUSINESS`), pick
+the business at the top first. Each one is tested with its own price list, and
+a business that isn't switched on yet can be tested before it goes live. Marks
+are kept separately for each business.
+
 1. Check the questions in the box. The starter list has 20 common ones; change
    them or add your own, one per line, written the way your customers write
    (Pidgin is fine). Your list is remembered in that browser.

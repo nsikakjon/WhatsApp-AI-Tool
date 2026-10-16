@@ -15,26 +15,25 @@ export interface SavedMark {
 }
 
 export interface MarkStore {
-  save(bot: TestBotId, mark: Omit<SavedMark, "markedAt">): Promise<void>;
+  /** `business` is the quote business tested, or null for the bot on the main number. */
+  save(bot: TestBotId, business: string | null, mark: Omit<SavedMark, "markedAt">): Promise<void>;
   /** The newest mark for each question, newest first. */
-  latest(bot: TestBotId): Promise<SavedMark[]>;
+  latest(bot: TestBotId, business: string | null): Promise<SavedMark[]>;
 }
 
 const HOW_MANY = 500;
 
 export function createSupabaseMarkStore(db: SupabaseClient): MarkStore {
   return {
-    async save(bot, m) {
+    async save(bot, business, m) {
       const { error } = await db
         .from("bot_test_marks")
-        .insert({ bot, question: m.question, answer: m.answer, mark: m.mark, note: m.note });
+        .insert({ bot, business_id: business, question: m.question, answer: m.answer, mark: m.mark, note: m.note });
       if (error) throw new Error(`saving test mark failed: ${error.message}`);
     },
-    async latest(bot) {
-      const { data, error } = await db
-        .from("bot_test_marks")
-        .select("question, answer, mark, note, created_at")
-        .eq("bot", bot)
+    async latest(bot, business) {
+      const query = db.from("bot_test_marks").select("question, answer, mark, note, created_at").eq("bot", bot);
+      const { data, error } = await (business ? query.eq("business_id", business) : query.is("business_id", null))
         .order("created_at", { ascending: false })
         .limit(HOW_MANY);
       if (error) throw new Error(`reading test marks failed: ${error.message}`);
