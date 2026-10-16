@@ -154,6 +154,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         contact_id: contactId,
         direction: "outbound",
         wa_message_id: reply.waMessageId,
+        business_number_id: reply.businessNumberId ?? null,
         type: reply.type,
         body: reply.text ?? null,
         raw: reply.raw,

@@ -1,23 +1,12 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
-import type { MessageStore } from "../db/store.js";
+import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "../whatsapp/client.js";
 import { canMessageFreely } from "../whatsapp/outbox.js";
 import { SESSION_DAYS, cookieSecret, createLoginThrottle, passwordMatches } from "./auth.js";
 import type { InboxStore } from "./store.js";
 import { chatListPage, chatPage, loginPage, type NumberLabel } from "./views.js";
-
-/**
- * Stops and restarts the bot on one chat. Shared with "the bot steps back
- * when the owner replies from their phone", so both use the same pause.
- */
-export interface BotPauses {
-  isPaused(contactId: string, businessNumberId: string): Promise<boolean>;
-  /** Pauses the bot on this chat until handed back. */
-  pause(contactId: string, businessNumberId: string): Promise<void>;
-  resume(contactId: string, businessNumberId: string): Promise<void>;
-}
 
 export interface InboxDeps {
   /** The shared staff password (INBOX_PASSWORD). */
@@ -25,13 +14,17 @@ export interface InboxDeps {
   /** Meta app secret, mixed into the login cookie's signature. */
   appSecret: string;
   inbox: InboxStore;
-  /** Used to save staff replies and check WhatsApp's 24-hour reply window. */
+  /**
+   * Used to save staff replies, check WhatsApp's 24-hour reply window, and
+   * pause the bot in a chat (the same pause the bot uses when the owner
+   * replies from the WhatsApp Business app).
+   */
   messages: MessageStore;
   whatsapp: WhatsAppClient;
   /** Our WhatsApp numbers, main number (WHATSAPP_PHONE_NUMBER_ID) first. */
   numbers: NumberLabel[];
-  /** Without it, the inbox can read and reply but has no take over / hand back. */
-  pauses?: BotPauses;
+  /** The current time. Tests replace it; the server uses the real clock. */
+  now?: () => Date;
   log?: Pick<Console, "info" | "warn" | "error">;
 }
 
@@ -54,6 +47,7 @@ export function createInbox(deps: InboxDeps) {
   // A second, looser limit across everyone, in case guesses come from many addresses.
   const everyone = createLoginThrottle(30);
   const mainNumber = deps.numbers[0]?.id;
+  const now = () => (deps.now ? deps.now() : new Date());
 
   // Staff pages must never be cached or shown inside another site.
   app.use("*", async (c, next) => {
@@ -126,11 +120,12 @@ export function createInbox(deps: InboxDeps) {
   app.get("/chat/:contactId/:numberId", async (c) => {
     const chat = await findChat(c);
     if (!chat) return c.text("Chat not found", 404);
-    const [messages, botPaused, canReply] = await Promise.all([
+    const [messages, pause, canReply] = await Promise.all([
       deps.inbox.chatMessages(chat.contactId, chat.number.id, chat.number.id === mainNumber, MESSAGES_SHOWN),
-      deps.pauses?.isPaused(chat.contactId, chat.number.id),
-      canMessageFreely(deps.messages, chat.contact.waId),
+      deps.messages.botPause(chat.contactId, chat.number.id),
+      canMessageFreely(deps.messages, chat.contact.waId, now()),
     ]);
+    const botPaused = isPauseActive(pause, now());
     return c.html(
       chatPage({
         title: chat.contact.name ? `${chat.contact.name} (+${chat.contact.waId})` : `+${chat.contact.waId}`,
@@ -138,6 +133,8 @@ export function createInbox(deps: InboxDeps) {
         messages,
         base: chat.base,
         botPaused,
+        // A pause that ends by itself: the owner replied from the WhatsApp Business app.
+        pausedUntil: botPaused && pause?.until ? pause.until : undefined,
         canReply,
         error: ERRORS[c.req.query("error") ?? ""],
       }),
@@ -150,10 +147,10 @@ export function createInbox(deps: InboxDeps) {
     const form = await c.req.parseBody();
     const text = (typeof form.text === "string" ? form.text : "").trim().slice(0, MAX_REPLY);
     if (!text) return c.redirect(`${chat.base}?error=empty`, 303);
-    if (!(await canMessageFreely(deps.messages, chat.contact.waId))) return c.redirect(`${chat.base}?error=window`, 303);
+    if (!(await canMessageFreely(deps.messages, chat.contact.waId, now()))) return c.redirect(`${chat.base}?error=window`, 303);
 
     // A person is answering, so the bot steps back from this chat first.
-    await deps.pauses?.pause(chat.contactId, chat.number.id);
+    await deps.messages.pauseBot(chat.contactId, chat.number.id, null, "inbox");
     try {
       const sent = await deps.whatsapp.sendText(chat.contact.waId, text, chat.number.id);
       await deps.messages.recordOutbound(chat.contactId, {
@@ -174,15 +171,17 @@ export function createInbox(deps: InboxDeps) {
 
   app.post("/chat/:contactId/:numberId/takeover", async (c) => {
     const chat = await findChat(c);
-    if (!chat || !deps.pauses) return c.text("Chat not found", 404);
-    await deps.pauses.pause(chat.contactId, chat.number.id);
+    if (!chat) return c.text("Chat not found", 404);
+    await deps.messages.pauseBot(chat.contactId, chat.number.id, null, "inbox");
+    log.info(`Inbox: staff took over the chat with ...${chat.contact.waId.slice(-4)}`);
     return c.redirect(chat.base, 303);
   });
 
   app.post("/chat/:contactId/:numberId/handback", async (c) => {
     const chat = await findChat(c);
-    if (!chat || !deps.pauses) return c.text("Chat not found", 404);
-    await deps.pauses.resume(chat.contactId, chat.number.id);
+    if (!chat) return c.text("Chat not found", 404);
+    await deps.messages.resumeBot(chat.contactId, chat.number.id);
+    log.info(`Inbox: staff handed the chat with ...${chat.contact.waId.slice(-4)} back to the bot`);
     return c.redirect(chat.base, 303);
   });
 

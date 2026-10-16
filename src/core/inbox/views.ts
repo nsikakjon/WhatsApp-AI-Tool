@@ -134,8 +134,9 @@ export interface ChatPageOptions {
   messages: ChatMessage[];
   /** Where the forms post to, e.g. /inbox/chat/<contact>/<number>. */
   base: string;
-  /** Undefined when bot pausing isn't available. */
-  botPaused?: boolean;
+  botPaused: boolean;
+  /** When a temporary pause ends (the owner replied from their phone). Undefined for a take over. */
+  pausedUntil?: Date;
   /** False when the customer last wrote over 23 hours ago and WhatsApp won't deliver a normal reply. */
   canReply: boolean;
   error?: string;
@@ -148,17 +149,22 @@ export function chatPage(o: ChatPageOptions) {
     return html`<div class="bubble ${cls}">${describe(m.type, m.body)}<span class="muted">${who}${when(m.at)}</span></div>`;
   });
 
-  const status =
-    o.botPaused === undefined
-      ? ""
-      : o.botPaused
-        ? html`<div class="card status paused">
-    <span>🙋 <b>You're handling this chat.</b> The bot stays quiet until you hand it back.</span>
-    <form method="post" action="${o.base}/handback"><button class="secondary" type="submit">Hand back to bot</button></form>
-  </div>`
-        : html`<div class="card status">
+  const status = !o.botPaused
+    ? html`<div class="card status">
     <span>🤖 The bot is answering this chat.</span>
     <form method="post" action="${o.base}/takeover"><button class="secondary" type="submit">Take over</button></form>
+  </div>`
+    : o.pausedUntil
+      ? html`<div class="card status paused">
+    <span>📱 Someone replied from the WhatsApp Business app, so the bot is quiet until ${when(o.pausedUntil)}.</span>
+    <span>
+      <form method="post" action="${o.base}/takeover" style="display:inline"><button class="secondary" type="submit">Take over</button></form>
+      <form method="post" action="${o.base}/handback" style="display:inline"><button class="secondary" type="submit">Hand back now</button></form>
+    </span>
+  </div>`
+      : html`<div class="card status paused">
+    <span>🙋 <b>You're handling this chat.</b> The bot stays quiet until you hand it back.</span>
+    <form method="post" action="${o.base}/handback"><button class="secondary" type="submit">Hand back to bot</button></form>
   </div>`;
 
   const replyBox = o.canReply
@@ -166,7 +172,7 @@ export function chatPage(o: ChatPageOptions) {
     <textarea name="text" placeholder="Type a reply…" required maxlength="4096"></textarea>
     <button class="primary" type="submit">Send</button>
   </form>
-  ${o.botPaused === false ? html`<p class="muted">Sending a reply takes the chat over from the bot.</p>` : ""}`
+  ${o.botPaused && !o.pausedUntil ? "" : html`<p class="muted">Sending a reply takes the chat over from the bot.</p>`}`
     : html`<p class="muted">This customer last wrote more than a day ago. WhatsApp only delivers ordinary replies within 24 hours of their last message, so you can reply once they write again.</p>`;
 
   return page(

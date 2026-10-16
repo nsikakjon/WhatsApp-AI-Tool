@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "../whatsapp/client.js";
-import { createInbox, type BotPauses } from "./routes.js";
+import { createInbox } from "./routes.js";
 import type { ChatMessage, InboxStore } from "./store.js";
 
 const PASSWORD = "correct horse battery";
@@ -10,10 +10,11 @@ const MAIN = "100";
 const FLYER = "200";
 const silent = { info() {}, warn() {}, error() {} };
 
-function setup(opts: { lastInbound?: Date | null; pauses?: boolean } = {}) {
+function setup(opts: { lastInbound?: Date | null } = {}) {
   const sent: Array<{ to: string; body: string; from?: string }> = [];
   const recorded: Array<{ body: string; raw: unknown; businessNumberId?: string }> = [];
-  const paused = new Set<string>();
+  // Bot pauses by "<our number>/<customer>"; until null means until handed back.
+  const paused = new Map<string, { until: Date | null; by: string }>();
   const thread: ChatMessage[] = [
     { direction: "inbound", type: "text", body: "How much for 100 flyers?", fromStaff: false, at: new Date() },
     { direction: "outbound", type: "text", body: "<b>N25,000</b>", fromStaff: false, at: new Date() },
@@ -48,6 +49,15 @@ function setup(opts: { lastInbound?: Date | null; pauses?: boolean } = {}) {
     async lastInboundAt() {
       return opts.lastInbound === undefined ? new Date() : opts.lastInbound;
     },
+    async pauseBot(contactId: string, numberId: string, until: Date | null, by: string) {
+      paused.set(`${numberId}/${contactId}`, { until, by });
+    },
+    async resumeBot(contactId: string, numberId: string) {
+      paused.delete(`${numberId}/${contactId}`);
+    },
+    async botPause(contactId: string, numberId: string) {
+      return paused.get(`${numberId}/${contactId}`) ?? null;
+    },
   } as unknown as MessageStore;
   const whatsapp = {
     async sendText(to: string, body: string, from?: string) {
@@ -55,18 +65,6 @@ function setup(opts: { lastInbound?: Date | null; pauses?: boolean } = {}) {
       return { waMessageId: "wamid.staff", raw: { messages: [{ id: "wamid.staff" }] } };
     },
   } as unknown as WhatsAppClient;
-  const pauses: BotPauses = {
-    async isPaused(c, n) {
-      return paused.has(`${c}/${n}`);
-    },
-    async pause(c, n) {
-      paused.add(`${c}/${n}`);
-    },
-    async resume(c, n) {
-      paused.delete(`${c}/${n}`);
-    },
-  };
-
   const app = createInbox({
     password: PASSWORD,
     appSecret: "app-secret",
@@ -77,7 +75,6 @@ function setup(opts: { lastInbound?: Date | null; pauses?: boolean } = {}) {
       { id: MAIN, label: "Sales" },
       { id: FLYER, label: "Flyers" },
     ],
-    pauses: opts.pauses === false ? undefined : pauses,
     log: silent,
   });
   return { app, sent, recorded, paused };
@@ -172,12 +169,23 @@ describe("staff inbox", () => {
     const { app, paused } = setup();
     const cookie = await login(app);
     await app.request(`${chatUrl}/takeover`, form({}, cookie));
-    expect(paused.has(`${CONTACT}/${MAIN}`)).toBe(true);
+    expect(paused.get(`${MAIN}/${CONTACT}`)).toEqual({ until: null, by: "inbox" });
     const page = await (await app.request(chatUrl, { headers: { Cookie: cookie } })).text();
     expect(page).toContain("You're handling this chat");
 
     await app.request(`${chatUrl}/handback`, form({}, cookie));
     expect(paused.size).toBe(0);
+    const after = await (await app.request(chatUrl, { headers: { Cookie: cookie } })).text();
+    expect(after).toContain("The bot is answering this chat");
+  });
+
+  it("shows when the owner's phone reply pause ends", async () => {
+    const { app, paused } = setup();
+    paused.set(`${MAIN}/${CONTACT}`, { until: new Date(Date.now() + 30 * 60 * 1000), by: "phone" });
+    const cookie = await login(app);
+    const page = await (await app.request(chatUrl, { headers: { Cookie: cookie } })).text();
+    expect(page).toContain("replied from the WhatsApp Business app");
+    expect(page).toContain("Hand back now");
   });
 
   it("sends a staff reply from the chat's own number and pauses the bot", async () => {
@@ -187,7 +195,7 @@ describe("staff inbox", () => {
     expect(res.status).toBe(303);
     expect(sent).toEqual([{ to: "2348012345678", body: "I'll call you now", from: FLYER }]);
     expect(recorded[0]).toMatchObject({ body: "I'll call you now", businessNumberId: FLYER, raw: { inbox: true } });
-    expect(paused.has(`${CONTACT}/${FLYER}`)).toBe(true);
+    expect(paused.get(`${FLYER}/${CONTACT}`)).toEqual({ until: null, by: "inbox" });
   });
 
   it("won't send outside WhatsApp's 24-hour window", async () => {
@@ -198,15 +206,6 @@ describe("staff inbox", () => {
     expect(sent).toEqual([]);
     const page = await (await app.request(chatUrl, { headers: { Cookie: cookie } })).text();
     expect(page).toContain("last wrote more than a day ago");
-  });
-
-  it("works without take over when bot pausing isn't available", async () => {
-    const { app } = setup({ pauses: false });
-    const cookie = await login(app);
-    const page = await (await app.request(chatUrl, { headers: { Cookie: cookie } })).text();
-    expect(page).not.toContain("Take over");
-    const res = await app.request(`${chatUrl}/takeover`, form({}, cookie));
-    expect(res.status).toBe(404);
   });
 
   it("logs out", async () => {

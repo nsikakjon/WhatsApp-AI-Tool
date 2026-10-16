@@ -20,7 +20,7 @@ export interface ChatMessage {
   direction: "inbound" | "outbound";
   type: string;
   body: string | null;
-  /** True when a staff member sent it from the inbox (not the bot). */
+  /** True when a person sent it, from the inbox or the WhatsApp Business app (not the bot). */
   fromStaff: boolean;
   at: Date;
 }
@@ -72,7 +72,7 @@ export function createSupabaseInboxStore(db: SupabaseClient): InboxStore {
     async chatMessages(contactId, businessNumberId, includeUnnumbered, limit) {
       let query = db
         .from("messages")
-        .select("direction, type, body, created_at, staff:raw->inbox")
+        .select("direction, type, body, created_at, staff:raw->inbox, phone:raw->to")
         .eq("contact_id", contactId);
       query = includeUnnumbered
         ? query.or(`business_number_id.eq.${businessNumberId},business_number_id.is.null`)
@@ -83,7 +83,10 @@ export function createSupabaseInboxStore(db: SupabaseClient): InboxStore {
         direction: row.direction as ChatMessage["direction"],
         type: row.type as string,
         body: (row.body as string | null) ?? null,
-        fromStaff: row.staff === true,
+        // Inbox replies are marked { inbox: true }; replies from the Business
+        // app arrive as echoes that name the customer in "to". The bot's own
+        // messages carry neither.
+        fromStaff: row.staff === true || (row.phone !== null && row.phone !== undefined),
         at: new Date(row.created_at as string),
       }));
     },
