@@ -41,6 +41,16 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps quote reminders off unless QUOTE_FOLLOW_UPS is true", () => {
+    expect(loadConfig(base).quoteFollowUps).toBeUndefined();
+    expect(loadConfig({ ...base, QUOTE_FOLLOW_UPS: "true" }).quoteFollowUps).toEqual({ hours: 24, template: undefined });
+    expect(
+      loadConfig({ ...base, QUOTE_FOLLOW_UPS: "on", QUOTE_FOLLOW_UP_HOURS: "20", QUOTE_FOLLOW_UP_TEMPLATE_NAME: "quote_reminder" })
+        .quoteFollowUps,
+    ).toEqual({ hours: 20, template: { name: "quote_reminder", language: "en" } });
+    expect(() => loadConfig({ ...base, QUOTE_FOLLOW_UPS: "true", QUOTE_FOLLOW_UP_HOURS: "0" })).toThrow("QUOTE_FOLLOW_UP_HOURS");
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,
