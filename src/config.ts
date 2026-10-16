@@ -77,6 +77,11 @@ export interface Config {
     /** Approved WhatsApp template for flyers to admins who haven't messaged in 24 hours. */
     template?: { name: string; language: string };
   };
+  /**
+   * The owner's analytics page at /dashboard. Only set when DASHBOARD_PASSWORD
+   * is: without a password the page is switched off.
+   */
+  dashboard?: { password: string };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -173,6 +178,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             : undefined,
         }
       : undefined,
+    dashboard: env.DASHBOARD_PASSWORD ? { password: env.DASHBOARD_PASSWORD } : undefined,
   };
 }
 
