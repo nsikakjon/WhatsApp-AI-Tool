@@ -29,8 +29,16 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           contactName: names.get(msg.from) ?? undefined,
           type: msg.type,
           // A tap on a list or button we sent comes back as the choice's id,
-          // which products treat like typed text.
-          text: msg.type === "text" ? msg.text?.body : msg.type === "interactive" ? choiceId(msg.interactive) : undefined,
+          // which products treat like typed text. A tap on a template's quick
+          // reply button (e.g. "Stop promotions") comes back as its label.
+          text:
+            msg.type === "text"
+              ? msg.text?.body
+              : msg.type === "interactive"
+                ? choiceId(msg.interactive)
+                : msg.type === "button"
+                  ? msg.button?.text || msg.button?.payload || undefined
+                  : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
           timestamp: Number(msg.timestamp ?? 0),
@@ -111,4 +119,5 @@ interface WebhookMessage {
   document?: { id?: string; caption?: string };
   video?: { id?: string; caption?: string };
   interactive?: InteractiveReply;
+  button?: { text?: string; payload?: string };
 }
