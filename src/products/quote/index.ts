@@ -3,6 +3,7 @@ import type { Product, ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
+import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
@@ -39,6 +40,12 @@ export interface QuoteProductOptions {
   paymentDetails?: string;
   /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
   renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
+  /**
+   * Stops quote reminders to this customer (they replied STOP). Only set
+   * while quote follow-ups are on (see followups.ts); otherwise STOP is
+   * understood like any other message.
+   */
+  optOutOfFollowUps?: (contactId: string) => Promise<void>;
   log?: Pick<Console, "error">;
 }
 
@@ -63,6 +70,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
               ? "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?"
               : "Please send your request as a message or voice note (for example: 100 A5 flyers).",
         };
+      }
+
+      if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
+        await opts.optOutOfFollowUps(ctx.contactId);
+        return { text: "Okay, I won't send you any more quote reminders. Message me any time you need a quote." };
       }
 
       const variants = await opts.catalog.activeVariants();

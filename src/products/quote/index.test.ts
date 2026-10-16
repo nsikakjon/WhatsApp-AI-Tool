@@ -122,6 +122,32 @@ const ctx = {
 };
 
 describe("quote product", () => {
+  it("records STOP as a reminder opt-out without asking the AI, only when follow-ups are on", async () => {
+    const { seen, orders } = setup(new Error("unused"));
+    const optedOut: string[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => ({ intent: "other", items: [], message: "ok" }) },
+      optOutOfFollowUps: async (contactId) => {
+        optedOut.push(contactId);
+      },
+      log: { error() {} },
+    });
+    const reply = await product.handle(text("STOP"), ctx);
+    expect(reply?.text).toContain("won't send you any more quote reminders");
+    expect(optedOut).toEqual(["c1"]);
+    expect(seen).toEqual([]);
+    expect(orders).toEqual([]);
+
+    // Without follow-ups, STOP goes to the AI like any other message.
+    const off = setup({ intent: "other", items: [], message: "Okay." });
+    await off.product.handle(text("STOP"), ctx);
+    expect(off.seen).toHaveLength(1);
+  });
+
   it("prices a request from the price list and saves the quote", async () => {
     const { product, orders, seen } = setup({
       intent: "quote",
