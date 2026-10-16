@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { CREDIT_LINE, createPlanGate, lagosMonthStart, type PlanStore, type QuotePlan } from "./plan.js";
 
 const plans: QuotePlan[] = [
-  { code: "free", name: "Free", monthlyPriceKobo: 0, setupFeeKobo: 0, monthlyOrderLimit: 50, showCredit: true },
-  { code: "starter", name: "Starter", monthlyPriceKobo: 350_000, setupFeeKobo: 7_500_000, monthlyOrderLimit: null, showCredit: false },
+  { code: "free", name: "Free", monthlyPriceKobo: 0, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: 50, showCredit: true },
+  { code: "starter", name: "Starter", monthlyPriceKobo: 750_000, monthlyPricePaidYearlyKobo: 600_000, setupFeeKobo: 7_500_000, monthlyOrderLimit: null, showCredit: false },
 ];
 
 function store(used: number, overrides: Partial<PlanStore> = {}): PlanStore & { since: Date[] } {
@@ -83,7 +83,7 @@ describe("plan gate", () => {
     const text = await createPlanGate({ code: "free", store: store(12) }).summary();
     expect(text).toContain("Your plan: *Free*");
     expect(text).toContain("Orders this month: 12 of 50");
-    expect(text).toContain("• Starter: ₦3,500/month + ₦75,000 setup");
+    expect(text).toContain("• Starter: ₦7,500/month (₦6,000/month paid yearly, ₦72,000 a year) + ₦75,000 setup");
     expect(text).toContain("contact yarnOga");
   });
 

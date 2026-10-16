@@ -15,6 +15,8 @@ create table if not exists public.quote_plans (
   code                 text primary key,
   name                 text not null,
   monthly_price_kobo   bigint not null check (monthly_price_kobo >= 0),
+  -- Price per month when the plan is paid a year at a time. Null = no yearly price.
+  monthly_price_paid_yearly_kobo bigint check (monthly_price_paid_yearly_kobo >= 0),
   setup_fee_kobo       bigint not null default 0 check (setup_fee_kobo >= 0),
   -- Confirmed orders allowed per calendar month (Lagos time). Null = no limit.
   monthly_order_limit  integer check (monthly_order_limit >= 0),
@@ -26,12 +28,12 @@ create table if not exists public.quote_plans (
 );
 
 insert into public.quote_plans
-  (code, name, monthly_price_kobo, setup_fee_kobo, monthly_order_limit, show_credit, sort_order)
+  (code, name, monthly_price_kobo, monthly_price_paid_yearly_kobo, setup_fee_kobo, monthly_order_limit, show_credit, sort_order)
 values
-  ('free',        'Free',        0,       0,        50,   true,  0),
-  ('first_three', 'First three', 1500000, 5000000,  null, false, 1),
-  ('starter',     'Starter',     350000,  7500000,  null, false, 2),
-  ('standard',    'Standard',    4500000, 10000000, null, false, 3)
+  ('free',        'Free',        0,       null,   0,        50,   true,  0),
+  ('first_three', 'First three', 1500000, null,   5000000,  null, false, 1),
+  ('starter',     'Starter',     750000,  600000, 7500000,  null, false, 2),
+  ('standard',    'Standard',    4500000, null,   10000000, null, false, 3)
 on conflict (code) do nothing;
 
 -- Which plan each business is on. Empty = no plan limits.

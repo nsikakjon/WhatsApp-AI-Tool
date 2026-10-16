@@ -15,6 +15,8 @@ export interface QuotePlan {
   code: string;
   name: string;
   monthlyPriceKobo: number;
+  /** Price per month when paid a year at a time. Null = no yearly price. */
+  monthlyPricePaidYearlyKobo: number | null;
   setupFeeKobo: number;
   /** Confirmed orders allowed per calendar month (Lagos time). Null = no limit. */
   monthlyOrderLimit: number | null;
@@ -129,9 +131,13 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       if (upgrades.length > 0) {
         lines.push("", "Upgrade for unlimited orders and no yarnOga line on your messages:");
         for (const p of upgrades) {
+          const yearly =
+            p.monthlyPricePaidYearlyKobo != null
+              ? ` (${formatNaira(p.monthlyPricePaidYearlyKobo)}/month paid yearly, ${formatNaira(p.monthlyPricePaidYearlyKobo * 12)} a year)`
+              : "";
           const setup = p.setupFeeKobo > 0 ? ` + ${formatNaira(p.setupFeeKobo)} setup` : "";
           const link = opts.upgradeLink ? await opts.upgradeLink(p) : null;
-          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${setup}${link ? `\n  ${link}` : ""}`);
+          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}${link ? `\n  ${link}` : ""}`);
         }
         if (!opts.upgradeLink) lines.push("", "To upgrade, contact yarnOga and we'll switch you over.");
       }
@@ -144,18 +150,20 @@ type PlanRow = {
   code: string;
   name: string;
   monthly_price_kobo: number | string;
+  monthly_price_paid_yearly_kobo: number | string | null;
   setup_fee_kobo: number | string;
   monthly_order_limit: number | null;
   show_credit: boolean;
 };
 
-const PLAN_COLUMNS = "code, name, monthly_price_kobo, setup_fee_kobo, monthly_order_limit, show_credit";
+const PLAN_COLUMNS = "code, name, monthly_price_kobo, monthly_price_paid_yearly_kobo, setup_fee_kobo, monthly_order_limit, show_credit";
 
 function toPlan(row: PlanRow): QuotePlan {
   return {
     code: row.code,
     name: row.name,
     monthlyPriceKobo: Number(row.monthly_price_kobo),
+    monthlyPricePaidYearlyKobo: row.monthly_price_paid_yearly_kobo == null ? null : Number(row.monthly_price_paid_yearly_kobo),
     setupFeeKobo: Number(row.setup_fee_kobo),
     monthlyOrderLimit: row.monthly_order_limit,
     showCredit: row.show_credit,
