@@ -20,6 +20,8 @@ export interface Config {
    * owner replies from the WhatsApp Business app. 0 switches this off.
    */
   ownerReplyPauseMinutes: number;
+  /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
+  inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
   groq?: { apiKey: string; model: string };
   /** Which product answers messages: "echo" (test) or "quote" (quote and order bot). */
@@ -135,6 +137,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
     ownerReplyPauseMinutes: pauseMinutes,
+    inbox: inboxSettings(env.INBOX_PASSWORD),
     groq: env.GROQ_API_KEY
       ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }
       : undefined,
@@ -187,6 +190,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
   };
+}
+
+function inboxSettings(password: string | undefined): Config["inbox"] {
+  if (!password) return undefined;
+  if (password.length < 12) throw new Error("INBOX_PASSWORD must be at least 12 characters long");
+  return { password };
 }
 
 /** "+234 801 234 5678, 2348098765432" -> ["2348012345678", "2348098765432"] */

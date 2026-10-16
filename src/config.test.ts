@@ -51,6 +51,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "half an hour" })).toThrow("OWNER_REPLY_PAUSE_MINUTES");
   });
 
+  it("turns on the staff inbox only with a long enough password", () => {
+    expect(loadConfig(base).inbox).toBeUndefined();
+    expect(loadConfig({ ...base, INBOX_PASSWORD: "a-long-password" }).inbox).toEqual({ password: "a-long-password" });
+    expect(() => loadConfig({ ...base, INBOX_PASSWORD: "short" })).toThrow("at least 12");
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });
