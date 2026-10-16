@@ -2,13 +2,15 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { renderDashboard } from "./page.js";
+import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import type { StatsSource } from "./stats.js";
 import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
 // The owner's analytics page at /dashboard. The browser asks for a password
-// (DASHBOARD_PASSWORD); any username works. It only reads from the database.
+// (DASHBOARD_PASSWORD); any username works. It only reads from the database,
+// except for the profit and loss entries the owner adds or removes.
 
 export interface DashboardDeps {
   password: string;
@@ -16,6 +18,8 @@ export interface DashboardDeps {
   socials?: SocialsSource;
   /** yarnoga.com visitor numbers. */
   website?: WebsiteStatsSource;
+  /** Money in and out, for the profit and loss section. */
+  money?: MoneyStore;
   /** The TikTok developer app, for the one-time connect button. */
   tiktokApp?: TikTokApp;
   fetch?: typeof fetch;
@@ -39,7 +43,7 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials, website] = await Promise.all([
+      const [stats, socials, website, money] = await Promise.all([
         deps.stats.load(now),
         deps.socials?.load(now) ?? [],
         // A website problem (say, the table isn't created yet) mustn't hide everything else.
@@ -47,12 +51,53 @@ export function createDashboard(deps: DashboardDeps) {
           log.error("Website visits failed to load:", err);
           return "error" as const;
         }),
+        deps.money?.list().then(summariseMoney).catch((err) => {
+          log.error("Profit and loss failed to load:", err);
+          return "error" as const;
+        }),
       ]);
-      return c.html(renderDashboard(stats, socials, website));
+      const problem = c.req.query("problem")?.slice(0, 200);
+      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
     }
+  });
+
+  // Adding and removing profit and loss entries. The browser re-sends the
+  // password to any site that posts a form here, so only forms sent from the
+  // dashboard itself are accepted.
+  const backToMoney = (problem?: string) =>
+    `/dashboard${problem ? `?problem=${encodeURIComponent(problem)}` : ""}#money`;
+
+  app.post("/money", async (c) => {
+    if (!deps.money || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
+      return c.text("Not allowed.", 403);
+    }
+    const line = parseMoneyForm(await c.req.parseBody());
+    if ("problem" in line) return c.redirect(backToMoney(line.problem), 303);
+    try {
+      await deps.money.add(line);
+    } catch (err) {
+      log.error("Couldn't save a money line:", err);
+      return c.redirect(backToMoney("Couldn't save that just now. Please try again."), 303);
+    }
+    return c.redirect(backToMoney(), 303);
+  });
+
+  app.post("/money/:id/delete", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (!deps.money || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
+      return c.text("Not allowed.", 403);
+    }
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToMoney(), 303);
+    try {
+      await deps.money.remove(id);
+    } catch (err) {
+      log.error("Couldn't remove a money line:", err);
+      return c.redirect(backToMoney("Couldn't remove that just now. Please try again."), 303);
+    }
+    return c.redirect(backToMoney(), 303);
   });
 
   // Connecting TikTok: send the owner to TikTok to allow access, then show the
@@ -104,6 +149,17 @@ code{display:block;word-break:break-all;background:#191a1a;border:1px solid #2e3
 <code>${safe}</code>
 <p>Keep it private, like a password. After Railway redeploys, your TikTok numbers appear on the <a href="/dashboard">dashboard</a>. The key lasts about a year; when TikTok stops loading, open this connect page again.</p>
 </main></body></html>`;
+}
+
+/** True when a form was sent from a page on this same server. */
+export function fromDashboard(origin: string | undefined, referer: string | undefined, host: string | undefined): boolean {
+  const source = origin && origin !== "null" ? origin : referer;
+  if (!source || !host) return false;
+  try {
+    return new URL(source).host === host;
+  } catch {
+    return false;
+  }
 }
 
 /** Compares in constant time, so response timing can't reveal the password letter by letter. */
