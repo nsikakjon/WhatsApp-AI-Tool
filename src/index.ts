@@ -26,6 +26,8 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { createSupabaseStats } from "./dashboard/stats.js";
+import { createSocials } from "./dashboard/socials.js";
 
 const config = loadConfig();
 
@@ -107,7 +109,18 @@ const app = createApp({
     if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
     return product;
   },
-});
+}, config.dashboard
+  ? {
+      password: config.dashboard.password,
+      stats: createSupabaseStats(supabase),
+      socials: createSocials({
+        meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
+        youtube: config.dashboard.youtube,
+        tiktok: config.dashboard.tiktok,
+      }),
+      tiktokApp: config.dashboard.tiktok,
+    }
+  : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -155,6 +168,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
   );
 });

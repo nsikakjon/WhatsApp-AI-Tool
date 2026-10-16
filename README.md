@@ -86,6 +86,12 @@ goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owne
 replies from the app, then answers again. Needs the `smb_message_echoes` webhook
 field and migration 0014. See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 
+## Owner dashboard
+
+A password-protected page at `/dashboard` with live numbers for every product
+(chats, flyer groups and plans, sales, site updates, leads). Switched on by
+`DASHBOARD_PASSWORD`: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
