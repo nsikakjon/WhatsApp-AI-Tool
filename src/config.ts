@@ -39,6 +39,8 @@ export interface Config {
     businessDetails?: string;
     /** Bank details printed on invoices. */
     paymentDetails?: string;
+    /** The plan this business is on (a code in quote_plans, e.g. "free"). Unset = no plan limits. */
+    plan?: string;
   };
   /**
    * More businesses on the quote bot, each on its own WhatsApp number, set up
@@ -200,6 +202,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             ownerWaId: env.QUOTE_OWNER_WA_ID?.replace(/\D/g, "") || undefined,
             businessDetails: multiline(env.QUOTE_BUSINESS_DETAILS),
             paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
+            plan: env.QUOTE_PLAN?.trim().toLowerCase() || undefined,
           }
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")

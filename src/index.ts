@@ -18,6 +18,7 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
+import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -63,6 +64,9 @@ if (config.activeProduct === "quote" && config.quote) {
     branding: createSupabaseBranding(supabase, mainBusinessId),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders: createSupabaseOrders(supabase, mainBusinessId),
+    plan: config.quote.plan
+      ? createPlanGate({ code: config.quote.plan, store: createSupabasePlanStore(supabase, mainBusinessId) })
+      : undefined,
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
