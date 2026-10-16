@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { createWhatsAppWebhook, type WebhookDeps } from "./core/whatsapp/webhook.js";
 import { createDashboard, type DashboardDeps } from "./dashboard/index.js";
+import { createReplyGenerator, type GeneratorDeps } from "./generator/index.js";
 
-export function createApp(deps: WebhookDeps, dashboard?: DashboardDeps) {
+export function createApp(deps: WebhookDeps, dashboard?: DashboardDeps, generator?: GeneratorDeps) {
   const app = new Hono();
 
   // Simple "is it running?" check for Railway and for you in a browser.
@@ -12,6 +13,9 @@ export function createApp(deps: WebhookDeps, dashboard?: DashboardDeps) {
 
   // The owner's analytics page; switched off unless DASHBOARD_PASSWORD is set.
   if (dashboard) app.route("/dashboard", createDashboard(dashboard));
+
+  // The free reply generator on yarnoga.com; switched off unless REPLY_GENERATOR_ENABLED is set.
+  if (generator) app.route("/tools/reply-generator", createReplyGenerator(generator));
 
   return app;
 }
