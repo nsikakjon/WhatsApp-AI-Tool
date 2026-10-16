@@ -3,6 +3,41 @@ import type { QuoteLine, Variant } from "./pricing.js";
 
 // Reading the price list and saving quotes/orders. Kept behind interfaces so
 // tests can use in-memory versions instead of a real database.
+//
+// Several businesses can share the bot (migration 0020): each has its own
+// price list and orders. The Supabase stores below take the business id to
+// work for. Leaving it out reads and writes without looking at businesses at
+// all, exactly as before 0020, which is how business #1 runs while
+// QUOTE_MULTI_BUSINESS is off.
+
+/** Business #1, the one on the main WhatsApp number (fixed id set in migration 0020). */
+export const DEFAULT_BUSINESS_ID = "00000000-0000-0000-0000-000000000001";
+
+/** One business the quote bot answers for. */
+export interface QuoteBusiness {
+  id: string;
+  name: string;
+  /** What the business does, e.g. "a print shop". Helps the AI understand customers. */
+  description: string | null;
+  /** Order numbers look like KP-1001; this is the "KP". */
+  orderPrefix: string;
+  /** The WhatsApp "Phone number ID" its customers message. Null for business #1 (main number). */
+  phoneNumberId: string | null;
+  /** WhatsApp number (digits only) that gets new-order alerts. */
+  ownerWaId: string | null;
+  businessDetails: string | null;
+  paymentDetails: string | null;
+  active: boolean;
+  updatedAt: Date;
+}
+
+export interface BusinessStore {
+  /** The business whose customers message this WhatsApp number, if any. */
+  findByPhoneNumberId(phoneNumberId: string): Promise<QuoteBusiness | null>;
+  get(id: string): Promise<QuoteBusiness | null>;
+  /** Every business, oldest first. */
+  list(): Promise<QuoteBusiness[]>;
+}
 
 export interface CatalogStore {
   /** Every active variant with its price tiers. Names read "Product: variant". */
@@ -52,9 +87,62 @@ export interface BrandingStore {
 }
 
 const FILES_BUCKET = "quote-files";
-const LOGO_PATH = "logo";
 
-export function createSupabaseBranding(db: SupabaseClient): BrandingStore {
+/** Business #1 keeps the logo it has always had; other businesses get their own file. */
+function logoPath(businessId?: string): string {
+  return !businessId || businessId === DEFAULT_BUSINESS_ID ? "logo" : `businesses/${businessId}/logo`;
+}
+
+type BusinessRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  order_prefix: string;
+  phone_number_id: string | null;
+  owner_wa_id: string | null;
+  business_details: string | null;
+  payment_details: string | null;
+  active: boolean;
+  updated_at: string;
+};
+
+const BUSINESS_COLUMNS =
+  "id, name, description, order_prefix, phone_number_id, owner_wa_id, business_details, payment_details, active, updated_at";
+
+function toBusiness(row: BusinessRow): QuoteBusiness {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    orderPrefix: row.order_prefix,
+    phoneNumberId: row.phone_number_id,
+    ownerWaId: row.owner_wa_id,
+    businessDetails: row.business_details,
+    paymentDetails: row.payment_details,
+    active: row.active,
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export function createSupabaseBusinesses(db: SupabaseClient): BusinessStore {
+  const one = async (column: "id" | "phone_number_id", value: string) => {
+    const { data, error } = await db.from("quote_businesses").select(BUSINESS_COLUMNS).eq(column, value).maybeSingle();
+    if (error) throw new Error(`quote business lookup failed: ${error.message}`);
+    return data ? toBusiness(data as BusinessRow) : null;
+  };
+  return {
+    findByPhoneNumberId: (phoneNumberId) => one("phone_number_id", phoneNumberId),
+    get: (id) => one("id", id),
+    async list() {
+      const { data, error } = await db.from("quote_businesses").select(BUSINESS_COLUMNS).order("created_at");
+      if (error) throw new Error(`list quote businesses failed: ${error.message}`);
+      return (data ?? []).map((row) => toBusiness(row as BusinessRow));
+    },
+  };
+}
+
+export function createSupabaseBranding(db: SupabaseClient, businessId?: string): BrandingStore {
+  const LOGO_PATH = logoPath(businessId);
   return {
     async logo() {
       const { data, error } = await db.storage.from(FILES_BUCKET).download(LOGO_PATH);
@@ -69,16 +157,18 @@ export function createSupabaseBranding(db: SupabaseClient): BrandingStore {
   };
 }
 
-export function createSupabaseCatalog(db: SupabaseClient): CatalogStore {
+export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): CatalogStore {
   return {
     async activeVariants() {
-      const { data, error } = await db
+      let query = db
         .from("quote_variants")
         .select(
           "id, name, min_quantity, quote_products!inner(name, active), quote_price_tiers(min_quantity, unit_price_kobo)",
         )
         .eq("active", true)
         .eq("quote_products.active", true);
+      if (businessId) query = query.eq("quote_products.business_id", businessId);
+      const { data, error } = await query;
       if (error) throw new Error(`activeVariants failed: ${error.message}`);
 
       return (data ?? []).map((row) => {
@@ -123,12 +213,17 @@ function toSavedOrder(row: OrderRow): SavedOrder {
   };
 }
 
-export function createSupabaseOrders(db: SupabaseClient): OrderStore {
+export function createSupabaseOrders(db: SupabaseClient, businessId?: string): OrderStore {
+  // Every order lookup and change stays inside this business's orders.
+  // (The cast keeps TypeScript from expanding Supabase's deep query types.)
+  const mine = <Q,>(query: Q): Q =>
+    businessId ? (query as unknown as { eq(c: string, v: string): Q }).eq("business_id", businessId) : query;
+
   return {
     async createQuote(contactId, lines, totalKobo) {
       const { data: order, error } = await db
         .from("quote_orders")
-        .insert({ contact_id: contactId, total_kobo: totalKobo })
+        .insert({ contact_id: contactId, total_kobo: totalKobo, ...(businessId ? { business_id: businessId } : {}) })
         .select("id, order_number")
         .single();
       if (error) throw new Error(`createQuote failed: ${error.message}`);
@@ -152,9 +247,11 @@ export function createSupabaseOrders(db: SupabaseClient): OrderStore {
     },
 
     async latestOpenQuote(contactId) {
-      const { data, error } = await db
-        .from("quote_orders")
-        .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)")
+      const { data, error } = await mine(
+        db
+          .from("quote_orders")
+          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+      )
         .eq("contact_id", contactId)
         .eq("status", "quoted")
         .order("created_at", { ascending: false })
@@ -165,11 +262,13 @@ export function createSupabaseOrders(db: SupabaseClient): OrderStore {
     },
 
     async findOrder(orderNumber) {
-      const { data, error } = await db
-        .from("quote_orders")
-        .select(
-          "id, order_number, total_kobo, status, created_at, paid_at, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
-        )
+      const { data, error } = await mine(
+        db
+          .from("quote_orders")
+          .select(
+            "id, order_number, total_kobo, status, created_at, paid_at, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
+          ),
+      )
         .eq("order_number", orderNumber)
         .maybeSingle();
       if (error) throw new Error(`findOrder failed: ${error.message}`);
@@ -192,9 +291,9 @@ export function createSupabaseOrders(db: SupabaseClient): OrderStore {
 
     async markPaid(orderId) {
       const now = new Date().toISOString();
-      const { data, error } = await db
-        .from("quote_orders")
-        .update({ status: "paid", paid_at: now, updated_at: now })
+      const { data, error } = await mine(
+        db.from("quote_orders").update({ status: "paid", paid_at: now, updated_at: now }),
+      )
         .eq("id", orderId)
         .in("status", ["quoted", "confirmed"])
         .select("id");
@@ -206,9 +305,7 @@ export function createSupabaseOrders(db: SupabaseClient): OrderStore {
       const now = new Date().toISOString();
       const update: Record<string, unknown> = { status, updated_at: now };
       if (status === "confirmed") update.confirmed_at = now;
-      const { data, error } = await db
-        .from("quote_orders")
-        .update(update)
+      const { data, error } = await mine(db.from("quote_orders").update(update))
         .eq("id", orderId)
         .eq("status", "quoted")
         .select("id");

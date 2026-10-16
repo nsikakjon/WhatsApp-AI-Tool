@@ -24,12 +24,22 @@ export interface Config {
     anthropicApiKey: string;
     model: string;
     businessName: string;
+    /** What the business does, e.g. "a print shop". Helps the AI understand customers. */
+    businessDescription?: string;
     orderPrefix: string;
     ownerWaId?: string;
     /** Address or phone printed under the business name on invoices and receipts. */
     businessDetails?: string;
     /** Bank details printed on invoices. */
     paymentDetails?: string;
+  };
+  /**
+   * More businesses on the quote bot, each on its own WhatsApp number, set up
+   * in the quote_businesses table. Only set when QUOTE_MULTI_BUSINESS is true.
+   */
+  quoteBusinesses?: {
+    anthropicApiKey: string;
+    model: string;
   };
   /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
@@ -157,12 +167,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
             model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
             businessName: env.QUOTE_BUSINESS_NAME || "KahnPrints",
+            businessDescription: env.QUOTE_BUSINESS_DESCRIPTION?.trim() || undefined,
             orderPrefix: env.QUOTE_ORDER_PREFIX || "KP",
             ownerWaId: env.QUOTE_OWNER_WA_ID?.replace(/\D/g, "") || undefined,
             businessDetails: multiline(env.QUOTE_BUSINESS_DETAILS),
             paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
           }
         : undefined,
+    quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
+      ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
+      : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
