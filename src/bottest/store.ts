@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TestBotId } from "./questions.js";
 
 // The owner's good/poor marks on test answers (table bot_test_marks,
-// migration 0020).
+// migration 0022).
 
 export type Mark = "good" | "poor";
 

@@ -89,7 +89,7 @@ export function createBotTest(deps: BotTestDeps) {
       return c.json({ marks: marks.map((m) => ({ ...m, markedAt: m.markedAt.toISOString() })) });
     } catch (err) {
       log.error("Bot test marks failed to load:", err);
-      return c.json({ error: "Saved marks couldn't be loaded. Has migration 0020 been run?" }, 503);
+      return c.json({ error: "Saved marks couldn't be loaded. Has migration 0022 been run?" }, 503);
     }
   });
 
@@ -108,7 +108,7 @@ export function createBotTest(deps: BotTestDeps) {
       return c.json({ ok: true });
     } catch (err) {
       log.error("Bot test mark failed to save:", err);
-      return c.json({ error: "The mark couldn't be saved. Has migration 0020 been run?" }, 503);
+      return c.json({ error: "The mark couldn't be saved. Has migration 0022 been run?" }, 503);
     }
   });
 
