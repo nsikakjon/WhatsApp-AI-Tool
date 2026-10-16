@@ -83,6 +83,11 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...quote, QUOTE_PLAN: " Free " }).quote?.plan).toBe("free");
   });
 
+  it("leaves plan features off unless switched on", () => {
+    expect(loadConfig(base).quotePlanFeatures).toBe(false);
+    expect(loadConfig({ ...base, QUOTE_PLAN_FEATURES: "true" }).quotePlanFeatures).toBe(true);
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });

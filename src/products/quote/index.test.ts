@@ -459,3 +459,71 @@ describe("quote product on a plan", () => {
     expect(reply?.text).toContain("Here's your quote");
   });
 });
+
+describe("quote product with plan features", () => {
+  function withFeatures(opts: { useAi?: boolean; ownerNotice?: string | null; aiFails?: boolean; off?: string[] } = {}) {
+    const mem = memoryOrders();
+    const docs = fakeDocuments();
+    let aiCalls = 0;
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: mem.store,
+      ai: {
+        understand: async () => {
+          aiCalls++;
+          if (opts.aiFails) throw new Error("AI down");
+          return { intent: "quote", items: [{ variantId: "v-card", quantity: 100 }], message: null };
+        },
+      },
+      renderDocument: docs.render,
+      features: {
+        planCode: async () => "free",
+        has: async (f) => !(opts.off ?? []).includes(f),
+        limit: async () => null,
+      },
+      credits: { spend: async () => ({ useAi: opts.useAi ?? true, ownerNotice: opts.ownerNotice ?? null }) },
+      log: { error() {} },
+    });
+    return { product, drawn: docs.drawn, aiCalls: () => aiCalls, ...mem };
+  }
+
+  it("uses the AI while there are credits", async () => {
+    const { product, aiCalls } = withFeatures();
+    expect((await product.handle(text("100 cards"), ctx))?.text).toContain("Business cards");
+    expect(aiCalls()).toBe(1);
+  });
+
+  it("keeps quoting with the menu once credits run out, and tells the owner", async () => {
+    const { product, aiCalls } = withFeatures({ useAi: false, ownerNotice: "You've used all 300 AI replies" });
+    const menu = await product.handle(text("hello, what do you sell?"), ctx);
+    expect(menu?.text).toContain("1. Flyers: A5, double-sided");
+    expect(menu?.text).toContain("*1 x 100*");
+    expect(menu?.notify).toEqual([{ to: OWNER, text: "You've used all 300 AI replies" }]);
+
+    const quote = await product.handle(text("1 x 100"), ctx);
+    expect(quote?.text).toContain("100 x Flyers: A5, double-sided @ ₦150 = ₦15,000");
+    expect(aiCalls()).toBe(0);
+  });
+
+  it("falls back to the menu when the AI is down", async () => {
+    const { product } = withFeatures({ aiFails: true });
+    expect((await product.handle(text("200 business cards"), ctx))?.text).toContain("200 x Business cards");
+  });
+
+  it("asks for typing when voice notes aren't on the plan", async () => {
+    const { product } = withFeatures({ off: ["voice_notes"] });
+    const reply = await product.handle({ ...text("100 cards"), type: "audio" }, ctx);
+    expect(reply?.text).toContain("can't take voice notes");
+  });
+
+  it("confirms in text without an invoice picture when invoices aren't on the plan", async () => {
+    const { product, drawn } = withFeatures({ off: ["invoices"] });
+    await product.handle(text("100 cards"), ctx);
+    const owner = await product.handle({ ...text("invoice KP-1001"), from: OWNER }, ctx);
+    expect(owner?.text).toContain("aren't on your plan");
+    expect(drawn).toHaveLength(0);
+  });
+});
