@@ -86,6 +86,13 @@ goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owne
 replies from the app, then answers again. Needs the `smb_message_echoes` webhook
 field and migration 0014. See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 
+## Staff inbox (in progress)
+
+A password-protected web page at `/inbox` where staff see every chat on every
+number, read the conversation, reply, and take a chat over from the bot (the
+bot stays quiet until they hand it back). Switched on by `INBOX_PASSWORD`; needs
+migrations 0014 and 0015. See [docs/INBOX.md](docs/INBOX.md).
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
@@ -97,7 +104,7 @@ field and migration 0014. See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 ```
 src/
   index.ts               starts the server with real settings
-  app.ts                 web routes: /health and /webhooks/whatsapp
+  app.ts                 web routes: /health, /webhooks/whatsapp and /inbox
   config.ts              reads settings from environment variables
   core/                  shared WhatsApp core (used by every product)
     product.ts           the contract every product follows
@@ -108,6 +115,11 @@ src/
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
       outbox.ts          sends and saves alerts and scheduled messages
+    inbox/               staff inbox web page
+      routes.ts          login, chat list, chat page, reply, take over, hand back
+      views.ts           the pages' HTML
+      store.ts           reads chats and messages from Supabase
+      auth.ts            password check, login cookie, wrong-password lockout
     schedule.ts          runs a task on a timer (daily reports, birthdays)
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
