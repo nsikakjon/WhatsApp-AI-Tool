@@ -41,6 +41,12 @@ describe("loadConfig", () => {
     });
   });
 
+  it("switches the quote setup screen on only with a long enough password", () => {
+    expect(loadConfig(base).quoteSetup).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "short" })).toThrow("at least 12");
+    expect(loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "long enough pass" }).quoteSetup).toEqual({ password: "long enough pass" });
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,

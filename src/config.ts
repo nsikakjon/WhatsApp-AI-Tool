@@ -42,6 +42,11 @@ export interface Config {
     model: string;
   };
   /**
+   * The owner setup screen at /quote-setup (businesses and price lists for
+   * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
+   */
+  quoteSetup?: { password: string };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -177,6 +182,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
+    quoteSetup: env.QUOTE_SETUP_PASSWORD ? { password: longPassword(env, "QUOTE_SETUP_PASSWORD") } : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
@@ -245,6 +251,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
   };
+}
+
+function longPassword(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name] ?? "";
+  if (value.length < 12) throw new Error(`${name} must be at least 12 characters long`);
+  return value;
 }
 
 function wholeNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
