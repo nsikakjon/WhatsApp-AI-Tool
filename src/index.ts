@@ -30,6 +30,7 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
+import { createClaudeGeneratorWriter } from "./generator/index.js";
 
 const config = loadConfig();
 
@@ -127,7 +128,17 @@ const app = createApp({
   store: createSupabaseVisitStore(supabase),
   // Reuses an existing server secret to scramble the daily visitor code.
   secret: config.whatsapp.appSecret,
-});
+}, config.generator
+  ? {
+      writer: createClaudeGeneratorWriter({
+        apiKey: config.generator.anthropicApiKey,
+        model: config.generator.model,
+      }),
+      origins: config.generator.origins,
+      perVisitorDailyLimit: config.generator.perVisitorDailyLimit,
+      dailyLimit: config.generator.dailyLimit,
+    }
+  : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -175,6 +186,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"})`,
   );
 });
