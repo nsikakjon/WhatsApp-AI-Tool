@@ -57,6 +57,17 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, INBOX_PASSWORD: "short" })).toThrow("at least 12");
   });
 
+  it("switches on the sign-up page only with a password, and then needs the Meta app details", () => {
+    expect(loadConfig(base).signup).toBeUndefined();
+    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw" })).toThrow("META_APP_ID");
+    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1" })).toThrow("META_SIGNUP_CONFIG_ID");
+    expect(loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1", META_SIGNUP_CONFIG_ID: "2" }).signup).toEqual({
+      password: "pw",
+      appId: "1",
+      configId: "2",
+    });
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });

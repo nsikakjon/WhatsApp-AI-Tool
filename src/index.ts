@@ -27,6 +27,9 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { createSupabaseStats } from "./dashboard/stats.js";
+import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseConnectionStore } from "./signup/store.js";
 
 const config = loadConfig();
 
@@ -116,18 +119,38 @@ const app = createApp({
     if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
     return product;
   },
-}, {
-  inbox: config.inbox
-    ? {
-        password: config.inbox.password,
+}, config.dashboard
+  ? {
+      password: config.dashboard.password,
+      stats: createSupabaseStats(supabase),
+      socials: createSocials({
+        meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
+        youtube: config.dashboard.youtube,
+        tiktok: config.dashboard.tiktok,
+      }),
+      tiktokApp: config.dashboard.tiktok,
+    }
+  : undefined, config.signup
+  ? {
+      password: config.signup.password,
+      app: {
+        appId: config.signup.appId,
         appSecret: config.whatsapp.appSecret,
-        inbox: createSupabaseInboxStore(supabase),
-        messages: store,
-        whatsapp,
-        numbers,
-      }
-    : undefined,
-});
+        graphApiVersion: config.whatsapp.graphApiVersion,
+      },
+      configId: config.signup.configId,
+      store: createSupabaseConnectionStore(supabase),
+    }
+  : undefined, config.inbox
+  ? {
+      password: config.inbox.password,
+      appSecret: config.whatsapp.appSecret,
+      inbox: createSupabaseInboxStore(supabase),
+      messages: store,
+      whatsapp,
+      numbers,
+    }
+  : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -175,6 +198,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"})`,
   );
 });

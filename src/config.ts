@@ -84,6 +84,31 @@ export interface Config {
     /** Approved WhatsApp template for flyers to admins who haven't messaged in 24 hours. */
     template?: { name: string; language: string };
   };
+  /**
+   * The owner's analytics page at /dashboard. Only set when DASHBOARD_PASSWORD
+   * is: without a password the page is switched off.
+   */
+  dashboard?: {
+    password: string;
+    /** Instagram and Facebook numbers: a token that can read the Facebook Page, and the Page's id. */
+    meta?: { token: string; pageId: string };
+    /** YouTube channel numbers. */
+    youtube?: { apiKey: string; handle: string };
+    /** TikTok numbers. refreshToken is empty until the owner connects TikTok from the dashboard. */
+    tiktok?: { clientKey: string; clientSecret: string; refreshToken?: string };
+  };
+  /**
+   * The sign-up page at /signup where a business connects its WhatsApp number
+   * through Meta's pop-up (Embedded Signup), e.g. for coexistence. Only set
+   * when SIGNUP_PASSWORD is: without a password the page is switched off.
+   */
+  signup?: {
+    password: string;
+    /** The Meta app's App ID (the same app as the webhook and WHATSAPP_APP_SECRET). */
+    appId: string;
+    /** The Facebook Login for Business configuration made for Embedded Signup. */
+    configId: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -187,6 +212,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           template: env.FLYER_TEMPLATE_NAME
             ? { name: env.FLYER_TEMPLATE_NAME, language: env.FLYER_TEMPLATE_LANGUAGE || "en" }
             : undefined,
+        }
+      : undefined,
+    dashboard: env.DASHBOARD_PASSWORD
+      ? {
+          password: env.DASHBOARD_PASSWORD,
+          meta:
+            env.META_SOCIAL_TOKEN && env.FACEBOOK_PAGE_ID
+              ? { token: env.META_SOCIAL_TOKEN, pageId: env.FACEBOOK_PAGE_ID }
+              : undefined,
+          youtube: env.YOUTUBE_API_KEY
+            ? { apiKey: env.YOUTUBE_API_KEY, handle: (env.YOUTUBE_HANDLE || "yarnoga").replace(/^@/, "") }
+            : undefined,
+          tiktok:
+            env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET
+              ? {
+                  clientKey: env.TIKTOK_CLIENT_KEY,
+                  clientSecret: env.TIKTOK_CLIENT_SECRET,
+                  refreshToken: env.TIKTOK_REFRESH_TOKEN || undefined,
+                }
+              : undefined,
+        }
+      : undefined,
+    signup: env.SIGNUP_PASSWORD
+      ? {
+          password: env.SIGNUP_PASSWORD,
+          appId: required(env, "META_APP_ID"),
+          configId: required(env, "META_SIGNUP_CONFIG_ID"),
         }
       : undefined,
   };
