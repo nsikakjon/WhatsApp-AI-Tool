@@ -26,8 +26,11 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
+import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createSupabaseConnectionStore } from "./signup/store.js";
 
 const config = loadConfig();
@@ -91,6 +94,7 @@ const flyerBot = flyerConfig
       brandName: flyerConfig.brandName,
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
+      trial: TRIAL,
     })
   : undefined;
 
@@ -114,12 +118,27 @@ const app = createApp({
   ? {
       password: config.dashboard.password,
       stats: createSupabaseStats(supabase),
+      website: createSupabaseWebsiteStats(supabase),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
         tiktok: config.dashboard.tiktok,
       }),
       tiktokApp: config.dashboard.tiktok,
+    }
+  : undefined, {
+  store: createSupabaseVisitStore(supabase),
+  // Reuses an existing server secret to scramble the daily visitor code.
+  secret: config.whatsapp.appSecret,
+}, config.generator
+  ? {
+      writer: createClaudeGeneratorWriter({
+        apiKey: config.generator.anthropicApiKey,
+        model: config.generator.model,
+      }),
+      origins: config.generator.origins,
+      perVisitorDailyLimit: config.generator.perVisitorDailyLimit,
+      dailyLimit: config.generator.dailyLimit,
     }
   : undefined, config.signup
   ? {
@@ -180,6 +199,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
   );
 });
