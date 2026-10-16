@@ -79,6 +79,13 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
 5. With open sign-up, anyone who messages the number can set up their own
    group, and the owner gets an alert for each sign-up.
 
+## Owner and bot on the same number (coexistence)
+
+When a business also uses the WhatsApp Business app on the bot's number, the bot
+goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owner
+replies from the app, then answers again. Needs the `smb_message_echoes` webhook
+field and migration 0014. See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
