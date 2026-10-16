@@ -8,7 +8,14 @@ import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct } from "./products/quote/index.js";
-import { createSupabaseBranding, createSupabaseCatalog, createSupabaseOrders } from "./products/quote/store.js";
+import {
+  createSupabaseBranding,
+  createSupabaseBusinesses,
+  createSupabaseCatalog,
+  createSupabaseOrders,
+  DEFAULT_BUSINESS_ID,
+} from "./products/quote/store.js";
+import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
@@ -42,6 +49,11 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
   auth: { persistSession: false },
 });
 
+// With QUOTE_MULTI_BUSINESS on, business #1 (the main number) only sees its
+// own price list and orders. With it off, nothing looks at businesses at all.
+const quoteBusinesses = config.quoteBusinesses;
+const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
+
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
   product = createQuoteProduct({
@@ -50,14 +62,41 @@ if (config.activeProduct === "quote" && config.quote) {
     ownerWaId: config.quote.ownerWaId,
     businessDetails: config.quote.businessDetails,
     paymentDetails: config.quote.paymentDetails,
-    branding: createSupabaseBranding(supabase),
-    catalog: createSupabaseCatalog(supabase),
-    orders: createSupabaseOrders(supabase),
+    branding: createSupabaseBranding(supabase, mainBusinessId),
+    catalog: createSupabaseCatalog(supabase, mainBusinessId),
+    orders: createSupabaseOrders(supabase, mainBusinessId),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
       businessName: config.quote.businessName,
+      description: config.quote.businessDescription,
     }),
+  });
+}
+
+// Other businesses on the quote bot each answer their own WhatsApp number.
+if (quoteBusinesses) {
+  product = createQuoteRouter({
+    businesses: createSupabaseBusinesses(supabase),
+    fallback: product,
+    fallbackNumberIds: [config.whatsapp.phoneNumberId],
+    build: (business) =>
+      createQuoteProduct({
+        businessName: business.name,
+        orderPrefix: business.orderPrefix,
+        ownerWaId: business.ownerWaId ?? undefined,
+        businessDetails: business.businessDetails ?? undefined,
+        paymentDetails: business.paymentDetails ?? undefined,
+        branding: createSupabaseBranding(supabase, business.id),
+        catalog: createSupabaseCatalog(supabase, business.id),
+        orders: createSupabaseOrders(supabase, business.id),
+        ai: createClaudeUnderstander({
+          apiKey: quoteBusinesses.anthropicApiKey,
+          model: quoteBusinesses.model,
+          businessName: business.name,
+          description: business.description ?? undefined,
+        }),
+      }),
   });
 }
 
@@ -207,6 +246,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"})`,
   );
 });
