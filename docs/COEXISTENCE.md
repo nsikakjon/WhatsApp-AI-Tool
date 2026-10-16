@@ -35,10 +35,11 @@ of the messages you send from the app. That needs the steps below.
    app to be on version 2.24.17 or newer and the number to have been in active
    use in the app for at least 7 days.
 3. **Each business connects its own number.** KahnPrints keeps
-   +234 811 433 0749, which is connected straight to the bot today. Our test
-   number is **+234 701 326 2131**: put it in the WhatsApp Business app on a
-   phone and use it there for a week. Don't run Meta's "register" step on it,
-   because that would take it out of the app.
+   +234 811 433 0749, which is connected straight to the bot today. To test,
+   use a **spare number** that isn't connected to the bot (+234 701 326 2131
+   is now the quote bot demo, so not that one): put it in the WhatsApp
+   Business app on a phone and use it there for a week. Don't run Meta's
+   "register" step on it, because that would take it out of the app.
 4. **yarnOga has to become a Meta "Tech Provider"** before other businesses
    can connect through our sign-up page. That needs business verification and
    Meta's App Review (steps 3 and 4 below). Your own numbers can usually be
