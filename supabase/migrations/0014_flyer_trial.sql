@@ -1,7 +1,7 @@
 -- Free trial for new flyer groups.
 -- Run this once in Supabase: SQL Editor > New query > paste > Run (after 0012),
 -- BEFORE deploying the code that uses it.
--- New groups get the Standard plan free for 14 days or 30 finished flyers,
+-- New groups get the Standard plan free for 7 days or 30 finished flyers,
 -- whichever comes first (the numbers are in src/products/flyer/plans.ts).
 
 -- Finished flyers left in the group's free trial. Null = not on a trial

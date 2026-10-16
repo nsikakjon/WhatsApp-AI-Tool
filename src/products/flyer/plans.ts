@@ -111,7 +111,7 @@ export interface Trial {
   flyers: number;
 }
 
-export const TRIAL: Trial = { plan: "standard", days: 14, flyers: 30 };
+export const TRIAL: Trial = { plan: "standard", days: 7, flyers: 30 };
 
 export function planById(id: string): Plan {
   return PLANS.find((p) => p.id === id) ?? FREE;

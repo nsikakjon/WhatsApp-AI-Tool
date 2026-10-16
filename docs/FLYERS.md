@@ -303,7 +303,7 @@ case since they just wrote in.
 ## Plans
 
 Every new group starts with a **free Standard trial**: all Standard features
-for 14 days or 30 finished flyers, whichever comes first. Then it carries on
+for 7 days or 30 finished flyers, whichever comes first, with no card needed. Then it carries on
 for free on the **Free** plan unless the admin upgrades. Paid plans unlock more:
 
 | Plan     | Members   | Admins    | Monthly  | Paid yearly (per month) | Includes                                                     |

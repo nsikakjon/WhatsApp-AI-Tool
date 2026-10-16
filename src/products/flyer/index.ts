@@ -918,7 +918,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         if (opts.trial && trialPlan && group.plan === "free") {
           const until = new Date(now().getTime() + opts.trial.days * DAY_MS);
           await opts.store.startTrial(group.id, trialPlan.id, until, opts.trial.flyers);
-          trialNote = `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever comes first) you get every ${trialPlan.label} feature: all designs and colours, spreadsheet import and event flyers. After that the group carries on free on the Free plan unless you upgrade.`;
+          trialNote = `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever comes first) you get every ${trialPlan.label} feature: all designs and colours, spreadsheet import and event flyers. No card needed. After that the group carries on free on the Free plan unless you upgrade.`;
         }
         await opts.store.setChatState(msg.from, { step: "logo", groupId: group.id });
         log.info(`New flyer group "${group.name}" set up by ...${msg.from.slice(-4)}`);
@@ -937,7 +937,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         }
         await opts.store.setChatState(msg.from, { step: "name", groupId: null });
         return {
-          text: `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), send them to you on each birthday morning ready to forward, and brand your event photos with your group's logo.\n\nIt's free for groups of up to ${planById("free").maxMembers} people${trialPlan ? `, and new groups try every ${trialPlan.label} feature free for ${opts.trial!.days} days` : ""} (send *plans* for bigger groups). Questions? Send *support*.\n\nLet's set up your group. *What's it called?* Reply with its name, e.g. *Unilag Class of 2010*.`,
+          text: `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), send them to you on each birthday morning ready to forward, and brand your event photos with your group's logo.\n\nIt's free for groups of up to ${planById("free").maxMembers} people${trialPlan ? `, and new groups try every ${trialPlan.label} feature free for ${opts.trial!.days} days, no card needed` : ""} (send *plans* for bigger groups). Questions? Send *support*.\n\nLet's set up your group. *What's it called?* Reply with its name, e.g. *Unilag Class of 2010*.`,
         };
       }
 

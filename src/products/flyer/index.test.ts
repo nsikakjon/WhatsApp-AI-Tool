@@ -608,17 +608,19 @@ describe("flyer bot: plans", () => {
 });
 
 describe("flyer bot: free trial", () => {
-  const trial: Trial = { plan: "standard", days: 14, flyers: 3 };
+  const trial: Trial = { plan: "standard", days: 7, flyers: 3 };
   const start = new Date("2026-10-16T10:00:00Z");
 
   it("starts new Free groups on a Standard trial and says so", async () => {
     const { bot, groups } = setup({ openSignup: true, plan: "free", trial, now: () => start });
-    expect((await bot.handle(msg(ADMIN, { text: "Hi" }), ctx))?.text).toContain("up to 10 people, and new groups try every Standard feature free for 14 days");
+    expect((await bot.handle(msg(ADMIN, { text: "Hi" }), ctx))?.text).toContain("up to 10 people, and new groups try every Standard feature free for 7 days, no card needed");
     const created = await bot.handle(msg(ADMIN, { text: "Lekki Crew" }), ctx);
     expect(created?.text).toContain("Free Standard trial");
+    expect(created?.text).toContain("next 7 days (or 3 flyers, whichever comes first)");
+    expect(created?.text).toContain("No card needed");
     expect(groups[0]).toMatchObject({ plan: "standard", trialFlyersLeft: 3 });
-    expect(groups[0]!.planUntil?.toISOString()).toBe("2026-10-30T10:00:00.000Z");
-    expect((await bot.handle(msg(ADMIN, { text: "plan" }), ctx))?.text).toContain("free *Standard* trial until 30 October 2026, with 3 flyers left");
+    expect(groups[0]!.planUntil?.toISOString()).toBe("2026-10-23T10:00:00.000Z");
+    expect((await bot.handle(msg(ADMIN, { text: "plan" }), ctx))?.text).toContain("free *Standard* trial until 23 October 2026, with 3 flyers left");
     expect((await bot.handle(msg(ADMIN, { text: "colour gold" }), ctx))?.text).toContain("Colour changed");
   });
 
