@@ -26,6 +26,7 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 
@@ -90,6 +91,7 @@ const flyerBot = flyerConfig
       brandName: flyerConfig.brandName,
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
+      trial: TRIAL,
     })
   : undefined;
 
