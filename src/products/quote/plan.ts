@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
 
-// Plans for the quote and order bot (free, First three, Starter, Standard).
+// Plans for the quote and order bot (Free, Starter, Standard).
 //
 // Each business is on at most one plan: business #1 (the main number) by
 // QUOTE_PLAN, every other business by plan_code on its quote_businesses row.
@@ -30,6 +30,8 @@ export interface PlanStore {
   paidPlans(): Promise<QuotePlan[]>;
   /** This business's orders confirmed since this moment. */
   ordersConfirmedSince(since: Date): Promise<number>;
+  /** Optional one-off extras, e.g. "We set it up for you". */
+  addons?(): Promise<Array<{ name: string; priceKobo: number }>>;
   /** The plan code saved on this business's row, or null for none. */
   businessPlanCode?(): Promise<string | null>;
 }
@@ -139,7 +141,14 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
           const link = opts.upgradeLink ? await opts.upgradeLink(p) : null;
           lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}${link ? `\n  ${link}` : ""}`);
         }
-        if (!opts.upgradeLink) lines.push("", "To upgrade, contact yarnOga and we'll switch you over.");
+      }
+      const addons = (await opts.store.addons?.()) ?? [];
+      if (addons.length > 0) {
+        lines.push("", "Extras (one-off):");
+        for (const a of addons) lines.push(`• ${a.name}: ${formatNaira(a.priceKobo)}`);
+      }
+      if ((upgrades.length > 0 || addons.length > 0) && !opts.upgradeLink) {
+        lines.push("", "To upgrade or add an extra, contact yarnOga and we'll sort it out.");
       }
       return lines.join("\n");
     },
@@ -201,6 +210,11 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
       const { count, error } = await query;
       if (error) throw new Error(`ordersConfirmedSince failed: ${error.message}`);
       return count ?? 0;
+    },
+    async addons() {
+      const { data, error } = await db.from("quote_addons").select("name, price_kobo").eq("active", true).order("sort_order");
+      if (error) throw new Error(`addons failed: ${error.message}`);
+      return (data ?? []).map((row) => ({ name: row.name as string, priceKobo: Number(row.price_kobo) }));
     },
     async businessPlanCode() {
       if (!businessId) return null;
