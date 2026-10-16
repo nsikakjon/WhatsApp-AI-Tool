@@ -43,7 +43,6 @@ const INSTAGRAM_URL = "https://instagram.com/yarnoga";
 const FACEBOOK_URL = "https://facebook.com/useyarnoga";
 const TIKTOK_URL = "https://tiktok.com/@yarnoga";
 const TIKTOK_NEEDS = "TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on Railway, then the connect button (see docs/DASHBOARD.md)";
-const WEBSITE_URL = "https://yarnoga.com";
 
 const DAY_S = 24 * 60 * 60;
 
@@ -230,13 +229,6 @@ export function createSocials(opts: SocialsOptions): SocialsSource {
         facebook,
         tiktok,
         youtube,
-        {
-          name: "Website",
-          url: WEBSITE_URL,
-          status: "not_connected",
-          stats: [],
-          needs: "a visitor counter on the site",
-        },
       ];
       cached = { at: now.getTime(), accounts };
       return accounts;
