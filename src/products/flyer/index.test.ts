@@ -11,6 +11,7 @@ import {
 } from "./index.js";
 import type { ChatState, FlyerStore, Group, Member } from "./store.js";
 import { THEMES } from "./themes.js";
+import type { Trial } from "./plans.js";
 
 const silent = { info: () => {}, error: () => {} };
 const OWNER = "2348000000001";
@@ -43,6 +44,7 @@ function memoryStore(plan = "organisation") {
         backgroundPath: null,
         plan,
         planUntil: null,
+        trialFlyersLeft: null,
       };
       groups.push(group);
       await store.addAdmin(group.id, adminWaId);
@@ -118,7 +120,13 @@ function memoryStore(plan = "organisation") {
       return groups.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
     },
     async setPlan(groupId, plan, until) {
-      Object.assign(groups.find((g) => g.id === groupId)!, { plan, planUntil: until });
+      Object.assign(groups.find((g) => g.id === groupId)!, { plan, planUntil: until, trialFlyersLeft: null });
+    },
+    async startTrial(groupId, plan, until, flyers) {
+      Object.assign(groups.find((g) => g.id === groupId)!, { plan, planUntil: until, trialFlyersLeft: flyers });
+    },
+    async setTrialFlyersLeft(groupId, left) {
+      groups.find((g) => g.id === groupId)!.trialFlyersLeft = left;
     },
     async adminCount(groupId) {
       return admins.filter((a) => a.groupId === groupId).length;
@@ -165,7 +173,7 @@ const webFetch = (async (url: string) => {
 
 // Groups start on the plan with everything, so these tests are about the features;
 // the "plans" tests below start on Free.
-function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } = {}) {
+function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; trial?: Trial } = {}) {
   const mem = memoryStore(opts.plan);
   const render = {
     birthday: vi.fn(async (input: { name: string; logo?: Uint8Array }) =>
@@ -190,6 +198,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date } =
     fetch: webFetch,
     onBackground: (work) => void background.push(work),
     now: opts.now,
+    trial: opts.trial,
   });
   return { bot, render, ...mem };
 }
@@ -358,7 +367,7 @@ describe("flyer bot: open sign-up", () => {
     const { bot, groups } = setup({ openSignup: true, plan: "free" });
     await bot.handle(msg(ADMIN, { text: "new group Lekki Crew" }), ctx);
     const second = await bot.handle(msg(ADMIN, { text: "new group Another" }), ctx);
-    expect(second?.text).toContain("one group on the Free plan");
+    expect(second?.text).toContain("one free group, and *Lekki Crew* is on Free");
     expect(groups).toHaveLength(1);
 
     await bot.handle(msg(OWNER, { text: "set plan standard 1 month for Lekki Crew" }), ctx);
@@ -595,6 +604,73 @@ describe("flyer bot: plans", () => {
     const reply = await bot.handle(msg(OWNER, { text: "upgrade standard" }), ctx);
     expect(reply?.text).toContain("how to pay for *Standard*");
     expect(reply?.notify?.[0]?.text).toContain("set plan standard 1 month for Unilag Class of 2010");
+  });
+});
+
+describe("flyer bot: free trial", () => {
+  const trial: Trial = { plan: "standard", days: 7, flyers: 3 };
+  const start = new Date("2026-10-16T10:00:00Z");
+
+  it("starts new Free groups on a Standard trial and says so", async () => {
+    const { bot, groups } = setup({ openSignup: true, plan: "free", trial, now: () => start });
+    expect((await bot.handle(msg(ADMIN, { text: "Hi" }), ctx))?.text).toContain("up to 10 people, and new groups try every Standard feature free for 7 days, no card needed");
+    const created = await bot.handle(msg(ADMIN, { text: "Lekki Crew" }), ctx);
+    expect(created?.text).toContain("Free Standard trial");
+    expect(created?.text).toContain("next 7 days (or 3 flyers, whichever comes first)");
+    expect(created?.text).toContain("No card needed");
+    expect(groups[0]).toMatchObject({ plan: "standard", trialFlyersLeft: 3 });
+    expect(groups[0]!.planUntil?.toISOString()).toBe("2026-10-23T10:00:00.000Z");
+    expect((await bot.handle(msg(ADMIN, { text: "plan" }), ctx))?.text).toContain("free *Standard* trial until 23 October 2026, with 3 flyers left");
+    expect((await bot.handle(msg(ADMIN, { text: "colour gold" }), ctx))?.text).toContain("Colour changed");
+  });
+
+  it("ends after its flyers are used up, warning near the end", async () => {
+    const { bot, groups, render } = await withGroup({ plan: "free", trial, now: () => start });
+    expect((await bot.handle(photo(OWNER, "Homecoming"), ctx))?.text).toContain("2 flyers left in your free *Standard* trial");
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    expect((await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx))?.text).toContain("1 flyer left");
+    // Previews and design samples don't count.
+    expect(groups[0]!.trialFlyersLeft).toBe(1);
+    const last = await bot.handle(photo(OWNER, "Reunion"), ctx);
+    expect(last?.images).toHaveLength(1);
+    expect(last?.text).toContain("last flyer of your free *Standard* trial");
+    expect(last?.text).toContain("upgrade standard");
+    expect((await bot.handle(photo(OWNER, "Picnic"), ctx))?.text).toContain("event flyers isn't included");
+    expect(render.event).toHaveBeenCalledTimes(2);
+    expect((await bot.handle(msg(OWNER, { text: "plan" }), ctx))?.text).toContain("your free Standard trial has ended");
+  });
+
+  it("ends after its days, and paying moves the group off the trial from today", async () => {
+    let now = start;
+    const { bot, groups } = await withGroup({ plan: "free", trial, now: () => now });
+    now = new Date("2026-10-31T10:00:00Z");
+    expect((await bot.handle(msg(OWNER, { text: "colour gold" }), ctx))?.text).toContain("isn't included on the *Free* plan");
+
+    now = new Date("2026-10-20T10:00:00Z");
+    await bot.handle(msg(OWNER, { text: "set plan standard 1 month for Unilag" }), ctx);
+    expect(groups[0]).toMatchObject({ plan: "standard", trialFlyersLeft: null });
+    expect(groups[0]!.planUntil?.toISOString()).toBe("2026-11-20T10:00:00.000Z");
+  });
+
+  it("counts birthday morning flyers, once per flyer", async () => {
+    const { bot, groups } = await withGroup({ plan: "free", trial, now: () => start });
+    await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await bot.handle(photo(OWNER, "add Bola Ade, 14 March"), ctx);
+    const sent: BirthdayDelivery[] = [];
+    await bot.sendDueBirthdays(new Date("2027-03-14T07:00:00Z"), collect(sent));
+    expect(sent).toHaveLength(2);
+    expect(groups[0]!.trialFlyersLeft).toBe(1);
+  });
+
+  it("counts a trial group as the person's one free group", async () => {
+    const { bot } = setup({ openSignup: true, plan: "free", trial, now: () => start });
+    await bot.handle(msg(ADMIN, { text: "new group Lekki Crew" }), ctx);
+    expect((await bot.handle(msg(ADMIN, { text: "new group Second" }), ctx))?.text).toContain("*Lekki Crew* is on its free trial");
+  });
+
+  it("leaves groups alone when there's no trial", async () => {
+    const { groups } = await withGroup({ plan: "free" });
+    expect(groups[0]).toMatchObject({ plan: "free", trialFlyersLeft: null });
   });
 });
 

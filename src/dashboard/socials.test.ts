@@ -28,7 +28,6 @@ describe("socials", () => {
       ["Facebook", "not_connected"],
       ["TikTok", "not_connected"],
       ["YouTube", "not_connected"],
-      ["Website", "not_connected"],
     ]);
   });
 

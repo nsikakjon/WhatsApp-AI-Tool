@@ -26,8 +26,10 @@ import {
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
+import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 
 const config = loadConfig();
@@ -91,6 +93,7 @@ const flyerBot = flyerConfig
       brandName: flyerConfig.brandName,
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
+      trial: TRIAL,
     })
   : undefined;
 
@@ -113,6 +116,7 @@ const app = createApp({
   ? {
       password: config.dashboard.password,
       stats: createSupabaseStats(supabase),
+      website: createSupabaseWebsiteStats(supabase),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
@@ -120,7 +124,11 @@ const app = createApp({
       }),
       tiktokApp: config.dashboard.tiktok,
     }
-  : undefined, config.generator
+  : undefined, {
+  store: createSupabaseVisitStore(supabase),
+  // Reuses an existing server secret to scramble the daily visitor code.
+  secret: config.whatsapp.appSecret,
+}, config.generator
   ? {
       writer: createClaudeGeneratorWriter({
         apiKey: config.generator.anthropicApiKey,

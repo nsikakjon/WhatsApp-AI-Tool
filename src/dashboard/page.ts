@@ -1,6 +1,7 @@
 import { formatNaira } from "../core/money.js";
 import type { SocialAccount } from "./socials.js";
 import type { DashboardStats } from "./stats.js";
+import type { WebsiteStats } from "./visits.js";
 
 // The owner's dashboard as one self-contained HTML page (no outside scripts,
 // fonts or images), so it loads fast on a phone and nothing leaks to other sites.
@@ -46,7 +47,10 @@ function section(title: string, intro: string, body: string): string {
   return `<section><h2>${esc(title)}</h2><p class="intro">${esc(intro)}</p>${body}</section>`;
 }
 
-function dailyChart(days: DashboardStats["whatsapp"]["dailyInbound"]): string {
+function dailyChart(
+  days: { date: string; count: number }[],
+  words = { caption: "Messages received per day", one: "message", many: "messages", column: "Messages" },
+): string {
   const width = 600;
   const height = 160;
   const top = 12;
@@ -60,7 +64,7 @@ function dailyChart(days: DashboardStats["whatsapp"]["dailyInbound"]): string {
       const h = d.count === 0 ? 0 : Math.max(3, (d.count / max) * plot);
       const x = i * slot + (slot - barWidth) / 2;
       const y = top + plot - h;
-      const label = `${shortDay(d.date)}: ${num(d.count)} message${d.count === 1 ? "" : "s"}`;
+      const label = `${shortDay(d.date)}: ${num(d.count)} ${d.count === 1 ? words.one : words.many}`;
       // A tall invisible strip behind each bar makes the hover/tap target easy to hit.
       return `<g class="day"><title>${esc(label)}</title><rect class="hit" x="${i * slot}" y="${top}" width="${slot}" height="${plot}"/>${
         h ? `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${h.toFixed(1)}" rx="2"/>` : ""
@@ -77,11 +81,11 @@ function dailyChart(days: DashboardStats["whatsapp"]["dailyInbound"]): string {
     .map((d) => `<tr><td>${esc(shortDay(d.date))}</td><td>${num(d.count)}</td></tr>`)
     .join("");
   return `<figure class="chart">
-<figcaption>Messages received per day, last 30 days (busiest day: ${num(Math.max(0, ...days.map((d) => d.count)))})</figcaption>
-<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Messages received per day over the last 30 days">
+<figcaption>${esc(words.caption)}, last 30 days (busiest day: ${num(Math.max(0, ...days.map((d) => d.count)))})</figcaption>
+<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(words.caption)} over the last 30 days">
 <line class="base" x1="0" x2="${width}" y1="${top + plot}" y2="${top + plot}"/>${bars}${axis}
 </svg>
-<details><summary>Show as a table</summary><table><thead><tr><th>Day</th><th>Messages</th></tr></thead><tbody>${rows}</tbody></table></details>
+<details><summary>Show as a table</summary><table><thead><tr><th>Day</th><th>${esc(words.column)}</th></tr></thead><tbody>${rows}</tbody></table></details>
 </figure>`;
 }
 
@@ -99,7 +103,54 @@ function socialCard(a: SocialAccount): string {
   }</div>`;
 }
 
-export function renderDashboard(s: DashboardStats, socialAccounts: SocialAccount[] = []): string {
+function rankTable(heading: string, rows: { label: string; views: number }[], empty: string): string {
+  const body = rows.length
+    ? rows.map((r) => `<tr><td>${esc(r.label)}</td><td>${num(r.views)}</td></tr>`).join("")
+    : `<tr><td colspan="2">${esc(empty)}</td></tr>`;
+  return `<table class="plans"><thead><tr><th>${esc(heading)}</th><th>Views</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function websiteSection(w: WebsiteStats | "error" | undefined): string {
+  if (!w) return "";
+  const title = "Website (yarnoga.com)";
+  const intro =
+    "People opening yarnoga.com, counted by our own counter: no cookies, and search engines and link previews are left out. A visitor is one person on one day.";
+  if (w === "error") {
+    return section(
+      title,
+      intro,
+      `<p class="problem">Couldn't read the visitor numbers. If 0016_site_visits.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`,
+    );
+  }
+  const busiest = Math.max(0, ...w.daily.map((d) => d.visitors));
+  return section(
+    title,
+    intro,
+    `<div class="tiles">
+${tile("Visitors today", num(w.visitorsToday), `${num(w.viewsToday)} page views`)}
+${tile("Page views", num(w.views30), `last 30 days (${num(w.views7)} this week)`)}
+${tile("Busiest day", num(busiest), "visitors, last 30 days")}
+</div>${dailyChart(
+      w.daily.map((d) => ({ date: d.date, count: d.visitors })),
+      { caption: "Visitors per day", one: "visitor", many: "visitors", column: "Visitors" },
+    )}
+<div class="pair">${rankTable(
+      "Top pages, last 30 days",
+      w.topPages.map((p) => ({ label: p.path, views: p.views })),
+      "No visits yet",
+    )}${rankTable(
+      "Came from, last 30 days",
+      w.topSources.map((src) => ({ label: src.source || "Direct (typed, bookmark or an app)", views: src.views })),
+      "No visits yet",
+    )}</div>`,
+  );
+}
+
+export function renderDashboard(
+  s: DashboardStats,
+  socialAccounts: SocialAccount[] = [],
+  website?: WebsiteStats | "error",
+): string {
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -175,7 +226,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
   );
 
   const socials = section(
-    "Socials and website",
+    "Socials",
     "Live numbers from each platform, refreshed every 10 minutes. An account that isn't connected shows no numbers: nothing here is guessed.",
     `<div class="socials">${socialAccounts.map(socialCard).join("")}</div>`,
   );
@@ -228,6 +279,10 @@ th { color:var(--muted); font-weight:500; }
 .social .stat i { font-style:normal; font-size:12px; }
 .social .badge { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
 .social .note { display:block; margin-top:6px; color:var(--muted); font-size:12.5px; }
+.pair { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:10px; }
+.pair table { max-width:none; }
+.pair td:first-child { word-break: break-all; }
+.problem { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin:0; }
 footer { margin-top:32px; color:var(--muted); font-size:12.5px; }
 </style></head>
 <body><main>
@@ -241,6 +296,7 @@ ${flyers}
 ${quotes}
 ${reporter}
 ${leads}
+${websiteSection(website)}
 ${socials}
 <footer>"Last 30 days" and "this week" count back from the moment the page loaded.</footer>
 </main></body></html>`;
