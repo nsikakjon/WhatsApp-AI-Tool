@@ -3,7 +3,7 @@ import type { MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
-import { sendAndRecord, sendImageAndRecord } from "./outbox.js";
+import { sendAndRecord, sendDocumentAndRecord, sendImageAndRecord } from "./outbox.js";
 import { extractMessages } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage } from "./types.js";
@@ -110,7 +110,7 @@ async function handleMessage(
   await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
 }
 
-/** Sends a product's reply: its text, then its pictures, then any list of choices, then any alerts to other people. */
+/** Sends a product's reply: its text, then its pictures and files, then any list of choices, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
   to: string,
@@ -132,6 +132,10 @@ async function sendReply(
   for (const image of reply.images ?? []) {
     await sendImageAndRecord(deps, to, image, fromNumber);
     log.info(`Sent a picture to ${mask(to)}`);
+  }
+  for (const document of reply.documents ?? []) {
+    await sendDocumentAndRecord(deps, to, document, fromNumber);
+    log.info(`Sent a file to ${mask(to)}`);
   }
   if (reply.list) {
     const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);

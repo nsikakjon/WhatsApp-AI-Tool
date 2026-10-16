@@ -41,13 +41,16 @@ bot variables from `.env.example` on Railway.
 Runs on its own WhatsApp number when `SITE_PHONE_NUMBER_ID` is set. Setup steps:
 [docs/SITE_REPORTER.md](docs/SITE_REPORTER.md).
 
-1. Site staff registered in Supabase send updates: messages, photos or voice
-   notes. Each is logged against their site; photos are saved to Supabase
-   Storage.
+1. Site staff registered in Supabase send updates: messages, photos, voice
+   notes or location pins. Each is logged against their site; photos are saved
+   to Supabase Storage.
 2. Every evening (6pm Lagos time by default) Claude Haiku sorts the day's
    updates into a short report (work done, problems, materials needed, next
-   steps) and it goes to the site's managers on WhatsApp. Managers can also
-   send `report` any time.
+   steps) and it goes to the site's managers on WhatsApp, followed by a PDF of
+   the same report with every update, the locations (with Google Maps links)
+   and the photos. Managers can also send `report` any time.
+3. A manager sends a picture captioned `logo` to put their logo at the top of
+   the PDF.
 
 ## Real estate lead qualifier (in progress)
 

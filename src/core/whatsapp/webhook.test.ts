@@ -66,6 +66,11 @@ function setup(
       sentFrom.push(fromNumberId);
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
+    async sendDocument(to, document, fromNumberId) {
+      sent.push({ to, body: `[document] ${document.filename}` });
+      sentFrom.push(fromNumberId);
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
     async sendList(to, list) {
       sent.push({ to, body: `[list] ${list.body} | ${list.rows.map((r) => r.id).join(", ")}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
@@ -176,6 +181,36 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     body = textWebhook("wamid.pic2", "Hello");
     await post(app, body, sign(body));
     expect(sent.map((s) => s.body)).toEqual(["Here it is", "[image] Flyer", "[image] Flyer"]);
+  });
+
+  it("sends files after the pictures", async () => {
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg", caption: "Photo" };
+    const pdf = { data: new Uint8Array([1]), mimeType: "application/pdf", filename: "Report.pdf" };
+    const files: Product = { name: "files", handle: async () => ({ text: "Report", images: [image], documents: [pdf] }) };
+    const { app, sent, outbound } = setup(files);
+    const body = textWebhook("wamid.pdf", "report");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Report", "[image] Photo", "[document] Report.pdf"]);
+    expect(outbound).toContain("Report.pdf");
+  });
+
+  it("passes a location pin to the product", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.loc", timestamp: "1", type: "location",
+          location: { latitude: 6.4474, longitude: 3.4723, name: "Lekki Phase 1", address: "Admiralty Way, Lagos" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({
+      type: "location",
+      location: { latitude: 6.4474, longitude: 3.4723, name: "Lekki Phase 1", address: "Admiralty Way, Lagos" },
+    });
   });
 
   it("lets a product send a follow-up reply after answering", async () => {

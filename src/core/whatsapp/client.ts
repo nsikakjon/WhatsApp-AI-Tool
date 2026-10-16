@@ -15,6 +15,12 @@ export interface WhatsAppClient {
     image: OutgoingImage,
     fromNumberId?: string,
   ): Promise<{ waMessageId: string; raw: unknown }>;
+  /** Sends a file such as a PDF report, shown in the chat with its file name and caption. */
+  sendDocument(
+    to: string,
+    document: OutgoingDocument,
+    fromNumberId?: string,
+  ): Promise<{ waMessageId: string; raw: unknown }>;
   /**
    * Sends a pre-approved template message, the only kind WhatsApp delivers
    * more than 24 hours after the person last messaged us.
@@ -38,6 +44,15 @@ export interface OutgoingImage {
   data: Uint8Array;
   /** image/jpeg or image/png (the only picture types WhatsApp accepts). */
   mimeType: string;
+  caption?: string;
+}
+
+export interface OutgoingDocument {
+  data: Uint8Array;
+  /** e.g. application/pdf. */
+  mimeType: string;
+  /** The name shown in the chat, e.g. "Lekki Block B 2026-10-14.pdf". */
+  filename: string;
   caption?: string;
 }
 
@@ -94,22 +109,26 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     return { waMessageId: data.messages?.[0]?.id ?? "", raw: data as unknown };
   }
 
-  async function uploadImage(fromNumberId: string | undefined, image: OutgoingImage): Promise<string> {
+  async function uploadMedia(fromNumberId: string | undefined, data: Uint8Array, mimeType: string, filename: string): Promise<string> {
     const form = new FormData();
     form.append("messaging_product", "whatsapp");
-    form.append("type", image.mimeType);
-    const ext = image.mimeType === "image/png" ? "png" : "jpg";
-    form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `image.${ext}`);
+    form.append("type", mimeType);
+    form.append("file", new Blob([new Uint8Array(data)], { type: mimeType }), filename);
     const res = await doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, {
       method: "POST",
       headers: auth,
       body: form,
     });
-    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
-    if (!res.ok || !data.id) {
-      throw new Error(`WhatsApp image upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+    const result = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok || !result.id) {
+      throw new Error(`WhatsApp upload failed (${res.status}): ${result.error?.message ?? "unknown error"}`);
     }
-    return data.id;
+    return result.id;
+  }
+
+  function uploadImage(fromNumberId: string | undefined, image: OutgoingImage): Promise<string> {
+    const ext = image.mimeType === "image/png" ? "png" : "jpg";
+    return uploadMedia(fromNumberId, image.data, image.mimeType, `image.${ext}`);
   }
 
   return {
@@ -123,6 +142,15 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
         to,
         type: "image",
         image: image.caption ? { id: mediaId, caption: image.caption } : { id: mediaId },
+      });
+    },
+
+    async sendDocument(to, document, fromNumberId) {
+      const mediaId = await uploadMedia(fromNumberId, document.data, document.mimeType, document.filename);
+      return send(fromNumberId, {
+        to,
+        type: "document",
+        document: { id: mediaId, filename: document.filename, ...(document.caption ? { caption: document.caption } : {}) },
       });
     },
 
