@@ -81,7 +81,15 @@ export interface Config {
    * The owner's analytics page at /dashboard. Only set when DASHBOARD_PASSWORD
    * is: without a password the page is switched off.
    */
-  dashboard?: { password: string };
+  dashboard?: {
+    password: string;
+    /** Instagram and Facebook numbers: a token that can read the Facebook Page, and the Page's id. */
+    meta?: { token: string; pageId: string };
+    /** YouTube channel numbers. */
+    youtube?: { apiKey: string; handle: string };
+    /** TikTok numbers. refreshToken is empty until the owner connects TikTok from the dashboard. */
+    tiktok?: { clientKey: string; clientSecret: string; refreshToken?: string };
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -178,7 +186,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             : undefined,
         }
       : undefined,
-    dashboard: env.DASHBOARD_PASSWORD ? { password: env.DASHBOARD_PASSWORD } : undefined,
+    dashboard: env.DASHBOARD_PASSWORD
+      ? {
+          password: env.DASHBOARD_PASSWORD,
+          meta:
+            env.META_SOCIAL_TOKEN && env.FACEBOOK_PAGE_ID
+              ? { token: env.META_SOCIAL_TOKEN, pageId: env.FACEBOOK_PAGE_ID }
+              : undefined,
+          youtube: env.YOUTUBE_API_KEY
+            ? { apiKey: env.YOUTUBE_API_KEY, handle: (env.YOUTUBE_HANDLE || "yarnoga").replace(/^@/, "") }
+            : undefined,
+          tiktok:
+            env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET
+              ? {
+                  clientKey: env.TIKTOK_CLIENT_KEY,
+                  clientSecret: env.TIKTOK_CLIENT_SECRET,
+                  refreshToken: env.TIKTOK_REFRESH_TOKEN || undefined,
+                }
+              : undefined,
+        }
+      : undefined,
   };
 }
 

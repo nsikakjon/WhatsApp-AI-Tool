@@ -27,6 +27,7 @@ import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
 import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
+import { createSocials } from "./dashboard/socials.js";
 
 const config = loadConfig();
 
@@ -107,7 +108,18 @@ const app = createApp({
     if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
     return product;
   },
-}, config.dashboard ? { password: config.dashboard.password, stats: createSupabaseStats(supabase) } : undefined);
+}, config.dashboard
+  ? {
+      password: config.dashboard.password,
+      stats: createSupabaseStats(supabase),
+      socials: createSocials({
+        meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
+        youtube: config.dashboard.youtube,
+        tiktok: config.dashboard.tiktok,
+      }),
+      tiktokApp: config.dashboard.tiktok,
+    }
+  : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
