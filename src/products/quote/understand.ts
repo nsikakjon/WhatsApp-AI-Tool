@@ -32,11 +32,15 @@ const OutputSchema = z.object({
   message: z.string().nullable(),
 });
 
-export function buildSystemPrompt(businessName: string, catalog: CatalogEntry[]): string {
+/**
+ * @param description what the business does, e.g. "a print shop" or "a bakery".
+ *   Each business using the bot sets its own; without one it's just "a business".
+ */
+export function buildSystemPrompt(businessName: string, catalog: CatalogEntry[], description?: string): string {
   const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})`).join("\n");
-  return `You work the WhatsApp line for ${businessName}, a print shop in Nigeria. Customers message to get price quotes and place orders. Code you can't see works out every price from the shop's price list, so your job is only to understand the customer.
+  return `You work the WhatsApp line for ${businessName}, ${description?.trim() || "a business"} in Nigeria. Customers message to get price quotes and place orders. Code you can't see works out every price from the business's price list, so your job is only to understand the customer.
 
-The shop sells exactly these items:
+The business sells exactly these items:
 ${list}
 
 Some items are priced by the team case by case; still list them as items with their quantity, and the system will pass them on.
@@ -47,8 +51,8 @@ Read the customer's latest message, using the earlier chat for context, and fill
   - "confirm" when they accept the quote they were just sent (yes, ok, go ahead, confirm).
   - "cancel" when they turn down or cancel the quote they were just sent.
   - "other" for anything else: greetings, questions, things not on the list, or a request too vague to quote.
-- items: only for "quote", otherwise empty. Use only refs from the list above. Count quantity in the unit the item name gives: flyers one by one, packs as packs (300 pouches is 3 packs of 100), and square feet for items priced per square foot (a 6ft x 3ft banner is 18; round any part of a square foot up). If the customer doesn't say the size, paper or quantity and more than one item could fit, don't guess: use "other" and ask.
-- message: for "other", a short, friendly reply in plain English (customers may write in Pidgin; you can reply in simple English). Ask what's missing, or say what the shop sells. Otherwise null.
+- items: only for "quote", otherwise empty. Use only refs from the list above. Count quantity in the unit the item name gives: single items one by one, packs as packs (300 pieces sold in packs of 100 is 3 packs), and square feet for items priced per square foot (6ft x 3ft is 18; round any part of a square foot up). If the customer doesn't say the size, type or quantity and more than one item could fit, don't guess: use "other" and ask.
+- message: for "other", a short, friendly reply in plain English (customers may write in Pidgin; you can reply in simple English). Ask what's missing, or say what the business sells. Otherwise null.
 
 Never mention a price, total, discount or amount of money in message, even if the customer asks. Prices are only sent by the system. If they ask the price of something, use intent "quote" when you can tell what they want, or ask what they need.`;
 }
@@ -57,6 +61,8 @@ export function createClaudeUnderstander(opts: {
   apiKey: string;
   model: string;
   businessName: string;
+  /** What the business does, e.g. "a print shop". */
+  description?: string;
   client?: Anthropic;
 }): Understander {
   const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
@@ -74,7 +80,7 @@ export function createClaudeUnderstander(opts: {
       const response = await client.messages.parse({
         model: opts.model,
         max_tokens: 2000,
-        system: buildSystemPrompt(opts.businessName, catalog),
+        system: buildSystemPrompt(opts.businessName, catalog, opts.description),
         messages,
         output_config: { effort: "low", format: zodOutputFormat(OutputSchema) },
       });

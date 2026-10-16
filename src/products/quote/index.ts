@@ -7,7 +7,8 @@ import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.j
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
 
-// Phase 1: the quote and order bot (first client: KahnPrints).
+// The quote and order bot. Any business can use it with its own price list
+// (see store.ts and businesses.ts for how several businesses share it).
 //
 // 1. The customer says what they want.
 // 2. The AI works out which items and how many (understand.ts).
@@ -34,7 +35,7 @@ export interface QuoteProductOptions {
   branding?: BrandingStore;
   /** Address or phone printed under the business name on invoices and receipts. */
   businessDetails?: string;
-  /** Bank details printed on invoices, e.g. "GTBank 0123456789, KahnPrints Ltd". */
+  /** Bank details printed on invoices, e.g. "GTBank 0123456789, Example Ltd". */
   paymentDetails?: string;
   /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
   renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
@@ -78,7 +79,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         });
       } catch (err) {
         log.error("Quote bot could not understand message:", err);
-        return { text: "Sorry, I didn't catch that. Could you tell me what you'd like printed and how many?" };
+        return { text: "Sorry, I didn't catch that. Could you tell me what you'd like and how many?" };
       }
 
       switch (understanding.intent) {
@@ -152,7 +153,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
   async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
     if (!order || !(await opts.orders.setStatus(order.id, "confirmed"))) {
-      return { text: "There's no quote waiting for confirmation. Tell me what you'd like printed and I'll send you one." };
+      return { text: "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one." };
     }
 
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() });
@@ -283,7 +284,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
   async function cancel(contactId: string): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
-    if (!order) return { text: "No problem. Let me know if you need anything printed." };
+    if (!order) return { text: "No problem. Let me know if you need anything else." };
     await opts.orders.setStatus(order.id, "cancelled");
     return { text: `No problem, I've cancelled quote ${ref(order)}. Message me any time you need a new one.` };
   }

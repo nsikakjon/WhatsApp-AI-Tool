@@ -60,4 +60,9 @@ describe("Claude understander", () => {
     expect(prompt).toContain("- ref p1: Flyers: A5 (minimum 50)");
     expect(prompt).toContain("Never mention a price");
   });
+
+  it("describes each business in its own words", () => {
+    expect(buildSystemPrompt("Mama Cakes", catalog, "a bakery")).toContain("Mama Cakes, a bakery in Nigeria");
+    expect(buildSystemPrompt("Mama Cakes", catalog)).toContain("Mama Cakes, a business in Nigeria");
+  });
 });

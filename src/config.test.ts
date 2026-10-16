@@ -32,6 +32,15 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps more quote businesses off unless QUOTE_MULTI_BUSINESS is true", () => {
+    expect(loadConfig(base).quoteBusinesses).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true" })).toThrow("ANTHROPIC_API_KEY");
+    expect(loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true", ANTHROPIC_API_KEY: "a" }).quoteBusinesses).toEqual({
+      anthropicApiKey: "a",
+      model: "claude-haiku-5-5",
+    });
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,
