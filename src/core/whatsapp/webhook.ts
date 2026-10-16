@@ -1,12 +1,12 @@
 import { Hono } from "hono";
-import type { MessageStore } from "../db/store.js";
+import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
 import { sendAndRecord, sendImageAndRecord } from "./outbox.js";
-import { extractMessages } from "./parse.js";
+import { extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, OwnerReply } from "./types.js";
 
 export interface WebhookDeps {
   verifyToken: string;
@@ -17,6 +17,14 @@ export interface WebhookDeps {
   transcriber?: Transcriber;
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
+  /**
+   * WhatsApp coexistence: when the owner replies to a customer from the
+   * WhatsApp Business app, the bot stays quiet in that chat for this many
+   * minutes (counted from the owner's latest reply). 0 or unset: off.
+   */
+  ownerReplyPauseMinutes?: number;
+  /** The current time. Tests replace it; the server uses the real clock. */
+  now?: () => Date;
   log?: Pick<Console, "info" | "warn" | "error">;
 }
 
@@ -55,6 +63,16 @@ export function createWhatsAppWebhook(deps: WebhookDeps) {
       return c.text("Invalid JSON", 400);
     }
 
+    // Owner replies first, so a customer message in the same batch already
+    // sees the chat as paused.
+    for (const reply of extractOwnerReplies(payload)) {
+      try {
+        await handleOwnerReply(deps, reply, log);
+      } catch (err) {
+        log.error(`Failed to handle owner reply ${reply.waMessageId}:`, err);
+      }
+    }
+
     for (const msg of extractMessages(payload)) {
       try {
         await handleMessage(deps, msg, log);
@@ -85,6 +103,13 @@ async function handleMessage(
     return;
   }
 
+  // The owner is chatting with this customer from the WhatsApp Business app:
+  // the message is saved (above) but the bot stays out of it.
+  if (await isPaused(deps, contactId, msg, log)) {
+    log.info(`Message ${msg.waMessageId} from ${mask(msg.from)}: owner is handling this chat, bot stays quiet`);
+    return;
+  }
+
   if (msg.type === "audio" && msg.mediaId && deps.transcriber) {
     msg = await transcribeVoiceNote(deps, msg, log);
   }
@@ -110,6 +135,53 @@ async function handleMessage(
   await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
 }
 
+/**
+ * The owner sent a message from the WhatsApp Business app on the bot's number.
+ * Save it (so the bot has the full conversation later) and pause the bot in
+ * that chat. Each owner message pushes the pause further out.
+ */
+async function handleOwnerReply(
+  deps: WebhookDeps,
+  reply: OwnerReply,
+  log: Pick<Console, "info" | "warn" | "error">,
+) {
+  const minutes = deps.ownerReplyPauseMinutes ?? 0;
+  if (minutes <= 0) return;
+
+  const contactId = await deps.store.upsertContact(reply.to);
+  if ((await deps.store.recordOwnerReply(contactId, reply)) === "duplicate") {
+    log.info(`Skipping duplicate owner reply ${reply.waMessageId}`);
+    return;
+  }
+  const numberId = reply.businessNumberId ?? "";
+  // A chat someone took over with no end time (e.g. from the inbox) stays that way.
+  const current = await deps.store.botPause(contactId, numberId);
+  if (current && current.until === null) return;
+  const until = new Date(now(deps).getTime() + minutes * 60_000);
+  await deps.store.pauseBot(contactId, numberId, until, "phone");
+  log.info(`Owner replied to ${mask(reply.to)}: bot paused in that chat for ${minutes} minutes`);
+}
+
+async function isPaused(
+  deps: WebhookDeps,
+  contactId: string,
+  msg: IncomingMessage,
+  log: Pick<Console, "info" | "warn" | "error">,
+): Promise<boolean> {
+  try {
+    return isPauseActive(await deps.store.botPause(contactId, msg.businessNumberId ?? ""), now(deps));
+  } catch (err) {
+    // E.g. the bot_pauses table hasn't been created yet. Better to answer
+    // than to leave every customer without a reply.
+    log.error("Could not check whether the owner is handling this chat:", err);
+    return false;
+  }
+}
+
+function now(deps: WebhookDeps): Date {
+  return deps.now ? deps.now() : new Date();
+}
+
 /** Sends a product's reply: its text, then its pictures, then any list of choices, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
@@ -127,6 +199,7 @@ async function sendReply(
       type: "text",
       body: reply.text,
       raw: sent.raw,
+      businessNumberId: fromNumber,
     });
   }
   for (const image of reply.images ?? []) {
@@ -140,6 +213,7 @@ async function sendReply(
       type: "interactive",
       body: reply.list.body,
       raw: sent.raw,
+      businessNumberId: fromNumber,
     });
   }
 

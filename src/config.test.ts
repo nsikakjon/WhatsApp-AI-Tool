@@ -53,6 +53,30 @@ describe("loadConfig", () => {
     expect(config.quote?.paymentDetails).toBe("Bank 0000000000\nExample Ltd");
   });
 
+  it("pauses the bot for 60 minutes after an owner reply unless told otherwise", () => {
+    expect(loadConfig(base).ownerReplyPauseMinutes).toBe(60);
+    expect(loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "15" }).ownerReplyPauseMinutes).toBe(15);
+    expect(loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "0" }).ownerReplyPauseMinutes).toBe(0);
+    expect(() => loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "half an hour" })).toThrow("OWNER_REPLY_PAUSE_MINUTES");
+  });
+
+  it("turns on the staff inbox only with a long enough password", () => {
+    expect(loadConfig(base).inbox).toBeUndefined();
+    expect(loadConfig({ ...base, INBOX_PASSWORD: "a-long-password" }).inbox).toEqual({ password: "a-long-password" });
+    expect(() => loadConfig({ ...base, INBOX_PASSWORD: "short" })).toThrow("at least 12");
+  });
+
+  it("switches on the sign-up page only with a password, and then needs the Meta app details", () => {
+    expect(loadConfig(base).signup).toBeUndefined();
+    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw" })).toThrow("META_APP_ID");
+    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1" })).toThrow("META_SIGNUP_CONFIG_ID");
+    expect(loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1", META_SIGNUP_CONFIG_ID: "2" }).signup).toEqual({
+      password: "pw",
+      appId: "1",
+      configId: "2",
+    });
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });

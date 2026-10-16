@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import { createInbox, type InboxDeps } from "./core/inbox/routes.js";
 import { createWhatsAppWebhook, type WebhookDeps } from "./core/whatsapp/webhook.js";
 import { createDashboard, type DashboardDeps } from "./dashboard/index.js";
+import { createSignup, type SignupDeps } from "./signup/index.js";
 import { createReplyGenerator, type GeneratorDeps } from "./generator/index.js";
 import { createVisitCounter, type VisitCounterDeps } from "./dashboard/visits.js";
 
@@ -9,6 +11,8 @@ export function createApp(
   dashboard?: DashboardDeps,
   visits?: VisitCounterDeps,
   generator?: GeneratorDeps,
+  signup?: SignupDeps,
+  inbox?: InboxDeps,
 ) {
   const app = new Hono();
 
@@ -25,6 +29,12 @@ export function createApp(
 
   // The free reply generator on yarnoga.com; switched off unless REPLY_GENERATOR_ENABLED is set.
   if (generator) app.route("/tools/reply-generator", createReplyGenerator(generator));
+
+  // Where a business connects its WhatsApp number; switched off unless SIGNUP_PASSWORD is set.
+  if (signup) app.route("/signup", createSignup(signup));
+
+  // The staff inbox web page, only when INBOX_PASSWORD is set.
+  if (inbox) app.route("/inbox", createInbox(inbox));
 
   return app;
 }

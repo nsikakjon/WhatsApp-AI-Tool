@@ -1,4 +1,4 @@
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, OwnerReply } from "./types.js";
 
 // Meta's webhook body looks like:
 // { object: "whatsapp_business_account",
@@ -42,6 +42,39 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
   return result;
 }
 
+// With WhatsApp coexistence (the owner keeps the WhatsApp Business app on the
+// bot's number), Meta also sends a copy of every message the owner sends from
+// the app, under field "smb_message_echoes":
+// { field: "smb_message_echoes",
+//   value: { metadata: {...}, message_echoes: [{ from, to, id, type, text, ... }] } }
+// "from" is our number and "to" is the customer.
+export function extractOwnerReplies(payload: unknown): OwnerReply[] {
+  const result: OwnerReply[] = [];
+  const body = payload as WebhookBody;
+  if (body?.object !== "whatsapp_business_account") return result;
+
+  for (const entry of body.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "smb_message_echoes") continue;
+      const value = change.value ?? {};
+      for (const msg of value.message_echoes ?? []) {
+        if (!msg.id || !msg.to || !msg.type) continue;
+        const media = msg.image ?? msg.document ?? msg.video;
+        result.push({
+          waMessageId: msg.id,
+          to: msg.to,
+          businessNumberId: value.metadata?.phone_number_id,
+          type: msg.type,
+          text: msg.type === "text" ? msg.text?.body : media?.caption || undefined,
+          timestamp: Number(msg.timestamp ?? 0),
+          raw: msg,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 function choiceId(interactive: InteractiveReply | undefined): string | undefined {
   return interactive?.list_reply?.id ?? interactive?.button_reply?.id ?? undefined;
 }
@@ -60,19 +93,22 @@ interface WebhookBody {
       value?: {
         metadata?: { phone_number_id?: string };
         contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
-        messages?: Array<{
-          id?: string;
-          from?: string;
-          type?: string;
-          timestamp?: string;
-          text?: { body?: string };
-          audio?: { id?: string; caption?: string };
-          image?: { id?: string; caption?: string };
-          document?: { id?: string; caption?: string };
-          video?: { id?: string; caption?: string };
-          interactive?: InteractiveReply;
-        }>;
+        messages?: Array<WebhookMessage>;
+        message_echoes?: Array<WebhookMessage & { to?: string }>;
       };
     }>;
   }>;
+}
+
+interface WebhookMessage {
+  id?: string;
+  from?: string;
+  type?: string;
+  timestamp?: string;
+  text?: { body?: string };
+  audio?: { id?: string; caption?: string };
+  image?: { id?: string; caption?: string };
+  document?: { id?: string; caption?: string };
+  video?: { id?: string; caption?: string };
+  interactive?: InteractiveReply;
 }

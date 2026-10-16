@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createSupabaseStore } from "./core/db/store.js";
+import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
@@ -36,6 +37,7 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 
@@ -139,12 +141,21 @@ const flyerBot = flyerConfig
 const store = createSupabaseStore(supabase);
 const whatsapp = createWhatsAppClient(config.whatsapp);
 
+// Our WhatsApp numbers as the staff inbox labels them, main number first.
+const numbers = [
+  { id: config.whatsapp.phoneNumberId, label: config.activeProduct === "quote" ? "Sales" : "Main" },
+  ...(siteConfig ? [{ id: siteConfig.phoneNumberId, label: "Site reports" }] : []),
+  ...(leadsConfig ? [{ id: leadsConfig.phoneNumberId, label: "Property leads" }] : []),
+  ...(flyerConfig ? [{ id: flyerConfig.phoneNumberId, label: "Flyers" }] : []),
+];
+
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
   appSecret: config.whatsapp.appSecret,
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
+  ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
     if (leadQualifier && msg.businessNumberId === leadsConfig?.phoneNumberId) return leadQualifier;
@@ -176,6 +187,26 @@ const app = createApp({
       origins: config.generator.origins,
       perVisitorDailyLimit: config.generator.perVisitorDailyLimit,
       dailyLimit: config.generator.dailyLimit,
+    }
+  : undefined, config.signup
+  ? {
+      password: config.signup.password,
+      app: {
+        appId: config.signup.appId,
+        appSecret: config.whatsapp.appSecret,
+        graphApiVersion: config.whatsapp.graphApiVersion,
+      },
+      configId: config.signup.configId,
+      store: createSupabaseConnectionStore(supabase),
+    }
+  : undefined, config.inbox
+  ? {
+      password: config.inbox.password,
+      appSecret: config.whatsapp.appSecret,
+      inbox: createSupabaseInboxStore(supabase),
+      messages: store,
+      whatsapp,
+      numbers,
     }
   : undefined);
 
@@ -225,6 +256,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"})`,
   );
 });
