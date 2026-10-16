@@ -100,6 +100,19 @@ export const PLANS: Plan[] = [
 
 export const FREE = PLANS[0]!;
 
+/**
+ * The free trial every new group starts with: a paid plan's features for a
+ * number of days or a number of finished flyers, whichever runs out first.
+ * Then the group drops back to Free. Change the numbers here to change it.
+ */
+export interface Trial {
+  plan: PlanId;
+  days: number;
+  flyers: number;
+}
+
+export const TRIAL: Trial = { plan: "standard", days: 14, flyers: 30 };
+
 export function planById(id: string): Plan {
   return PLANS.find((p) => p.id === id) ?? FREE;
 }
@@ -110,14 +123,23 @@ export function findPlan(query: string): Plan | null {
   return PLANS.find((p) => p.id === q) ?? null;
 }
 
+type PlanState = { plan: string; planUntil: Date | null; trialFlyersLeft: number | null };
+
 /**
  * The plan a group gets right now: its own plan while paid up, Free once
  * it's run out. A paid plan with no end date (set by an owner) never runs out.
+ * A free trial also ends once its flyers are used up.
  */
-export function currentPlan(group: { plan: string; planUntil: Date | null }, now: Date): Plan {
+export function currentPlan(group: PlanState, now: Date): Plan {
   const plan = planById(group.plan);
   if (plan.id !== "free" && group.planUntil && group.planUntil.getTime() <= now.getTime()) return FREE;
+  if (group.trialFlyersLeft !== null && group.trialFlyersLeft <= 0) return FREE;
   return plan;
+}
+
+/** True while a group is on its free trial (not once it has ended). */
+export function onTrial(group: PlanState, now: Date): boolean {
+  return group.trialFlyersLeft !== null && currentPlan(group, now).id !== "free";
 }
 
 export function allowsDesign(plan: Plan, themeId: string): boolean {
