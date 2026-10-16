@@ -30,7 +30,7 @@ insert into public.quote_plans
 values
   ('free',        'Free',        0,       0,        50,   true,  0),
   ('first_three', 'First three', 1500000, 5000000,  null, false, 1),
-  ('starter',     'Starter',     2500000, 7500000,  null, false, 2),
+  ('starter',     'Starter',     350000,  7500000,  null, false, 2),
   ('standard',    'Standard',    4500000, 10000000, null, false, 3)
 on conflict (code) do nothing;
 
