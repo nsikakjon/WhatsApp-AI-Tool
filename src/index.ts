@@ -100,6 +100,7 @@ const app = createApp({
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
+  ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
     if (leadQualifier && msg.businessNumberId === leadsConfig?.phoneNumberId) return leadQualifier;
@@ -154,6 +155,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
   );
 });

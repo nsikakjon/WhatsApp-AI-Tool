@@ -15,6 +15,11 @@ export interface Config {
     url: string;
     serviceRoleKey: string;
   };
+  /**
+   * WhatsApp coexistence: minutes the bot stays quiet in a chat after the
+   * owner replies from the WhatsApp Business app. 0 switches this off.
+   */
+  ownerReplyPauseMinutes: number;
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
   groq?: { apiKey: string; model: string };
   /** Which product answers messages: "echo" (test) or "quote" (quote and order bot). */
@@ -109,6 +114,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`FLYER_SEND_HOUR must be a whole hour from 0 to 23 (got "${env.FLYER_SEND_HOUR}")`);
   }
 
+  const pauseMinutes = Number(env.OWNER_REPLY_PAUSE_MINUTES || 60);
+  if (!Number.isInteger(pauseMinutes) || pauseMinutes < 0) {
+    throw new Error(
+      `OWNER_REPLY_PAUSE_MINUTES must be a whole number of minutes, 0 or more (got "${env.OWNER_REPLY_PAUSE_MINUTES}")`,
+    );
+  }
+
   return {
     port: Number(env.PORT ?? 3000),
     whatsapp: {
@@ -122,6 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       url: required(env, "SUPABASE_URL"),
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
+    ownerReplyPauseMinutes: pauseMinutes,
     groq: env.GROQ_API_KEY
       ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }
       : undefined,

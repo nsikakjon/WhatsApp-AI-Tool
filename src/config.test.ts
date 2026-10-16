@@ -44,6 +44,13 @@ describe("loadConfig", () => {
     expect(config.quote?.paymentDetails).toBe("Bank 0000000000\nExample Ltd");
   });
 
+  it("pauses the bot for 60 minutes after an owner reply unless told otherwise", () => {
+    expect(loadConfig(base).ownerReplyPauseMinutes).toBe(60);
+    expect(loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "15" }).ownerReplyPauseMinutes).toBe(15);
+    expect(loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "0" }).ownerReplyPauseMinutes).toBe(0);
+    expect(() => loadConfig({ ...base, OWNER_REPLY_PAUSE_MINUTES: "half an hour" })).toThrow("OWNER_REPLY_PAUSE_MINUTES");
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });
