@@ -98,6 +98,18 @@ export interface Config {
     tiktok?: { clientKey: string; clientSecret: string; refreshToken?: string };
   };
   /**
+   * The free reply generator on the website. Only set when
+   * REPLY_GENERATOR_ENABLED is true: otherwise the tool is switched off.
+   */
+  generator?: {
+    anthropicApiKey: string;
+    model: string;
+    /** Website addresses allowed to use it. */
+    origins: string[];
+    perVisitorDailyLimit: number;
+    dailyLimit: number;
+  };
+  /**
    * The sign-up page at /signup where a business connects its WhatsApp number
    * through Meta's pop-up (Embedded Signup), e.g. for coexistence. Only set
    * when SIGNUP_PASSWORD is: without a password the page is switched off.
@@ -234,6 +246,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
               : undefined,
         }
       : undefined,
+    generator: /^(true|yes|on|1)$/i.test(env.REPLY_GENERATOR_ENABLED ?? "")
+      ? {
+          anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+          model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+          origins: (env.REPLY_GENERATOR_ORIGINS || "https://yarnoga.com,https://www.yarnoga.com")
+            .split(",")
+            .map((o) => o.trim().replace(/\/+$/, ""))
+            .filter(Boolean),
+          perVisitorDailyLimit: wholeNumber(env, "REPLY_GENERATOR_VISITOR_LIMIT", 5),
+          dailyLimit: wholeNumber(env, "REPLY_GENERATOR_DAILY_LIMIT", 200),
+        }
+      : undefined,
     signup: env.SIGNUP_PASSWORD
       ? {
           password: env.SIGNUP_PASSWORD,
@@ -248,6 +272,14 @@ function inboxSettings(password: string | undefined): Config["inbox"] {
   if (!password) return undefined;
   if (password.length < 12) throw new Error("INBOX_PASSWORD must be at least 12 characters long");
   return { password };
+}
+
+function wholeNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const value = Number(env[name] || fallback);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a whole number above 0 (got "${env[name]}")`);
+  }
+  return value;
 }
 
 /** "+234 801 234 5678, 2348098765432" -> ["2348012345678", "2348098765432"] */

@@ -26,9 +26,11 @@ import {
   currentPlan,
   findPlan,
   formatNaira,
+  onTrial,
   planById,
   PLANS,
   type Plan,
+  type Trial,
 } from "./plans.js";
 import type { FlyerStore, Group, Member, Picture } from "./store.js";
 import type { WishWriter } from "./wish.js";
@@ -73,6 +75,8 @@ export interface FlyerBotOptions {
   onBackground?: (work: Promise<void>) => void;
   /** The current time; tests replace it to check when plans run out. */
   now?: () => Date;
+  /** The free trial new groups start with (see plans.ts). Leave out for none. */
+  trial?: Trial;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -127,8 +131,10 @@ Other commands:
 On each birthday I'll send you the flyer in the morning, ready to forward to the group.`;
 
 const JPEG = "image/jpeg";
+const FREE_SUMMARY = planById("free").summary;
 /** How many designs go on one picture when admins browse them. */
 const DESIGNS_PER_PAGE = 6;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /** "see 8", "see design 8", "see gala". */
 const SEE_DESIGN = /^see\s+(?:design\s+)?(.+)$/i;
 
@@ -186,6 +192,24 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   const owners = new Set(opts.owners);
   const now = opts.now ?? (() => new Date());
   const planOf = (group: Group) => currentPlan(group, now());
+  const trialPlan = opts.trial ? planById(opts.trial.plan) : undefined;
+
+  /**
+   * Counts finished flyers against a group's free trial. Returns a line to add
+   * to the reply when the trial is nearly over or has just ended, otherwise "".
+   */
+  async function useTrialFlyers(group: Group, count: number): Promise<string> {
+    if (!onTrial(group, now()) || count < 1) return "";
+    const left = Math.max(0, group.trialFlyersLeft! - count);
+    await opts.store.setTrialFlyersLeft(group.id, left);
+    group.trialFlyersLeft = left;
+    const label = planById(group.plan).label;
+    if (left === 0) {
+      return `That was the last flyer of your free *${label}* trial, so *${group.name}* is now on the Free plan (${FREE_SUMMARY}). Send *upgrade ${group.plan}* to keep everything, or *plans* to compare.`;
+    }
+    if (left <= 5) return `${left} flyer${left === 1 ? "" : "s"} left in your free *${label}* trial.`;
+    return "";
+  }
 
   async function logoFor(group: Group): Promise<Uint8Array | undefined> {
     if (!group.logoPath) return undefined;
@@ -464,8 +488,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       logo: await logoFor(group),
       style: await styleFor(group),
     });
+    const tip = group.logoPath ? "" : "Tip: send your group logo with the caption *logo* and I'll add it to every flyer.";
+    const trialNote = await useTrialFlyers(group, 1);
     return {
-      text: group.logoPath ? "" : "Tip: send your group logo with the caption *logo* and I'll add it to every flyer.",
+      text: [tip, trialNote].filter(Boolean).join("\n\n"),
       images: [{ data: flyer, mimeType: JPEG }],
     };
   }
@@ -551,7 +577,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
         images.push({ data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) });
       }
-      return { text: forwardTip(celebrants.map((m) => m.name), group.name), images };
+      const trialNote = await useTrialFlyers(group, celebrants.length);
+      const tip = forwardTip(celebrants.map((m) => m.name), group.name);
+      return { text: trialNote ? `${tip}\n\n${trialNote}` : tip, images };
     }
 
     const flyerFor = text.match(/^(?:flyer|preview|test)\s+(.+)$/i);
@@ -560,7 +588,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (found.length !== 1) return { text: notFound(found, flyerFor[1]!) };
       const m = found[0]!;
       const wish = await opts.wishes.write({ name: m.name, groupName: group.name });
-      return { text: "", images: [{ data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) }] };
+      const image = { data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) };
+      return { text: await useTrialFlyers(group, 1), images: [image] };
     }
 
     const remove = text.match(/^(?:remove|delete)\s+(.+)$/i);
@@ -591,9 +620,15 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const until = !lapsed && plan.id !== "free" && group.planUntil ? ` until ${formatDate(group.planUntil)}` : "";
       const count = (await opts.store.members(group.id)).length;
       const limit = plan.maxMembers === null ? "" : ` of ${plan.maxMembers}`;
+      const trial = group.trialFlyersLeft !== null;
+      const status = trial
+        ? lapsed
+          ? `*${group.name}* is on the *Free* plan (your free ${planById(group.plan).label} trial has ended).`
+          : `*${group.name}* is on a free *${plan.label}* trial${until}, with ${group.trialFlyersLeft} flyer${group.trialFlyersLeft === 1 ? "" : "s"} left. Then it moves to the Free plan unless you upgrade.`
+        : `*${group.name}* is on the *${plan.label}* plan${until}${lapsed ? ` (your ${group.plan} plan ran out on ${formatDate(group.planUntil!)})` : ""}.`;
       return {
         text: [
-          `*${group.name}* is on the *${plan.label}* plan${until}${lapsed ? ` (your ${group.plan} plan ran out on ${formatDate(group.planUntil!)})` : ""}.`,
+          status,
           `Members: ${count}${limit}.`,
           `Includes: ${plan.summary}.`,
           "Send *plans* to compare, or *upgrade* and a plan's name.",
@@ -660,8 +695,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const months = Number(count ?? 1) * (unit?.toLowerCase().startsWith("year") ? 12 : 1);
     if (!Number.isInteger(months) || months < 1 || months > 60) return { text: "Please give between 1 month and 5 years." };
     // Renewing early adds the time on top of what's left.
+    // A free trial's leftover days aren't added: paid time starts now.
     const current = currentPlan(group, now());
-    const start = current.id !== "free" && group.planUntil && group.planUntil > now() ? group.planUntil : now();
+    const start =
+      current.id !== "free" && !onTrial(group, now()) && group.planUntil && group.planUntil > now() ? group.planUntil : now();
     const until = addMonths(start, months);
     await opts.store.setPlan(group.id, plan.id, until);
     log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
@@ -672,11 +709,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   function canCreateGroup(isOwner: boolean, groups: Group[]): Reply | null {
     if (isOwner) return null;
     if (!opts.openSignup) return { text: "Sorry, only the account owner can set up new groups." };
-    // One Free group each; people whose groups are all on paid plans can add more.
-    const free = groups.find((g) => planOf(g).id === "free");
+    // One Free (or free trial) group each; people whose groups are all on paid plans can add more.
+    const free = groups.find((g) => planOf(g).id === "free" || onTrial(g, now()));
     if (!free) return null;
+    const where = onTrial(free, now()) ? "its free trial" : "Free";
     return {
-      text: `Each person can run one group on the Free plan, and *${free.name}* is on Free. To set up another group, upgrade it first (send *upgrade standard*), or send *upgrade deluxe* to run several groups or chapters.`,
+      text: `Each person can run one free group, and *${free.name}* is on ${where}. To set up another group, upgrade it first (send *upgrade standard*), or send *upgrade deluxe* to run several groups or chapters.`,
     };
   }
 
@@ -876,10 +914,16 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           };
         }
         const group = await opts.store.createGroup(name.slice(0, 80), msg.from);
+        let trialNote = "";
+        if (opts.trial && trialPlan && group.plan === "free") {
+          const until = new Date(now().getTime() + opts.trial.days * DAY_MS);
+          await opts.store.startTrial(group.id, trialPlan.id, until, opts.trial.flyers);
+          trialNote = `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever comes first) you get every ${trialPlan.label} feature: all designs and colours, spreadsheet import and event flyers. No card needed. After that the group carries on free on the Free plan unless you upgrade.`;
+        }
         await opts.store.setChatState(msg.from, { step: "logo", groupId: group.id });
         log.info(`New flyer group "${group.name}" set up by ...${msg.from.slice(-4)}`);
         return {
-          text: `Created *${group.name}* ✅ You're its admin. Three quick steps to get it ready:\n\n*Step 1 of 3: your logo.* Send your group's logo as a picture. (Send it as a document to keep a see-through background.) No logo? Reply *skip*.`,
+          text: `Created *${group.name}* ✅ You're its admin.${trialNote}\n\nThree quick steps to get it ready:\n\n*Step 1 of 3: your logo.* Send your group's logo as a picture. (Send it as a document to keep a see-through background.) No logo? Reply *skip*.`,
           notify: isOwner
             ? undefined
             : opts.owners.map((to) => ({ to, text: `🎉 New sign-up: ${who} set up "${group.name}" on ${opts.brandName}.` })),
@@ -893,7 +937,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         }
         await opts.store.setChatState(msg.from, { step: "name", groupId: null });
         return {
-          text: `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), send them to you on each birthday morning ready to forward, and brand your event photos with your group's logo.\n\nIt's free for groups of up to 20 people (send *plans* for bigger groups). Questions? Send *support*.\n\nLet's set up your group. *What's it called?* Reply with its name, e.g. *Unilag Class of 2010*.`,
+          text: `Hi! I'm ${opts.brandName} 🎉 I make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), send them to you on each birthday morning ready to forward, and brand your event photos with your group's logo.\n\nIt's free for groups of up to ${planById("free").maxMembers} people${trialPlan ? `, and new groups try every ${trialPlan.label} feature free for ${opts.trial!.days} days, no card needed` : ""} (send *plans* for bigger groups). Questions? Send *support*.\n\nLet's set up your group. *What's it called?* Reply with its name, e.g. *Unilag Class of 2010*.`,
         };
       }
 
@@ -933,7 +977,11 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (today.hour < opts.sendHour) return;
       const due = await opts.store.birthdaysOn(birthdaysCelebratedOn(today.year, today.month, today.day));
 
-      for (const { member, group, admins: all } of due) {
+      // One copy of each group, so trial flyers are counted correctly when several members share a birthday.
+      const sameGroup = new Map<string, Group>();
+      for (const { member, group: row, admins: all } of due) {
+        const group = sameGroup.get(row.id) ?? row;
+        sameGroup.set(row.id, group);
         const admins = [];
         for (const to of all) if (await delivery.canReach(to)) admins.push(to);
         if (!admins.length) continue;
@@ -957,6 +1005,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         if (delivered === 0) {
           await opts.store.releaseBirthday(member.id, today.year);
         } else {
+          await useTrialFlyers(group, 1).catch((err) => log.error(`Could not count a trial flyer for ${group.name}:`, err));
           log.info(`Birthday flyer for ${member.name} (${group.name}) sent to ${delivered} admin(s)`);
         }
       }

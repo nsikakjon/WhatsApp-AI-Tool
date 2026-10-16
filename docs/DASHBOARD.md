@@ -23,7 +23,8 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
 | Site Reporter | active sites, team members, updates, photos, voice notes, daily reports |
 | Lead qualifier | enquiries, hot/warm/cold, handed to an agent |
-| Socials and website | Instagram, Facebook, TikTok and YouTube numbers once connected (below); the website is not connected yet |
+| Website (yarnoga.com) | visitors today, page views, a 30-day visitors chart, top pages and where visitors came from |
+| Socials | Instagram, Facebook, TikTok and YouTube numbers once connected (below) |
 
 "Paid plans are worth" is the monthly list price of the plans groups are on,
 not money received: flyer payments aren't recorded in the database yet.
@@ -98,4 +99,27 @@ TikTok shows "Couldn't load", repeat step 5.
 
 ### Website
 
-Not connected yet. It needs a visitor counter added to yarnoga.com.
+yarnoga.com counts its own visitors: a few lines of code at the bottom of
+every page tell the app "someone opened this page", and the app saves it.
+
+- No cookies, so the site needs no cookie banner, and no other company sees
+  your visitors.
+- IP addresses are never saved. Each visitor gets a code that changes every
+  day, so "visitors" means people per day.
+- Search engines, link previews (WhatsApp, Facebook) and scripts are left out.
+- Views from the site's own address only: copies of the pages opened anywhere
+  else are ignored.
+
+To switch it on, once:
+
+1. Supabase > **SQL Editor** > **New query** > paste all of
+   `supabase/migrations/0016_site_visits.sql` > **Run**.
+2. Upload the latest `yarnoga-site.zip` to Hostinger (every page now carries
+   the counter).
+
+Until step 1 is done the Website section says it couldn't read the numbers;
+the rest of the dashboard works as normal. Visits are counted from the moment
+the new pages are live; nothing before that can be recovered.
+
+If the Railway address ever changes, the counter's address at the bottom of
+each site page (search for `yarnOga visitor counter`) must change too.
