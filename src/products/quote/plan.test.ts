@@ -70,6 +70,15 @@ describe("plan gate", () => {
     expect(await createPlanGate({ code: "free", store: noPlan, log: quiet }).credit()).toBeNull();
   });
 
+  it("reads the plan from the business's own row when no code is given", async () => {
+    const onFree = createPlanGate({ store: store(50, { businessPlanCode: async () => "free" }) });
+    expect((await onFree.checkOrder()).allowed).toBe(false);
+    expect(await onFree.credit()).toBe(CREDIT_LINE);
+    const noPlan = createPlanGate({ store: store(5000, { businessPlanCode: async () => null }) });
+    expect(await noPlan.checkOrder()).toEqual({ allowed: true, warning: null });
+    expect(await noPlan.credit()).toBeNull();
+  });
+
   it("summarises use and upgrade options with prices from the plans table", async () => {
     const text = await createPlanGate({ code: "free", store: store(12) }).summary();
     expect(text).toContain("Your plan: *Free*");

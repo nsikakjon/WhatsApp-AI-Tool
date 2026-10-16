@@ -1,8 +1,10 @@
 -- Plans for the quote and order bot, including a free plan.
 -- Run this once in Supabase: SQL Editor > New query > paste > Run
--- (after 0012_quote_receipts.sql), BEFORE setting QUOTE_PLAN on Railway.
+-- (after 0020_quote_businesses.sql), BEFORE setting QUOTE_PLAN on Railway.
 --
--- Nothing changes for a business until QUOTE_PLAN names one of these plans.
+-- Nothing changes for a business until it is put on a plan: business #1 (the
+-- main number) with QUOTE_PLAN on Railway, every other business with the
+-- plan_code column on its quote_businesses row.
 -- The free plan takes up to 50 confirmed orders a month and adds a small
 -- "Powered by yarnOga" line to quotes and confirmations. Paid plans have no
 -- order limit and no credit line.
@@ -32,8 +34,12 @@ values
   ('standard',    'Standard',    4500000, 10000000, null, false, 3)
 on conflict (code) do nothing;
 
--- Counting this month's confirmed orders.
-create index if not exists quote_orders_confirmed_at_idx
-  on public.quote_orders (confirmed_at);
+-- Which plan each business is on. Empty = no plan limits.
+alter table public.quote_businesses
+  add column if not exists plan_code text references public.quote_plans(code);
+
+-- Counting each business's confirmed orders this month.
+create index if not exists quote_orders_business_confirmed_at_idx
+  on public.quote_orders (business_id, confirmed_at);
 
 alter table public.quote_plans enable row level security;

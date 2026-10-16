@@ -3,8 +3,10 @@ import { formatNaira } from "../../core/money.js";
 
 // Plans for the quote and order bot (free, First three, Starter, Standard).
 //
-// The business's plan is named by QUOTE_PLAN. With no plan set, nothing here
-// runs and the bot works as before: no order limit, no credit line.
+// Each business is on at most one plan: business #1 (the main number) by
+// QUOTE_PLAN, every other business by plan_code on its quote_businesses row.
+// With no plan, the bot works as before: no order limit, no credit line.
+// Orders are counted per business.
 //
 // Each plan's price, setup fee, monthly order limit and credit line come from
 // the quote_plans table (kobo), never from code or the AI.
@@ -24,8 +26,10 @@ export interface PlanStore {
   plan(code: string): Promise<QuotePlan | null>;
   /** Plans the owner can upgrade to, cheapest first. */
   paidPlans(): Promise<QuotePlan[]>;
-  /** Orders confirmed since this moment. */
+  /** This business's orders confirmed since this moment. */
   ordersConfirmedSince(since: Date): Promise<number>;
+  /** The plan code saved on this business's row, or null for none. */
+  businessPlanCode?(): Promise<string | null>;
 }
 
 export const CREDIT_LINE = "_Powered by yarnOga · yarnoga.com_";
@@ -47,8 +51,8 @@ export interface PlanGate {
 }
 
 export interface PlanGateOptions {
-  /** The plan this business is on (QUOTE_PLAN). */
-  code: string;
+  /** The plan this business is on (QUOTE_PLAN). Leave out to read it from the business's row. */
+  code?: string;
   store: PlanStore;
   /**
    * Makes a payment link for a paid plan. Not built yet: online payment for
@@ -74,8 +78,10 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
   // order through and are logged.
   async function current(): Promise<QuotePlan | null> {
     try {
-      const plan = await opts.store.plan(opts.code);
-      if (!plan) log.error(`QUOTE_PLAN "${opts.code}" isn't in the quote_plans table; no plan limits apply.`);
+      const code = opts.code ?? (await opts.store.businessPlanCode?.()) ?? null;
+      if (!code) return null;
+      const plan = await opts.store.plan(code);
+      if (!plan) log.error(`Quote plan "${code}" isn't in the quote_plans table; no plan limits apply.`);
       return plan;
     } catch (err) {
       log.error("Could not read the quote plan:", err);
@@ -156,7 +162,12 @@ function toPlan(row: PlanRow): QuotePlan {
   };
 }
 
-export function createSupabasePlanStore(db: SupabaseClient): PlanStore {
+/**
+ * Plans from the quote_plans table. With a business id, orders are counted
+ * for that business only and its plan_code can be read; without one (multi-
+ * business off) every order counts, as before.
+ */
+export function createSupabasePlanStore(db: SupabaseClient, businessId?: string): PlanStore {
   return {
     async plan(code) {
       const { data, error } = await db.from("quote_plans").select(PLAN_COLUMNS).eq("code", code).maybeSingle();
@@ -174,12 +185,20 @@ export function createSupabasePlanStore(db: SupabaseClient): PlanStore {
       return (data ?? []).map((row) => toPlan(row as PlanRow));
     },
     async ordersConfirmedSince(since) {
-      const { count, error } = await db
+      let query = db
         .from("quote_orders")
         .select("id", { count: "exact", head: true })
         .gte("confirmed_at", since.toISOString());
+      if (businessId) query = query.eq("business_id", businessId);
+      const { count, error } = await query;
       if (error) throw new Error(`ordersConfirmedSince failed: ${error.message}`);
       return count ?? 0;
+    },
+    async businessPlanCode() {
+      if (!businessId) return null;
+      const { data, error } = await db.from("quote_businesses").select("plan_code").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
+      return (data?.plan_code as string | null | undefined) ?? null;
     },
   };
 }

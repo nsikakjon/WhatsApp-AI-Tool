@@ -92,6 +92,7 @@ if (quoteBusinesses) {
         branding: createSupabaseBranding(supabase, business.id),
         catalog: createSupabaseCatalog(supabase, business.id),
         orders: createSupabaseOrders(supabase, business.id),
+        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id) }),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
