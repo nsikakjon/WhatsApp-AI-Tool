@@ -1,42 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createDashboard } from "./index.js";
 import { renderDashboard } from "./page.js";
-import { effectivePlan, lagosDays, summariseFlyerPlans, summariseOrders, type DashboardStats } from "./stats.js";
-
-const NOW = new Date("2026-10-16T08:00:00Z");
-
-function sampleStats(): DashboardStats {
-  return {
-    generatedAt: NOW,
-    whatsapp: {
-      contacts: 42,
-      newContacts7: 5,
-      newContacts30: 12,
-      inbound7: 70,
-      inbound30: 300,
-      outbound30: 310,
-      voiceNotes30: 9,
-      dailyInbound: lagosDays(NOW, 30).map((d, i) => ({ date: d.date, count: i % 4 })),
-    },
-    flyers: summariseFlyerPlans(
-      { groups: 3, newGroups30: 2, members: 55, birthdayFlyersAll: 20, birthdayFlyers30: 6 },
-      [
-        { plan: "free", plan_until: null },
-        { plan: "standard", plan_until: "2026-12-01T00:00:00Z" },
-        { plan: "organisation", plan_until: null },
-      ],
-      [
-        { id: "free", monthly_price_kobo: 0, sort_order: 0 },
-        { id: "standard", monthly_price_kobo: 450000, sort_order: 1 },
-        { id: "organisation", monthly_price_kobo: null, sort_order: 4 },
-      ],
-      NOW,
-    ),
-    quotes: summariseOrders([{ status: "paid", total_kobo: 1250000, paid_at: "2026-10-10T00:00:00Z" }], NOW),
-    site: { sites: 1, members: 4, updates7: 8, updates30: 30, photos30: 12, voiceNotes30: 3, reports30: 14 },
-    leads: { total: 7, new30: 3, hot: 1, warm: 2, cold: 4, handedOff: 1 },
-  };
-}
+import { effectivePlan, lagosDays, summariseOrders } from "./stats.js";
+import { NOW, sampleStats } from "./testing.js";
 
 describe("lagosDays", () => {
   it("starts each day at Lagos midnight and ends on today", () => {
@@ -92,7 +58,20 @@ describe("dashboard page", () => {
     expect(html).toContain("yarn<b>Oga</b> dashboard");
     expect(html).toContain("₦12,500");
     expect(html).toContain("₦4,500/mo");
-    expect(html).toContain("Not connected");
+  });
+
+  it("sends the owner to TikTok to connect, and rejects a callback it didn't start", async () => {
+    const tiktokApp = createDashboard({
+      password: "secret",
+      stats: { load: async () => sampleStats() },
+      tiktokApp: { clientKey: "ck", clientSecret: "cs" },
+    });
+    const auth = { Authorization: `Basic ${btoa("jay:secret")}`, Host: "x.up.railway.app" };
+    const go = await tiktokApp.request("/tiktok/connect", { headers: auth });
+    expect(go.status).toBe(302);
+    expect(go.headers.get("location")).toContain("tiktok.com/v2/auth/authorize");
+    const forged = await tiktokApp.request("/tiktok/callback?code=x&state=made-up", { headers: auth });
+    expect(forged.status).toBe(400);
   });
 
   it("escapes text so nothing from the database can inject HTML", () => {

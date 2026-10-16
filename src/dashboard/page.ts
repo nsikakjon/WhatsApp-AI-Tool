@@ -1,17 +1,9 @@
 import { formatNaira } from "../core/money.js";
+import type { SocialAccount } from "./socials.js";
 import type { DashboardStats } from "./stats.js";
 
 // The owner's dashboard as one self-contained HTML page (no outside scripts,
 // fonts or images), so it loads fast on a phone and nothing leaks to other sites.
-
-/** yarnOga's social accounts. Their numbers aren't connected yet, so the page links to each one. */
-const SOCIALS = [
-  { name: "Instagram", url: "https://instagram.com/yarnoga", needs: "a Meta Page access token (Instagram Business account linked to the Facebook Page)" },
-  { name: "Facebook", url: "https://facebook.com/useyarnoga", needs: "a Meta Page access token for the useyarnoga Page" },
-  { name: "TikTok", url: "https://tiktok.com/@yarnoga", needs: "a TikTok developer app approved for account insights" },
-  { name: "YouTube", url: "https://youtube.com/@yarnoga", needs: "a YouTube Data API key" },
-  { name: "Website", url: "https://yarnoga.com", needs: "a visitor counter on the site (for example free Cloudflare Web Analytics or Google Analytics)" },
-];
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
@@ -93,7 +85,21 @@ function dailyChart(days: DashboardStats["whatsapp"]["dailyInbound"]): string {
 </figure>`;
 }
 
-export function renderDashboard(s: DashboardStats): string {
+function socialCard(a: SocialAccount): string {
+  const badge = { live: "Live", not_connected: "Not connected", error: "Couldn't load" }[a.status];
+  const stats = a.stats
+    .map(
+      (st) =>
+        `<span class="stat"><b>${num(st.value)}</b> ${esc(st.label)}${st.note ? ` <i>(${esc(st.note)})</i>` : ""}</span>`,
+    )
+    .join("");
+  const note = a.status === "not_connected" ? `Needs ${a.needs ?? "connecting"}.` : (a.problem ?? "");
+  return `<div class="social ${a.status}"><a class="name" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a><span class="badge">${badge}</span>${stats}${
+    note ? `<span class="note">${esc(note)}</span>` : ""
+  }</div>`;
+}
+
+export function renderDashboard(s: DashboardStats, socialAccounts: SocialAccount[] = []): string {
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -170,11 +176,8 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
 
   const socials = section(
     "Socials and website",
-    "Not connected yet, so there are no numbers here. Nothing on this page is guessed: each account shows numbers once it is connected.",
-    `<div class="socials">${SOCIALS.map(
-      (a) =>
-        `<a class="social" href="${esc(a.url)}" target="_blank" rel="noopener"><span class="name">${esc(a.name)}</span><span class="badge">Not connected</span><span class="note">Needs ${esc(a.needs)}.</span></a>`,
-    ).join("")}</div>`,
+    "Live numbers from each platform, refreshed every 10 minutes. An account that isn't connected shows no numbers: nothing here is guessed.",
+    `<div class="socials">${socialAccounts.map(socialCard).join("")}</div>`,
   );
 
   return `<!doctype html>
@@ -216,8 +219,13 @@ th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); 
 th { color:var(--muted); font-weight:500; }
 .plans { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin-top:10px; }
 .socials { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:10px; }
-.social { display:block; background:var(--panel); border:1px dashed var(--line); border-radius:12px; padding:14px; color:var(--text); text-decoration:none; }
-.social .name { font-weight:600; }
+.social { background:var(--panel); border:1px dashed var(--line); border-radius:12px; padding:14px; }
+.social.live { border-style:solid; }
+.social .name { font-weight:600; color:var(--text); }
+.social.live .badge { background:var(--accent-soft); color:var(--text); border-color:transparent; }
+.social .stat { display:block; margin-top:6px; font-size:14px; color:var(--muted); }
+.social .stat b { color:var(--text); font-size:20px; font-weight:650; margin-right:2px; font-variant-numeric: tabular-nums; }
+.social .stat i { font-style:normal; font-size:12px; }
 .social .badge { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
 .social .note { display:block; margin-top:6px; color:var(--muted); font-size:12.5px; }
 footer { margin-top:32px; color:var(--muted); font-size:12.5px; }
