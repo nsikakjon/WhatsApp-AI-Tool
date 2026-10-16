@@ -28,6 +28,7 @@ import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseConnectionStore } from "./signup/store.js";
 
 const config = loadConfig();
 
@@ -120,6 +121,17 @@ const app = createApp({
       }),
       tiktokApp: config.dashboard.tiktok,
     }
+  : undefined, config.signup
+  ? {
+      password: config.signup.password,
+      app: {
+        appId: config.signup.appId,
+        appSecret: config.whatsapp.appSecret,
+        graphApiVersion: config.whatsapp.graphApiVersion,
+      },
+      configId: config.signup.configId,
+      store: createSupabaseConnectionStore(supabase),
+    }
   : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -168,6 +180,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min)`,
   );
 });

@@ -95,6 +95,18 @@ export interface Config {
     /** TikTok numbers. refreshToken is empty until the owner connects TikTok from the dashboard. */
     tiktok?: { clientKey: string; clientSecret: string; refreshToken?: string };
   };
+  /**
+   * The sign-up page at /signup where a business connects its WhatsApp number
+   * through Meta's pop-up (Embedded Signup), e.g. for coexistence. Only set
+   * when SIGNUP_PASSWORD is: without a password the page is switched off.
+   */
+  signup?: {
+    password: string;
+    /** The Meta app's App ID (the same app as the webhook and WHATSAPP_APP_SECRET). */
+    appId: string;
+    /** The Facebook Login for Business configuration made for Embedded Signup. */
+    configId: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -217,6 +229,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
                   refreshToken: env.TIKTOK_REFRESH_TOKEN || undefined,
                 }
               : undefined,
+        }
+      : undefined,
+    signup: env.SIGNUP_PASSWORD
+      ? {
+          password: env.SIGNUP_PASSWORD,
+          appId: required(env, "META_APP_ID"),
+          configId: required(env, "META_SIGNUP_CONFIG_ID"),
         }
       : undefined,
   };
