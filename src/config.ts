@@ -49,6 +49,16 @@ export interface Config {
     model: string;
   };
   /**
+   * Quote follow-ups: one reminder for a quote the customer never answered.
+   * Only set when QUOTE_FOLLOW_UPS is true (needs migration 0027).
+   */
+  quoteFollowUps?: {
+    /** Hours after a quote before the reminder goes (businesses can set their own). */
+    hours: number;
+    /** Approved WhatsApp template for customers outside the 24-hour window. */
+    template?: { name: string; language: string };
+  };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -205,6 +215,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
+    quoteFollowUps: /^(true|yes|on|1)$/i.test(env.QUOTE_FOLLOW_UPS ?? "")
+      ? {
+          hours: followUpHours(env.QUOTE_FOLLOW_UP_HOURS),
+          template: env.QUOTE_FOLLOW_UP_TEMPLATE_NAME
+            ? { name: env.QUOTE_FOLLOW_UP_TEMPLATE_NAME, language: env.QUOTE_FOLLOW_UP_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
+        }
+      : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
@@ -280,6 +298,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
   };
+}
+
+function followUpHours(value: string | undefined): number {
+  const hours = Number(value || 24);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
+    throw new Error(`QUOTE_FOLLOW_UP_HOURS must be a whole number of hours from 1 to 168 (got "${value}")`);
+  }
+  return hours;
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {
