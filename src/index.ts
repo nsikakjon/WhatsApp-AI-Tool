@@ -28,6 +28,9 @@ import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createInstagramClient } from "./instagram/client.js";
+import { loadInstagramConfig } from "./instagram/config.js";
+import { createSupabaseInstagramStore } from "./instagram/store.js";
 
 const config = loadConfig();
 
@@ -93,6 +96,14 @@ const flyerBot = flyerConfig
     })
   : undefined;
 
+// Instagram comment auto-reply (INSTAGRAM_AUTOREPLY). If it's switched on but a
+// setting is missing, it stays off and says why; the WhatsApp bots carry on.
+const instagramSetup = loadInstagramConfig();
+if (instagramSetup.status === "missing") {
+  console.warn(`Instagram auto-reply is OFF: missing ${instagramSetup.missing.join(", ")} (see docs/INSTAGRAM.md)`);
+}
+const instagramConfig = instagramSetup.status === "on" ? instagramSetup.config : undefined;
+
 const store = createSupabaseStore(supabase);
 const whatsapp = createWhatsAppClient(config.whatsapp);
 
@@ -118,6 +129,16 @@ const app = createApp({
         tiktok: config.dashboard.tiktok,
       }),
       tiktokApp: config.dashboard.tiktok,
+    }
+  : undefined, instagramConfig
+  ? {
+      verifyToken: instagramConfig.verifyToken,
+      appSecret: instagramConfig.appSecret,
+      accountId: instagramConfig.accountId,
+      businessName: instagramConfig.businessName,
+      whatsappNumber: instagramConfig.whatsappNumber,
+      store: createSupabaseInstagramStore(supabase),
+      instagram: createInstagramClient(instagramConfig),
     }
   : undefined);
 
@@ -167,6 +188,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, instagram auto-reply: ${instagramConfig ? "on" : "off"})`,
   );
 });
