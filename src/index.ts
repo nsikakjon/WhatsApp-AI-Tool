@@ -13,6 +13,7 @@ import {
   createSupabaseBusinesses,
   createSupabaseCatalog,
   createSupabaseOrders,
+  createSupabaseSetup,
   DEFAULT_BUSINESS_ID,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
@@ -177,6 +178,20 @@ const app = createApp({
       perVisitorDailyLimit: config.generator.perVisitorDailyLimit,
       dailyLimit: config.generator.dailyLimit,
     }
+  : undefined, config.quoteSetup
+  ? {
+      password: config.quoteSetup.password,
+      businesses: createSupabaseBusinesses(supabase),
+      setup: createSupabaseSetup(supabase),
+      // Numbers that already answer for something else can't be given to a business.
+      reservedNumberIds: [
+        config.whatsapp.phoneNumberId,
+        config.site?.phoneNumberId,
+        config.leads?.phoneNumberId,
+        config.flyer?.phoneNumberId,
+      ].filter((id): id is string => Boolean(id)),
+      multiBusinessOn: Boolean(quoteBusinesses),
+    }
   : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -225,6 +240,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
   );
 });
