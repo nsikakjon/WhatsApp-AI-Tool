@@ -28,7 +28,7 @@ write again.
 
 1. **Supabase**: SQL Editor > New query, paste and run each of these files from
    `supabase/migrations/` (skip any you've already run):
-   - `0014_owner_reply_pause.sql` (the per-chat pause the bot checks)
+   - `0019_owner_reply_pause.sql` (the per-chat pause the bot checks)
    - `0015_inbox.sql` (records which number each message went through)
 
    The bots keep working if you forget, but the inbox page needs both, and

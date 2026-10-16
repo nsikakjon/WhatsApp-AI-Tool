@@ -52,8 +52,8 @@ of the messages you send from the app. That needs the steps below.
 In Supabase: **SQL Editor** > **New query**. Paste the contents of each file,
 then click **Run**:
 
-1. `supabase/migrations/0014_owner_reply_pause.sql`
-2. `supabase/migrations/0016_whatsapp_connections.sql`
+1. `supabase/migrations/0019_owner_reply_pause.sql`
+2. `supabase/migrations/0018_whatsapp_connections.sql`
 
 ### Step 2: Switch on the new webhook field
 
