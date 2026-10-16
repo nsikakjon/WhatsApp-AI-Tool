@@ -26,8 +26,9 @@ Supabase > SQL Editor > New query > paste the whole of
 `supabase/migrations/0005_flyers.sql` > Run. Then do the same with
 `supabase/migrations/0006_flyer_members_optional_photo.sql`, and then
 `supabase/migrations/0007_flyer_plans.sql`, and
-`supabase/migrations/0008_flyer_chat_state.sql`, and
-`supabase/migrations/0011_flyer_new_prices.sql`.
+`supabase/migrations/0008_flyer_chat_state.sql`,
+`supabase/migrations/0011_flyer_new_prices.sql`, and
+`supabase/migrations/0014_flyer_trial.sql`.
 
 This also creates a private storage bucket called `flyer-photos`, where
 member photos and logos are saved (Supabase > Storage).
@@ -301,7 +302,9 @@ case since they just wrote in.
 
 ## Plans
 
-Every new group starts on **Free**. Paid plans unlock more:
+Every new group starts with a **free Standard trial**: all Standard features
+for 14 days or 30 finished flyers, whichever comes first. Then it carries on
+for free on the **Free** plan unless the admin upgrades. Paid plans unlock more:
 
 | Plan     | Members   | Admins    | Monthly  | Paid yearly (per month) | Includes                                                     |
 | -------- | --------- | --------- | -------- | ----------------------- | ------------------------------------------------------------ |
@@ -335,6 +338,16 @@ When a paid plan runs out, the group quietly drops back to Free: nothing is
 deleted, birthday flyers keep going out for everyone, but the paid extras
 (colours, own background, more designs) switch off and the "Made with" line
 comes back until they renew.
+
+**The free trial**: finished flyers are event flyers, `flyer Ada`, `today`,
+and the birthday-morning flyers. Previews (when a member is added, or a design
+or colour is changed) don't count. With 5 or fewer left, the bot tells the
+admin how many remain, and it says so when the last one is used. `plan` shows
+the trial's end date and flyers left. Each person gets one free group, and a
+group on its trial counts as that group. When an owner sends `set plan ...`,
+the trial ends and the paid time starts that day. Groups made before the trial
+existed are not given one. To change the length, the number of flyers or the
+plan it tries, edit `TRIAL` in `src/products/flyer/plans.ts`, or ask Claude.
 
 **Changing prices**: Supabase > Table Editor > `flyer_plans`. Prices are in
 **kobo** (₦1 = 100 kobo), so ₦4,500 is `450000`. `monthly_price_kobo` is the
