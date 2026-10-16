@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HistoryEntry } from "../product.js";
-import type { IncomingMessage } from "../whatsapp/types.js";
+import type { IncomingMessage, OwnerReply } from "../whatsapp/types.js";
 
 // Everything the core needs to save. Kept as an interface so tests can use an
 // in-memory version instead of a real database.
@@ -31,6 +31,16 @@ export interface MessageStore {
    * pre-approved template messages get through.
    */
   lastInboundAt(waId: string): Promise<Date | null>;
+  /**
+   * Saves a message the owner sent from the WhatsApp Business app. Returns
+   * "duplicate" if we've already saved it (Meta re-sent the webhook, or it is
+   * a copy of a message the bot itself sent).
+   */
+  recordOwnerReply(contactId: string, reply: OwnerReply): Promise<"new" | "duplicate">;
+  /** Keeps the bot quiet in this chat (our number + customer) until `until`. */
+  pauseChat(businessNumberId: string, waId: string, until: Date): Promise<void>;
+  /** Until when the bot is quiet in this chat, or null if it never was. */
+  chatPausedUntil(businessNumberId: string, waId: string): Promise<Date | null>;
 }
 
 // Postgres error code for "unique constraint violated".
@@ -109,6 +119,46 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         .maybeSingle();
       if (error) throw new Error(`lastInboundAt failed: ${error.message}`);
       return data ? new Date(data.created_at as string) : null;
+    },
+
+    async recordOwnerReply(contactId, reply) {
+      // Stored like any other message we sent, so the bot sees what the owner
+      // said when it picks the conversation back up.
+      const { error } = await db.from("messages").insert({
+        contact_id: contactId,
+        direction: "outbound",
+        wa_message_id: reply.waMessageId,
+        type: reply.type,
+        body: reply.text ?? null,
+        raw: reply.raw,
+      });
+      if (!error) return "new";
+      if (error.code === UNIQUE_VIOLATION) return "duplicate";
+      throw new Error(`recordOwnerReply failed: ${error.message}`);
+    },
+
+    async pauseChat(businessNumberId, waId, until) {
+      const { error } = await db.from("chat_pauses").upsert(
+        {
+          business_number_id: businessNumberId,
+          wa_id: waId,
+          paused_until: until.toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "business_number_id,wa_id" },
+      );
+      if (error) throw new Error(`pauseChat failed: ${error.message}`);
+    },
+
+    async chatPausedUntil(businessNumberId, waId) {
+      const { data, error } = await db
+        .from("chat_pauses")
+        .select("paused_until")
+        .eq("business_number_id", businessNumberId)
+        .eq("wa_id", waId)
+        .maybeSingle();
+      if (error) throw new Error(`chatPausedUntil failed: ${error.message}`);
+      return data ? new Date(data.paused_until as string) : null;
     },
   };
 }
