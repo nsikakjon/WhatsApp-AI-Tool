@@ -84,7 +84,7 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
 When a business also uses the WhatsApp Business app on the bot's number, the bot
 goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owner
 replies from the app, then answers again. Needs the `smb_message_echoes` webhook
-field and migration 0014. A password-protected sign-up page at `/signup`
+field and migration 0019. A password-protected sign-up page at `/signup`
 (`SIGNUP_PASSWORD`, off by default) connects a number through Meta's pop-up.
 See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 
