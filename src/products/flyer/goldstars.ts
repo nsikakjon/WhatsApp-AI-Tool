@@ -1,6 +1,7 @@
 // "Gold stars" birthday design: a warm gold card, a big round photo, the
 // birthday wish beside it, foil balloon stars and glitter. Unlike the other
 // designs it prints the wish on the flyer itself.
+import { drawCredit } from "./credit.js";
 import { createCanvas, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 
 export interface GoldStarsInput {
@@ -385,13 +386,7 @@ export async function renderGoldStars({
     ctx.drawImage(img, W - 50 - img.width * s, 15, img.width * s, img.height * s);
   }
 
-  if (credit) {
-    ctx.fillStyle = "rgba(60,40,10,0.7)";
-    ctx.font = '20px "Poppins"';
-    ctx.textAlign = "right";
-    ctx.fillText(credit, W - 40, H - 14);
-    ctx.textAlign = "left";
-  }
+  drawCredit(ctx, credit, W, H, "right", W - 40);
   return canvas.encode("jpeg", 90);
 }
 

@@ -1,6 +1,7 @@
 // Four birthday designs drawn with @napi-rs/canvas, the library the Flyer Bot uses, and only
 // the bot's own fonts (Poppins, Great Vibes). Every design takes the same input:
 //   { photo, name, dateLabel: "22 October", groupName, wish, credit }
+import { drawCredit } from "./credit.js";
 import {
   createCanvas,
   loadImage,
@@ -367,22 +368,13 @@ export function sparkle(ctx: Ctx, x: number, y: number, r: number, colour: strin
 export function creditLine(
   ctx: Ctx,
   credit: string | undefined,
-  colour: string,
+  _colour: string,
   align: CanvasTextAlign = "center",
   x = W / 2,
-  halo?: string,
+  _halo?: string,
 ) {
-  if (!credit) return;
-  ctx.save();
-  if (halo) {
-    ctx.shadowColor = halo;
-    ctx.shadowBlur = 8;
-  }
-  ctx.font = "20px Poppins";
-  ctx.fillStyle = colour;
-  ctx.textAlign = align;
-  ctx.fillText(credit, x, H - 14);
-  ctx.restore();
+  // Every design now shows the same yarnOga tag; the colour arguments are kept so the designs read the same.
+  drawCredit(ctx, credit, W, H, align, x);
 }
 
 // ---------- 1. Gala: dark cinematic photo, gold lettering, date seal ----------

@@ -3,6 +3,7 @@
 // Pure drawing code: it takes image bytes and text, and returns a JPEG.
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
+import { drawCredit } from "./credit.js";
 import { renderGoldStars, SAMPLE_WISH } from "./goldstars.js";
 import { personLayer, renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
 import { DESIGNS_7 } from "./designs7.js";
@@ -226,12 +227,7 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
     ctx.fillText(input.dateLabel, WIDTH / 2, y);
   }
 
-  if (style.credit) {
-    ctx.fillStyle = theme.muted;
-    fitText(ctx, style.credit, "Poppins", 22, WIDTH - 80);
-    ctx.textBaseline = "bottom";
-    ctx.fillText(style.credit, WIDTH / 2, HEIGHT - 18);
-  }
+  drawCredit(ctx, style.credit, WIDTH, HEIGHT);
 
   return canvas.encode("jpeg", 90);
 }
@@ -252,7 +248,7 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
 
   const pad = Math.round(width * 0.05);
   // Leave room for the small print under the caption.
-  const bottom = height - pad - (style.credit ? 24 : 0);
+  const bottom = height - pad - (style.credit ? 32 : 0);
 
   // Caption on a dark fade at the bottom so it reads on any photo.
   const caption = input.caption.trim();
@@ -294,13 +290,7 @@ export async function renderEventFlyer(input: EventFlyerInput): Promise<Buffer> 
       ctx.fillRect(pad, bottom - textHeight - 28, 120, 8);
     }
 
-    if (style.credit) {
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.textAlign = "right";
-      ctx.textBaseline = "bottom";
-      fitText(ctx, style.credit, "Poppins", 20, width - pad * 2);
-      ctx.fillText(style.credit, width - pad, height - 16);
-    }
+    drawCredit(ctx, style.credit, width, height, "right", width - pad);
   }
 
   // Logo in the top-right corner.
