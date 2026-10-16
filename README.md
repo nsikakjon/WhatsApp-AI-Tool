@@ -99,7 +99,7 @@ A password-protected page at `/dashboard` with live numbers for every product
 A password-protected web page at `/inbox` where staff see every chat on every
 number, read the conversation, reply, and take a chat over from the bot (the
 bot stays quiet until they hand it back). Switched on by `INBOX_PASSWORD`; needs
-migrations 0014 and 0015. See [docs/INBOX.md](docs/INBOX.md).
+migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 
 ## Setup
 
