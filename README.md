@@ -79,6 +79,12 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
 5. With open sign-up, anyone who messages the number can set up their own
    group, and the owner gets an alert for each sign-up.
 
+## Owner dashboard
+
+A password-protected page at `/dashboard` with live numbers for every product
+(chats, flyer groups and plans, sales, site updates, leads). Switched on by
+`DASHBOARD_PASSWORD`: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
 ## Setup
 
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
