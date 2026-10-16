@@ -105,7 +105,7 @@ async function handleMessage(
 
   // The owner is chatting with this customer from the WhatsApp Business app:
   // the message is saved (above) but the bot stays out of it.
-  if (await isPaused(deps, msg)) {
+  if (await isPaused(deps, msg, log)) {
     log.info(`Message ${msg.waMessageId} from ${mask(msg.from)}: owner is handling this chat, bot stays quiet`);
     return;
   }
@@ -158,10 +158,21 @@ async function handleOwnerReply(
   log.info(`Owner replied to ${mask(reply.to)}: bot paused in that chat for ${minutes} minutes`);
 }
 
-async function isPaused(deps: WebhookDeps, msg: IncomingMessage): Promise<boolean> {
+async function isPaused(
+  deps: WebhookDeps,
+  msg: IncomingMessage,
+  log: Pick<Console, "info" | "warn" | "error">,
+): Promise<boolean> {
   if (!deps.ownerReplyPauseMinutes || deps.ownerReplyPauseMinutes <= 0) return false;
-  const until = await deps.store.chatPausedUntil(msg.businessNumberId ?? "", msg.from);
-  return until !== null && until > now(deps);
+  try {
+    const until = await deps.store.chatPausedUntil(msg.businessNumberId ?? "", msg.from);
+    return until !== null && until > now(deps);
+  } catch (err) {
+    // E.g. the chat_pauses table hasn't been created yet. Better to answer
+    // than to leave every customer without a reply.
+    log.error("Could not check whether the owner is handling this chat:", err);
+    return false;
+  }
 }
 
 function now(deps: WebhookDeps): Date {

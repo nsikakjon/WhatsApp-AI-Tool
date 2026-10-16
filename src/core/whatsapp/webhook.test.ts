@@ -490,6 +490,15 @@ describe("owner replies from the WhatsApp Business app (coexistence)", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("still answers if the pause can't be checked (e.g. table missing)", async () => {
+    const { app, sent, store } = clockedSetup(60);
+    store.chatPausedUntil = async () => {
+      throw new Error('relation "chat_pauses" does not exist');
+    };
+    await send(app, textWebhook("wamid.c7", "Hello"));
+    expect(sent).toHaveLength(1);
+  });
+
   it("rejects an owner echo with a bad signature", async () => {
     const { app, pauses } = clockedSetup(60);
     const body = ownerEchoWebhook("wamid.o7", "Hi");
