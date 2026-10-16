@@ -28,6 +28,7 @@ import { createSupabaseFlyerStore } from "./products/flyer/store.js";
 import { createWishWriter } from "./products/flyer/wish.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 
 const config = loadConfig();
 
@@ -112,6 +113,7 @@ const app = createApp({
   ? {
       password: config.dashboard.password,
       stats: createSupabaseStats(supabase),
+      website: createSupabaseWebsiteStats(supabase),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
@@ -119,7 +121,11 @@ const app = createApp({
       }),
       tiktokApp: config.dashboard.tiktok,
     }
-  : undefined);
+  : undefined, {
+  store: createSupabaseVisitStore(supabase),
+  // Reuses an existing server secret to scramble the daily visitor code.
+  secret: config.whatsapp.appSecret,
+});
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
