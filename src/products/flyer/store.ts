@@ -17,6 +17,8 @@ export interface Group {
   plan: string;
   /** When a paid plan runs out; null for never. */
   planUntil: Date | null;
+  /** Finished flyers left in the group's free trial; null when it isn't on one. */
+  trialFlyersLeft: number | null;
 }
 
 export interface Member {
@@ -79,8 +81,12 @@ export interface FlyerStore {
   releaseBirthday(memberId: string, year: number): Promise<void>;
   /** Active groups whose name contains this text, for owners managing customers' groups. */
   findGroups(nameQuery: string): Promise<Group[]>;
-  /** Puts a group on a plan until a date (null: no end date). */
+  /** Puts a group on a plan until a date (null: no end date), ending any free trial. */
   setPlan(groupId: string, plan: string, until: Date | null): Promise<void>;
+  /** Starts a free trial: the plan until a date, or until this many flyers are made. */
+  startTrial(groupId: string, plan: string, until: Date, flyers: number): Promise<void>;
+  /** Saves how many free trial flyers a group has left. */
+  setTrialFlyersLeft(groupId: string, left: number): Promise<void>;
   adminCount(groupId: string): Promise<number>;
   /** Each plan's monthly price in kobo (null: price on request), from the database. */
   planPrices(): Promise<Map<string, number | null>>;
@@ -123,7 +129,7 @@ function toMember(row: MemberRow): Member {
   };
 }
 
-const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until";
+const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until, trial_flyers_left";
 
 interface GroupRow {
   id: string;
@@ -134,6 +140,7 @@ interface GroupRow {
   background_path: string | null;
   plan: string;
   plan_until: string | null;
+  trial_flyers_left: number | null;
 }
 
 function toGroup(row: GroupRow): Group {
@@ -146,6 +153,7 @@ function toGroup(row: GroupRow): Group {
     backgroundPath: row.background_path,
     plan: row.plan,
     planUntil: row.plan_until ? new Date(row.plan_until) : null,
+    trialFlyersLeft: row.trial_flyers_left,
   };
 }
 
@@ -319,9 +327,22 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     async setPlan(groupId, plan, until) {
       const { error } = await db
         .from("flyer_groups")
-        .update({ plan, plan_until: until ? until.toISOString() : null })
+        .update({ plan, plan_until: until ? until.toISOString() : null, trial_flyers_left: null })
         .eq("id", groupId);
       if (error) throw new Error(`setPlan failed: ${error.message}`);
+    },
+
+    async startTrial(groupId, plan, until, flyers) {
+      const { error } = await db
+        .from("flyer_groups")
+        .update({ plan, plan_until: until.toISOString(), trial_flyers_left: flyers })
+        .eq("id", groupId);
+      if (error) throw new Error(`startTrial failed: ${error.message}`);
+    },
+
+    async setTrialFlyersLeft(groupId, left) {
+      const { error } = await db.from("flyer_groups").update({ trial_flyers_left: left }).eq("id", groupId);
+      if (error) throw new Error(`setTrialFlyersLeft failed: ${error.message}`);
     },
 
     async adminCount(groupId) {

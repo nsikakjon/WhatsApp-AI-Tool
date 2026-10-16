@@ -4,6 +4,7 @@ import { basicAuth } from "hono/basic-auth";
 import { renderDashboard } from "./page.js";
 import type { SocialsSource } from "./socials.js";
 import type { StatsSource } from "./stats.js";
+import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
 // The owner's analytics page at /dashboard. The browser asks for a password
@@ -13,6 +14,8 @@ export interface DashboardDeps {
   password: string;
   stats: StatsSource;
   socials?: SocialsSource;
+  /** yarnoga.com visitor numbers. */
+  website?: WebsiteStatsSource;
   /** The TikTok developer app, for the one-time connect button. */
   tiktokApp?: TikTokApp;
   fetch?: typeof fetch;
@@ -36,8 +39,16 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials] = await Promise.all([deps.stats.load(now), deps.socials?.load(now) ?? []]);
-      return c.html(renderDashboard(stats, socials));
+      const [stats, socials, website] = await Promise.all([
+        deps.stats.load(now),
+        deps.socials?.load(now) ?? [],
+        // A website problem (say, the table isn't created yet) mustn't hide everything else.
+        deps.website?.load(now).catch((err) => {
+          log.error("Website visits failed to load:", err);
+          return "error" as const;
+        }),
+      ]);
+      return c.html(renderDashboard(stats, socials, website));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
