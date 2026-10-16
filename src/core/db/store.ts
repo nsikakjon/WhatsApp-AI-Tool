@@ -70,6 +70,20 @@ export function isPauseActive(pause: BotPause | null, now: Date): boolean {
 // Postgres error code for "unique constraint violated".
 const UNIQUE_VIOLATION = "23505";
 
+/**
+ * Saves a row in messages. If migration 0015 (which adds business_number_id)
+ * hasn't been run yet, saves it without the number instead of failing, so the
+ * bots keep answering while the database catches up.
+ */
+async function insertMessage(db: SupabaseClient, row: Record<string, unknown>) {
+  const result = await db.from("messages").insert(row);
+  if (result.error && result.error.message.includes("business_number_id")) {
+    const { business_number_id: _skipped, ...rest } = row;
+    return db.from("messages").insert(rest);
+  }
+  return result;
+}
+
 export function createSupabaseStore(db: SupabaseClient): MessageStore {
   return {
     async upsertContact(waId, name) {
@@ -85,7 +99,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
     },
 
     async recordInbound(contactId, msg) {
-      const { error } = await db.from("messages").insert({
+      const { error } = await insertMessage(db, {
         contact_id: contactId,
         direction: "inbound",
         wa_message_id: msg.waMessageId,
@@ -105,7 +119,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
     },
 
     async recordOutbound(contactId, out) {
-      const { error } = await db.from("messages").insert({
+      const { error } = await insertMessage(db, {
         contact_id: contactId,
         direction: "outbound",
         wa_message_id: out.waMessageId || null,
@@ -150,7 +164,7 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
     async recordOwnerReply(contactId, reply) {
       // Stored like any other message we sent, so the bot sees what the owner
       // said when it picks the conversation back up.
-      const { error } = await db.from("messages").insert({
+      const { error } = await insertMessage(db, {
         contact_id: contactId,
         direction: "outbound",
         wa_message_id: reply.waMessageId,

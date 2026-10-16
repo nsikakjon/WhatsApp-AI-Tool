@@ -31,8 +31,8 @@ write again.
    - `0014_owner_reply_pause.sql` (the per-chat pause the bot checks)
    - `0015_inbox.sql` (records which number each message went through)
 
-   Run them **before** the new code goes live: from this version the server
-   saves the number with every message, and that fails until 0015 has run.
+   The bots keep working if you forget, but the inbox page needs both, and
+   messages saved before 0015 runs aren't tagged with their number.
 2. **Railway** > your service > Variables: add `INBOX_PASSWORD` with a long
    password (at least 12 characters). Staff all use this one password.
 3. Open `https://<your-railway-address>/inbox` and log in.
