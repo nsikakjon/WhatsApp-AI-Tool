@@ -51,6 +51,22 @@ completely and runs exactly as it did before.
    replaces the whole old one; items taken off are switched off, not deleted,
    so old orders still read correctly.
 
+### Let AI draft the price list (optional)
+
+With `QUOTE_SETUP_AI_DRAFT=true` on Railway (and `ANTHROPIC_API_KEY` set), the
+price list page also has **Let AI draft it**. The owner describes what they
+sell with their prices (e.g. "Cupcakes N600 each, box of 6 for N3,500"), or
+adds up to 3 photos or screenshots of their price list. The AI writes it out
+as rows in the "type it here" box. Nothing is saved: the owner corrects the
+rows, presses **Check it**, then **Save this price list**, as above.
+
+- The AI is told to copy prices, never to make them up. When the owner only
+  typed text, any price that isn't in their text is left empty, so the AI
+  can't slip in a price of its own. Prices read from a photo can't be checked
+  that way, so the page asks the owner to check every price.
+- At most `QUOTE_SETUP_AI_DRAFTS_PER_DAY` drafts a day (default 30) across
+  all businesses, so the AI bill stays small.
+
 The main number's business (#1) keeps its name and alert number on Railway,
 so the screen only lets you change its price list.
 
