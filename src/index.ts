@@ -25,6 +25,10 @@ import { createLeadQualifier } from "./products/leads/index.js";
 import { createSupabaseLeadStore } from "./products/leads/store.js";
 import { createClaudeLeadUnderstander } from "./products/leads/understand.js";
 import { runEvery } from "./core/schedule.js";
+import { createTestBots } from "./bottest/bots.js";
+import { loadBotTestConfig } from "./bottest/config.js";
+import { createBotTest } from "./bottest/index.js";
+import { createSupabaseMarkStore } from "./bottest/store.js";
 import {
   canMessageFreely,
   sendAndRecord,
@@ -246,6 +250,23 @@ if (siteReporter && siteConfig) {
       }
     }
   });
+}
+
+// The owner test screen at /bot-test (BOT_TEST_PASSWORD): try a bot on common
+// customer questions before it goes live. It never sends WhatsApp messages.
+const botTest = loadBotTestConfig();
+if (botTest.status === "weak") console.warn("Bot test screen is OFF: BOT_TEST_PASSWORD must be at least 12 characters");
+if (botTest.status === "on") {
+  app.route(
+    "/bot-test",
+    createBotTest({
+      password: botTest.password,
+      dailyLimit: botTest.dailyLimit,
+      bots: createTestBots(supabase, config),
+      marks: createSupabaseMarkStore(supabase),
+    }),
+  );
+  console.log("Bot test screen: on at /bot-test");
 }
 
 // Every 5 minutes, send any birthday flyers that are due to group admins.
