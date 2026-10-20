@@ -1,4 +1,4 @@
-import type { OutgoingImage, OutgoingList } from "./whatsapp/client.js";
+import type { OutgoingButtons, OutgoingImage, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
 // The contract every product module (echo, quote bot, site reporter, lead
@@ -12,12 +12,29 @@ export interface Reply {
   images?: OutgoingImage[];
   /** A tappable list of choices, sent after the pictures. */
   list?: OutgoingList;
+  /** A message with up to 3 buttons, sent after the pictures. */
+  buttons?: OutgoingButtons;
+  /** A message with a "Send location" button, sent last. This is its text. */
+  locationRequest?: string;
   /**
    * Extra messages to other people, e.g. a new-order alert to the business
    * owner, or a receipt to a customer. The core sends these after the main
-   * reply: the text, then any pictures.
+   * reply.
    */
-  notify?: Array<{ to: string; text: string; images?: OutgoingImage[] }>;
+  notify?: Notice[];
+}
+
+/** A message to someone other than the sender: the text, then any pictures, then any buttons. */
+export interface Notice {
+  to: string;
+  text: string;
+  images?: OutgoingImage[];
+  buttons?: OutgoingButtons;
+  /**
+   * Sent instead when the person hasn't messaged us in the last day, since
+   * WhatsApp only delivers approved templates then.
+   */
+  template?: OutgoingTemplate;
 }
 
 /** One earlier message in the conversation, oldest first. */
@@ -39,6 +56,8 @@ export interface ProductContext {
    * answering (e.g. importing a whole spreadsheet). Errors are logged, not thrown.
    */
   sendLater(reply: Reply): Promise<void>;
+  /** True if this person messaged us in the last day, so WhatsApp will deliver an ordinary message to them. */
+  canMessageFreely(waId: string): Promise<boolean>;
 }
 
 export interface Product {

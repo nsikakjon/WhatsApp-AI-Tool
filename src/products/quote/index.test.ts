@@ -119,6 +119,7 @@ const ctx = {
   history: [],
   downloadMedia: async () => ({ data: new Blob([]), mimeType: "image/jpeg" }),
   sendLater: async () => {},
+  canMessageFreely: async () => true,
 };
 
 describe("quote product", () => {

@@ -33,6 +33,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           text: msg.type === "text" ? msg.text?.body : msg.type === "interactive" ? choiceId(msg.interactive) : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
+          location: pin(msg.location),
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -40,6 +41,18 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
     }
   }
   return result;
+}
+
+function pin(location: WebhookMessage["location"]): IncomingMessage["location"] {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!location || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  return {
+    latitude,
+    longitude,
+    ...(location.name ? { name: location.name } : {}),
+    ...(location.address ? { address: location.address } : {}),
+  };
 }
 
 // With WhatsApp coexistence (the owner keeps the WhatsApp Business app on the
@@ -111,4 +124,5 @@ interface WebhookMessage {
   document?: { id?: string; caption?: string };
   video?: { id?: string; caption?: string };
   interactive?: InteractiveReply;
+  location?: { latitude?: number | string; longitude?: number | string; name?: string; address?: string };
 }

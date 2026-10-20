@@ -30,6 +30,16 @@ export interface WhatsAppClient {
    * is that choice's id (see parse.ts).
    */
   sendList(to: string, list: OutgoingList, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a message with up to 3 buttons under it. A tap comes back like a
+   * list choice: a message whose text is the button's id.
+   */
+  sendButtons(to: string, buttons: OutgoingButtons, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a message with a "Send location" button. The person's pin comes
+   * back as an ordinary location message.
+   */
+  sendLocationRequest(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
@@ -54,6 +64,13 @@ export interface OutgoingList {
   rows: Array<{ id: string; title: string; description?: string }>;
 }
 
+export interface OutgoingButtons {
+  /** The message above the buttons (up to 1024 characters). */
+  body: string;
+  /** At most 3. `id` comes back as the message text when tapped; titles are cut to 20 characters. */
+  buttons: Array<{ id: string; title: string }>;
+}
+
 export interface OutgoingTemplate {
   /** The template's name in WhatsApp Manager, e.g. "birthday_flyer". */
   name: string;
@@ -71,6 +88,8 @@ export interface WhatsAppClientOptions {
   graphApiVersion: string;
   fetch?: typeof fetch;
 }
+
+const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
 export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClient {
   const doFetch = opts.fetch ?? fetch;
@@ -147,7 +166,6 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     },
 
     async sendList(to, list, fromNumberId) {
-      const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
       const rows = list.rows.slice(0, 10).map((r) => ({
         id: r.id.slice(0, 200),
         title: cut(r.title, 24),
@@ -161,6 +179,30 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
           body: { text: cut(list.body, 1024) },
           action: { button: cut(list.button, 20), sections: [{ title: cut(list.button, 24), rows }] },
         },
+      });
+    },
+
+    async sendButtons(to, message, fromNumberId) {
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: cut(message.body, 1024) },
+          action: {
+            buttons: message.buttons
+              .slice(0, 3)
+              .map((b) => ({ type: "reply", reply: { id: b.id.slice(0, 256), title: cut(b.title, 20) } })),
+          },
+        },
+      });
+    },
+
+    async sendLocationRequest(to, body, fromNumberId) {
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: { type: "location_request_message", body: { text: cut(body, 1024) }, action: { name: "send_location" } },
       });
     },
 

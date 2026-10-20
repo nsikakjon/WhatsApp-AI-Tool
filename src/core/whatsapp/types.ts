@@ -25,6 +25,12 @@ export interface IncomingMessage {
   transcribed?: boolean;
   /** WhatsApp's id for an attached file (voice note, image, ...), used to download it. */
   mediaId?: string;
+  /**
+   * A location pin the sender dropped (attach > Location > Send your current
+   * location, or a place they picked). WhatsApp only passes one fixed pin to
+   * bots: live location arrives as type "unsupported" with no coordinates.
+   */
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
   /** Unix time (seconds) WhatsApp says the message was sent. */
   timestamp: number;
   /** The original message object from Meta, kept for logging and storage. */

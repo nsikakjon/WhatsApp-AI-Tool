@@ -87,6 +87,14 @@ function setup(
       sent.push({ to, body: `[list] ${list.body} | ${list.rows.map((r) => r.id).join(", ")}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
+    async sendButtons(to, message) {
+      sent.push({ to, body: `[buttons] ${message.body} | ${message.buttons.map((b) => b.id).join(", ")}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendLocationRequest(to, body) {
+      sent.push({ to, body: `[location request] ${body}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
     async downloadMedia(mediaId) {
       if (mediaId === "broken") throw new Error("download failed");
       return { data: new Blob(["audio"]), mimeType: "audio/ogg" };
@@ -364,6 +372,65 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
       { to: "2348099999999", body: "Thanks for paying" },
       { to: "2348099999999", body: "[image] Receipt" },
     ]);
+  });
+
+  it("sends buttons and a location request after the text", async () => {
+    const asking: Product = {
+      name: "asking",
+      handle: async () => ({
+        text: "Your total",
+        buttons: { body: "Confirm?", buttons: [{ id: "yes", title: "Confirm order" }] },
+        locationRequest: "Where should we deliver?",
+      }),
+    };
+    const { app, sent, outbound } = setup(asking);
+    const body = textWebhook("wamid.buttons", "yes");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["Your total", "[buttons] Confirm? | yes", "[location request] Where should we deliver?"]);
+    expect(outbound).toEqual(["Your total", "Confirm?", "Where should we deliver?"]);
+  });
+
+  it("sends a notice's template to someone who hasn't messaged in the last day", async () => {
+    const notifying: Product = {
+      name: "notifying",
+      handle: async (_msg, ctx) => ({
+        text: (await ctx.canMessageFreely("2348099999999")) ? "can reach" : "can't reach",
+        notify: [
+          {
+            to: "2348099999999",
+            text: "On its way",
+            buttons: { body: "Done?", buttons: [{ id: "delivered 1001", title: "Delivered" }] },
+            template: { name: "order_update", language: "en", bodyParams: ["KP-1001", "KahnPrints", "On its way"] },
+          },
+        ],
+      }),
+    };
+    const { app, sent } = setup(notifying);
+    const body = textWebhook("wamid.notice", "Hi");
+    await post(app, body, sign(body));
+    expect(sent).toEqual([
+      { to: "2348012345678", body: "can't reach" },
+      { to: "2348099999999", body: "[template] order_update" },
+    ]);
+  });
+
+  it("passes a location pin to the product", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.pin", timestamp: "1", type: "location",
+          location: { latitude: 6.6018, longitude: 3.3515, name: "Computer Village", address: "Ikeja, Lagos" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({
+      type: "location",
+      location: { latitude: 6.6018, longitude: 3.3515, name: "Computer Village", address: "Ikeja, Lagos" },
+    });
   });
 
   function voiceWebhook(id: string, mediaId: string) {

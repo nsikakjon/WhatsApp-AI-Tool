@@ -3,7 +3,7 @@ import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
 import type { WhatsAppClient } from "./client.js";
-import { sendAndRecord, sendImageAndRecord } from "./outbox.js";
+import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
 import { extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
@@ -130,6 +130,7 @@ async function handleMessage(
         log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
       }
     },
+    canMessageFreely: (waId) => canMessageFreely(deps.store, waId, now(deps)),
   });
   if (!reply) return;
   await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
@@ -182,7 +183,7 @@ function now(deps: WebhookDeps): Date {
   return deps.now ? deps.now() : new Date();
 }
 
-/** Sends a product's reply: its text, then its pictures, then any list of choices, then any alerts to other people. */
+/** Sends a product's reply: its text, its pictures, any list or buttons, any location request, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
   to: string,
@@ -216,13 +217,32 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   }
+  if (reply.buttons) {
+    const sent = await deps.whatsapp.sendButtons(to, reply.buttons, fromNumber);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "interactive",
+      body: reply.buttons.body,
+      raw: sent.raw,
+      businessNumberId: fromNumber,
+    });
+  }
+  if (reply.locationRequest) {
+    const sent = await deps.whatsapp.sendLocationRequest(to, reply.locationRequest, fromNumber);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "interactive",
+      body: reply.locationRequest,
+      raw: sent.raw,
+      businessNumberId: fromNumber,
+    });
+  }
 
   // Alerts to other people (e.g. the business owner). A failed alert is logged
   // but doesn't undo the customer's reply, which has already gone out.
   for (const note of reply.notify ?? []) {
     try {
-      if (note.text) await sendAndRecord(deps, note.to, note.text, fromNumber);
-      for (const image of note.images ?? []) await sendImageAndRecord(deps, note.to, image, fromNumber);
+      await sendNotice(deps, note, fromNumber);
     } catch (err) {
       log.error(`Failed to send notification to ${note.to}:`, err);
     }
