@@ -19,7 +19,7 @@ A **business portfolio** (what Meta used to call Business Manager) holds
 | Number | Used for | WhatsApp account | Status |
 | --- | --- | --- | --- |
 | +234 811 433 0749 | KahnPrints quote bot (business #1) | "Kahn Prints", ID 1463401605808243 | Live |
-| +234 704 385 8494 | yarnOga Flyers | "KahnPrints", ID 2332559297282667 | Live |
+| +234 704 385 7494 | yarnOga Flyers | "KahnPrints", ID 2332559297282667 | Live |
 | +234 701 326 2131 | Quote bot demo (yarnOga Demo Shop) | add to 2332559297282667 | To do (step 4) |
 | Site reporter number (not chosen yet) | yarnOga Site Reporter | add to 2332559297282667 | Later (step 9) |
 
