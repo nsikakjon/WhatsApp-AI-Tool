@@ -5,6 +5,7 @@ import { createDashboard, type DashboardDeps } from "./dashboard/index.js";
 import { createSignup, type SignupDeps } from "./signup/index.js";
 import { createReplyGenerator, type GeneratorDeps } from "./generator/index.js";
 import { createVisitCounter, type VisitCounterDeps } from "./dashboard/visits.js";
+import { createTracking, type TrackingDeps } from "./products/quote/delivery/tracking.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -13,6 +14,7 @@ export function createApp(
   generator?: GeneratorDeps,
   signup?: SignupDeps,
   inbox?: InboxDeps,
+  tracking?: TrackingDeps,
 ) {
   const app = new Hono();
 
@@ -35,6 +37,9 @@ export function createApp(
 
   // The staff inbox web page, only when INBOX_PASSWORD is set.
   if (inbox) app.route("/inbox", createInbox(inbox));
+
+  // Delivery tracking pages for riders and customers, only when QUOTE_DELIVERY is on.
+  if (tracking) app.route("/", createTracking(tracking));
 
   return app;
 }
