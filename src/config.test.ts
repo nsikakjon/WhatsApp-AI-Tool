@@ -77,6 +77,23 @@ describe("loadConfig", () => {
     });
   });
 
+  it("switches Paystack on only with a secret key, and then needs the rest", () => {
+    expect(loadConfig(base).paystack).toBeUndefined();
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "pk_test_abc" })).toThrow("not the public key");
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc" })).toThrow("PUBLIC_URL");
+    expect(() =>
+      loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc", PUBLIC_URL: "https://bot.example.com" }),
+    ).toThrow("PAYSTACK_CUSTOMER_EMAIL");
+    expect(
+      loadConfig({
+        ...base,
+        PAYSTACK_SECRET_KEY: "sk_test_abc",
+        PUBLIC_URL: "https://bot.example.com/",
+        PAYSTACK_CUSTOMER_EMAIL: "payments@example.com",
+      }).paystack,
+    ).toEqual({ secretKey: "sk_test_abc", publicUrl: "https://bot.example.com", customerEmail: "payments@example.com" });
+  });
+
   it("rejects an unknown product", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "pizza" })).toThrow("ACTIVE_PRODUCT");
   });
