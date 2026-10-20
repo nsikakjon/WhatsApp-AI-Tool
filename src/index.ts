@@ -40,6 +40,9 @@ import { createSocials } from "./dashboard/socials.js";
 import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
+import { createPaystackClient } from "./core/payments/paystack.js";
+import { createPayments, type PaidHandler } from "./core/payments/payments.js";
+import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
 
@@ -123,6 +126,26 @@ const leadQualifier = leadsConfig
     })
   : undefined;
 
+const store = createSupabaseStore(supabase);
+const whatsapp = createWhatsAppClient(config.whatsapp);
+
+// Paystack checkout links, when PAYSTACK_SECRET_KEY is set. Each product that
+// sells something adds what happens once it's paid, and the WhatsApp number
+// its messages about the payment come from.
+const paidHandlers: Record<string, PaidHandler> = {};
+const productNumbers: Record<string, string> = {};
+const paystackConfig = config.paystack;
+const payments = paystackConfig
+  ? createPayments({
+      paystack: createPaystackClient(paystackConfig),
+      store: createSupabasePaymentStore(supabase),
+      callbackUrl: `${paystackConfig.publicUrl}/payments/done`,
+      customerEmail: paystackConfig.customerEmail,
+      onPaid: paidHandlers,
+      send: (product, to, text) => sendAndRecord({ store, whatsapp }, to, text, productNumbers[product]),
+    })
+  : undefined;
+
 // The flyer bot answers its own WhatsApp number (FLYER_PHONE_NUMBER_ID).
 const flyerConfig = config.flyer;
 const flyerBot = flyerConfig
@@ -135,11 +158,13 @@ const flyerBot = flyerConfig
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
       trial: TRIAL,
+      payments,
     })
   : undefined;
-
-const store = createSupabaseStore(supabase);
-const whatsapp = createWhatsAppClient(config.whatsapp);
+if (flyerBot && flyerConfig) {
+  paidHandlers.flyer = flyerBot.planPaid;
+  productNumbers.flyer = flyerConfig.phoneNumberId;
+}
 
 // Our WhatsApp numbers as the staff inbox labels them, main number first.
 const numbers = [
@@ -208,7 +233,7 @@ const app = createApp({
       whatsapp,
       numbers,
     }
-  : undefined);
+  : undefined, payments && paystackConfig ? { payments, secretKey: paystackConfig.secretKey } : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -256,6 +281,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"})`,
   );
 });
