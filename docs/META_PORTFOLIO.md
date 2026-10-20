@@ -19,16 +19,13 @@ A **business portfolio** (what Meta used to call Business Manager) holds
 | Number | Used for | WhatsApp account | Status |
 | --- | --- | --- | --- |
 | +234 811 433 0749 | KahnPrints quote bot (business #1) | "Kahn Prints", ID 1463401605808243 | Live |
-| +234 704 385 7494 (see note) | yarnOga Flyers | "KahnPrints", ID 2332559297282667 | Live |
+| +234 704 385 8494 | yarnOga Flyers | "KahnPrints", ID 2332559297282667 | Live |
 | +234 701 326 2131 | Quote bot demo (yarnOga Demo Shop) | add to 2332559297282667 | To do (step 4) |
 | Site reporter number (not chosen yet) | yarnOga Site Reporter | add to 2332559297282667 | Later (step 9) |
 
 The yarnOga numbers go together in one WhatsApp account, and KahnPrints keeps
 its own, because KahnPrints is a client that happens to be ours. If a real
 client ever moves away, its account can go with it without touching yarnOga.
-
-Note: our records say the flyer number is **+234 704 385 7494**. It was also
-typed once as +234 704 385 **8494**. Check which one WhatsApp Manager shows.
 
 Two things are now shared across the whole portfolio, not per number:
 
