@@ -18,6 +18,9 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
+import { createDispatch } from "./products/quote/delivery/index.js";
+import { createSupabaseDeliveryStore } from "./products/quote/delivery/store.js";
+import { createTrackingLinks } from "./products/quote/delivery/tracking.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -29,6 +32,7 @@ import {
   canMessageFreely,
   sendAndRecord,
   sendImageAndRecord,
+  sendNotice,
   sendTemplateAndRecord,
 } from "./core/whatsapp/outbox.js";
 import { createFlyerBot, forwardTip } from "./products/flyer/index.js";
@@ -52,8 +56,14 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// With QUOTE_DELIVERY on, each business's quote bot asks where to deliver and
+// the owner sends their own riders out (see docs/DELIVERY.md).
+const delivery = config.activeProduct === "quote" ? config.delivery : undefined;
+const trackingLinks = delivery && createTrackingLinks(config.whatsapp.appSecret, delivery.publicUrl);
+
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
+  const orders = createSupabaseOrders(supabase, mainBusinessId);
   product = createQuoteProduct({
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
@@ -62,7 +72,20 @@ if (config.activeProduct === "quote" && config.quote) {
     paymentDetails: config.quote.paymentDetails,
     branding: createSupabaseBranding(supabase, mainBusinessId),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
-    orders: createSupabaseOrders(supabase, mainBusinessId),
+    orders,
+    delivery:
+      delivery && trackingLinks
+        ? createDispatch({
+            businessName: config.quote.businessName,
+            orderPrefix: config.quote.orderPrefix,
+            ownerWaId: config.quote.ownerWaId,
+            pickup: config.quote.businessDetails,
+            store: createSupabaseDeliveryStore(supabase, DEFAULT_BUSINESS_ID),
+            orders,
+            links: trackingLinks,
+            template: delivery.template,
+          })
+        : undefined,
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
@@ -78,8 +101,9 @@ if (quoteBusinesses) {
     businesses: createSupabaseBusinesses(supabase),
     fallback: product,
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
-    build: (business) =>
-      createQuoteProduct({
+    build: (business) => {
+      const orders = createSupabaseOrders(supabase, business.id);
+      return createQuoteProduct({
         businessName: business.name,
         orderPrefix: business.orderPrefix,
         ownerWaId: business.ownerWaId ?? undefined,
@@ -87,14 +111,29 @@ if (quoteBusinesses) {
         paymentDetails: business.paymentDetails ?? undefined,
         branding: createSupabaseBranding(supabase, business.id),
         catalog: createSupabaseCatalog(supabase, business.id),
-        orders: createSupabaseOrders(supabase, business.id),
+        orders,
+        delivery:
+          delivery && trackingLinks
+            ? createDispatch({
+                businessName: business.name,
+                orderPrefix: business.orderPrefix,
+                ownerWaId: business.ownerWaId ?? undefined,
+                pickup: business.businessDetails ?? undefined,
+                fromNumberId: business.phoneNumberId ?? undefined,
+                store: createSupabaseDeliveryStore(supabase, business.id),
+                orders,
+                links: trackingLinks,
+                template: delivery.template,
+              })
+            : undefined,
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
           businessName: business.name,
           description: business.description ?? undefined,
         }),
-      }),
+      });
+    },
   });
 }
 
@@ -208,6 +247,23 @@ const app = createApp({
       whatsapp,
       numbers,
     }
+  : undefined, delivery
+  ? {
+      secret: config.whatsapp.appSecret,
+      publicUrl: delivery.publicUrl,
+      // Any business's delivery, looked up by the id in the signed link.
+      store: createSupabaseDeliveryStore(supabase),
+      template: delivery.template,
+      send: async (notices, fromNumberId) => {
+        for (const note of notices) {
+          try {
+            await sendNotice({ store, whatsapp }, note, fromNumberId ?? undefined);
+          } catch (err) {
+            console.error(`Failed to send a delivery update to ...${note.to.slice(-4)}:`, err);
+          }
+        }
+      },
+    }
   : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -256,6 +312,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, delivery: ${delivery ? "on" : "off"})`,
   );
 });

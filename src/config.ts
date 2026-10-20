@@ -49,6 +49,16 @@ export interface Config {
     model: string;
   };
   /**
+   * Delivery for the quote bot: address and fee before the order, riders sent
+   * out from WhatsApp, and tracking pages. Only set when QUOTE_DELIVERY is true.
+   */
+  delivery?: {
+    /** This server's public address, used in tracking links. */
+    publicUrl: string;
+    /** Approved template for delivery updates to people who haven't messaged in 24 hours. */
+    template?: { name: string; language: string };
+  };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -205,6 +215,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
+    delivery: /^(true|yes|on|1)$/i.test(env.QUOTE_DELIVERY ?? "")
+      ? {
+          publicUrl: publicUrl(required(env, "PUBLIC_URL")),
+          template: env.QUOTE_DELIVERY_TEMPLATE_NAME
+            ? { name: env.QUOTE_DELIVERY_TEMPLATE_NAME, language: env.QUOTE_DELIVERY_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
+        }
+      : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
@@ -280,6 +298,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
   };
+}
+
+function publicUrl(value: string): string {
+  const url = value.trim().replace(/\/+$/, "");
+  if (!/^https:\/\/[^/\s]+$/.test(url)) {
+    throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://example.up.railway.app (got "${value}")`);
+  }
+  return url;
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {

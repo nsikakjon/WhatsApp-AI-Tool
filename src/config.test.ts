@@ -32,6 +32,16 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps delivery off unless QUOTE_DELIVERY is true, and then needs the public address", () => {
+    expect(loadConfig(base).delivery).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true" })).toThrow("PUBLIC_URL");
+    expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true", PUBLIC_URL: "http://bot.example.com/track" })).toThrow("PUBLIC_URL");
+    expect(
+      loadConfig({ ...base, QUOTE_DELIVERY: "true", PUBLIC_URL: "https://bot.example.com/", QUOTE_DELIVERY_TEMPLATE_NAME: "order_update" })
+        .delivery,
+    ).toEqual({ publicUrl: "https://bot.example.com", template: { name: "order_update", language: "en" } });
+  });
+
   it("keeps more quote businesses off unless QUOTE_MULTI_BUSINESS is true", () => {
     expect(loadConfig(base).quoteBusinesses).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true" })).toThrow("ANTHROPIC_API_KEY");
