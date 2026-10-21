@@ -123,6 +123,18 @@ describe("bot test screen", () => {
     expect((await app.request("/marks?bot=quote", { headers: AUTH })).status).toBe(503);
   });
 
+  it("page script is valid and calls /bot-test/..., not the site root", () => {
+    const html = renderTestPage(["quote", "leads"]);
+    const script = html.slice(html.indexOf("<script>") + 8, html.indexOf("</script>"));
+    expect(() => new Function(script)).not.toThrow();
+    // The page is opened at /bot-test, so a bare "ask" would go to /ask.
+    expect(script).toContain("fetch(BASE + path");
+    const base = /const BASE = (.*);/.exec(script)![1]!;
+    const at = (pathname: string) => new Function("location", `return ${base};`)({ pathname });
+    expect(at("/bot-test")).toBe("/bot-test/");
+    expect(at("/bot-test/")).toBe("/bot-test/");
+  });
+
   it("puts the starter questions on the page safely", () => {
     const html = renderTestPage(["quote", "leads"]);
     expect(DEFAULT_QUESTIONS.quote.length).toBeGreaterThanOrEqual(20);
