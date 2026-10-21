@@ -4,6 +4,7 @@ import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
+import type { PlanGate } from "./plan.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
 
@@ -21,6 +22,10 @@ import type { Understander } from "./understand.js";
 //
 // The owner can also send the business logo (a photo captioned "logo"), and
 // "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print.
+//
+// With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
+// orders after its monthly limit and adds a "Powered by yarnOga" line, and
+// the owner can send "plan" to see their use and how to upgrade.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -39,6 +44,8 @@ export interface QuoteProductOptions {
   paymentDetails?: string;
   /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
   renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
+  /** The business's plan (order limit, credit line). Without it, no limits apply. */
+  plan?: PlanGate;
   log?: Pick<Console, "error">;
 }
 
@@ -136,6 +143,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
 
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
+    const credit = opts.plan ? await opts.plan.credit() : null;
     const text = [
       `Here's your quote (${ref(order)}):`,
       "",
@@ -146,15 +154,42 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       ...(manualNote ? ["", manualNote] : []),
       "",
       "Reply YES to place this order, or tell me what to change.",
+      ...(credit ? ["", credit] : []),
     ].join("\n");
     return notify ? { text, notify } : { text };
   }
 
   async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
-    if (!order || !(await opts.orders.setStatus(order.id, "confirmed"))) {
-      return { text: "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one." };
+    const noQuote = { text: "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one." };
+    if (!order) return noQuote;
+
+    // Over the plan's monthly limit: the quote stays open and the owner takes
+    // it from here, so the sale isn't lost.
+    const check = opts.plan ? await opts.plan.checkOrder() : ({ allowed: true, warning: null } as const);
+    if (!check.allowed) {
+      return {
+        text: `Thank you! The ${opts.businessName} team will contact you shortly to complete order ${ref(order)} (total ${formatNaira(order.totalKobo)}).`,
+        ...(opts.ownerWaId
+          ? {
+              notify: [
+                {
+                  to: opts.ownerWaId,
+                  text: [
+                    `${name ?? "A customer"} (+${waId}) wants to order ${ref(order)}:`,
+                    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
+                    `Total: ${formatNaira(order.totalKobo)}`,
+                    "",
+                    `You've used all ${check.limit} orders on your ${check.planName} plan this month, so I haven't confirmed it or sent an invoice. Please reply to them yourself. Send *paid ${ref(order)}* once they've paid, or *plan* to see how to upgrade.`,
+                  ].join("\n"),
+                },
+              ],
+            }
+          : {}),
+      };
     }
+
+    if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
 
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() });
     const reply: Reply = {
@@ -163,6 +198,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment and delivery.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
+    const credit = opts.plan ? await opts.plan.credit() : null;
+    if (credit) reply.text += `\n\n${credit}`;
     if (opts.ownerWaId) {
       reply.notify = [
         {
@@ -173,6 +210,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
             `Total: ${formatNaira(order.totalKobo)}`,
             "",
             `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
+            ...(check.warning ? ["", check.warning] : []),
           ].join("\n"),
         },
       ];
@@ -231,6 +269,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
 
     const text = (msg.text ?? "").trim();
+    if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
     const command = text.match(/^(invoice|receipt|paid)\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
     if (!command) return null;

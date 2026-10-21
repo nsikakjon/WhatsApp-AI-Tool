@@ -77,6 +77,12 @@ describe("loadConfig", () => {
     });
   });
 
+  it("reads the quote plan, off when unset", () => {
+    const quote = { ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a" };
+    expect(loadConfig(quote).quote?.plan).toBeUndefined();
+    expect(loadConfig({ ...quote, QUOTE_PLAN: " Free " }).quote?.plan).toBe("free");
+  });
+
   it("switches Paystack on only with a secret key, and then needs the rest", () => {
     expect(loadConfig(base).paystack).toBeUndefined();
     expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "pk_test_abc" })).toThrow("not the public key");
