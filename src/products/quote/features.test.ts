@@ -36,6 +36,12 @@ describe("plan features", () => {
     expect(await f.has("voice_notes")).toBe(false);
   });
 
+  it("uses a plan paid for in the chat over QUOTE_PLAN", async () => {
+    const f = createPlanFeatures({ code: "free", store: store({ businessPlanCode: async () => "starter" }) });
+    expect(await f.planCode()).toBe("starter");
+    expect(await f.has("voice_notes")).toBe(true);
+  });
+
   it("treats a feature with no row as included with no cap", async () => {
     const f = createPlanFeatures({ code: "free", store: store() });
     expect(await f.has("broadcasts")).toBe(true);

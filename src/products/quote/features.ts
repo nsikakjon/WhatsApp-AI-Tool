@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readBusinessPlanCode } from "./plan.js";
 
 // What each quote bot plan includes: AI credits, number of products, voice
 // notes, invoices, staff inbox, follow-ups, broadcasts, test screen.
@@ -62,14 +63,16 @@ const EVERYTHING: FeatureRow = { included: true, usageLimit: null };
 export function createPlanFeatures(opts: PlanFeaturesOptions): PlanFeatures {
   const log = opts.log ?? console;
 
+  // Same rule as plan.ts: a plan paid for in the chat (saved on the
+  // business's row) wins over QUOTE_PLAN.
   async function planCode(): Promise<string | null> {
-    if (opts.code) return opts.code;
     try {
-      return await opts.store.businessPlanCode();
+      const saved = await opts.store.businessPlanCode();
+      if (saved) return saved;
     } catch (err) {
       log.error("Could not read the business's plan:", err);
-      return null;
     }
+    return opts.code ?? null;
   }
 
   async function row(feature: PlanFeature): Promise<FeatureRow> {
@@ -96,11 +99,7 @@ export function createPlanFeatures(opts: PlanFeaturesOptions): PlanFeatures {
 
 export function createSupabaseFeatureStore(db: SupabaseClient, businessId: string): FeatureStore {
   return {
-    async businessPlanCode() {
-      const { data, error } = await db.from("quote_businesses").select("plan_code").eq("id", businessId).maybeSingle();
-      if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-      return (data?.plan_code as string | null | undefined) ?? null;
-    },
+    businessPlanCode: () => readBusinessPlanCode(db, businessId),
     async feature(planCode, feature) {
       const { data, error } = await db
         .from("quote_plan_features")

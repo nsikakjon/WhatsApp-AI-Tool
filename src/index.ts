@@ -24,8 +24,13 @@ import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js"
 import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
+import {
+  createPlanGate,
+  createPlanPaidHandler,
+  createSupabasePlanPayments,
+  createSupabasePlanStore,
+} from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
-import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
 import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSiteReporter } from "./products/site/index.js";
@@ -56,7 +61,7 @@ import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboar
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
-import { createPayments, type PaidHandler } from "./core/payments/payments.js";
+import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
@@ -70,6 +75,12 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// Paystack links for quote plan upgrades. `payments` is set up further down;
+// the link is only asked for when an owner sends "upgrade ...".
+const planCheckout = (businessId: string) =>
+  config.paystack
+    ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
+    : undefined;
 // Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
 // is exactly as before.
 const broadcastConfig = config.broadcasts;
@@ -114,7 +125,12 @@ if (config.activeProduct === "quote" && config.quote) {
     orders: createSupabaseOrders(supabase, mainBusinessId),
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
-      ? createPlanGate({ code: config.quote.plan, store: createSupabasePlanStore(supabase, mainBusinessId) })
+      ? createPlanGate({
+          code: config.quote.plan,
+          // Business #1's row holds any plan it paid for in the chat.
+          store: createSupabasePlanStore(supabase, DEFAULT_BUSINESS_ID),
+          checkout: planCheckout(DEFAULT_BUSINESS_ID),
+        })
       : undefined,
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...(config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {}),
@@ -145,7 +161,7 @@ if (quoteBusinesses) {
         catalog: createSupabaseCatalog(supabase, business.id),
         orders: createSupabaseOrders(supabase, business.id),
         optOutOfFollowUps: optOutFor(business.id),
-        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id) }),
+        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(business.id) }),
         ...planFeatures(business.id),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
@@ -220,6 +236,12 @@ const flyerBot = flyerConfig
 if (flyerBot && flyerConfig) {
   paidHandlers.flyer = flyerBot.planPaid;
   productNumbers.flyer = flyerConfig.phoneNumberId;
+}
+
+// Quote bot plan upgrades paid in the chat.
+if (config.quote || quoteBusinesses) {
+  paidHandlers.quote = createPlanPaidHandler({ store: createSupabasePlanPayments(supabase), mainBusinessId: DEFAULT_BUSINESS_ID });
+  productNumbers.quote = config.whatsapp.phoneNumberId;
 }
 
 // Our WhatsApp numbers as the staff inbox labels them, main number first.

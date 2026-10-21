@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { CREDIT_LINE, createPlanGate, lagosMonthStart, type PlanStore, type QuotePlan } from "./plan.js";
+import type { PaymentRequest } from "../../core/payments/payments.js";
+import {
+  CREDIT_LINE,
+  createPlanGate,
+  createPlanPaidHandler,
+  lagosMonthStart,
+  type PlanPaymentStore,
+  type PlanStore,
+  type QuotePlan,
+} from "./plan.js";
 
 const plans: QuotePlan[] = [
   { code: "free", name: "Free", monthlyPriceKobo: 0, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: 50, showCredit: true },
@@ -95,9 +104,108 @@ describe("plan gate", () => {
     expect(text).toContain("contact yarnOga");
   });
 
-  it("puts a payment link under each upgrade once one can be made", async () => {
-    const text = await createPlanGate({ code: "free", store: store(0), upgradeLink: async (p) => `https://pay.example/${p.code}` }).summary();
-    expect(text).toContain("https://pay.example/starter");
+  it("tells owners how to upgrade in the chat once payments are on", async () => {
+    const text = await createPlanGate({ code: "free", store: store(0), checkout: checkout().value }).summary();
+    expect(text).toContain("send *upgrade starter* to pay for a month, or *upgrade starter yearly* for a year");
     expect(text).not.toContain("contact yarnOga");
+  });
+
+  it("lets a saved or paid plan on the business's row win over QUOTE_PLAN", async () => {
+    const gate = createPlanGate({ code: "free", store: store(500, { businessPlanCode: async () => "starter" }) });
+    expect(await gate.checkOrder()).toEqual({ allowed: true, warning: null });
+    const broken = createPlanGate({ code: "free", store: store(50, { businessPlanCode: () => Promise.reject(new Error("no column")) }), log: quiet });
+    expect((await broken.checkOrder()).allowed).toBe(false);
+  });
+});
+
+function checkout() {
+  const requests: PaymentRequest[] = [];
+  const value = {
+    businessId: "b1",
+    links: {
+      createLink: async (req: PaymentRequest) => {
+        requests.push(req);
+        return "https://checkout.paystack.com/abc";
+      },
+    },
+  };
+  return { value, requests };
+}
+
+describe("plan upgrades", () => {
+  it("makes a Paystack link for a month at the monthly price from the plans table", async () => {
+    const c = checkout();
+    const text = await createPlanGate({ code: "free", store: store(0), checkout: c.value }).upgrade!("starter", "2348000000001");
+    expect(text).toContain("*Starter* (1 month, ₦7,500)");
+    expect(text).toContain("https://checkout.paystack.com/abc");
+    expect(c.requests).toEqual([
+      { product: "quote", waId: "2348000000001", amountKobo: 750_000, purpose: { businessId: "b1", plan: "starter", months: 1 }, title: "yarnOga Starter, 1 month" },
+    ]);
+  });
+
+  it("charges a year at the yearly price", async () => {
+    const c = checkout();
+    const text = await createPlanGate({ code: "free", store: store(0), checkout: c.value }).upgrade!("Starter yearly", "2348000000001");
+    expect(text).toContain("(1 year, ₦72,000)");
+    expect(c.requests[0]?.amountKobo).toBe(7_200_000);
+    expect(c.requests[0]?.purpose).toEqual({ businessId: "b1", plan: "starter", months: 12 });
+  });
+
+  it("asks which plan when it doesn't know the name, and never charges for the free plan", async () => {
+    const c = checkout();
+    const gate = createPlanGate({ code: "free", store: store(0), checkout: c.value });
+    expect(await gate.upgrade!("gold", "1")).toBe("Which plan? Send *upgrade starter*. Send *plan* to see the prices.");
+    expect(await gate.upgrade!("free", "1")).toContain("Which plan?");
+    expect(c.requests).toHaveLength(0);
+  });
+
+  it("points to yarnOga when payments aren't switched on or Paystack fails", async () => {
+    expect(await createPlanGate({ code: "free", store: store(0) }).upgrade!("starter", "1")).toContain("contact yarnOga");
+    const failing = { businessId: "b1", links: { createLink: () => Promise.reject(new Error("down")) } };
+    expect(await createPlanGate({ code: "free", store: store(0), checkout: failing, log: quiet }).upgrade!("starter", "1")).toContain(
+      "couldn't make a payment link",
+    );
+  });
+});
+
+describe("plan paid handler", () => {
+  const payment = (purpose: Record<string, unknown>) => ({
+    id: "p1",
+    reference: "yarnoga-quote-1",
+    product: "quote",
+    waId: "2348000000001",
+    purpose,
+    amountKobo: 750_000,
+    status: "paid" as const,
+  });
+
+  function saving() {
+    const saved: Array<[string, string, number]> = [];
+    const store: PlanPaymentStore = {
+      extendPlan: async (b, code, months) => {
+        saved.push([b, code, months]);
+        return new Date("2026-11-21T10:00:00Z");
+      },
+    };
+    return { store, saved };
+  }
+
+  it("puts the business on the plan and thanks the main number's owner", async () => {
+    const s = saving();
+    const notes = await createPlanPaidHandler({ store: s.store, mainBusinessId: "main" })(payment({ businessId: "main", plan: "starter", months: 1 }));
+    expect(s.saved).toEqual([["main", "starter", 1]]);
+    expect(notes).toEqual([{ to: "2348000000001", text: "✅ Payment of ₦7,500 received, thank you. You're on the plan until 21 November 2026." }]);
+  });
+
+  it("sends no WhatsApp message for other businesses", async () => {
+    const s = saving();
+    expect(await createPlanPaidHandler({ store: s.store, mainBusinessId: "main" })(payment({ businessId: "b2", plan: "starter", months: 12 }))).toEqual([]);
+    expect(s.saved).toEqual([["b2", "starter", 12]]);
+  });
+
+  it("refuses a payment it can't match to a plan, so it can be retried", async () => {
+    const s = saving();
+    await expect(createPlanPaidHandler({ store: s.store, mainBusinessId: "main" })(payment({ plan: "starter" }))).rejects.toThrow("can't find");
+    expect(s.saved).toHaveLength(0);
   });
 });
