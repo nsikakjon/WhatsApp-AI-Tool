@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
+import { promoAppliedText, promoRefusedText, takePromoCode } from "../../core/payments/promos.js";
 
 // Plans for the quote and order bot (Free, Starter, Pro, Growth, Enterprise).
 //
@@ -15,7 +16,8 @@ import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js"
 // Owners upgrade by sending "upgrade starter" (a month) or "upgrade starter
 // yearly" (a year at the yearly price). They get a Paystack link; once it's
 // paid, planPaid puts the business on the plan until a date (migration 0033).
-// When that date passes, the business drops back to the free plan.
+// When that date passes, the business drops back to the free plan. A promo
+// or referral code goes at the end: "upgrade starter DAYONES".
 
 export interface QuotePlan {
   code: string;
@@ -172,7 +174,10 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         }
         if (opts.checkout) {
           const example = upgrades[0]!.name.toLowerCase();
-          lines.push("", `To upgrade, send *upgrade ${example}* to pay for a month, or *upgrade ${example} yearly* for a year.`);
+          lines.push(
+            "",
+            `To upgrade, send *upgrade ${example}* to pay for a month, or *upgrade ${example} yearly* for a year. Got a promo or referral code? Add it at the end.`,
+          );
         }
       }
       const addons = (await opts.store.addons?.()) ?? [];
@@ -187,14 +192,19 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
     },
 
     async upgrade(request, ownerWaId) {
-      const wanted = request.trim().replace(/\s+(yearly|annually|annual|(?:for )?(?:a|one|1) year)$/i, "");
-      const yearly = wanted !== request.trim();
       const plans = await opts.store.paidPlans();
-      const plan = plans.find((p) => p.code.toLowerCase() === wanted.toLowerCase() || p.name.toLowerCase() === wanted.toLowerCase());
-      if (!plan) {
+      const find = (text: string) => {
+        const wanted = text.trim().replace(/\s+(yearly|annually|annual|(?:for )?(?:a|one|1) year)$/i, "");
+        const plan = plans.find((p) => p.code.toLowerCase() === wanted.toLowerCase() || p.name.toLowerCase() === wanted.toLowerCase());
+        return plan ? { plan, yearly: wanted !== text.trim() } : null;
+      };
+      const asked = takePromoCode(request.trim(), (t) => !!find(t));
+      const found = find(asked.text);
+      if (!found) {
         const names = plans.map((p) => `*upgrade ${p.name.toLowerCase()}*`).join(" or ");
         return names ? `Which plan? Send ${names}. Send *plan* to see the prices.` : "There are no plans to upgrade to just now.";
       }
+      const { plan, yearly } = found;
       if (!opts.checkout) return `To move to ${plan.name}, contact yarnOga and we'll switch you over. Online payment isn't switched on yet.`;
 
       const months = yearly ? 12 : 1;
@@ -207,10 +217,13 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
           amountKobo,
           purpose: { businessId: opts.checkout.businessId, plan: plan.code, months },
           title: `yarnOga ${plan.name}, ${period}`,
+          promo: asked.code ? { code: asked.code, months } : undefined,
         });
+        if (link.url === null) return promoRefusedText(link.refused);
         return [
-          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(amountKobo)}):`,
-          link,
+          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(link.amountKobo)}):`,
+          link.url,
+          ...(link.promo ? ["", promoAppliedText(link.promo)] : []),
           "",
           "Your plan switches over as soon as the payment goes through.",
         ].join("\n");
@@ -228,13 +241,28 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
  * payment messages come from the main number; other owners see it on the
  * Paystack page and in their next *plan* reply.
  */
-export function createPlanPaidHandler(opts: { store: PlanPaymentStore; mainBusinessId: string }): PaidHandler {
+export function createPlanPaidHandler(opts: {
+  store: PlanPaymentStore;
+  mainBusinessId: string;
+  /** With QUOTE_REFERRALS on: gives the free month to whoever shared a referral code used on a payment. */
+  rewardReferral?: (code: string) => Promise<unknown>;
+  log?: Pick<Console, "error">;
+}): PaidHandler {
+  const log = opts.log ?? console;
   return async (payment) => {
     const { businessId, plan, months } = payment.purpose as { businessId?: string; plan?: string; months?: number };
     if (!businessId || !plan || !Number.isInteger(months) || months! < 1) {
       throw new Error(`Payment ${payment.reference} is for something we can't find: ${JSON.stringify(payment.purpose)}`);
     }
     const until = await opts.store.extendPlan(businessId, plan, months!);
+    if (opts.rewardReferral && payment.promoCode) {
+      // The payer's plan is already saved, so a failure here mustn't send the payment back to pending.
+      try {
+        await opts.rewardReferral(payment.promoCode);
+      } catch (err) {
+        log.error(`Paid with code ${payment.promoCode}, but couldn't give the referrer their free month:`, err);
+      }
+    }
     if (businessId !== opts.mainBusinessId) return [];
     const date = until.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" });
     return [{ to: payment.waId, text: `✅ Payment of ${formatNaira(payment.amountKobo)} received, thank you. You're on the plan until ${date}.` }];
