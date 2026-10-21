@@ -35,10 +35,11 @@ of the messages you send from the app. That needs the steps below.
    app to be on version 2.24.17 or newer and the number to have been in active
    use in the app for at least 7 days.
 3. **Each business connects its own number.** KahnPrints keeps
-   +234 811 433 0749, which is connected straight to the bot today. Our test
-   number is **+234 701 326 2131**: put it in the WhatsApp Business app on a
-   phone and use it there for a week. Don't run Meta's "register" step on it,
-   because that would take it out of the app.
+   +234 811 433 0749, which is connected straight to the bot today. For
+   testing, use a spare number (not +234 701 326 2131, which is now the quote
+   bot demo): put it in the WhatsApp Business app on a phone and use it there
+   for a week. Don't run Meta's "register" step on it, because that would take
+   it out of the app.
 4. **yarnOga has to become a Meta "Tech Provider"** before other businesses
    can connect through our sign-up page. That needs business verification and
    Meta's App Review (steps 3 and 4 below). Your own numbers can usually be
@@ -67,6 +68,9 @@ It's safe to do now, because nothing changes until a number is connected
 with coexistence.
 
 ### Step 3: Verify the business (your CAC documents)
+
+Done in October 2026 for the Kahn Prints portfolio. See
+[META_PORTFOLIO.md](META_PORTFOLIO.md) for putting every number in it.
 
 1. Go to <https://business.facebook.com> > **Settings** > **Security Centre**
    (sometimes **Business info**) > **Start verification**.

@@ -51,6 +51,23 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, QUOTE_FOLLOW_UPS: "true", QUOTE_FOLLOW_UP_HOURS: "0" })).toThrow("QUOTE_FOLLOW_UP_HOURS");
   });
 
+  it("switches the quote setup screen on only with a long enough password", () => {
+    expect(loadConfig(base).quoteSetup).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "short" })).toThrow("at least 12");
+    expect(loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "long enough pass" }).quoteSetup).toEqual({ password: "long enough pass" });
+  });
+
+  it("adds the AI price list draft only when switched on, and needs an Anthropic key", () => {
+    const setup = { ...base, QUOTE_SETUP_PASSWORD: "long enough pass" };
+    expect(loadConfig(setup).quoteSetup?.aiDraft).toBeUndefined();
+    expect(() => loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true" })).toThrow("ANTHROPIC_API_KEY");
+    expect(loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true", ANTHROPIC_API_KEY: "k" }).quoteSetup?.aiDraft).toEqual({
+      anthropicApiKey: "k",
+      model: "claude-haiku-5-5",
+      perDay: 30,
+    });
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,
@@ -85,6 +102,34 @@ describe("loadConfig", () => {
       appId: "1",
       configId: "2",
     });
+  });
+
+  it("reads the quote plan, off when unset", () => {
+    const quote = { ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a" };
+    expect(loadConfig(quote).quote?.plan).toBeUndefined();
+    expect(loadConfig({ ...quote, QUOTE_PLAN: " Free " }).quote?.plan).toBe("free");
+  });
+
+  it("leaves plan features off unless switched on", () => {
+    expect(loadConfig(base).quotePlanFeatures).toBe(false);
+    expect(loadConfig({ ...base, QUOTE_PLAN_FEATURES: "true" }).quotePlanFeatures).toBe(true);
+  });
+
+  it("switches Paystack on only with a secret key, and then needs the rest", () => {
+    expect(loadConfig(base).paystack).toBeUndefined();
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "pk_test_abc" })).toThrow("not the public key");
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc" })).toThrow("PUBLIC_URL");
+    expect(() =>
+      loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc", PUBLIC_URL: "https://bot.example.com" }),
+    ).toThrow("PAYSTACK_CUSTOMER_EMAIL");
+    expect(
+      loadConfig({
+        ...base,
+        PAYSTACK_SECRET_KEY: "sk_test_abc",
+        PUBLIC_URL: "https://bot.example.com/",
+        PAYSTACK_CUSTOMER_EMAIL: "payments@example.com",
+      }).paystack,
+    ).toEqual({ secretKey: "sk_test_abc", publicUrl: "https://bot.example.com", customerEmail: "payments@example.com" });
   });
 
   it("rejects an unknown product", () => {
