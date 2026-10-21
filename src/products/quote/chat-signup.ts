@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
 import type { Product, ProductContext, Reply } from "../../core/product.js";
-import { parseCsv } from "../../core/sheets.js";
+import { fetchSheet as defaultFetchSheet, parseCsv, sheetCsvUrl } from "../../core/sheets.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import {
   DRAFT_IMAGE_TYPES,
@@ -12,7 +12,7 @@ import {
   type DraftImageType,
   type PriceListDrafter,
 } from "./drafter.js";
-import { priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
+import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import type { SetupStore } from "./store.js";
 
 // Sign-up by WhatsApp on the yarnOga quotes number. That number runs the demo
@@ -66,6 +66,7 @@ export interface ChatSignupOptions {
   /** Gets a WhatsApp message for each new sign-up (the yarnOga team). */
   alertWaId?: string;
   now?: () => Date;
+  fetchSheet?: (link: string) => Promise<string>;
   log?: Pick<Console, "error">;
 }
 
@@ -88,11 +89,13 @@ const PRICES = /^(prices|price list|my prices|change prices|update prices)[.!]*$
 const ASK_PRICES =
   "Now your prices. Type them, send a voice note, or send a photo of your price list, for example:\n" +
   "_Cupcakes ₦600 each, box of 6 for ₦3,500. Birthday cakes from ₦25,000, minimum 2 boxes._\n\n" +
-  "Have a spreadsheet? Save it as CSV and send the file here.";
+  `Prefer a spreadsheet? Copy our Google Sheet template (${TEMPLATE_SHEET_URL}) or download the CSV (${TEMPLATE_CSV_URL}) and fill it in. ` +
+  'Then send the CSV file here, or send the link to your Google Sheet, shared as "Anyone with the link" can view.';
 
 export function withChatSignup(next: Product, opts: ChatSignupOptions): Product {
   const now = opts.now ?? (() => new Date());
   const log = opts.log ?? console;
+  const fetchSheet = opts.fetchSheet ?? defaultFetchSheet;
   const drafts = { day: "", count: 0 };
   const tryBots = new Map<string, Product>();
 
@@ -167,6 +170,15 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
 
   async function pricesStep(signup: Signup, msg: IncomingMessage, ctx: ProductContext, text: string): Promise<Reply> {
     if (YES.test(text) && signup.draftCsv) return confirm(signup, msg.from);
+
+    const sheetLink = text.match(/https:\/\/docs\.google\.com\/spreadsheets\/\S+/)?.[0];
+    if (sheetLink && sheetCsvUrl(sheetLink)) {
+      try {
+        return await showDraft(msg.from, await fetchSheet(sheetLink), []);
+      } catch (err) {
+        return { text: `I couldn't open that Google Sheet: ${err instanceof Error ? err.message : String(err)}.` };
+      }
+    }
 
     if (msg.type === "document" && msg.mediaId) {
       const file = await ctx.downloadMedia(msg.mediaId);

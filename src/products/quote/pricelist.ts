@@ -28,6 +28,9 @@ export interface PriceListProblem {
 }
 
 export const MAX_PRICE_ROWS = 2000;
+/** Example price lists for owners to fill in: a CSV on the website and a Google Sheet to copy. */
+export const TEMPLATE_CSV_URL = "https://yarnoga.com/price-list-template.csv";
+export const TEMPLATE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PXjrvzUcuafzZ4SuN0QkCRES98mv2w_gtvqp6y-XBpU/copy";
 const DEFAULT_OPTION = "Standard";
 
 type Column = "product" | "option" | "min" | "from" | "price";
