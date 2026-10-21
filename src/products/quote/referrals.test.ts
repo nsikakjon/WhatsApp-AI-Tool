@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanPaymentStore } from "./plan.js";
 import { createPlanPaidHandler } from "./plan.js";
-import { newReferralCode, referralCommand, rewardReferrer, type ReferralCode, type ReferralStore } from "./referrals.js";
+import { newReferralCode, referralReply, rewardReferrer, type ReferralStore } from "./referrals.js";
 import type { Payment } from "../../core/payments/store.js";
 
 const NOW = new Date("2026-11-01T10:00:00Z");
@@ -9,20 +9,9 @@ const MAIN = "00000000-0000-0000-0000-000000000001";
 
 function setup(saved: { code: string | null; until: Date | null }) {
   const extended: Array<[string, string, number]> = [];
-  const codes: ReferralCode[] = [{ code: "KAHNP4821", percentOff: 10, active: true, used: 2 }];
   const store: ReferralStore = {
     codeFor: async () => ({ code: "KAHNP4821", percentOff: 10 }),
-    codes: async () => codes.map((c) => ({ ...c })),
-    addCode: async (_, code) => {
-      if (code === "DAYONES" || codes.some((c) => c.code === code)) return "taken";
-      codes.push({ code, percentOff: 10, active: true, used: 0 });
-      return "added";
-    },
-    setActive: async (_, code, active) => {
-      const found = codes.find((c) => c.code === code);
-      if (found) found.active = active;
-      return !!found;
-    },
+    timesUsed: async () => 2,
     referrerOf: async (code) => (code === "KAHNP4821" ? "b1" : code === "MAINS1000" ? MAIN : null),
     savedPlan: async () => saved,
   };
@@ -33,7 +22,7 @@ function setup(saved: { code: string | null; until: Date | null }) {
     },
   };
   const reward = (code: string) => rewardReferrer({ code, store, plans, mainBusinessId: MAIN, now: NOW });
-  return { store, plans, extended, reward, codes };
+  return { store, plans, extended, reward };
 }
 
 describe("referral codes", () => {
@@ -45,33 +34,10 @@ describe("referral codes", () => {
   });
 
   it("tells the owner their code, the discount and how often it's been used", async () => {
-    const text = await referralCommand(setup({ code: null, until: null }).store, "b1", "Kahn Prints", "referral");
-    expect(text).toContain("Your referral code is *KAHNP4821*");
-    expect(text).toContain("*upgrade starter KAHNP4821*, and get money off their first month (10%)");
+    const text = await referralReply(setup({ code: null, until: null }).store, "b1", "Kahn Prints");
+    expect(text).toContain("*KAHNP4821*");
+    expect(text).toContain("*upgrade starter KAHNP4821*, and get 10% off");
     expect(text).toContain("so far: 2");
-    expect(text).toContain("*new code HOLIDAYS*");
-  });
-
-  it("lets owners make more codes of their own, and pause them", async () => {
-    const { store, codes } = setup({ code: null, until: null });
-    const added = await referralCommand(store, "b1", "Kahn Prints", "new code holidays");
-    expect(added).toContain("Done. *HOLIDAYS* is ready to share.");
-    expect(added).toContain("• *HOLIDAYS* (10% off): 0 businesses paid with it");
-    expect(added).toContain("• *KAHNP4821* (10% off): 2 businesses paid with it");
-    expect(await referralCommand(store, "b1", "Kahn Prints", "new code DAYONES")).toContain("already taken");
-    expect(await referralCommand(store, "b1", "Kahn Prints", "new code XMAS!")).toContain("only have letters and numbers");
-
-    expect(await referralCommand(store, "b1", "Kahn Prints", "code HOLIDAYS off")).toContain("paused");
-    expect(codes.find((c) => c.code === "HOLIDAYS")?.active).toBe(false);
-    expect(await referralCommand(store, "b1", "Kahn Prints", "referral")).toContain("0 businesses paid with it, paused");
-    expect(await referralCommand(store, "b1", "Kahn Prints", "code NOPE1 on")).toContain("don't have a code called NOPE1");
-    expect(await referralCommand(store, "b1", "Kahn Prints", "invoice KP-1001")).toBeNull();
-  });
-
-  it("stops at ten codes a business", async () => {
-    const { store } = setup({ code: null, until: null });
-    for (let i = 2; i <= 10; i++) await referralCommand(store, "b1", "Kahn Prints", `new code SALE${i}`);
-    expect(await referralCommand(store, "b1", "Kahn Prints", "new code ONEMORE")).toContain("already have 10 codes");
   });
 
   it("gives a free month of the referrer's paid plan, or of Starter", async () => {
