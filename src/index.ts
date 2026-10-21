@@ -71,6 +71,8 @@ import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
+import { createSupabasePromoAdmin } from "./core/payments/promos.js";
+import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
 
 const config = loadConfig();
 
@@ -94,6 +96,9 @@ const planCheckout = (businessId: string) =>
   config.paystack
     ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
     : undefined;
+// Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
+const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
+
 // Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
 // is exactly as before.
 const broadcastConfig = config.broadcasts;
@@ -227,6 +232,7 @@ if (quoteBusinesses) {
             : undefined,
         optOutOfFollowUps: optOutFor(business.id),
         ordersLink: ordersLinkFor(business.id),
+        referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
         ...features,
         catalogue: catalogueFor(business.id, features.features),
@@ -333,6 +339,7 @@ const flyerBot = flyerConfig
       sendHour: flyerConfig.sendHour,
       trial: TRIAL,
       payments,
+      promos: payments ? createSupabasePromoAdmin(supabase) : undefined,
     })
   : undefined;
 if (flyerBot && flyerConfig) {
@@ -342,7 +349,14 @@ if (flyerBot && flyerConfig) {
 
 // Quote bot plan upgrades paid in the chat.
 if (config.quote || quoteBusinesses) {
-  paidHandlers.quote = createPlanPaidHandler({ store: createSupabasePlanPayments(supabase), mainBusinessId: DEFAULT_BUSINESS_ID });
+  const planPayments = createSupabasePlanPayments(supabase);
+  paidHandlers.quote = createPlanPaidHandler({
+    store: planPayments,
+    mainBusinessId: DEFAULT_BUSINESS_ID,
+    rewardReferral: referrals
+      ? (code) => rewardReferrer({ code, store: referrals, plans: planPayments, mainBusinessId: DEFAULT_BUSINESS_ID })
+      : undefined,
+  });
   productNumbers.quote = config.whatsapp.phoneNumberId;
 }
 
