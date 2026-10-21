@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { PriceListDraft, PriceListDrafter } from "./drafter.js";
 import type { PriceListItem } from "./pricelist.js";
-import { createQuoteSetup, readSettings } from "./setup.js";
+import { createQuoteSetup, readSettings, type QuoteSetupDeps } from "./setup.js";
 import { DEFAULT_BUSINESS_ID, NumberTakenError, type BusinessStore, type QuoteBusiness, type SetupStore } from "./store.js";
 
 const PASSWORD = "correct horse battery";
@@ -22,7 +23,7 @@ function business(over: Partial<QuoteBusiness>): QuoteBusiness {
   };
 }
 
-function memory() {
+function memory(extra: Partial<QuoteSetupDeps> = {}) {
   const list: QuoteBusiness[] = [business({ id: DEFAULT_BUSINESS_ID, name: "KahnPrints", phoneNumberId: null }), business({})];
   const prices = new Map<string, PriceListItem[]>();
   const saves: Array<{ id: string; items: PriceListItem[] }> = [];
@@ -57,6 +58,7 @@ function memory() {
     multiBusinessOn: true,
     fetchSheet: async () => "Product,Price\nCupcakes,600",
     log: { error: () => undefined },
+    ...extra,
   });
   return { app, list, prices, saves };
 }
@@ -184,5 +186,107 @@ describe("readSettings", () => {
   it("won't switch a business on without its WhatsApp number", () => {
     const { problems } = readSettings({ name: "X", orderPrefix: "X", active: "on" }, []);
     expect(problems).toContain("Add the WhatsApp number ID before switching the business on.");
+  });
+});
+
+describe("AI draft of a price list", () => {
+  function withDrafter(draft: PriceListDraft, extra: Partial<QuoteSetupDeps> = {}) {
+    const calls: Array<Parameters<PriceListDrafter["draft"]>[0]> = [];
+    const drafter: PriceListDrafter = {
+      async draft(input) {
+        calls.push(input);
+        return draft;
+      },
+    };
+    return { ...memory({ drafter, ...extra }), calls };
+  }
+
+  function draftForm(fields: Record<string, string>, photos: File[] = []) {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(fields)) f.set(k, v);
+    for (const p of photos) f.append("photos", p);
+    return f;
+  }
+
+  const cupcakes: PriceListDraft = {
+    rows: [
+      { product: "Cupcakes", option: "box of 6", minQuantity: 2, fromQuantity: null, price: "3500" },
+      { product: "Birthday cakes", option: "Standard", minQuantity: null, fromQuantity: null, price: "99000" },
+      { product: "Custom cakes", option: "Standard", minQuantity: null, fromQuantity: null, price: null },
+    ],
+    notes: "Check the cake sizes.",
+  };
+
+  it("only shows the button when switched on", async () => {
+    const off = memory();
+    expect(await (await off.app.request(`/b/${OTHER_ID}/prices`, { headers: auth })).text()).not.toContain("Let AI draft it");
+    const on = withDrafter(cupcakes);
+    expect(await (await on.app.request(`/b/${OTHER_ID}/prices`, { headers: auth })).text()).toContain("Let AI draft it");
+    const res = await off.app.request(`/b/${OTHER_ID}/prices/draft`, { method: "POST", headers: sameSite, body: draftForm({ describe: "x" }) });
+    expect(res.status).toBe(404);
+  });
+
+  it("fills the box with draft rows, blanks prices the owner never typed, and saves nothing", async () => {
+    const { app, saves, calls } = withDrafter(cupcakes);
+    const res = await app.request(`/b/${OTHER_ID}/prices/draft`, {
+      method: "POST",
+      headers: sameSite,
+      body: draftForm({ describe: "Cupcakes box of 6 for N3,500, min 2 boxes. Birthday cakes and custom cakes too." }),
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("only a draft, nothing is saved");
+    expect(html).toContain("Cupcakes,box of 6,2,,3500");
+    expect(html).toContain("Birthday cakes,Standard,,,\n"); // 99000 isn't in the text
+    expect(html).not.toContain("99000");
+    expect(html).toContain("1 price was left empty");
+    expect(html).toContain("Check the cake sizes.");
+    expect(calls[0]).toMatchObject({ businessName: "Mama Cakes", description: "a bakery", images: [] });
+    expect(saves).toHaveLength(0);
+  });
+
+  it("sends photos to the AI and keeps the prices it read from them", async () => {
+    const { app, calls } = withDrafter(cupcakes);
+    const photo = new File([new Uint8Array([1, 2, 3])], "menu.jpg", { type: "image/jpeg" });
+    const res = await app.request(`/b/${OTHER_ID}/prices/draft`, { method: "POST", headers: sameSite, body: draftForm({}, [photo]) });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Birthday cakes,Standard,,,99000");
+    expect(calls[0]!.images).toEqual([{ mediaType: "image/jpeg", data: "AQID" }]);
+  });
+
+  it("refuses too many photos, files that aren't photos, and empty requests", async () => {
+    const { app, calls } = withDrafter(cupcakes);
+    const jpg = () => new File([new Uint8Array([1])], "a.jpg", { type: "image/jpeg" });
+    const four = await app.request(`/b/${OTHER_ID}/prices/draft`, { method: "POST", headers: sameSite, body: draftForm({}, [jpg(), jpg(), jpg(), jpg()]) });
+    expect(four.status).toBe(400);
+    expect(await four.text()).toContain("up to 3 photos");
+    const pdf = await app.request(`/b/${OTHER_ID}/prices/draft`, {
+      method: "POST",
+      headers: sameSite,
+      body: draftForm({}, [new File(["%PDF"], "list.pdf", { type: "application/pdf" })]),
+    });
+    expect(pdf.status).toBe(400);
+    const empty = await app.request(`/b/${OTHER_ID}/prices/draft`, { method: "POST", headers: sameSite, body: draftForm({ describe: "  " }) });
+    expect(empty.status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("stops after the daily limit", async () => {
+    const { app, calls } = withDrafter(cupcakes, { draftsPerDay: 1 });
+    const send = () => app.request(`/b/${OTHER_ID}/prices/draft`, { method: "POST", headers: sameSite, body: draftForm({ describe: "Cupcakes 600" }) });
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(429);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("refuses drafts sent from another website", async () => {
+    const { app, calls } = withDrafter(cupcakes);
+    const res = await app.request(`/b/${OTHER_ID}/prices/draft`, {
+      method: "POST",
+      headers: { ...auth, Origin: "https://evil.example", Host: "bot.example.com" },
+      body: draftForm({ describe: "Cupcakes 600" }),
+    });
+    expect(res.status).toBe(403);
+    expect(calls).toHaveLength(0);
   });
 });
