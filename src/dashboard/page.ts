@@ -1,6 +1,7 @@
 import { formatNaira } from "../core/money.js";
+import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import type { SocialAccount } from "./socials.js";
-import type { DashboardStats } from "./stats.js";
+import { lagosDays, type DashboardStats } from "./stats.js";
 import type { WebsiteStats } from "./visits.js";
 
 // The owner's dashboard as one self-contained HTML page (no outside scripts,
@@ -43,8 +44,8 @@ function tile(label: string, value: string, note = ""): string {
   }</div>`;
 }
 
-function section(title: string, intro: string, body: string): string {
-  return `<section><h2>${esc(title)}</h2><p class="intro">${esc(intro)}</p>${body}</section>`;
+function section(title: string, intro: string, body: string, id = ""): string {
+  return `<section${id ? ` id="${id}"` : ""}><h2>${esc(title)}</h2><p class="intro">${esc(intro)}</p>${body}</section>`;
 }
 
 function dailyChart(
@@ -146,10 +147,115 @@ ${tile("Busiest day", num(busiest), "visitors, last 30 days")}
   );
 }
 
+/** Like formatNaira, but a loss shows with a minus sign. */
+function signedNaira(kobo: number): string {
+  return kobo < 0 ? `−${formatNaira(-kobo)}` : formatNaira(kobo);
+}
+
+function monthName(month: string): string {
+  return new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function cents(minor: number): string {
+  const whole = Math.floor(minor / 100).toLocaleString("en-US");
+  return minor % 100 ? `$${whole}.${String(minor % 100).padStart(2, "0")}` : `$${whole}`;
+}
+
+function moneyLineRow(l: MoneyLine): string {
+  const paid = l.currency === "USD" && l.usdRateKobo
+    ? `<span class="small">${esc(cents(l.amountMinor))} at ${esc(formatNaira(l.usdRateKobo))}/$1</span>`
+    : "";
+  const sign = l.kind === "income" ? "+" : "−";
+  const who = [l.supplier, l.category].filter(Boolean).join(" · ");
+  return `<tr><td>${esc(shortDay(l.date))}</td><td>${esc(l.item)}${who ? `<span class="small">${esc(who)}</span>` : ""}${
+    l.notes ? `<span class="small">${esc(l.notes)}</span>` : ""
+  }</td><td class="${l.kind}">${sign}${esc(formatNaira(l.amountKobo))}${paid}</td><td><form method="post" action="/dashboard/money/${l.id}/delete" onsubmit="return confirm('Remove this entry?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+}
+
+export interface ProfitView {
+  pnl: ProfitAndLoss | "error";
+  now: Date;
+  /** Shown after a form that couldn't be saved. */
+  problem?: string;
+}
+
+const EXPENSE_CATEGORIES = ["Setup", "Recurring", "One-off", "Marketing"];
+const INCOME_CATEGORIES = ["Flyer plans", "Sales assistant", "Site reporter", "Lead qualifier", "Other"];
+
+function profitSection(view: ProfitView | undefined): string {
+  if (!view) return "";
+  const title = "Profit and loss";
+  const intro =
+    "yarnOga's own money: costs and income you have entered. Flyer plan payments and setup fees aren't recorded automatically yet, so income here is only what you add below. KahnPrints sales are the shop's money and aren't counted.";
+  const problem = view.problem ? `<p class="problem" role="alert">${esc(view.problem)}</p>` : "";
+  if (view.pnl === "error") {
+    return section(
+      title,
+      intro,
+      `<p class="problem">Couldn't read the profit and loss entries. If 0024_money_lines.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`,
+      "money",
+    );
+  }
+  const p = view.pnl;
+  const monthRows = p.months.length
+    ? p.months
+        .map(
+          (m) =>
+            `<tr><td>${esc(monthName(m.month))}</td><td>${esc(formatNaira(m.incomeKobo))}</td><td>${esc(formatNaira(m.expensesKobo))}</td><td class="${
+              m.netKobo < 0 ? "expense" : "income"
+            }">${esc(signedNaira(m.netKobo))}</td></tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="4">No entries yet</td></tr>`;
+  const categoryRows = (rows: { category: string; kobo: number }[], empty: string) =>
+    rows.length
+      ? rows.map((r) => `<tr><td>${esc(r.category)}</td><td>${esc(formatNaira(r.kobo))}</td></tr>`).join("")
+      : `<tr><td colspan="2">${esc(empty)}</td></tr>`;
+  const options = (list: string[]) => list.map((c) => `<option value="${esc(c)}">`).join("");
+  const today = lagosDays(view.now, 1)[0].date;
+  const rate = (p.lastUsdRateKobo / 100).toString();
+  const form = `<form class="entry" method="post" action="/dashboard/money">
+<h3>Add an entry</h3>
+<label>Date <input type="date" name="date" value="${today}" required></label>
+<label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income">In (income)</option></select></label>
+<label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"></label>
+<label>Paid to / from <input name="supplier" maxlength="200" placeholder="e.g. Railway"></label>
+<label>Category <input name="category" list="money-categories" maxlength="60" placeholder="e.g. Recurring"></label>
+<datalist id="money-categories">${options([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])}</datalist>
+<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18"></label>
+<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD">Dollars ($)</option></select></label>
+<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
+<label class="wide">Notes <input name="notes" maxlength="500"></label>
+<button type="submit">Save entry</button>
+</form>`;
+  return section(
+    title,
+    intro,
+    `${problem}<div class="tiles">
+${tile(p.netKobo < 0 ? "Loss so far" : "Profit so far", signedNaira(p.netKobo), "income minus costs, all time")}
+${tile("Income", formatNaira(p.incomeKobo), "all time, entered by you")}
+${tile("Costs", formatNaira(p.expensesKobo), "all time")}
+${p.months[0] ? tile(`${monthName(p.months[0].month)} result`, signedNaira(p.months[0].netKobo), "latest month with entries") : ""}
+</div>
+<table class="plans wide"><thead><tr><th>Month</th><th>Income</th><th>Costs</th><th>Profit / loss</th></tr></thead><tbody>${monthRows}</tbody></table>
+<div class="pair">
+<table class="plans"><thead><tr><th>Costs by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.expensesByCategory, "No costs yet")}</tbody></table>
+<table class="plans"><thead><tr><th>Income by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.incomeByCategory, "No income entered yet")}</tbody></table>
+</div>
+<details class="lines"${p.lines.length <= 10 ? " open" : ""}><summary>All entries (${num(p.lines.length)})</summary>
+<table class="plans wide"><thead><tr><th>Date</th><th>What</th><th>Amount</th><th></th></tr></thead><tbody>${
+      p.lines.map(moneyLineRow).join("") || `<tr><td colspan="4">No entries yet</td></tr>`
+    }</tbody></table></details>
+${form}`,
+    "money",
+  );
+}
+
 export function renderDashboard(
   s: DashboardStats,
   socialAccounts: SocialAccount[] = [],
   website?: WebsiteStats | "error",
+  profit?: ProfitView,
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -237,9 +343,9 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
 <meta name="robots" content="noindex, nofollow">
 <title>yarnOga Dashboard</title>
 <style>
-:root { --bg:#f6f7f3; --panel:#ffffff; --line:#e1e3dc; --text:#151614; --muted:#5d6159; --accent:#3d6b00; --accent-soft:#e6f5c9; --bar:#4f8a00; }
+:root { --bg:#f6f7f3; --panel:#ffffff; --line:#e1e3dc; --text:#151614; --muted:#5d6159; --accent:#3d6b00; --accent-soft:#e6f5c9; --bar:#4f8a00; --loss:#b3261e; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#0c0d0d; --panel:#191a1a; --line:#2e302f; --text:#f3f4ef; --muted:#a1a49d; --accent:#c6ff1f; --accent-soft:#2a3310; --bar:#b4ea1a; }
+  :root { --bg:#0c0d0d; --panel:#191a1a; --line:#2e302f; --text:#f3f4ef; --muted:#a1a49d; --accent:#c6ff1f; --accent-soft:#2a3310; --bar:#b4ea1a; --loss:#ff8a80; }
 }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -282,6 +388,21 @@ th { color:var(--muted); font-weight:500; }
 .pair { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:10px; }
 .pair table { max-width:none; }
 .pair td:first-child { word-break: break-all; }
+.wide { max-width:none; }
+td.income { color:var(--accent); }
+td.expense { color:var(--loss); }
+.small { display:block; color:var(--muted); font-size:12.5px; }
+.lines { margin-top:10px; }
+.problem + .tiles { margin-top:10px; }
+.lines table { margin-top:6px; }
+button.link { background:none; border:0; padding:0; color:var(--muted); text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; }
+.entry { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:14px; }
+.entry h3 { grid-column: 1 / -1; margin:0; font-size:15px; }
+.entry label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
+.entry .wide { grid-column: span 2; }
+@media (max-width: 480px) { .entry .wide { grid-column: auto; } }
+.entry input, .entry select { font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
+.entry button[type=submit] { grid-column: 1 / -1; justify-self:start; font:inherit; font-weight:600; background:var(--accent); color:var(--bg); border:0; border-radius:8px; padding:10px 18px; cursor:pointer; }
 .problem { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin:0; }
 footer { margin-top:32px; color:var(--muted); font-size:12.5px; }
 </style></head>
@@ -291,6 +412,7 @@ footer { margin-top:32px; color:var(--muted); font-size:12.5px; }
 <p>Updated ${esc(lagosTime(s.generatedAt))} (Lagos time). Refresh the page for the latest numbers.</p>
 <span class="live">Product numbers are live from the database</span>
 </header>
+${profitSection(profit)}
 ${whatsapp}
 ${flyers}
 ${quotes}

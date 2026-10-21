@@ -53,6 +53,7 @@ import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
+import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler } from "./core/payments/payments.js";
@@ -247,6 +248,7 @@ const app = createApp({
       password: config.dashboard.password,
       stats: createSupabaseStats(supabase),
       website: createSupabaseWebsiteStats(supabase),
+      money: createSupabaseMoneyStore(supabase),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
