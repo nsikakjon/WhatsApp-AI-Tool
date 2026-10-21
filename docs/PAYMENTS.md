@@ -97,3 +97,4 @@ When you're happy with the test:
   `purpose`, and returns the WhatsApp messages to send. It runs once per
   payment; if it throws, the payment goes back to pending so a retry can run
   it again.
+- Promo and referral codes (DAYONES, `QUOTE_REFERRALS`) are in `docs/PROMO_CODES.md`.
