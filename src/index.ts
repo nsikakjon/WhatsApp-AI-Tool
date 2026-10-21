@@ -34,6 +34,8 @@ import {
   createSupabasePlanStore,
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
+import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-signup.js";
+import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
@@ -235,6 +237,40 @@ if (quoteBusinesses) {
           description: business.description ?? undefined,
         }),
       }), business.id, business.name, business.ownerWaId ?? undefined);
+    },
+  });
+}
+
+// Business owners sign up by chatting to the yarnOga quotes number (QUOTE_SIGNUP_PHONE_NUMBER_ID).
+const chatSignup = config.quoteChatSignup;
+if (chatSignup && quoteBusinesses) {
+  const businesses = createSupabaseBusinesses(supabase);
+  product = withChatSignup(product, {
+    numberId: chatSignup.phoneNumberId,
+    store: createSupabaseSignups(supabase),
+    setup: createSupabaseSetup(supabase),
+    drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
+    alertWaId: chatSignup.alertWaId,
+    // The owner's own bot with test orders kept in memory; its order alerts go to the owner.
+    tryBot: async (businessId, ownerWaId) => {
+      const business = await businesses.get(businessId);
+      if (!business) return null;
+      return createQuoteProduct({
+        businessName: business.name,
+        orderPrefix: business.orderPrefix,
+        ownerWaId,
+        businessDetails: business.businessDetails ?? undefined,
+        paymentDetails: business.paymentDetails ?? undefined,
+        catalog: createSupabaseCatalog(supabase, business.id),
+        branding: readOnlyBranding(createSupabaseBranding(supabase, business.id)),
+        orders: memoryOrderStore(),
+        ai: createClaudeUnderstander({
+          apiKey: quoteBusinesses.anthropicApiKey,
+          model: quoteBusinesses.model,
+          businessName: business.name,
+          description: business.description ?? undefined,
+        }),
+      });
     },
   });
 }
@@ -607,6 +643,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
   );
 });
