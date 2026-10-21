@@ -73,6 +73,15 @@ export interface Config {
    */
   quoteBranches: boolean;
   /**
+   * Sign-up by WhatsApp chat on the yarnOga quotes number (migration 0039).
+   * Only set when QUOTE_SIGNUP_PHONE_NUMBER_ID is, and needs QUOTE_MULTI_BUSINESS.
+   */
+  quoteChatSignup?: {
+    phoneNumberId: string;
+    /** Gets a WhatsApp message for each new sign-up. */
+    alertWaId?: string;
+  };
+  /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
    * businesses). Only set when BROADCASTS_ENABLED is true.
    */
@@ -289,6 +298,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
+    quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()
+      ? {
+          phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
+          alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
+        }
+      : undefined,
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,

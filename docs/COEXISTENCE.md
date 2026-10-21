@@ -36,7 +36,7 @@ of the messages you send from the app. That needs the steps below.
    use in the app for at least 7 days.
 3. **Each business connects its own number.** KahnPrints keeps
    +234 811 433 0749, which is connected straight to the bot today. For
-   testing, use a spare number (not +234 701 326 2131, which is now the quote
+   testing, use a spare number (not +234 704 897 1600, which is now the quote
    bot demo): put it in the WhatsApp Business app on a phone and use it there
    for a week. Don't run Meta's "register" step on it, because that would take
    it out of the app.

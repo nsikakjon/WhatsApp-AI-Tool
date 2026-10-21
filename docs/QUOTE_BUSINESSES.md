@@ -79,14 +79,14 @@ settings take effect within a minute.
 `supabase/seed/demo_quote_business.sql` adds **yarnOga Demo Shop**, a made-up
 business with a small sample price list (T-shirts, mugs, cupcakes, ...), so
 people can try the quote bot. It answers on the demo number
-**+234 701 326 2131**, which the website's "try it" buttons point at.
+**+234 704 897 1600**, which the website's "try it" buttons point at.
 
 That number is no longer used by the site reporter: `SITE_PHONE_NUMBER_ID` on
 Railway must **not** be set to its Phone number ID.
 
 To switch the demo on:
 
-1. In Meta (WhatsApp Manager), add +234 701 326 2131 to the app's WhatsApp
+1. In Meta (WhatsApp Manager), add +234 704 897 1600 to the app's WhatsApp
    account, verify it with the SMS code, and register it (POST
    `/{phone-number-id}/register` with a 6-digit PIN), as for the flyer number
    in docs/META_SETUP.md (step by step: docs/META_PORTFOLIO.md step 4). Turn
@@ -99,6 +99,47 @@ To switch the demo on:
 4. On Railway, set `QUOTE_MULTI_BUSINESS=true`.
 
 The demo starts switched off, so running the seed changes nothing until step 3.
+
+## Sign-up by chat
+
+The demo number is also where new businesses sign up, so an ad can simply say
+"message us on WhatsApp". Anyone who sends **sign up** to it is asked for:
+
+1. the business name,
+2. what it sells (a few words),
+3. its prices: typed, as a voice note, as a photo of the price list, or as a
+   CSV file.
+
+The AI writes the prices out as a list and the bot shows it back. The owner
+corrects anything in the chat ("make the box ₦3,500") or sends another photo,
+and replies **YES** when it's right. Nothing is saved before that YES. Typed
+or spoken prices the owner never actually said are left empty for them to
+fill in, as on the setup screen.
+
+On YES the business is added on the **Free plan**, switched off, with the
+owner's WhatsApp number as its alert number. You get a WhatsApp message
+(`QUOTE_SIGNUP_ALERT_WA_ID`). To put them live, connect their own number in
+Meta, then on the setup screen fill in its Phone number ID and switch it on.
+
+After signing up, the owner can send:
+
+- **try** to chat with their own bot as a customer would. Test orders are kept
+  in memory only, and the order alerts come to them so they see both sides.
+  **done** ends it.
+- **prices** to change the price list the same way.
+
+Everyone else on the number gets the demo shop, and a first-time visitor's
+first reply ends with an invitation to send "sign up".
+
+Limits, so nobody can run up the AI bill or flood the list: one business per
+WhatsApp number, 30 AI drafts and test replies per person a day, 200 drafts a
+day overall, and 30 new businesses a day (any more are told the yarnOga team
+will be in touch, and you get a message).
+
+To switch it on: run migration `0039_quote_chat_signup.sql`, make sure
+`QUOTE_MULTI_BUSINESS=true`, and set `QUOTE_SIGNUP_PHONE_NUMBER_ID` to the demo
+number's Phone number ID. The setup screen stays the place for big
+spreadsheets, bulk edits and switching businesses on.
 
 ## Good to know
 
