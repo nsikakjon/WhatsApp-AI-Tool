@@ -3,7 +3,11 @@ import type { Product, ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
+import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
+import type { AiCredits } from "./credits.js";
+import { createKeywordUnderstander } from "./fallback.js";
+import type { PlanFeatures } from "./features.js";
 import type { PlanGate } from "./plan.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
@@ -26,6 +30,11 @@ import type { Understander } from "./understand.js";
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
 // the owner can send "plan" to see their use and how to upgrade.
+//
+// With plan features on (QUOTE_PLAN_FEATURES, see features.ts and credits.ts),
+// each plan gets a monthly number of AI replies; after that the bot keeps
+// quoting with simple menu replies (fallback.ts). Voice notes and invoice
+// pictures follow the plan too.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -44,8 +53,20 @@ export interface QuoteProductOptions {
   paymentDetails?: string;
   /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
   renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
+  /**
+   * Stops quote reminders to this customer (they replied STOP). Only set
+   * while quote follow-ups are on (see followups.ts); otherwise STOP is
+   * understood like any other message.
+   */
+  optOutOfFollowUps?: (contactId: string) => Promise<void>;
   /** The business's plan (order limit, credit line). Without it, no limits apply. */
   plan?: PlanGate;
+  /** What the plan includes (voice notes, invoices). Without it, everything is included. */
+  features?: PlanFeatures;
+  /** The plan's monthly AI replies. Without it, the AI reads every message. */
+  credits?: AiCredits;
+  /** Reads messages without AI once credits run out. Normally fallback.ts. */
+  simpleAi?: Understander;
   log?: Pick<Console, "error">;
 }
 
@@ -53,6 +74,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
   const log = opts.log ?? console;
   const ref = (o: SavedOrder) => `${opts.orderPrefix}-${o.orderNumber}`;
   const draw = opts.renderDocument ?? renderDocument;
+  const simpleAi = opts.simpleAi ?? createKeywordUnderstander();
 
   return {
     name: "quote",
@@ -63,6 +85,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       }
 
       // Voice notes arrive here with `text` already filled in by the core.
+      if (msg.type === "audio" && opts.features && !(await opts.features.has("voice_notes"))) {
+        return { text: "Sorry, I can't take voice notes on this line. Please type what you need (for example: 100 A5 flyers)." };
+      }
       if (!msg.text) {
         return {
           text:
@@ -72,33 +97,54 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         };
       }
 
+      if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
+        await opts.optOutOfFollowUps(ctx.contactId);
+        return { text: "Okay, I won't send you any more quote reminders. Message me any time you need a quote." };
+      }
+
       const variants = await opts.catalog.activeVariants();
       if (variants.length === 0) {
         return { text: `Thanks for messaging ${opts.businessName}! Our price list isn't online yet, so someone from the team will get back to you.` };
       }
 
+      // Out of AI credits: simple menu replies instead, and the owner hears about it.
+      const credit = opts.credits ? await opts.credits.spend() : { useAi: true, ownerNotice: null };
+      const input = {
+        text: msg.text,
+        history: ctx.history,
+        catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
+      };
       let understanding;
+      let simple = !credit.useAi;
       try {
-        understanding = await opts.ai.understand({
-          text: msg.text,
-          history: ctx.history,
-          catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
-        });
+        understanding = await (simple ? simpleAi : opts.ai).understand(input);
       } catch (err) {
         log.error("Quote bot could not understand message:", err);
-        return { text: "Sorry, I didn't catch that. Could you tell me what you'd like and how many?" };
+        // With plan features on, an AI outage falls back to the menu too.
+        if (simple || !opts.credits) return { text: "Sorry, I didn't catch that. Could you tell me what you'd like and how many?" };
+        simple = true;
+        understanding = await simpleAi.understand(input);
       }
 
+      let reply: Reply;
       switch (understanding.intent) {
         case "quote":
-          return makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
+          reply = await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
+          break;
         case "confirm":
-          return confirm(ctx.contactId, msg.contactName, msg.from);
+          reply = await confirm(ctx.contactId, msg.contactName, msg.from);
+          break;
         case "cancel":
-          return cancel(ctx.contactId);
+          reply = await cancel(ctx.contactId);
+          break;
         default:
-          return { text: safeMessage(understanding.message) ?? defaultHelp(variants) };
+          // The simple replies are written in code, not by the AI, so they can list items freely.
+          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants) };
       }
+      if (credit.ownerNotice && opts.ownerWaId) {
+        reply.notify = [...(reply.notify ?? []), { to: opts.ownerWaId, text: credit.ownerNotice }];
+      }
+      return reply;
     },
   };
 
@@ -218,11 +264,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     return reply;
   }
 
+  async function documentsIncluded(): Promise<boolean> {
+    return opts.features ? opts.features.has("invoices") : true;
+  }
+
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */
   async function documentImage(
     kind: "invoice" | "receipt",
     order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
   ): Promise<OutgoingImage | null> {
+    if (!(await documentsIncluded())) return null;
     try {
       const logo = opts.branding ? await opts.branding.logo() : null;
       const data = await draw({
@@ -282,6 +333,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const order = await opts.orders.findOrder(number);
     if (!order) return { text: `I can't find order ${label}. Please check the number.` };
 
+    if (action !== "paid" && !(await documentsIncluded())) {
+      return { text: "Invoice and receipt pictures aren't on your plan. Send *plan* to see your options." };
+    }
+
     if (action === "invoice") {
       const invoice = await documentImage("invoice", order);
       return invoice ? { text: `Invoice for ${label} (${formatNaira(order.totalKobo)}):`, images: [invoice] } : { text: DRAW_FAILED };
@@ -311,7 +366,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     return {
       text: receipt
         ? `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`
-        : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}, but couldn't draw the receipt.`,
+        : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`,
       ...(receipt ? { images: [receipt] } : {}),
       notify: [
         {

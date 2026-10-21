@@ -32,12 +32,54 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps broadcasts off unless BROADCASTS_ENABLED is true, and then needs a template", () => {
+    expect(loadConfig(base).broadcasts).toBeUndefined();
+    expect(() => loadConfig({ ...base, BROADCASTS_ENABLED: "true" })).toThrow("BROADCAST_TEMPLATE_NAME");
+    expect(loadConfig({ ...base, BROADCASTS_ENABLED: "true", BROADCAST_TEMPLATE_NAME: "business_offer" }).broadcasts).toEqual({
+      template: { name: "business_offer", language: "en" },
+      imageTemplateName: undefined,
+      perMinute: 30,
+      costPerMessageKobo: undefined,
+    });
+    expect(
+      loadConfig({ ...base, BROADCASTS_ENABLED: "true", BROADCAST_TEMPLATE_NAME: "b", BROADCAST_COST_KOBO: "7000" }).broadcasts
+        ?.costPerMessageKobo,
+    ).toBe(7000);
+  });
+
   it("keeps more quote businesses off unless QUOTE_MULTI_BUSINESS is true", () => {
     expect(loadConfig(base).quoteBusinesses).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true" })).toThrow("ANTHROPIC_API_KEY");
     expect(loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true", ANTHROPIC_API_KEY: "a" }).quoteBusinesses).toEqual({
       anthropicApiKey: "a",
       model: "claude-haiku-5-5",
+    });
+  });
+
+  it("keeps quote reminders off unless QUOTE_FOLLOW_UPS is true", () => {
+    expect(loadConfig(base).quoteFollowUps).toBeUndefined();
+    expect(loadConfig({ ...base, QUOTE_FOLLOW_UPS: "true" }).quoteFollowUps).toEqual({ hours: 24, template: undefined });
+    expect(
+      loadConfig({ ...base, QUOTE_FOLLOW_UPS: "on", QUOTE_FOLLOW_UP_HOURS: "20", QUOTE_FOLLOW_UP_TEMPLATE_NAME: "quote_reminder" })
+        .quoteFollowUps,
+    ).toEqual({ hours: 20, template: { name: "quote_reminder", language: "en" } });
+    expect(() => loadConfig({ ...base, QUOTE_FOLLOW_UPS: "true", QUOTE_FOLLOW_UP_HOURS: "0" })).toThrow("QUOTE_FOLLOW_UP_HOURS");
+  });
+
+  it("switches the quote setup screen on only with a long enough password", () => {
+    expect(loadConfig(base).quoteSetup).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "short" })).toThrow("at least 12");
+    expect(loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "long enough pass" }).quoteSetup).toEqual({ password: "long enough pass" });
+  });
+
+  it("adds the AI price list draft only when switched on, and needs an Anthropic key", () => {
+    const setup = { ...base, QUOTE_SETUP_PASSWORD: "long enough pass" };
+    expect(loadConfig(setup).quoteSetup?.aiDraft).toBeUndefined();
+    expect(() => loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true" })).toThrow("ANTHROPIC_API_KEY");
+    expect(loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true", ANTHROPIC_API_KEY: "k" }).quoteSetup?.aiDraft).toEqual({
+      anthropicApiKey: "k",
+      model: "claude-haiku-5-5",
+      perDay: 30,
     });
   });
 
@@ -81,6 +123,11 @@ describe("loadConfig", () => {
     const quote = { ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a" };
     expect(loadConfig(quote).quote?.plan).toBeUndefined();
     expect(loadConfig({ ...quote, QUOTE_PLAN: " Free " }).quote?.plan).toBe("free");
+  });
+
+  it("leaves plan features off unless switched on", () => {
+    expect(loadConfig(base).quotePlanFeatures).toBe(false);
+    expect(loadConfig({ ...base, QUOTE_PLAN_FEATURES: "true" }).quotePlanFeatures).toBe(true);
   });
 
   it("switches Paystack on only with a secret key, and then needs the rest", () => {

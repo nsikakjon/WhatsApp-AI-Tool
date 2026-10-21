@@ -300,18 +300,21 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
       return (data ?? []).map((row) => ({ name: row.name as string, priceKobo: Number(row.price_kobo) }));
     },
     async businessPlanCode() {
-      if (!businessId) return null;
-      const { data, error } = await db
-        .from("quote_businesses")
-        .select("plan_code, plan_paid_until")
-        .eq("id", businessId)
-        .maybeSingle();
-      if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-      const code = (data?.plan_code as string | null | undefined) ?? null;
-      const until = data?.plan_paid_until as string | null | undefined;
-      return code && until && new Date(until) <= new Date() ? "free" : code;
+      return businessId ? readBusinessPlanCode(db, businessId) : null;
     },
   };
+}
+
+/**
+ * The plan saved on a business's row. A paid plan whose time has run out
+ * reads as "free". Shared with features.ts so both agree on the plan.
+ */
+export async function readBusinessPlanCode(db: SupabaseClient, businessId: string): Promise<string | null> {
+  const { data, error } = await db.from("quote_businesses").select("plan_code, plan_paid_until").eq("id", businessId).maybeSingle();
+  if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
+  const code = (data?.plan_code as string | null | undefined) ?? null;
+  const until = data?.plan_paid_until as string | null | undefined;
+  return code && until && new Date(until) <= new Date() ? "free" : code;
 }
 
 export function createSupabasePlanPayments(db: SupabaseClient): PlanPaymentStore {

@@ -97,8 +97,12 @@ function keepQuestions(bot, text) {
 }
 function key(q) { return q.trim().toLowerCase(); }
 
+// The page lives at /bot-test (no slash at the end), so "ask" on its own
+// would mean /ask. Every request is made from the page's own address instead.
+const BASE = location.pathname.replace(/\\/+$/, "") + "/";
+
 async function call(path, options) {
-  const res = await fetch(path, options);
+  const res = await fetch(BASE + path, options);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || "Something went wrong.");
   return body;

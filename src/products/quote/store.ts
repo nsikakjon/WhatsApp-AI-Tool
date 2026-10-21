@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { assertKobo } from "../../core/money.js";
+import { productSlug, type PriceListItem } from "./pricelist.js";
 import type { QuoteLine, Variant } from "./pricing.js";
 
 // Reading the price list and saving quotes/orders. Kept behind interfaces so
@@ -311,6 +313,101 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
         .select("id");
       if (error) throw new Error(`setStatus failed: ${error.message}`);
       return (data ?? []).length > 0;
+    },
+  };
+}
+
+/** The settings an owner fills in on the setup screen. */
+export type BusinessSettings = Omit<QuoteBusiness, "id" | "updatedAt">;
+
+/** What the owner setup screen changes: business settings and whole price lists. */
+export interface SetupStore {
+  createBusiness(settings: BusinessSettings): Promise<QuoteBusiness>;
+  updateBusiness(id: string, settings: BusinessSettings): Promise<QuoteBusiness>;
+  /** The business's price list as it is now (switched-off items left out). */
+  priceList(businessId: string): Promise<PriceListItem[]>;
+  /** Swaps in a whole new price list at once (migration 0023): all of it saves, or none of it. */
+  replacePriceList(businessId: string, items: PriceListItem[]): Promise<void>;
+}
+
+/** Thrown when another business already uses that WhatsApp number. */
+export class NumberTakenError extends Error {}
+
+export function createSupabaseSetup(db: SupabaseClient): SetupStore {
+  const row = (s: BusinessSettings) => ({
+    name: s.name,
+    description: s.description,
+    order_prefix: s.orderPrefix,
+    phone_number_id: s.phoneNumberId,
+    owner_wa_id: s.ownerWaId,
+    business_details: s.businessDetails,
+    payment_details: s.paymentDetails,
+    active: s.active,
+  });
+  const failed = (what: string, error: { code?: string; message: string }) =>
+    error.code === "23505" ? new NumberTakenError("number taken") : new Error(`${what} failed: ${error.message}`);
+
+  return {
+    async createBusiness(settings) {
+      const { data, error } = await db.from("quote_businesses").insert(row(settings)).select(BUSINESS_COLUMNS).single();
+      if (error) throw failed("createBusiness", error);
+      return toBusiness(data as BusinessRow);
+    },
+    async updateBusiness(id, settings) {
+      const { data, error } = await db
+        .from("quote_businesses")
+        .update({ ...row(settings), updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select(BUSINESS_COLUMNS)
+        .single();
+      if (error) throw failed("updateBusiness", error);
+      return toBusiness(data as BusinessRow);
+    },
+    async priceList(businessId) {
+      const { data, error } = await db
+        .from("quote_products")
+        .select("name, created_at, quote_variants(name, min_quantity, active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))")
+        .eq("business_id", businessId)
+        .eq("active", true)
+        .order("created_at");
+      if (error) throw new Error(`priceList failed: ${error.message}`);
+      type Row = {
+        name: string;
+        quote_variants: Array<{
+          name: string;
+          min_quantity: number;
+          active: boolean;
+          created_at: string;
+          quote_price_tiers: Array<{ min_quantity: number; unit_price_kobo: number | string }>;
+        }>;
+      };
+      return ((data ?? []) as unknown as Row[]).flatMap((p) =>
+        p.quote_variants
+          .filter((v) => v.active)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at))
+          .map((v) => ({
+            product: p.name,
+            option: v.name,
+            minQuantity: v.min_quantity,
+            tiers: v.quote_price_tiers
+              .map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) }))
+              .sort((a, b) => a.minQuantity - b.minQuantity),
+          })),
+      );
+    },
+    async replacePriceList(businessId, items) {
+      if (!items.length) throw new Error("replacePriceList: the new price list is empty");
+      const { error } = await db.rpc("quote_replace_price_list", {
+        p_business_id: businessId,
+        p_items: items.map((i) => ({
+          slug: productSlug(i.product),
+          product: i.product,
+          option: i.option,
+          minQuantity: i.minQuantity,
+          tiers: i.tiers.map((t) => ({ minQuantity: t.minQuantity, unitPriceKobo: assertKobo(t.unitPriceKobo, "price") })),
+        })),
+      });
+      if (error) throw new Error(`replacePriceList failed: ${error.message}`);
     },
   };
 }

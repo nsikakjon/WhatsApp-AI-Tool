@@ -51,6 +51,44 @@ export interface Config {
     model: string;
   };
   /**
+   * Broadcasts to customers who opted in (a paid add-on for quote bot
+   * businesses). Only set when BROADCASTS_ENABLED is true.
+   */
+  broadcasts?: {
+    /** Approved Marketing template: {{1}} = business name, {{2}} = the message. */
+    template: { name: string; language: string };
+    /** The same with a picture header. Without it, broadcasts are text only. */
+    imageTemplateName?: string;
+    perMinute: number;
+    /** Rough Meta charge per marketing message in kobo, for the owner's preview. */
+    costPerMessageKobo?: number;
+  };
+  /**
+   * Quote follow-ups: one reminder for a quote the customer never answered.
+   * Only set when QUOTE_FOLLOW_UPS is true (needs migration 0027).
+   */
+  quoteFollowUps?: {
+    /** Hours after a quote before the reminder goes (businesses can set their own). */
+    hours: number;
+    /** Approved WhatsApp template for customers outside the 24-hour window. */
+    template?: { name: string; language: string };
+  };
+  /**
+   * Enforce what each quote plan includes (AI credits, voice notes, invoices;
+   * quote_plan_features table). Only matters for businesses on a plan.
+   * Off unless QUOTE_PLAN_FEATURES is true.
+   */
+  quotePlanFeatures: boolean;
+  /**
+   * The owner setup screen at /quote-setup (businesses and price lists for
+   * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
+   */
+  quoteSetup?: {
+    password: string;
+    /** "Let AI draft it" on the price list page; off unless QUOTE_SETUP_AI_DRAFT is on. */
+    aiDraft?: { anthropicApiKey: string; model: string; perDay: number };
+  };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -219,6 +257,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
+    broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")
+      ? {
+          template: {
+            name: required(env, "BROADCAST_TEMPLATE_NAME"),
+            language: env.BROADCAST_TEMPLATE_LANGUAGE || "en",
+          },
+          imageTemplateName: env.BROADCAST_IMAGE_TEMPLATE_NAME || undefined,
+          perMinute: wholeNumber(env, "BROADCASTS_PER_MINUTE", 30),
+          costPerMessageKobo: env.BROADCAST_COST_KOBO ? wholeNumber(env, "BROADCAST_COST_KOBO", 1) : undefined,
+        }
+      : undefined,
+    quoteFollowUps: /^(true|yes|on|1)$/i.test(env.QUOTE_FOLLOW_UPS ?? "")
+      ? {
+          hours: followUpHours(env.QUOTE_FOLLOW_UP_HOURS),
+          template: env.QUOTE_FOLLOW_UP_TEMPLATE_NAME
+            ? { name: env.QUOTE_FOLLOW_UP_TEMPLATE_NAME, language: env.QUOTE_FOLLOW_UP_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
+        }
+      : undefined,
+    quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
+    quoteSetup: env.QUOTE_SETUP_PASSWORD
+      ? {
+          password: longPassword(env, "QUOTE_SETUP_PASSWORD"),
+          aiDraft: /^(true|yes|on|1)$/i.test(env.QUOTE_SETUP_AI_DRAFT ?? "")
+            ? {
+                anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+                model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+                perDay: wholeNumber(env, "QUOTE_SETUP_AI_DRAFTS_PER_DAY", 30),
+              }
+            : undefined,
+        }
+      : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
@@ -295,6 +365,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     paystack: paystackSettings(env),
   };
+}
+
+function followUpHours(value: string | undefined): number {
+  const hours = Number(value || 24);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
+    throw new Error(`QUOTE_FOLLOW_UP_HOURS must be a whole number of hours from 1 to 168 (got "${value}")`);
+  }
+  return hours;
+}
+
+function longPassword(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name] ?? "";
+  if (value.length < 12) throw new Error(`${name} must be at least 12 characters long`);
+  return value;
 }
 
 function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
