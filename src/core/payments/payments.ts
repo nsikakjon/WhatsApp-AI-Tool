@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertKobo } from "../money.js";
 import type { PaystackClient } from "./paystack.js";
-import type { Payment, PaymentStore } from "./store.js";
+import type { Payment, PaymentStore, PromoCheck } from "./store.js";
 
 // Checkout links for any product, and what happens once one is paid.
 //
@@ -21,11 +21,21 @@ export interface PaymentRequest {
   purpose: Record<string, unknown>;
   /** Shown against the payment in the Paystack dashboard. */
   title: string;
+  /** A promo or referral code the payer typed. Its discount comes off the first of `months`. */
+  promo?: { code: string; months: number };
 }
+
+export type AppliedPromo = { code: string; percentOff: number; amountOffKobo: number };
+export type RefusedPromo = Exclude<PromoCheck, { result: "applied" }>;
+
+/** A checkout link and what it charges, or no link because the code can't be used. */
+export type CheckoutLink =
+  | { url: string; amountKobo: number; promo: AppliedPromo | null }
+  | { url: null; refused: RefusedPromo };
 
 /** What products see: they can ask for a link, nothing else. */
 export interface PaymentLinks {
-  createLink(req: PaymentRequest): Promise<string>;
+  createLink(req: PaymentRequest): Promise<CheckoutLink>;
 }
 
 export type OutgoingNote = { to: string; text: string };
@@ -62,15 +72,25 @@ export function createPayments(opts: PaymentsOptions): Payments {
       if (req.amountKobo === 0) throw new Error("Can't take a payment of ₦0");
       if (!opts.onPaid[req.product]) throw new Error(`"${req.product}" has no onPaid handler`);
       const reference = `yarnoga-${req.product}-${randomUUID()}`;
-      await opts.store.create({ reference, product: req.product, waId: req.waId, purpose: req.purpose, amountKobo: req.amountKobo });
-      return opts.paystack.initialize({
+      const payment = { reference, product: req.product, waId: req.waId, purpose: req.purpose, amountKobo: req.amountKobo };
+      let promo: AppliedPromo | null = null;
+      if (req.promo) {
+        const check = await opts.store.createWithPromo(payment, req.promo.code, req.promo.months);
+        if (check.result !== "applied") return { url: null, refused: check };
+        promo = { code: check.code, percentOff: check.percentOff, amountOffKobo: check.amountOffKobo };
+      } else {
+        await opts.store.create(payment);
+      }
+      const amountKobo = req.amountKobo - (promo?.amountOffKobo ?? 0);
+      const url = await opts.paystack.initialize({
         reference,
-        amountKobo: req.amountKobo,
+        amountKobo,
         email: opts.customerEmail,
         callbackUrl: opts.callbackUrl,
         description: req.title,
         waId: req.waId,
       });
+      return { url, amountKobo, promo };
     },
 
     async confirm(reference) {

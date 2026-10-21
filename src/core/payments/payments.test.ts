@@ -29,6 +29,12 @@ function memoryStore() {
     async markPending(id) {
       rows.find((r) => r.id === id)!.status = "pending";
     },
+    async createWithPromo(p, code, months) {
+      if (code !== "DAYONES") return { result: "unknown", code, maxUses: null };
+      const amountOffKobo = ((p.amountKobo / months) * 50) / 100;
+      rows.push({ ...p, amountKobo: p.amountKobo - amountOffKobo, promoCode: code, id: `p${rows.length + 1}`, status: "pending" });
+      return { result: "applied", code, percentOff: 50, amountOffKobo };
+    },
   };
   return { store, rows };
 }
@@ -70,7 +76,22 @@ describe("payments", () => {
     expect(rows[0]).toMatchObject({ product: "flyer", amountKobo: 450000, status: "pending" });
     expect(rows[0]!.reference).toMatch(/^yarnoga-flyer-[0-9a-f-]{36}$/);
     expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 450000, email: "payments@example.com" }));
-    expect(link).toBe(`https://checkout.paystack.com/${rows[0]!.reference}`);
+    expect(link).toEqual({ url: `https://checkout.paystack.com/${rows[0]!.reference}`, amountKobo: 450000, promo: null });
+  });
+
+  it("charges the discounted amount with a promo code, and makes no link when the code can't be used", async () => {
+    const { payments, paystack, rows } = setup();
+    const link = await payments.createLink({ ...request, amountKobo: 1350000, promo: { code: "DAYONES", months: 3 } });
+    expect(link).toMatchObject({ amountKobo: 1125000, promo: { code: "DAYONES", amountOffKobo: 225000 } });
+    expect(rows[0]).toMatchObject({ amountKobo: 1125000, promoCode: "DAYONES" });
+    expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 1125000 }));
+
+    expect(await payments.createLink({ ...request, promo: { code: "NOPE", months: 1 } })).toEqual({
+      url: null,
+      refused: { result: "unknown", code: "NOPE", maxUses: null },
+    });
+    expect(rows).toHaveLength(1);
+    expect(paystack.initialize).toHaveBeenCalledTimes(1);
   });
 
   it("refuses fractions of a kobo and products with nothing to do once paid", async () => {
