@@ -23,25 +23,56 @@ The business already on the main WhatsApp number (today KahnPrints) is
 With the switch off (the default), the bot ignores the businesses table
 completely and runs exactly as it did before.
 
-## Adding a business
+## Adding a business (setup screen)
 
-Until the setup screen is ready, add a row to `quote_businesses` in Supabase
-(Table editor):
+1. In Supabase, run `supabase/migrations/0023_quote_price_list_import.sql`
+   (after 0020).
+2. On Railway, add `QUOTE_SETUP_PASSWORD` (a password you invent, at least 12
+   characters).
+3. Open `https://<your-railway-url>/quote-setup`. The browser asks for the
+   password; the username can be anything.
+4. Press **Add a business** and fill in its name, what it does, an order
+   prefix (e.g. MC for MC-1001), the WhatsApp **Phone number ID** Meta shows
+   for its number, and the owner's alert number. Tick "Answer customers on
+   this number" when you're ready for it to go live.
+5. Add its price list: upload a CSV file, paste a Google Sheet link (shared
+   as "Anyone with the link"), or type it in. One row per price:
 
-| Column            | Example                         |
-| ----------------- | ------------------------------- |
-| `name`            | Mama Cakes                      |
-| `description`     | a bakery                        |
-| `order_prefix`    | MC (capital letters, up to 6)   |
-| `phone_number_id` | the number's "Phone number ID" from Meta |
-| `owner_wa_id`     | owner's WhatsApp number, digits only, e.g. 2348012345678 |
+   | Product          | Option                  | Minimum order | From quantity | Price |
+   | ---------------- | ----------------------- | ------------- | ------------- | ----- |
+   | Branded T-shirts | white, one-colour print | 10            | 10            | 5000  |
+   | Branded T-shirts | white, one-colour print | 10            | 50            | 4200  |
+   | Custom cakes     | any size                | 1             |               |       |
 
-Then load its price list into `quote_products`, `quote_variants` and
-`quote_price_tiers`, setting `business_id` on each product to the new
-business's id. The number must also be connected to the app in Meta, with
-webhooks switched on, like the other numbers (see docs/META_SETUP.md).
+   Prices are in naira (they're saved in kobo). Leave the price empty for
+   items the team prices by hand: the bot passes those requests to the owner.
+   The screen shows the list back, with what's new, changed or taken off,
+   and only saves when you press **Save this price list**. The new list
+   replaces the whole old one; items taken off are switched off, not deleted,
+   so old orders still read correctly.
 
-Changes to a business's settings take effect within a minute.
+### Let AI draft the price list (optional)
+
+With `QUOTE_SETUP_AI_DRAFT=true` on Railway (and `ANTHROPIC_API_KEY` set), the
+price list page also has **Let AI draft it**. The owner describes what they
+sell with their prices (e.g. "Cupcakes N600 each, box of 6 for N3,500"), or
+adds up to 3 photos or screenshots of their price list. The AI writes it out
+as rows in the "type it here" box. Nothing is saved: the owner corrects the
+rows, presses **Check it**, then **Save this price list**, as above.
+
+- The AI is told to copy prices, never to make them up. When the owner only
+  typed text, any price that isn't in their text is left empty, so the AI
+  can't slip in a price of its own. Prices read from a photo can't be checked
+  that way, so the page asks the owner to check every price.
+- At most `QUOTE_SETUP_AI_DRAFTS_PER_DAY` drafts a day (default 30) across
+  all businesses, so the AI bill stays small.
+
+The main number's business (#1) keeps its name and alert number on Railway,
+so the screen only lets you change its price list.
+
+The number must also be connected to the app in Meta, with webhooks switched
+on, like the other numbers (see docs/META_SETUP.md). Changes to a business's
+settings take effect within a minute.
 
 ## The demo shop (try the quote bot)
 
@@ -58,12 +89,13 @@ To switch the demo on:
 1. In Meta (WhatsApp Manager), add +234 701 326 2131 to the app's WhatsApp
    account, verify it with the SMS code, and register it (POST
    `/{phone-number-id}/register` with a 6-digit PIN), as for the flyer number
-   in docs/META_SETUP.md. Turn on **Subscribe webhooks** for it. Note its
+   in docs/META_SETUP.md (step by step: docs/META_PORTFOLIO.md step 4). Turn
+   on **Subscribe webhooks** for it. Note its
    **Phone number ID**.
 2. Run migration 0020, then `supabase/seed/demo_quote_business.sql`, in Supabase.
-3. In Table editor > `quote_businesses`, open "yarnOga Demo Shop": paste the
-   Phone number ID into `phone_number_id`, optionally put your number in
-   `owner_wa_id` to see the order alerts, and set `active` to true.
+3. On the setup screen (or in Table editor > `quote_businesses`), open
+   "yarnOga Demo Shop": fill in the Phone number ID, optionally your number as
+   the alert number to see the order alerts, and switch it on.
 4. On Railway, set `QUOTE_MULTI_BUSINESS=true`.
 
 The demo starts switched off, so running the seed changes nothing until step 3.

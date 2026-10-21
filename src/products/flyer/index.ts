@@ -1,3 +1,4 @@
+import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
 import type { Product, Reply } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import {
@@ -77,6 +78,8 @@ export interface FlyerBotOptions {
   now?: () => Date;
   /** The free trial new groups start with (see plans.ts). Leave out for none. */
   trial?: Trial;
+  /** Paystack checkout links. Without them, owners take payment by hand and send "set plan". */
+  payments?: PaymentLinks;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -102,6 +105,8 @@ export interface FlyerBot extends Product {
    * run tries again.
    */
   sendDueBirthdays(now: Date, delivery: BirthdayDeliverer): Promise<void>;
+  /** A plan payment went through: moves the group onto the plan and tells the payer and owners. */
+  planPaid: PaidHandler;
 }
 
 const HELP = `Here's what I can do:
@@ -636,16 +641,20 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
-    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+))?$/i);
+    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+?))?(?:\s+(?:for\s+)?(\d+)\s*(months?|years?))?$/i);
     if (upgrade) {
       const wanted = upgrade[1] ? findPlan(upgrade[1]) : group.plan !== "free" ? findPlan(group.plan) : null;
       if (!wanted || wanted.id === "free") return { text: await plansText() };
+      const months = Number(upgrade[2] ?? 1) * (upgrade[3]?.toLowerCase().startsWith("year") ? 12 : 1);
+      if (months < 1 || months > 12) return { text: "You can pay for 1 to 12 months at a time, e.g. *upgrade standard 3 months*." };
+      const checkout = await checkoutReply(group, wanted, months, from);
+      if (checkout) return checkout;
       const contact = `${from}${group.name ? ` for "${group.name}"` : ""}`;
       return {
         text: `Thanks! We'll message you shortly with how to pay for *${wanted.label}*. Your group switches over as soon as it's paid.`,
         notify: opts.owners.map((to) => ({
           to,
-          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} 1 month for ${group.name}`,
+          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} ${monthsText(months)} for ${group.name}`,
         })),
       };
     }
@@ -694,15 +703,55 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
     const months = Number(count ?? 1) * (unit?.toLowerCase().startsWith("year") ? 12 : 1);
     if (!Number.isInteger(months) || months < 1 || months > 60) return { text: "Please give between 1 month and 5 years." };
-    // Renewing early adds the time on top of what's left.
-    // A free trial's leftover days aren't added: paid time starts now.
+    const until = await extendPlan(group, plan, months);
+    log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
+    return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
+  }
+
+  /**
+   * Puts a group on a paid plan. Renewing early adds the time on top of what's
+   * left; a free trial's leftover days aren't added, so paid time starts now.
+   */
+  async function extendPlan(group: Group, plan: Plan, months: number): Promise<Date> {
     const current = currentPlan(group, now());
     const start =
       current.id !== "free" && !onTrial(group, now()) && group.planUntil && group.planUntil > now() ? group.planUntil : now();
     const until = addMonths(start, months);
     await opts.store.setPlan(group.id, plan.id, until);
-    log.info(`Flyer group "${group.name}" set to ${plan.id} until ${until.toISOString()}`);
-    return { text: `✅ ${group.name} is on *${plan.label}* until ${formatDate(until)}.` };
+    return until;
+  }
+
+  /**
+   * A Paystack link for the plan, priced from the database: twelve months use
+   * the paid-yearly price when there is one. Null when online payment isn't
+   * possible (switched off, price on request, Paystack down), and the owners
+   * then take payment by hand.
+   */
+  async function checkoutReply(group: Group, plan: Plan, months: number, from: string): Promise<Reply | null> {
+    if (!opts.payments) return null;
+    try {
+      const [monthly, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
+      const perMonth = (months === 12 ? yearly.get(plan.id) : null) ?? monthly.get(plan.id);
+      if (!perMonth) return null;
+      const amountKobo = perMonth * months;
+      const link = await opts.payments.createLink({
+        product: "flyer",
+        waId: from,
+        amountKobo,
+        purpose: { groupId: group.id, plan: plan.id, months },
+        title: `${opts.brandName} ${plan.label}, ${monthsText(months)}, for ${group.name}`,
+      });
+      return {
+        text: [
+          `*${plan.label}* for *${group.name}*, ${monthsText(months)}: *${formatNaira(amountKobo)}*.`,
+          `Pay by card, bank transfer or USSD here:\n${link}`,
+          "Your group switches over as soon as the payment goes through, and I'll message you here.",
+        ].join("\n\n"),
+      };
+    } catch (err) {
+      log.error(`Couldn't make a payment link for "${group.name}":`, err);
+      return null;
+    }
   }
 
   /** Null if this person may set up another group, otherwise the reply saying why not. */
@@ -972,6 +1021,25 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       return handleCommand(text, msg.from, group, groups);
     },
 
+    async planPaid(payment) {
+      const { groupId, plan: planId, months } = payment.purpose as { groupId?: string; plan?: string; months?: number };
+      const plan = findPlan(String(planId ?? ""));
+      const group = groupId ? await opts.store.groupById(groupId) : null;
+      if (!plan || !group || !Number.isInteger(months) || months! < 1) {
+        throw new Error(`Payment ${payment.reference} is for something we can't find: ${JSON.stringify(payment.purpose)}`);
+      }
+      const until = await extendPlan(group, plan, months!);
+      log.info(`Flyer group "${group.name}" paid for ${plan.id} until ${until.toISOString()}`);
+      const paid = formatNaira(payment.amountKobo);
+      return [
+        { to: payment.waId, text: `✅ Payment of ${paid} received, thank you. *${group.name}* is on *${plan.label}* until ${formatDate(until)}.` },
+        ...opts.owners.map((to) => ({
+          to,
+          text: `💰 Paid: ${payment.waId} paid ${paid} for *${plan.label}* (${monthsText(months!)}) for ${group.name}. Active until ${formatDate(until)}.`,
+        })),
+      ];
+    },
+
     async sendDueBirthdays(now, delivery) {
       const today = lagosNow(now);
       if (today.hour < opts.sendHour) return;
@@ -1022,4 +1090,8 @@ export function forwardTip(names: string[], groupName: string): string {
 function notFound(found: Member[], query: string): string {
   if (!found.length) return `I couldn't find "${query}". Send *members* to see everyone.`;
   return `More than one match for "${query}": ${found.map((m) => m.name).join(", ")}. Please use the full name.`;
+}
+
+function monthsText(months: number): string {
+  return months === 12 ? "1 year" : `${months} month${months === 1 ? "" : "s"}`;
 }
