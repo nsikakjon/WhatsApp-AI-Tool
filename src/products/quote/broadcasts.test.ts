@@ -104,7 +104,7 @@ function msg(text: string, from = "2348012345678", over: Partial<IncomingMessage
 }
 
 function ctx(contactId = "c1"): ProductContext {
-  return { contactId, history: [], downloadMedia: async () => ({ data: new Blob(), mimeType: "" }), sendLater: async () => {} };
+  return { contactId, history: [], downloadMedia: async () => ({ data: new Blob(), mimeType: "" }), sendLater: async () => {}, canMessageFreely: async () => true };
 }
 
 function bot(store: BroadcastStore, over: Partial<BroadcastOptions> = {}) {

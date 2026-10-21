@@ -2,6 +2,7 @@ import { formatNaira } from "../../core/money.js";
 import type { Product, ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
+import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
@@ -35,6 +36,9 @@ import type { Understander } from "./understand.js";
 // each plan gets a monthly number of AI replies; after that the bot keeps
 // quoting with simple menu replies (fallback.ts). Voice notes and invoice
 // pictures follow the plan too.
+//
+// With delivery switched on (delivery/index.ts), the bot asks where to deliver
+// between the YES and the order, and the owner sends riders out from WhatsApp.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -51,6 +55,8 @@ export interface QuoteProductOptions {
   businessDetails?: string;
   /** Bank details printed on invoices, e.g. "GTBank 0123456789, Example Ltd". */
   paymentDetails?: string;
+  /** Delivery addresses, fees and riders. Without it, the team arranges delivery themselves. */
+  delivery?: Dispatch;
   /** Draws invoices and receipts. Tests swap in a fake; normally documents.ts. */
   renderDocument?: (input: DocumentInput) => Promise<Uint8Array>;
   /**
@@ -82,6 +88,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       if (opts.ownerWaId && msg.from === opts.ownerWaId) {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
+      }
+      if (opts.delivery) {
+        const deliveryReply = await opts.delivery.handle(msg, ctx);
+        if (deliveryReply) return deliveryReply;
       }
 
       // Voice notes arrive here with `text` already filled in by the core.
@@ -235,25 +245,38 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       };
     }
 
+    if (opts.delivery) {
+      const ask = await opts.delivery.beforeConfirm(order, { waId, name });
+      if (ask) return ask;
+    }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
 
-    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() });
+    const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
+    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
+    const next = opts.delivery
+      ? delivery
+        ? "We'll send you a link to follow your delivery once a rider is on the way."
+        : `The ${opts.businessName} team will let you know when it's ready.`
+      : `The ${opts.businessName} team will contact you shortly about delivery.`;
     const reply: Reply = {
       text: invoice
-        ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. The ${opts.businessName} team will contact you shortly about delivery.`
-        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment and delivery.`,
+        ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
+        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${opts.delivery ? "" : " and delivery"}.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
     const credit = opts.plan ? await opts.plan.credit() : null;
     if (credit) reply.text += `\n\n${credit}`;
     if (opts.ownerWaId) {
+      const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
       reply.notify = [
         {
           to: opts.ownerWaId,
           text: [
             `New order ${ref(order)} from ${name ?? "a customer"} (+${waId}):`,
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
+            ...(delivery ? [`• ${delivery.label} = ${formatNaira(delivery.feeKobo)}`] : []),
             `Total: ${formatNaira(order.totalKobo)}`,
+            ...(note ? ["", note] : []),
             "",
             `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
             ...(check.warning ? ["", check.warning] : []),
@@ -272,6 +295,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
   async function documentImage(
     kind: "invoice" | "receipt",
     order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
+    delivery: DeliveryCharge | null,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
@@ -286,6 +310,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         customerName: order.customerName ?? undefined,
         customerWaId: order.customerWaId,
         lines: order.lines,
+        ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
       });
@@ -332,26 +357,27 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const label = `${opts.orderPrefix}-${number}`;
     const order = await opts.orders.findOrder(number);
     if (!order) return { text: `I can't find order ${label}. Please check the number.` };
+    const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
 
     if (action !== "paid" && !(await documentsIncluded())) {
       return { text: "Invoice and receipt pictures aren't on your plan. Send *plan* to see your options." };
     }
 
     if (action === "invoice") {
-      const invoice = await documentImage("invoice", order);
+      const invoice = await documentImage("invoice", order, delivery);
       return invoice ? { text: `Invoice for ${label} (${formatNaira(order.totalKobo)}):`, images: [invoice] } : { text: DRAW_FAILED };
     }
 
     if (action === "receipt") {
       if (order.status !== "paid") return { text: `${label} isn't marked paid yet. Send *paid ${label}* once the customer has paid.` };
-      const receipt = await documentImage("receipt", order);
+      const receipt = await documentImage("receipt", order, delivery);
       return receipt ? { text: `Receipt for ${label}:`, images: [receipt] } : { text: DRAW_FAILED };
     }
 
     // paid
     if (order.status === "cancelled") return { text: `${label} was cancelled, so I can't mark it paid.` };
     if (order.status === "paid") {
-      const receipt = await documentImage("receipt", order);
+      const receipt = await documentImage("receipt", order, delivery);
       return {
         text: `${label} was already marked paid${order.paidAt ? ` on ${formatDocDate(order.paidAt)}` : ""}. Here's the receipt again:`,
         ...(receipt ? { images: [receipt] } : {}),
@@ -361,12 +387,15 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       return { text: `${label} has just been updated by another message. Send *receipt ${label}* to see where it stands.` };
     }
     const paid = { ...order, status: "paid" as const, paidAt: new Date() };
-    const receipt = await documentImage("receipt", paid);
+    const receipt = await documentImage("receipt", paid, delivery);
+    const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? `+${order.customerWaId}`;
     return {
-      text: receipt
-        ? `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`
-        : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`,
+      text:
+        (receipt
+          ? `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`
+          : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`) +
+        (note ? `\n\n${note}` : ""),
       ...(receipt ? { images: [receipt] } : {}),
       notify: [
         {

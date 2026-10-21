@@ -121,6 +121,28 @@ describe("WhatsApp client", () => {
     expect(sentRows[0].title.length).toBe(24);
   });
 
+  it("sends up to three reply buttons and a location request", async () => {
+    const bodies: unknown[] = [];
+    const fakeFetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.b" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    const buttons = ["picked 1001", "delivered 1001", "failed 1001", "extra"].map((id) => ({ id, title: `${id} with a long title` }));
+    await client.sendButtons("2348012345678", { body: "New delivery", buttons });
+    await client.sendLocationRequest("2348012345678", "Where should we deliver?");
+
+    const [sentButtons, sentRequest] = bodies as Array<{ interactive: Record<string, any> }>;
+    expect(sentButtons!.interactive.type).toBe("button");
+    expect(sentButtons!.interactive.action.buttons).toHaveLength(3);
+    expect(sentButtons!.interactive.action.buttons[0]).toEqual({ type: "reply", reply: { id: "picked 1001", title: "picked 1001 with a …" } });
+    expect(sentRequest!.interactive).toEqual({
+      type: "location_request_message",
+      body: { text: "Where should we deliver?" },
+      action: { name: "send_location" },
+    });
+  });
+
   it("downloads media in two steps, sending the token both times", async () => {
     const calls: Array<{ url: string; auth?: string }> = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {

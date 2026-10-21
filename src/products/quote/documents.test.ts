@@ -24,6 +24,11 @@ describe("invoices and receipts", () => {
     expect(isJpeg(await renderDocument({ ...base, kind: "receipt" }))).toBe(true);
   });
 
+  it("draws a delivery fee as its own line", async () => {
+    const delivery = { label: "Delivery (Ikeja)", feeKobo: 200_000 };
+    expect(isJpeg(await renderDocument({ ...base, delivery, totalKobo: 1_700_000 }))).toBe(true);
+  });
+
   it("still draws when the logo file is broken", async () => {
     expect(isJpeg(await renderDocument({ ...base, logo: new Uint8Array([1, 2, 3]) }))).toBe(true);
   });

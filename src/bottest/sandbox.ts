@@ -50,6 +50,7 @@ export async function askBot(product: Product, question: string): Promise<TestAn
       sendLater: async (r) => {
         later.push(r);
       },
+      canMessageFreely: async () => true,
     },
   );
 

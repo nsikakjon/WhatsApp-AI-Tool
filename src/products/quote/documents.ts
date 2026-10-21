@@ -33,6 +33,8 @@ export interface DocumentInput {
   /** Digits only, e.g. 2348012345678. */
   customerWaId: string;
   lines: QuoteLine[];
+  /** The delivery fee, as its own line. Already included in totalKobo. */
+  delivery?: { label: string; feeKobo: number };
   totalKobo: number;
   /** Bank details printed on invoices so the customer knows where to pay. */
   paymentDetails?: string;
@@ -70,7 +72,10 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   const scratch = createCanvas(10, 10).getContext("2d");
   const cols = { item: MARGIN + 24, qty: 640, unit: 880, amount: WIDTH - MARGIN - 24 };
   scratch.font = "30px Inter";
-  const rows = input.lines.map((l) => wrap(scratch, l.name, cols.qty - cols.item - 60));
+  const items = input.delivery
+    ? [...input.lines, { name: input.delivery.label, quantity: null, unitPriceKobo: null, totalKobo: input.delivery.feeKobo }]
+    : input.lines;
+  const rows = items.map((l) => wrap(scratch, l.name, cols.qty - cols.item - 60));
   const rowsHeight = rows.reduce((h, r) => h + r.length * 42 + 30, 0);
   const notes = input.kind === "invoice" && input.paymentDetails ? input.paymentDetails : "";
   scratch.font = "28px Inter";
@@ -157,15 +162,15 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   ctx.textBaseline = "top";
   y += 64 + 20;
 
-  input.lines.forEach((l, i) => {
+  items.forEach((l, i) => {
     const nameRows = rows[i]!;
     ctx.fillStyle = INK;
     ctx.font = "30px Inter";
     ctx.textAlign = "left";
     nameRows.forEach((r, j) => ctx.fillText(r, cols.item, y + j * 42));
     ctx.textAlign = "right";
-    ctx.fillText(l.quantity.toLocaleString("en-NG"), cols.qty, y);
-    ctx.fillText(formatNaira(l.unitPriceKobo), cols.unit, y);
+    if (l.quantity !== null) ctx.fillText(l.quantity.toLocaleString("en-NG"), cols.qty, y);
+    if (l.unitPriceKobo !== null) ctx.fillText(formatNaira(l.unitPriceKobo), cols.unit, y);
     ctx.font = "30px Inter SemiBold";
     ctx.fillText(formatNaira(l.totalKobo), cols.amount, y);
     y += nameRows.length * 42 + 10;

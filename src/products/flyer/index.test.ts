@@ -221,6 +221,7 @@ const ctx = {
   history: [],
   downloadMedia: async () => ({ data: new Blob(["jpg"]), mimeType: "image/jpeg" }),
   sendLater: async (r: { text: string }) => void later.push(r.text),
+  canMessageFreely: async () => true,
 };
 const later: string[] = [];
 const text = (b: Uint8Array | undefined) => Buffer.from(b ?? []).toString();
