@@ -1,4 +1,5 @@
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
+import { promoAppliedText, promoCommand, promoRefusedText, takePromoCode, type PromoAdmin } from "../../core/payments/promos.js";
 import type { Product, Reply } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import {
@@ -80,6 +81,8 @@ export interface FlyerBotOptions {
   trial?: Trial;
   /** Paystack checkout links. Without them, owners take payment by hand and send "set plan". */
   payments?: PaymentLinks;
+  /** Promo codes (DAYONES): owners see and change them by sending "promos". */
+  promos?: PromoAdmin;
 }
 
 /** One birthday flyer ready to go to one admin. */
@@ -139,6 +142,7 @@ const JPEG = "image/jpeg";
 const FREE_SUMMARY = planById("free").summary;
 /** How many designs go on one picture when admins browse them. */
 const DESIGNS_PER_PAGE = 6;
+const UPGRADE = /^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+?))?(?:\s+(?:for\s+)?(\d+)\s*(months?|years?))?$/i;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** "see 8", "see design 8", "see gala". */
 const SEE_DESIGN = /^see\s+(?:design\s+)?(.+)$/i;
@@ -294,7 +298,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       return `${formatNaira(kobo)} a month${yearlyText}`;
     };
     const lines = PLANS.map((p) => `*${p.label}* (${price(p)}): ${p.summary}.`);
-    return `${opts.brandName} plans:\n\n${lines.join("\n\n")}\n\nSend *upgrade* and the plan's name, e.g. *upgrade standard*.`;
+    const promo = opts.payments ? " Got a promo code? Add it at the end, e.g. *upgrade standard CODE*." : "";
+    return `${opts.brandName} plans:\n\n${lines.join("\n\n")}\n\nSend *upgrade* and the plan's name, e.g. *upgrade standard*.${promo}`;
   }
 
   function formatDate(date: Date): string {
@@ -651,20 +656,24 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       };
     }
 
-    const upgrade = text.match(/^(?:upgrade|renew)(?:\s+(?:to\s+)?(.+?))?(?:\s+(?:for\s+)?(\d+)\s*(months?|years?))?$/i);
+    const asked = takePromoCode(text, (t) => {
+      const m = t.match(UPGRADE);
+      return !!m && (!m[1] || !!findPlan(m[1]));
+    });
+    const upgrade = asked.text.match(UPGRADE);
     if (upgrade) {
       const wanted = upgrade[1] ? findPlan(upgrade[1]) : group.plan !== "free" ? findPlan(group.plan) : null;
       if (!wanted || wanted.id === "free") return { text: await plansText() };
       const months = Number(upgrade[2] ?? 1) * (upgrade[3]?.toLowerCase().startsWith("year") ? 12 : 1);
       if (months < 1 || months > 12) return { text: "You can pay for 1 to 12 months at a time, e.g. *upgrade standard 3 months*." };
-      const checkout = await checkoutReply(group, wanted, months, from);
+      const checkout = await checkoutReply(group, wanted, months, from, asked.code);
       if (checkout) return checkout;
       const contact = `${from}${group.name ? ` for "${group.name}"` : ""}`;
       return {
         text: `Thanks! We'll message you shortly with how to pay for *${wanted.label}*. Your group switches over as soon as it's paid.`,
         notify: opts.owners.map((to) => ({
           to,
-          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*.\nWhen they've paid, send: set plan ${wanted.id} ${monthsText(months)} for ${group.name}`,
+          text: `💰 Upgrade request: ${contact} wants *${wanted.label}*${asked.code ? ` with code ${asked.code}` : ""}.\nWhen they've paid, send: set plan ${wanted.id} ${monthsText(months)} for ${group.name}`,
         })),
       };
     }
@@ -737,24 +746,26 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
    * possible (switched off, price on request, Paystack down), and the owners
    * then take payment by hand.
    */
-  async function checkoutReply(group: Group, plan: Plan, months: number, from: string): Promise<Reply | null> {
+  async function checkoutReply(group: Group, plan: Plan, months: number, from: string, code?: string): Promise<Reply | null> {
     if (!opts.payments) return null;
     try {
       const [monthly, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
       const perMonth = (months === 12 ? yearly.get(plan.id) : null) ?? monthly.get(plan.id);
       if (!perMonth) return null;
-      const amountKobo = perMonth * months;
       const link = await opts.payments.createLink({
         product: "flyer",
         waId: from,
-        amountKobo,
+        amountKobo: perMonth * months,
         purpose: { groupId: group.id, plan: plan.id, months },
         title: `${opts.brandName} ${plan.label}, ${monthsText(months)}, for ${group.name}`,
+        promo: code ? { code, months } : undefined,
       });
+      if (link.url === null) return { text: promoRefusedText(link.refused) };
       return {
         text: [
-          `*${plan.label}* for *${group.name}*, ${monthsText(months)}: *${formatNaira(amountKobo)}*.`,
-          `Pay by card, bank transfer or USSD here:\n${link}`,
+          `*${plan.label}* for *${group.name}*, ${monthsText(months)}: *${formatNaira(link.amountKobo)}*.`,
+          ...(link.promo ? [promoAppliedText(link.promo)] : []),
+          `Pay by card, bank transfer or USSD here:\n${link.url}`,
           "Your group switches over as soon as the payment goes through, and I'll message you here.",
         ].join("\n\n"),
       };
@@ -923,6 +934,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (/^(plans|prices|pricing)$/i.test(text)) return { text: await plansText() };
 
       if (isOwner) {
+        const promoReply = opts.promos ? await promoCommand(opts.promos, text) : null;
+        if (promoReply) return { text: promoReply };
         const setPlan = text.match(/^set plan\s+(\S+)(?:\s+(\d+)\s*(months?|years?))?\s+(?:for\s+)?(.+)$/i);
         if (setPlan) return setGroupPlan(setPlan[1]!, setPlan[2], setPlan[3], setPlan[4]!);
         const answer = text.match(/^reply\s+(\+?[\d\s]{10,18}?)\s*[:,]?\s+(\D[\s\S]*)$/i);
