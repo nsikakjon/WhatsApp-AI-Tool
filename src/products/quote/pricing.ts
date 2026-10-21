@@ -17,6 +17,8 @@ export interface Variant {
   name: string;
   minQuantity: number;
   tiers: PriceTier[];
+  /** The owner's notes about the item (colours, delivery time, ...), from extra price list columns. */
+  details?: string;
 }
 
 export interface QuoteLine {

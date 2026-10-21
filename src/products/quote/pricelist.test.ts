@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCsv } from "../../core/sheets.js";
-import { nairaToKobo, priceListCsv, productSlug, readPriceList } from "./pricelist.js";
+import { compareLists, nairaToKobo, priceListCsv, productSlug, readPriceList } from "./pricelist.js";
 
 describe("nairaToKobo", () => {
   it("reads plain naira amounts exactly", () => {
@@ -80,5 +80,33 @@ describe("productSlug", () => {
   it("makes a short fixed name", () => {
     expect(productSlug("Branded T-shirts (XL)")).toBe("branded-t-shirts-xl");
     expect(productSlug("₦₦")).toBe("item");
+  });
+});
+
+describe("extra columns", () => {
+  const table = (csv: string) => csv.trim().split("\n").map((l) => l.split(","));
+
+  it("keeps other columns as details, but never a second price", () => {
+    const { items, problems } = readPriceList(
+      table(`Product,Option,Price,Colour,Size,Old price
+T-shirts,white,5000,white or black,S to XXL,4500
+Mugs,,3500,,,`),
+    );
+    expect(problems).toEqual([]);
+    expect(items[0]!.details).toBe("Colour: white or black; Size: S to XXL");
+    expect(items[1]!.details).toBeUndefined();
+  });
+
+  it("writes details back out and reads them again unchanged", () => {
+    const { items } = readPriceList(table("Product,Price,Colour\nT-shirts,5000,red\nMugs,3500,"));
+    const again = readPriceList(parseCsv(priceListCsv(items))).items;
+    expect(again).toEqual(items);
+    expect(compareLists(items, again)).toEqual({ added: 0, changed: 0, removed: [] });
+  });
+
+  it("counts a changed detail as a change", () => {
+    const before = readPriceList(table("Product,Price,Colour\nT-shirts,5000,red")).items;
+    const after = readPriceList(table("Product,Price,Colour\nT-shirts,5000,blue\nCaps,2000,")).items;
+    expect(compareLists(before, after)).toMatchObject({ added: 1, changed: 1 });
   });
 });
