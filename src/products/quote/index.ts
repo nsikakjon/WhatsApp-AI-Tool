@@ -29,7 +29,8 @@ import type { Understander } from "./understand.js";
 // The owner can also send the business logo (a photo captioned "logo"),
 // "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
 // "orders" for the link to their order board and sales (board.ts), and
-// "stock" or product photos (catalogue.ts).
+// "stock" or product photos (catalogue.ts), and a Google Sheet link,
+// "refresh" or "update prices" to keep prices in step with it (sheet-sync.ts).
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -79,6 +80,8 @@ export interface QuoteProductOptions {
   simpleAi?: Understander;
   /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
   catalogue?: Catalogue;
+  /** The owner's Google Sheet commands (sheet-sync.ts): a sheet link, "refresh", "update prices". */
+  sheets?: { ownerCommand(msg: IncomingMessage): Promise<Reply | null> };
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
   log?: Pick<Console, "error">;
@@ -130,7 +133,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       const input = {
         text: msg.text,
         history: ctx.history,
-        catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
+        catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity, ...(v.details ? { details: v.details } : {}) })),
       };
       let understanding;
       let simple = !credit.useAi;
@@ -351,6 +354,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
    * try the bot like a customer.
    */
   async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
+    const sheetReply = opts.sheets ? await opts.sheets.ownerCommand(msg) : null;
+    if (sheetReply) return sheetReply;
     const catalogueReply = opts.catalogue ? await opts.catalogue.ownerCommand(msg, ctx) : null;
     if (catalogueReply) return catalogueReply;
     const caption = (msg.caption ?? "").trim();

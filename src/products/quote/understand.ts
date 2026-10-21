@@ -20,6 +20,7 @@ export interface CatalogEntry {
   id: string;
   name: string;
   minQuantity: number;
+  details?: string;
 }
 
 export interface Understander {
@@ -37,11 +38,13 @@ const OutputSchema = z.object({
  *   Each business using the bot sets its own; without one it's just "a business".
  */
 export function buildSystemPrompt(businessName: string, catalog: CatalogEntry[], description?: string): string {
-  const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})`).join("\n");
+  const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})${c.details ? `. Details: ${c.details}` : ""}`).join("\n");
   return `You work the WhatsApp line for ${businessName}, ${description?.trim() || "a business"} in Nigeria. Customers message to get price quotes and place orders. Code you can't see works out every price from the business's price list, so your job is only to understand the customer.
 
 The business sells exactly these items:
 ${list}
+
+Use an item's details to answer questions about it (colours, sizes, delivery and so on), but never promise anything the details don't say.
 
 Some items are priced by the team case by case; still list them as items with their quantity, and the system will pass them on.
 
