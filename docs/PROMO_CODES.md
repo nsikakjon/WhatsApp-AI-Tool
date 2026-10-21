@@ -58,18 +58,6 @@ plus how many businesses have used it.
   through: another month of the plan it's paying for, or a month of Starter if
   it's on Free.
 
-Owners can make more codes with names of their own, for a holiday or a
-campaign (up to 10 each):
-
-| Send                  | What happens                                          |
-| --------------------- | ----------------------------------------------------- |
-| `referral`            | All their codes and how many businesses paid with each |
-| `new code HOLIDAYS`   | Makes HOLIDAYS, with the same 10% off and free month   |
-| `code HOLIDAYS off`   | Pauses it (and `on` starts it again)                   |
-
-Names are letters and numbers, 4 to 20 of them, and are shared across every
-business and promo code, so two businesses can't both have HOLIDAYS.
-
 Each business can use a given code once, and a business can't use its own. The
 main number's business (business #1, whose plan is set in Railway) doesn't get
 a code or a reward, and neither does a business whose plan was set by hand with
@@ -86,8 +74,7 @@ default for all new codes, ask a developer to change the column default.
    `promo_codes` table with DAYONES (50%, 10 people) already in it.
 2. That's all DAYONES needs, as long as Paystack is already on
    (`PAYSTACK_SECRET_KEY` is set).
-3. For referral codes, also run `supabase/migrations/0042_more_referral_codes.sql`
-   the same way (it lets a business have more than one code). Then in Railway add `QUOTE_REFERRALS=true` (it also needs
+3. For referral codes, in Railway add `QUOTE_REFERRALS=true` (it also needs
    `QUOTE_MULTI_BUSINESS=true`).
 4. Test: from a flyer group admin's phone, send `upgrade standard DAYONES` and
    check the link shows ₦2,250. Then send `promos` from your owner number: you
