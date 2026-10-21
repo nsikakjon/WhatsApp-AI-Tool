@@ -8,6 +8,7 @@ import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
 import type { Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
+import { customerCode, discountCommand, discountLine, type DiscountStore } from "./discounts.js";
 import { createKeywordUnderstander } from "./fallback.js";
 import type { PlanFeatures } from "./features.js";
 import type { PlanGate } from "./plan.js";
@@ -29,7 +30,9 @@ import type { Understander } from "./understand.js";
 // The owner can also send the business logo (a photo captioned "logo"),
 // "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
 // "orders" for the link to their order board and sales (board.ts), and
-// "stock" or product photos (catalogue.ts).
+// "stock" or product photos (catalogue.ts). With discount codes on
+// (discounts.ts), the owner makes codes such as XMAS and customers send them
+// after a quote.
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -81,6 +84,8 @@ export interface QuoteProductOptions {
   catalogue?: Catalogue;
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
+  /** The business's discount codes for its customers (discounts.ts). Without it, codes aren't read. */
+  discounts?: DiscountStore;
   /** The owner's "referral" reply: their referral code and how often it's been used (referrals.ts). */
   referral?: () => Promise<string>;
   log?: Pick<Console, "error">;
@@ -120,6 +125,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
         await opts.optOutOfFollowUps(ctx.contactId);
         return { text: "Okay, I won't send you any more quote reminders. Message me any time you need a quote." };
+      }
+
+      if (opts.discounts) {
+        const codeReply = await customerCode(opts.discounts, msg.text, () => opts.orders.latestOpenQuote(ctx.contactId), ref);
+        if (codeReply) return { text: codeReply };
       }
 
       const variants = await opts.catalog.activeVariants();
@@ -251,6 +261,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
                   text: [
                     `${name ?? "A customer"} (+${waId}) wants to order ${ref(order)}:`,
                     ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
+                    ...(order.discount ? [discountLine(order.discount)] : []),
                     `Total: ${formatNaira(order.totalKobo)}`,
                     "",
                     `You've used all ${check.limit} orders on your ${check.planName} plan this month, so I haven't confirmed it or sent an invoice. Please reply to them yourself. Send *paid ${ref(order)}* once they've paid, or *plan* to see how to upgrade.`,
@@ -293,6 +304,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
           text: [
             `New order ${ref(order)} from ${name ?? "a customer"} (+${waId}):`,
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
+            ...(order.discount ? [discountLine(order.discount)] : []),
             ...(delivery ? [`• ${delivery.label} = ${formatNaira(delivery.feeKobo)}`] : []),
             `Total: ${formatNaira(order.totalKobo)}`,
             ...(note ? ["", note] : []),
@@ -319,7 +331,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */
   async function documentImage(
     kind: "invoice" | "receipt",
-    order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
+    order: Pick<OrderDetails, "orderNumber" | "lines" | "discount" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
     delivery: DeliveryCharge | null,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
@@ -335,6 +347,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         customerName: order.customerName ?? undefined,
         customerWaId: order.customerWaId,
         lines: order.lines,
+        ...(order.discount ? { discount: order.discount } : {}),
         ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
@@ -376,6 +389,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
 
     const text = (msg.text ?? "").trim();
+    const discountReply = opts.discounts ? await discountCommand(opts.discounts, text) : null;
+    if (discountReply) return { text: discountReply };
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
     if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
     if (opts.referral && /^(my )?(referral|refer|invite)( code)?$/i.test(text)) return { text: await opts.referral() };
