@@ -269,15 +269,25 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   async function plansText(): Promise<string> {
     let prices = new Map<string, number | null>();
     let yearly = new Map<string, number | null>();
+    let from = new Map<string, number | null>();
     try {
       [prices, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
     } catch (err) {
       log.error("Could not load plan prices:", err);
     }
+    try {
+      from = (await opts.store.planStartingPrices?.()) ?? from;
+    } catch (err) {
+      // Most likely migration 0035 hasn't been run yet.
+      log.error("Could not load plan starting prices:", err);
+    }
     const price = (p: Plan) => {
       const kobo = prices.get(p.id);
       if (p.id === "free") return "free";
-      if (kobo === undefined || kobo === null) return "price on request";
+      if (kobo === undefined || kobo === null) {
+        const start = from.get(p.id);
+        return start ? `from ${formatNaira(start)} a month, agreed with you` : "price on request";
+      }
       const perYear = yearly.get(p.id);
       const yearlyText =
         perYear === undefined || perYear === null ? "" : `, or ${formatNaira(perYear)} a month paid yearly (${formatNaira(perYear * 12)} a year)`;

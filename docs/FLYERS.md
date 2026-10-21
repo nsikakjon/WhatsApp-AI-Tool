@@ -312,10 +312,12 @@ for free on the **Free** plan unless the admin upgrades. Paid plans unlock more:
 | Standard | 50        | 2         | ₦4,500   | ₦2,500                  | all designs, colours, spreadsheet import, event flyers       |
 | Premium  | 500       | 5         | ₦8,000   | ₦6,500                  | everything in Standard, own background, no "Made with" line  |
 | Deluxe   | unlimited | unlimited | ₦10,000  | ₦8,500                  | everything, for associations with several groups or chapters |
-| Organisation | unlimited | unlimited | on request | on request         | everything in Deluxe, for large associations, set up for you |
+| Organisation | unlimited | unlimited | from ₦73,000 | agreed per organisation | everything in Deluxe, for large associations, set up for you |
 
 Deluxe was added on 14 October 2026 (migration `0011_flyer_new_prices.sql`);
-Organisation stays as before, price on request. Groups already over a new member limit keep everyone they have; they just
+Organisation is agreed per organisation, from ₦73,000 a month (migration
+`0035_flyer_organisation_from_price.sql`, 21 October 2026); it has no payment
+link, so requests go to the owners. Groups already over a new member limit keep everyone they have; they just
 can't add more until they upgrade.
 
 Anyone can send `plans` to see them with prices, and `plan` to see their
