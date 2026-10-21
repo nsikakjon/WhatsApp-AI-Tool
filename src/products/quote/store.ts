@@ -53,6 +53,13 @@ export interface SavedOrder {
   orderNumber: number;
   totalKobo: number;
   lines: QuoteLine[];
+  /** A customer discount code on the order (migration 0042) and what it took off the items. */
+  discount?: { code: string; amountKobo: number } | null;
+}
+
+/** What the items come to after any discount code, before delivery. */
+export function itemsAfterDiscount(order: Pick<SavedOrder, "lines" | "discount">): number {
+  return order.lines.reduce((sum, l) => sum + l.totalKobo, 0) - (order.discount?.amountKobo ?? 0);
 }
 
 export interface OrderStore {
@@ -196,6 +203,8 @@ type OrderRow = {
   id: string;
   order_number: number | string;
   total_kobo: number | string;
+  discount_code?: string | null;
+  discount_kobo?: number | string | null;
   quote_order_items: Array<{
     variant_id: string;
     name: string;
@@ -210,6 +219,7 @@ function toSavedOrder(row: OrderRow): SavedOrder {
     id: row.id,
     orderNumber: Number(row.order_number),
     totalKobo: Number(row.total_kobo),
+    discount: row.discount_code ? { code: row.discount_code, amountKobo: Number(row.discount_kobo ?? 0) } : null,
     lines: row.quote_order_items.map((i) => ({
       variantId: i.variant_id,
       name: i.name,
@@ -257,7 +267,8 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
       const { data, error } = await mine(
         db
           .from("quote_orders")
-          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+          // Every column, so the discount (migration 0042) is read when it's there.
+          .select("*, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
       )
         .eq("contact_id", contactId)
         .eq("status", "quoted")
@@ -273,7 +284,7 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
         db
           .from("quote_orders")
           .select(
-            "id, order_number, total_kobo, status, created_at, paid_at, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
+            "*, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
           ),
       )
         .eq("order_number", orderNumber)
