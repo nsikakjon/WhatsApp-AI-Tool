@@ -8,6 +8,7 @@ import { createVisitCounter, type VisitCounterDeps } from "./dashboard/visits.js
 import { createPaymentRoutes, type PaymentRoutesDeps } from "./core/payments/routes.js";
 import { createQuoteSetup, type QuoteSetupDeps } from "./products/quote/setup.js";
 import { createTracking, type TrackingDeps } from "./products/quote/delivery/tracking.js";
+import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -19,6 +20,7 @@ export function createApp(
   payments?: PaymentRoutesDeps,
   quoteSetup?: QuoteSetupDeps,
   tracking?: TrackingDeps,
+  orderBoard?: BoardDeps,
 ) {
   const app = new Hono();
 
@@ -50,6 +52,9 @@ export function createApp(
 
   // Delivery tracking pages for riders and customers, only when QUOTE_DELIVERY is on.
   if (tracking) app.route("/", createTracking(tracking));
+
+  // Each quote business's orders page, behind its own signed link; only when QUOTE_ORDER_BOARD is on.
+  if (orderBoard) app.route("/", createOrderBoard(orderBoard));
 
   return app;
 }

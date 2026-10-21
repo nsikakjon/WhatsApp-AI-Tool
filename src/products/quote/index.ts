@@ -25,8 +25,9 @@ import type { Understander } from "./understand.js";
 // 5. When the customer has paid, the owner sends "paid KP-1001" and the
 //    customer gets a receipt.
 //
-// The owner can also send the business logo (a photo captioned "logo"), and
-// "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print.
+// The owner can also send the business logo (a photo captioned "logo"),
+// "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
+// "orders" for the link to their order board and sales (board.ts).
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -74,6 +75,8 @@ export interface QuoteProductOptions {
   credits?: AiCredits;
   /** Reads messages without AI once credits run out. Normally fallback.ts. */
   simpleAi?: Understander;
+  /** The owner's private orders page (board.ts), sent when they send "orders". */
+  ordersLink?: string;
   log?: Pick<Console, "error">;
 }
 
@@ -354,6 +357,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
     const text = (msg.text ?? "").trim();
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
+    if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
@@ -413,6 +417,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         },
       ],
     };
+  }
+
+  async function ordersReply(link: string): Promise<string> {
+    if (opts.features && !(await opts.features.has("order_board")) && !(await opts.features.has("sales_dashboard"))) {
+      return "The order board and sales dashboard come with Pro and above. Send *plan* to see how to upgrade.";
+    }
+    return `Your orders and sales: ${link}\n\nKeep this link to yourself: anyone who has it can see your orders.`;
   }
 
   async function cancel(contactId: string): Promise<Reply> {

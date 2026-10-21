@@ -47,6 +47,14 @@ describe("loadConfig", () => {
     ).toBe(7000);
   });
 
+  it("keeps the order board off unless QUOTE_ORDER_BOARD is true, and then needs the public address", () => {
+    expect(loadConfig(base).quoteOrderBoard).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_ORDER_BOARD: "true" })).toThrow("PUBLIC_URL");
+    expect(loadConfig({ ...base, QUOTE_ORDER_BOARD: "true", PUBLIC_URL: "https://bot.example.com/" }).quoteOrderBoard).toEqual({
+      publicUrl: "https://bot.example.com",
+    });
+  });
+
   it("keeps delivery off unless QUOTE_DELIVERY is true, and then needs the public address", () => {
     expect(loadConfig(base).delivery).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true" })).toThrow("PUBLIC_URL");

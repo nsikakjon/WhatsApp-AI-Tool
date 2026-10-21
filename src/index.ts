@@ -36,6 +36,7 @@ import {
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
+import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -113,6 +114,11 @@ const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined
 const optOutFor = (businessId: string) =>
   followUps ? (contactId: string) => followUps.optOut(businessId, contactId) : undefined;
 
+// The owner's orders page (QUOTE_ORDER_BOARD): the link each owner gets by sending "orders".
+const orderBoard = config.activeProduct === "quote" ? config.quoteOrderBoard : undefined;
+const ordersLinkFor = (businessId: string) =>
+  orderBoard ? ordersLink(config.whatsapp.appSecret, orderBoard.publicUrl, businessId) : undefined;
+
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
 function planFeatures(businessId: string, code?: string) {
@@ -147,6 +153,7 @@ if (config.activeProduct === "quote" && config.quote) {
           })
         : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
+    ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
           code: config.quote.plan,
@@ -199,6 +206,7 @@ if (quoteBusinesses) {
               })
             : undefined,
         optOutOfFollowUps: optOutFor(business.id),
+        ordersLink: ordersLinkFor(business.id),
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(business.id) }),
         ...planFeatures(business.id),
         ai: createClaudeUnderstander({
@@ -386,6 +394,29 @@ const app = createApp({
         }
       },
     }
+  : undefined, orderBoard
+  ? {
+      secret: config.whatsapp.appSecret,
+      async business(id) {
+        const withDelivery = Boolean(delivery);
+        if (id === DEFAULT_BUSINESS_ID && config.quote) {
+          return {
+            name: config.quote.businessName,
+            orderPrefix: config.quote.orderPrefix,
+            store: createSupabaseBoardStore(supabase, [id], { withDelivery }),
+            features: config.quote.plan ? planFeatures(id, config.quote.plan).features : undefined,
+          };
+        }
+        const business = quoteBusinesses ? await createSupabaseBusinesses(supabase).get(id) : null;
+        if (!business) return null;
+        return {
+          name: business.name,
+          orderPrefix: business.orderPrefix,
+          store: createSupabaseBoardStore(supabase, [id], { withDelivery }),
+          features: planFeatures(id).features,
+        };
+      },
+    }
   : undefined);
 
 // Every 5 minutes, send any daily site reports that are due.
@@ -553,6 +584,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"})`,
   );
 });
