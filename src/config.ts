@@ -133,6 +133,17 @@ export interface Config {
     /** The Facebook Login for Business configuration made for Embedded Signup. */
     configId: string;
   };
+  /**
+   * Online payments through Paystack. Only set when PAYSTACK_SECRET_KEY is:
+   * without it, nothing is charged and owners take payment by hand.
+   */
+  paystack?: {
+    secretKey: string;
+    /** This server's public address, for the page payers return to. */
+    publicUrl: string;
+    /** Paystack needs an email on every payment; WhatsApp doesn't give us one. */
+    customerEmail: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -282,7 +293,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           configId: required(env, "META_SIGNUP_CONFIG_ID"),
         }
       : undefined,
+    paystack: paystackSettings(env),
   };
+}
+
+function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
+  const secretKey = env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return undefined;
+  if (!/^sk_(test|live)_/.test(secretKey)) {
+    throw new Error("PAYSTACK_SECRET_KEY must be the secret key (starts with sk_test_ or sk_live_), not the public key");
+  }
+  const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
+  if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
+  return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {

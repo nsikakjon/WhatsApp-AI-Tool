@@ -88,6 +88,13 @@ field and migration 0019. A password-protected sign-up page at `/signup`
 (`SIGNUP_PASSWORD`, off by default) connects a number through Meta's pop-up.
 See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 
+## Payments (Paystack)
+
+Products send a Paystack checkout link on WhatsApp, and what was bought switches
+on by itself once Paystack confirms the money arrived (today: flyer plan
+upgrades). Off until `PAYSTACK_SECRET_KEY` is set; needs migration 0032. See
+[docs/PAYMENTS.md](docs/PAYMENTS.md).
+
 ## Owner dashboard
 
 A password-protected page at `/dashboard` with live numbers for every product
