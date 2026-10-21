@@ -89,7 +89,8 @@ To switch the demo on:
 1. In Meta (WhatsApp Manager), add +234 701 326 2131 to the app's WhatsApp
    account, verify it with the SMS code, and register it (POST
    `/{phone-number-id}/register` with a 6-digit PIN), as for the flyer number
-   in docs/META_SETUP.md. Turn on **Subscribe webhooks** for it. Note its
+   in docs/META_SETUP.md (step by step: docs/META_PORTFOLIO.md step 4). Turn
+   on **Subscribe webhooks** for it. Note its
    **Phone number ID**.
 2. Run migration 0020, then `supabase/seed/demo_quote_business.sql`, in Supabase.
 3. On the setup screen (or in Table editor > `quote_businesses`), open

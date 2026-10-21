@@ -5,6 +5,7 @@ import type { QuoteLine, Variant } from "./pricing.js";
 import type { BrandingStore, CatalogStore, OrderStore, SavedOrder } from "./store.js";
 import type { DocumentInput } from "./documents.js";
 import type { Understander, Understanding } from "./understand.js";
+import type { PlanGate } from "./plan.js";
 
 const variants: Variant[] = [
   {
@@ -392,5 +393,69 @@ describe("safeMessage", () => {
     for (const m of ["That's ₦5,000", "about 5000 naira", "N5000", "it costs a bit", "total is 20k", "12,500 for all", "NGN 300"]) {
       expect(safeMessage(m)).toBeNull();
     }
+  });
+});
+
+describe("quote product on a plan", () => {
+  function onPlan(check: Awaited<ReturnType<PlanGate["checkOrder"]>>, credit: string | null = null) {
+    const mem = memoryOrders();
+    let intent: Understanding = { intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null };
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: mem.store,
+      ai: { understand: async () => intent },
+      renderDocument: fakeDocuments().render,
+      plan: { credit: async () => credit, checkOrder: async () => check, summary: async () => "Your plan: *Free*" },
+      log: { error() {} },
+    });
+    const say = (body: string, next: Understanding) => {
+      intent = next;
+      return product.handle(text(body), ctx);
+    };
+    return { product, say, ...mem };
+  }
+  const confirm: Understanding = { intent: "confirm", items: [], message: null };
+  const quote: Understanding = { intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null };
+
+  it("adds the yarnOga line to quotes and confirmations on the free plan", async () => {
+    const { say } = onPlan({ allowed: true, warning: null }, "_Powered by yarnOga · yarnoga.com_");
+    expect((await say("100 flyers", quote))?.text).toMatch(/Reply YES.*\n\n_Powered by yarnOga · yarnoga\.com_$/s);
+    expect((await say("yes", confirm))?.text).toContain("Powered by yarnOga");
+  });
+
+  it("warns the owner on the last few free orders", async () => {
+    const { say } = onPlan({ allowed: true, warning: "This is order 47 of 50 on your Free plan this month." });
+    await say("100 flyers", quote);
+    const reply = await say("yes", confirm);
+    expect(reply?.text).toContain("is confirmed");
+    expect(reply?.notify?.[0]?.text).toContain("order 47 of 50");
+  });
+
+  it("hands the order to the owner instead of confirming it once the month's orders are used up", async () => {
+    const { say, orders } = onPlan({ allowed: false, used: 50, limit: 50, planName: "Free" });
+    await say("100 flyers", quote);
+    const reply = await say("yes", confirm);
+    expect(reply?.text).toBe("Thank you! The KahnPrints team will contact you shortly to complete order KP-1001 (total ₦15,000).");
+    expect(reply?.images).toBeUndefined();
+    expect(reply?.notify?.[0]?.to).toBe(OWNER);
+    expect(reply?.notify?.[0]?.text).toContain("You've used all 50 orders on your Free plan this month");
+    expect(reply?.notify?.[0]?.text).toContain("*paid KP-1001*");
+    // Still open, so the owner can mark it paid by hand.
+    expect(orders[0]?.status).toBe("quoted");
+  });
+
+  it("answers the owner's plan command", async () => {
+    const { product } = onPlan({ allowed: true, warning: null });
+    const reply = await product.handle({ ...text("plan"), from: OWNER }, ctx);
+    expect(reply?.text).toBe("Your plan: *Free*");
+  });
+
+  it("leaves customers who type plan to the AI", async () => {
+    const { product } = onPlan({ allowed: true, warning: null });
+    const reply = await product.handle(text("plan"), ctx);
+    expect(reply?.text).toContain("Here's your quote");
   });
 });

@@ -13,7 +13,13 @@ export async function sendAndRecord(
 ): Promise<void> {
   const contactId = await deps.store.upsertContact(to);
   const sent = await deps.whatsapp.sendText(to, text, fromNumberId);
-  await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "text", body: text, raw: sent.raw });
+  await deps.store.recordOutbound(contactId, {
+    waMessageId: sent.waMessageId,
+    type: "text",
+    body: text,
+    raw: sent.raw,
+    businessNumberId: fromNumberId,
+  });
 }
 
 /** Sends a picture that isn't a direct reply (e.g. a scheduled flyer) and saves it with the recipient's messages. */
@@ -30,6 +36,7 @@ export async function sendImageAndRecord(
     type: "image",
     body: image.caption ?? "",
     raw: sent.raw,
+    businessNumberId: fromNumberId,
   });
 }
 
@@ -47,6 +54,7 @@ export async function sendTemplateAndRecord(
     type: "template",
     body: `[${template.name}] ${template.bodyParams.join(" | ")}`,
     raw: sent.raw,
+    businessNumberId: fromNumberId,
   });
 }
 
