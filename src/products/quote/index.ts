@@ -37,8 +37,9 @@ import type { Understander } from "./understand.js";
 // quoting with simple menu replies (fallback.ts). Voice notes and invoice
 // pictures follow the plan too.
 //
-// With delivery switched on (delivery/index.ts), the bot asks where to deliver
-// between the YES and the order, and the owner sends riders out from WhatsApp.
+// With delivery switched on (delivery/index.ts) and on the plan, the bot asks
+// where to deliver between the YES and the order, and the owner sends riders
+// out from WhatsApp.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -89,7 +90,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
       }
-      if (opts.delivery) {
+      if (opts.delivery && (await deliveryOnPlan())) {
         const deliveryReply = await opts.delivery.handle(msg, ctx);
         if (deliveryReply) return deliveryReply;
       }
@@ -245,15 +246,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       };
     }
 
-    if (opts.delivery) {
-      const ask = await opts.delivery.beforeConfirm(order, { waId, name });
+    const dispatch = opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
+    if (dispatch) {
+      const ask = await dispatch.beforeConfirm(order, { waId, name });
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
 
-    const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
+    const delivery = dispatch ? await dispatch.charge(order.id) : null;
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
-    const next = opts.delivery
+    const next = dispatch
       ? delivery
         ? "We'll send you a link to follow your delivery once a rider is on the way."
         : `The ${opts.businessName} team will let you know when it's ready.`
@@ -261,13 +263,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const reply: Reply = {
       text: invoice
         ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
-        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${opts.delivery ? "" : " and delivery"}.`,
+        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
     const credit = opts.plan ? await opts.plan.credit() : null;
     if (credit) reply.text += `\n\n${credit}`;
     if (opts.ownerWaId) {
-      const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
+      const note = dispatch ? await dispatch.ownerNote(order) : null;
       reply.notify = [
         {
           to: opts.ownerWaId,
@@ -285,6 +287,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       ];
     }
     return reply;
+  }
+
+  // Orders already out for delivery keep their fee on invoices and receipts
+  // even if the plan later drops delivery; only new deliveries need the plan.
+  async function deliveryOnPlan(): Promise<boolean> {
+    return opts.features ? opts.features.has("delivery") : true;
   }
 
   async function documentsIncluded(): Promise<boolean> {
@@ -388,7 +396,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
     const paid = { ...order, status: "paid" as const, paidAt: new Date() };
     const receipt = await documentImage("receipt", paid, delivery);
-    const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
+    const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? `+${order.customerWaId}`;
     return {
       text:

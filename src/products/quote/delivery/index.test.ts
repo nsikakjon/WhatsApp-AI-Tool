@@ -115,7 +115,7 @@ function memory() {
   return { orders, deliveries, riders, orderStore, store };
 }
 
-function setup() {
+function setup(planHasDelivery = true) {
   const mem = memory();
   const drawn: DocumentInput[] = [];
   const seen: string[] = [];
@@ -145,6 +145,7 @@ function setup() {
     orders: mem.orderStore,
     ai,
     delivery: dispatch,
+    features: { planCode: async () => "pro", has: async (f) => f !== "delivery" || planHasDelivery, limit: async () => null },
     renderDocument: async (input) => (drawn.push(input), new Uint8Array([0xff, 0xd8])),
     log: { error() {} },
   });
@@ -180,6 +181,17 @@ async function quotedAndAsked() {
   const asked = await t.product.handle(say("yes"), ctx());
   return { ...t, asked };
 }
+
+describe("delivery and the plan", () => {
+  it("confirms straight away when the business's plan doesn't include delivery", async () => {
+    const t = setup(false);
+    await t.product.handle(say("100 flyers"), ctx());
+    const yes = await t.product.handle(say("yes"), ctx());
+    expect(yes?.locationRequest).toBeUndefined();
+    expect(yes?.text).toContain("contact you shortly about delivery");
+    expect(t.orders[0]?.status).toBe("confirmed");
+  });
+});
 
 describe("delivery before the order", () => {
   it("asks where to deliver instead of confirming straight away", async () => {
