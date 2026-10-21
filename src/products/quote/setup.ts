@@ -15,7 +15,7 @@ import {
   type DraftImageType,
   type PriceListDrafter,
 } from "./drafter.js";
-import { priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
+import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
 import {
   DEFAULT_BUSINESS_ID,
   NumberTakenError,
@@ -481,7 +481,7 @@ function draftForm(businessId: string, describe: string): string {
 
 function uploadForm(businessId: string, pasted: string): string {
   return `<h2>Upload a new price list</h2>
-<p>One row per price, with headings in row 1: <b>Product</b>, <b>Option</b>, <b>Minimum order</b>, <b>From quantity</b>, <b>Price</b> (in naira). Leave the price empty for items the team prices by hand. The new list replaces the whole old one. <a href="/quote-setup/b/${businessId}/prices.csv">Download the current list or an example</a>.</p>
+<p>One row per price, with headings in row 1: <b>Product</b>, <b>Option</b>, <b>Minimum order</b>, <b>From quantity</b>, <b>Price</b> (in naira). Leave the price empty for items the team prices by hand. The new list replaces the whole old one. <a href="/quote-setup/b/${businessId}/prices.csv">Download the current list or an example</a>, or start from our template: <a href="${TEMPLATE_SHEET_URL}" target="_blank" rel="noopener">copy the Google Sheet</a> or <a href="${TEMPLATE_CSV_URL}">download the CSV</a>.</p>
 <form method="post" action="/quote-setup/b/${businessId}/prices/check" enctype="multipart/form-data" class="stack">
 <label>A CSV file<input type="file" name="file" accept=".csv,text/csv"></label>
 <label>or a Google Sheet link <small>shared as "Anyone with the link"</small><input name="sheet" type="url" placeholder="https://docs.google.com/spreadsheets/d/..."></label>

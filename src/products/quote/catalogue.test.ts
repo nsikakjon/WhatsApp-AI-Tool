@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
-import { createCatalogue, type CatalogueItem, type CatalogueStore } from "./catalogue.js";
+import { createCatalogue, createSupabaseCatalogue, type CatalogueItem, type CatalogueStore } from "./catalogue.js";
 import { createQuoteProduct } from "./index.js";
 import type { SavedOrder } from "./store.js";
 
@@ -141,5 +142,21 @@ describe("product photos", () => {
 
     const quote = await product.handle(msg(CUSTOMER, "2 shirts and 10 mugs"), ctx);
     expect(quote?.images).toEqual([{ data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg", caption: "T-shirts" }]);
+  });
+});
+
+describe("sample photos by web address", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("downloads a photo saved as an https address instead of from storage", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/jpeg" } });
+    });
+    const store = createSupabaseCatalogue({} as SupabaseClient, "b2");
+    const photo = await store.photo("https://images.pexels.com/photos/1/pexels-photo-1.jpeg");
+    expect(fetched).toEqual(["https://images.pexels.com/photos/1/pexels-photo-1.jpeg"]);
+    expect(photo).toEqual({ data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" });
   });
 });

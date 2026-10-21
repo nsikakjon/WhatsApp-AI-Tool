@@ -107,8 +107,13 @@ The demo number is also where new businesses sign up, so an ad can simply say
 
 1. the business name,
 2. what it sells (a few words),
-3. its prices: typed, as a voice note, as a photo of the price list, or as a
-   CSV file.
+3. its prices: typed, as a voice note, as a photo of the price list, as a
+   CSV file, or as a link to a Google Sheet shared as "Anyone with the link".
+
+For a spreadsheet, the bot offers a template to start from: a Google Sheet to
+copy and a CSV file (`price-list-template.csv` on yarnoga.com). The setup
+screen links to both too. A CSV file or Sheet link is read as it is, without
+the AI.
 
 The AI writes the prices out as a list and the bot shows it back. The owner
 corrects anything in the chat ("make the box ₦3,500") or sends another photo,

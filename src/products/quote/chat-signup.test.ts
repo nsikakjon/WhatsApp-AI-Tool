@@ -98,7 +98,7 @@ function ctx(history = 1, media?: { data: Blob; mimeType: string }): ProductCont
   };
 }
 
-function setUp(draft = CUPCAKES, extra: { tryBot?: (id: string, owner: string) => Promise<Product | null> } = {}) {
+function setUp(draft = CUPCAKES, extra: { tryBot?: (id: string, owner: string) => Promise<Product | null>; fetchSheet?: (link: string) => Promise<string> } = {}) {
   const mem = memoryStore();
   const setup = memorySetup();
   const ai = drafter(draft);
@@ -196,6 +196,28 @@ describe("chat sign-up on the quotes number", () => {
     const reply = await bot.handle(msg("", { type: "document", mediaId: "m1", text: undefined }), ctx(1, csv));
     expect(ai.calls).toHaveLength(0);
     expect(reply?.text).toContain("• Mugs: ₦2,500 each");
+  });
+
+  it("offers the templates and reads a shared Google Sheet without the AI", async () => {
+    const links: string[] = [];
+    const { say, ai } = setUp(CUPCAKES, { fetchSheet: async (link) => (links.push(link), "Product,Price\nMugs,2500\n") });
+    await say("sign up");
+    await say("Mama Cakes");
+    expect((await say("cakes")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
+    const reply = await say("here https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing");
+    expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);
+    expect(ai.calls).toHaveLength(0);
+    expect(reply.text).toContain("• Mugs: ₦2,500 each");
+  });
+
+  it("explains a Google Sheet that isn't shared", async () => {
+    const { say } = setUp(CUPCAKES, {
+      fetchSheet: async () => {
+        throw new Error('the sheet isn\'t public. In Google Sheets, tap Share and set "Anyone with the link" to Viewer');
+      },
+    });
+    await signUpToPrices(say);
+    expect((await say("https://docs.google.com/spreadsheets/d/abc123/edit")).text).toMatch(/couldn't open that Google Sheet: the sheet isn't public/);
   });
 
   it("asks for CSV instead of an Excel file", async () => {
