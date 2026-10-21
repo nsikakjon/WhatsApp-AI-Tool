@@ -328,6 +328,8 @@ if (siteReporter && siteConfig) {
 const botTest = loadBotTestConfig();
 if (botTest.status === "weak") console.warn("Bot test screen is OFF: BOT_TEST_PASSWORD must be at least 12 characters");
 if (botTest.status === "on") {
+  // Typed with a slash at the end, the address still opens the screen.
+  app.get("/bot-test/", (c) => c.redirect("/bot-test"));
   app.route(
     "/bot-test",
     createBotTest({
