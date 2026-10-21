@@ -30,6 +30,8 @@ export interface QuoteBusiness {
   businessDetails: string | null;
   paymentDetails: string | null;
   active: boolean;
+  /** The main business this one is a branch of (migration 0038), or null. A branch follows its main business's plan. */
+  branchOf?: string | null;
   updatedAt: Date;
 }
 
@@ -105,11 +107,13 @@ type BusinessRow = {
   business_details: string | null;
   payment_details: string | null;
   active: boolean;
+  branch_of?: string | null;
   updated_at: string;
 };
 
-const BUSINESS_COLUMNS =
-  "id, name, description, order_prefix, phone_number_id, owner_wa_id, business_details, payment_details, active, updated_at";
+// Every column, so branch_of is read once migration 0038 is run and simply
+// missing before then.
+const BUSINESS_COLUMNS = "*";
 
 function toBusiness(row: BusinessRow): QuoteBusiness {
   return {
@@ -122,6 +126,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     businessDetails: row.business_details,
     paymentDetails: row.payment_details,
     active: row.active,
+    branchOf: row.branch_of ?? null,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -343,6 +348,8 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
     business_details: s.businessDetails,
     payment_details: s.paymentDetails,
     active: s.active,
+    // Only written when the branches setting is on (the column needs migration 0038).
+    ...(s.branchOf !== undefined ? { branch_of: s.branchOf } : {}),
   });
   const failed = (what: string, error: { code?: string; message: string }) =>
     error.code === "23505" ? new NumberTakenError("number taken") : new Error(`${what} failed: ${error.message}`);

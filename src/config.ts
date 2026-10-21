@@ -68,6 +68,11 @@ export interface Config {
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
   /**
+   * Quote businesses can be branches of another (migration 0038), up to the
+   * main business's plan limit. Off unless QUOTE_BRANCHES is true.
+   */
+  quoteBranches: boolean;
+  /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
    * businesses). Only set when BROADCASTS_ENABLED is true.
    */
@@ -283,6 +288,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
+    quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,

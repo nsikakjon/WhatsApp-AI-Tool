@@ -106,3 +106,23 @@ The demo starts switched off, so running the seed changes nothing until step 3.
   so an order number never points at two businesses' orders.
 - Setting `active` to false makes the bot stop answering that business's
   number. It never answers as another business.
+
+## Branches
+
+A business with more than one WhatsApp number (a shop in Ikeja and one in
+Lekki, say) can add the others as branches. Each branch is its own row with
+its own number, price list and alert number; on the setup screen, pick the
+main business under **Branch of**.
+
+- A branch is on its main business's plan, and its AI replies count against
+  the main business's allowance. Upgrading from a branch's chat pays for the
+  main business.
+- The main business's order board shows the branches' orders too.
+- Free, Starter and Pro allow 1 number (no branches), Growth 3 in all, and
+  Enterprise any number (`branches` in `quote_plan_features`).
+- A branch can't have branches of its own.
+- To start a branch with the same prices, download the main business's price
+  list as CSV on the setup screen and upload it to the branch.
+
+To switch it on, run `supabase/migrations/0038_quote_branches.sql` in Supabase
+and add `QUOTE_BRANCHES=true` on Railway.

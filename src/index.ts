@@ -34,7 +34,7 @@ import {
   createSupabasePlanStore,
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
-import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
+import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
@@ -122,20 +122,28 @@ const ordersLinkFor = (businessId: string) =>
 
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
-// Product photos and stock (QUOTE_CATALOGUE) follow the same plan.
+// A branch passes its main business's id: same plan, one pool of AI replies.
 function planFeatures(businessId: string, code?: string) {
-  const features = config.quotePlanFeatures
-    ? createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) })
-    : undefined;
-  return {
-    ...(features ? { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) } : {}),
-    ...(config.quoteCatalogue ? { catalogue: createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) } : {}),
-  };
+  if (!config.quotePlanFeatures) return {};
+  const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
+  return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+}
+
+// Product photos and stock (QUOTE_CATALOGUE), on the business's own price list.
+const catalogueFor = (businessId: string, features?: PlanFeatures) =>
+  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) : undefined;
+
+// How many numbers (business plus branches) a main business's plan allows; null = no cap.
+async function numbersAllowed(mainId: string): Promise<number | null> {
+  const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
+  if (!features) return null;
+  return (await features.has("branches")) ? features.limit("branches") : 1;
 }
 
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
+  const mainFeatures = config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {};
   const quoteBot = createQuoteProduct({
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
@@ -169,9 +177,8 @@ if (config.activeProduct === "quote" && config.quote) {
         })
       : undefined,
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
-    ...(config.quote.plan
-      ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan)
-      : { catalogue: config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, DEFAULT_BUSINESS_ID) }) : undefined }),
+    ...mainFeatures,
+    catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
@@ -190,6 +197,9 @@ if (quoteBusinesses) {
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) => {
       const orders = createSupabaseOrders(supabase, business.id);
+      // A branch is billed, and counts AI replies, under its main business.
+      const planId = business.branchOf ?? business.id;
+      const features = planFeatures(planId);
       return addBroadcasts(createQuoteProduct({
         businessName: business.name,
         orderPrefix: business.orderPrefix,
@@ -215,8 +225,9 @@ if (quoteBusinesses) {
             : undefined,
         optOutOfFollowUps: optOutFor(business.id),
         ordersLink: ordersLinkFor(business.id),
-        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(business.id) }),
-        ...planFeatures(business.id),
+        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
+        ...features,
+        catalogue: catalogueFor(business.id, features.features),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
@@ -384,6 +395,7 @@ const app = createApp({
         ? createClaudeDrafter({ apiKey: config.quoteSetup.aiDraft.anthropicApiKey, model: config.quoteSetup.aiDraft.model })
         : undefined,
       draftsPerDay: config.quoteSetup.aiDraft?.perDay,
+      branches: config.quoteBranches ? { limit: numbersAllowed } : undefined,
     }
   : undefined, delivery
   ? {
@@ -407,20 +419,23 @@ const app = createApp({
       secret: config.whatsapp.appSecret,
       async business(id) {
         const withDelivery = Boolean(delivery);
+        const businesses = createSupabaseBusinesses(supabase);
+        // A main business's board shows its branches' orders too.
+        const ids = config.quoteBranches ? [id, ...(await businesses.list()).filter((b) => b.branchOf === id).map((b) => b.id)] : [id];
         if (id === DEFAULT_BUSINESS_ID && config.quote) {
           return {
             name: config.quote.businessName,
             orderPrefix: config.quote.orderPrefix,
-            store: createSupabaseBoardStore(supabase, [id], { withDelivery }),
+            store: createSupabaseBoardStore(supabase, ids, { withDelivery }),
             features: config.quote.plan ? planFeatures(id, config.quote.plan).features : undefined,
           };
         }
-        const business = quoteBusinesses ? await createSupabaseBusinesses(supabase).get(id) : null;
+        const business = quoteBusinesses ? await businesses.get(id) : null;
         if (!business) return null;
         return {
           name: business.name,
           orderPrefix: business.orderPrefix,
-          store: createSupabaseBoardStore(supabase, [id], { withDelivery }),
+          store: createSupabaseBoardStore(supabase, ids, { withDelivery }),
           features: planFeatures(id).features,
         };
       },
@@ -592,6 +607,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"})`,
   );
 });

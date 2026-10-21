@@ -311,14 +311,22 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
 }
 
 /**
- * The plan saved on a business's row. A paid plan whose time has run out
- * reads as "free". Shared with features.ts so both agree on the plan.
+ * The plan saved on a business's row (or its main business's, for a branch).
+ * A paid plan whose time has run out reads as "free". Shared with
+ * features.ts so both agree on the plan.
  */
 export async function readBusinessPlanCode(db: SupabaseClient, businessId: string): Promise<string | null> {
-  const { data, error } = await db.from("quote_businesses").select("plan_code, plan_paid_until").eq("id", businessId).maybeSingle();
-  if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-  const code = (data?.plan_code as string | null | undefined) ?? null;
-  const until = data?.plan_paid_until as string | null | undefined;
+  const row = async (id: string) => {
+    // Every column, so branch_of (migration 0038) is used when it's there.
+    const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
+    if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
+    return data as { plan_code?: string | null; plan_paid_until?: string | null; branch_of?: string | null } | null;
+  };
+  let data = await row(businessId);
+  // A branch is on its main business's plan.
+  if (data?.branch_of) data = await row(data.branch_of);
+  const code = data?.plan_code ?? null;
+  const until = data?.plan_paid_until;
   return code && until && new Date(until) <= new Date() ? "free" : code;
 }
 

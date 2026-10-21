@@ -46,6 +46,12 @@ export interface QuoteSetupDeps {
   drafter?: PriceListDrafter;
   /** Most AI drafts allowed per day across all businesses, so the AI bill can't run away. */
   draftsPerDay?: number;
+  /**
+   * Branches (QUOTE_BRANCHES, migration 0038): a business can be a branch of
+   * another. limit() is how many numbers the main business's plan allows in
+   * all, itself included (null = no cap).
+   */
+  branches?: { limit(mainId: string): Promise<number | null> };
   log?: Pick<Console, "error">;
 }
 
@@ -86,7 +92,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
     const list = await deps.businesses.list();
     const rows = list
       .map(
-        (b) => `<tr><td><a href="/quote-setup/b/${b.id}">${esc(b.name)}</a>${b.id === DEFAULT_BUSINESS_ID ? ' <span class="tag">main number</span>' : ""}</td>
+        (b) => `<tr><td><a href="/quote-setup/b/${b.id}">${esc(b.name)}</a>${b.id === DEFAULT_BUSINESS_ID ? ' <span class="tag">main number</span>' : ""}${b.branchOf ? ' <span class="tag">branch</span>' : ""}</td>
 <td>${b.id === DEFAULT_BUSINESS_ID ? "main number" : b.phoneNumberId ? esc(b.phoneNumberId) : '<span class="warn">not set</span>'}</td>
 <td>${b.active ? "On" : '<span class="muted">Off</span>'}</td>
 <td><a href="/quote-setup/b/${b.id}/prices">Price list</a></td></tr>`,
@@ -102,17 +108,17 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
     );
   });
 
-  app.get("/new", (c) => c.html(page("Add a business", businessForm("/quote-setup/new", emptySettings(), []))));
+  app.get("/new", async (c) => c.html(page("Add a business", await form("/quote-setup/new", emptySettings(), []))));
 
   app.post("/new", async (c) => {
-    const { settings, problems } = readSettings(await c.req.parseBody(), deps.reservedNumberIds);
-    if (problems.length) return c.html(page("Add a business", businessForm("/quote-setup/new", settings, problems)), 400);
+    const { settings, problems } = await readForm(await c.req.parseBody());
+    if (problems.length) return c.html(page("Add a business", await form("/quote-setup/new", settings, problems)), 400);
     try {
       const business = await deps.setup.createBusiness(settings);
       return c.redirect(`/quote-setup/b/${business.id}/prices?new=1`, 303);
     } catch (err) {
       if (err instanceof NumberTakenError) {
-        return c.html(page("Add a business", businessForm("/quote-setup/new", settings, [NUMBER_TAKEN])), 400);
+        return c.html(page("Add a business", await form("/quote-setup/new", settings, [NUMBER_TAKEN])), 400);
       }
       throw err;
     }
@@ -123,21 +129,21 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
     if (!business) return c.notFound();
     if (business.id === DEFAULT_BUSINESS_ID) return c.html(page(business.name, mainBusinessNote(business)));
     const saved = c.req.query("saved") ? `<p class="ok">Saved. Customers see the change within a minute.</p>` : "";
-    return c.html(page(business.name, saved + businessForm(`/quote-setup/b/${business.id}`, business, [])));
+    return c.html(page(business.name, saved + (await form(`/quote-setup/b/${business.id}`, business, [], business.id))));
   });
 
   app.post("/b/:id", async (c) => {
     const business = await found(c.req.param("id"));
     if (!business) return c.notFound();
     if (business.id === DEFAULT_BUSINESS_ID) return c.html(page(business.name, mainBusinessNote(business)), 400);
-    const { settings, problems } = readSettings(await c.req.parseBody(), deps.reservedNumberIds);
-    if (problems.length) return c.html(page(business.name, businessForm(`/quote-setup/b/${business.id}`, settings, problems)), 400);
+    const { settings, problems } = await readForm(await c.req.parseBody(), business.id);
+    if (problems.length) return c.html(page(business.name, await form(`/quote-setup/b/${business.id}`, settings, problems, business.id)), 400);
     try {
       await deps.setup.updateBusiness(business.id, settings);
       return c.redirect(`/quote-setup/b/${business.id}?saved=1`, 303);
     } catch (err) {
       if (err instanceof NumberTakenError) {
-        return c.html(page(business.name, businessForm(`/quote-setup/b/${business.id}`, settings, [NUMBER_TAKEN])), 400);
+        return c.html(page(business.name, await form(`/quote-setup/b/${business.id}`, settings, [NUMBER_TAKEN], business.id)), 400);
       }
       throw err;
     }
@@ -294,6 +300,47 @@ ${priceTable(items)}
     return c.redirect(`/quote-setup/b/${business.id}/prices?saved=1`, 303);
   });
 
+  /** The businesses this one could be a branch of: main businesses other than itself. Null with branches off. */
+  async function mainChoices(selfId?: string): Promise<QuoteBusiness[] | null> {
+    if (!deps.branches) return null;
+    const all = await deps.businesses.list();
+    if (selfId && all.some((b) => b.branchOf === selfId)) return []; // it has branches of its own
+    return all.filter((b) => !b.branchOf && b.id !== selfId);
+  }
+
+  async function form(action: string, settings: BusinessSettings, problems: string[], selfId?: string): Promise<string> {
+    return businessForm(action, settings, problems, await mainChoices(selfId));
+  }
+
+  /** The settings form, plus the branch choice checked against the main business's plan. */
+  async function readForm(body: Record<string, unknown>, selfId?: string) {
+    const result = readSettings(body, deps.reservedNumberIds);
+    if (!deps.branches) return result;
+    const wanted = field(body, "branchOf") || null;
+    result.settings.branchOf = wanted;
+    if (!wanted) return result;
+    const all = await deps.businesses.list();
+    const main = (await mainChoices(selfId))?.find((b) => b.id === wanted);
+    if (!main) {
+      result.problems.push(
+        selfId && all.some((b) => b.branchOf === selfId)
+          ? "This business has branches of its own, so it can't be a branch."
+          : "Pick the main business this is a branch of.",
+      );
+      return result;
+    }
+    const limit = await deps.branches.limit(main.id);
+    const numbers = 2 + all.filter((b) => b.branchOf === main.id && b.id !== selfId).length;
+    if (limit !== null && numbers > limit) {
+      result.problems.push(
+        limit <= 1
+          ? `${main.name}'s plan doesn't include branches. Growth allows up to 3 numbers.`
+          : `${main.name}'s plan allows ${limit} numbers in all, and they're all in use.`,
+      );
+    }
+    return result;
+  }
+
   async function found(id: string): Promise<QuoteBusiness | null> {
     return /^[0-9a-f-]{36}$/i.test(id) ? deps.businesses.get(id) : null;
   }
@@ -393,7 +440,7 @@ export function readSettings(
   return { settings, problems };
 }
 
-function businessForm(action: string, s: BusinessSettings, problems: string[]): string {
+function businessForm(action: string, s: BusinessSettings, problems: string[], mains: QuoteBusiness[] | null = null): string {
   const value = (v: string | null) => esc(v ?? "");
   return `${problems.length ? `<ul class="error">${problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <form method="post" action="${action}" class="stack">
@@ -404,9 +451,17 @@ function businessForm(action: string, s: BusinessSettings, problems: string[]): 
 <label>Alert number <small>the owner's WhatsApp number for new orders, e.g. 2348012345678. They can also send "paid MC-1001".</small><input name="ownerWaId" inputmode="tel" value="${value(s.ownerWaId)}"></label>
 <label>Address or phone on invoices <small>optional</small><textarea name="businessDetails" rows="2" maxlength="300">${value(s.businessDetails)}</textarea></label>
 <label>Bank details on invoices <small>optional, e.g. bank, account number, account name</small><textarea name="paymentDetails" rows="2" maxlength="300">${value(s.paymentDetails)}</textarea></label>
+${mains ? branchField(s.branchOf ?? null, mains) : ""}
 <label class="check"><input type="checkbox" name="active"${s.active ? " checked" : ""}> Answer customers on this number</label>
 <p><button type="submit">Save</button> <a href="/quote-setup">Cancel</a></p>
 </form>`;
+}
+
+function branchField(current: string | null, mains: QuoteBusiness[]): string {
+  const options = mains
+    .map((b) => `<option value="${b.id}"${b.id === current ? " selected" : ""}>${esc(b.name)}</option>`)
+    .join("");
+  return `<label>Branch of <small>a branch is on its main business's plan, and its orders show on the main business's order board</small><select name="branchOf"><option value="">Not a branch</option>${options}</select></label>`;
 }
 
 function mainBusinessNote(b: QuoteBusiness): string {
@@ -489,7 +544,7 @@ a{color:#c6ff1f}small,.muted{color:#9a9d97}small{display:block;font-size:.85rem}
 table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.95rem}
 th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #2e302f;vertical-align:top}
 .stack label{display:block;margin:14px 0;font-weight:600}
-input:not([type=checkbox]),textarea{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:10px;border-radius:8px;border:1px solid #2e302f;background:#191a1a;color:inherit;font:inherit}
+input:not([type=checkbox]),textarea,select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:10px;border-radius:8px;border:1px solid #2e302f;background:#191a1a;color:inherit;font:inherit}
 .check{font-weight:400!important}button,.button{display:inline-block;background:#c6ff1f;color:#0c0d0d;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
 .error{color:#ff8a80}.ok{color:#c6ff1f}.warn{color:#ffd166}
 .notice{background:#191a1a;border:1px solid #2e302f;border-radius:8px;padding:10px 12px}
