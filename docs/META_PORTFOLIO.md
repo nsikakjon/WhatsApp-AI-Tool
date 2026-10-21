@@ -20,7 +20,7 @@ A **business portfolio** (what Meta used to call Business Manager) holds
 | --- | --- | --- | --- |
 | +234 811 433 0749 | KahnPrints quote bot (business #1) | "Kahn Prints", ID 1463401605808243 | Live |
 | +234 704 385 7494 | yarnOga Flyers | "KahnPrints", ID 2332559297282667 | Live |
-| +234 701 326 2131 | Quote bot demo (yarnOga Demo Shop) | add to 2332559297282667 | To do (step 4) |
+| +234 704 897 1600 | yarnOga quotes line: demo shop and sign-up by chat | add to 2332559297282667 | To do (step 4) |
 | Site reporter number (not chosen yet) | yarnOga Site Reporter | add to 2332559297282667 | Later (step 9) |
 
 The yarnOga numbers go together in one WhatsApp account, and KahnPrints keeps
@@ -108,7 +108,7 @@ bill arrives.
 
 ## Step 4: Put the quote demo number on (20 minutes)
 
-The demo number is +234 701 326 2131. It must **not** be logged in to the
+The demo number is +234 704 897 1600. It must **not** be logged in to the
 WhatsApp or WhatsApp Business app on any phone: if it is, delete the account
 in that app first (Settings > Account > Delete account). Have the SIM in a
 phone that can receive an SMS or call.
@@ -137,7 +137,12 @@ phone that can receive an SMS or call.
    `active` to true.
 7. On Railway, set `QUOTE_MULTI_BUSINESS=true` if it isn't already.
 8. From another phone, send "How much for 20 branded T-shirts?" to
-   +234 701 326 2131. The Demo Shop should quote within a few seconds.
+   +234 704 897 1600. The Demo Shop should quote within a few seconds.
+9. To let businesses sign up on this number by chat: run migration
+   `0039_quote_chat_signup.sql` in Supabase, then on Railway set
+   `QUOTE_SIGNUP_PHONE_NUMBER_ID` to the same Phone number ID (and, if you
+   want a message for each sign-up, `QUOTE_SIGNUP_ALERT_WA_ID` to your
+   number). Send "sign up" to +234 704 897 1600 to try it.
 
 If no reply and Railway's logs show nothing arriving, re-run
 `2332559297282667/subscribed_apps` as a POST in the Graph API Explorer (as in
