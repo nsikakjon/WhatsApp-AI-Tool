@@ -32,6 +32,21 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps broadcasts off unless BROADCASTS_ENABLED is true, and then needs a template", () => {
+    expect(loadConfig(base).broadcasts).toBeUndefined();
+    expect(() => loadConfig({ ...base, BROADCASTS_ENABLED: "true" })).toThrow("BROADCAST_TEMPLATE_NAME");
+    expect(loadConfig({ ...base, BROADCASTS_ENABLED: "true", BROADCAST_TEMPLATE_NAME: "business_offer" }).broadcasts).toEqual({
+      template: { name: "business_offer", language: "en" },
+      imageTemplateName: undefined,
+      perMinute: 30,
+      costPerMessageKobo: undefined,
+    });
+    expect(
+      loadConfig({ ...base, BROADCASTS_ENABLED: "true", BROADCAST_TEMPLATE_NAME: "b", BROADCAST_COST_KOBO: "7000" }).broadcasts
+        ?.costPerMessageKobo,
+    ).toBe(7000);
+  });
+
   it("keeps more quote businesses off unless QUOTE_MULTI_BUSINESS is true", () => {
     expect(loadConfig(base).quoteBusinesses).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_MULTI_BUSINESS: "true" })).toThrow("ANTHROPIC_API_KEY");

@@ -18,6 +18,9 @@ import {
   DEFAULT_BUSINESS_ID,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
+import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
+import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
+import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
@@ -66,6 +69,23 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
+// is exactly as before.
+const broadcastConfig = config.broadcasts;
+const broadcastStore = broadcastConfig ? createSupabaseBroadcasts(supabase) : undefined;
+function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined): Product {
+  if (!broadcastConfig || !broadcastStore) return bot;
+  return withBroadcasts(bot, {
+    businessId,
+    businessName,
+    ownerWaId,
+    store: broadcastStore,
+    monthlyLimit: (id) => broadcastStore.monthlyLimit(id),
+    pictures: !!broadcastConfig.imageTemplateName,
+    costPerMessageKobo: broadcastConfig.costPerMessageKobo,
+  });
+}
+
 // Quote follow-up reminders; with QUOTE_FOLLOW_UPS off nothing reads or writes them.
 const followUpConfig = config.quoteFollowUps;
 const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined;
@@ -82,7 +102,7 @@ function planFeatures(businessId: string, code?: string) {
 
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
-  product = createQuoteProduct({
+  const quoteBot = createQuoteProduct({
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
     ownerWaId: config.quote.ownerWaId,
@@ -104,6 +124,7 @@ if (config.activeProduct === "quote" && config.quote) {
       description: config.quote.businessDescription,
     }),
   });
+  product = addBroadcasts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.ownerWaId);
 }
 
 // Other businesses on the quote bot each answer their own WhatsApp number.
@@ -113,7 +134,7 @@ if (quoteBusinesses) {
     fallback: product,
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) =>
-      createQuoteProduct({
+      addBroadcasts(createQuoteProduct({
         businessName: business.name,
         orderPrefix: business.orderPrefix,
         ownerWaId: business.ownerWaId ?? undefined,
@@ -131,7 +152,7 @@ if (quoteBusinesses) {
           businessName: business.name,
           description: business.description ?? undefined,
         }),
-      }),
+      }), business.id, business.name, business.ownerWaId ?? undefined),
   });
 }
 
@@ -348,6 +369,54 @@ if (flyerBot && flyerConfig) {
   );
 }
 
+// Every minute, send the next few messages of any confirmed broadcasts.
+if (broadcastConfig && broadcastStore) {
+  const pictures = new Map<number, OutgoingImage>();
+  runEvery(60 * 1000, () =>
+    sendDueBroadcasts({
+      store: broadcastStore,
+      perRun: broadcastConfig.perMinute,
+      send: async (to, b) => {
+        let template: OutgoingTemplate = { ...broadcastConfig.template, bodyParams: [b.businessName, b.body] };
+        if (b.imageMediaId && broadcastConfig.imageTemplateName) {
+          let image = pictures.get(b.id);
+          if (!image) {
+            // The owner's photo: downloaded once per broadcast.
+            const file = await whatsapp.downloadMedia(b.imageMediaId);
+            image = { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType === "image/png" ? "image/png" : "image/jpeg" };
+            pictures.set(b.id, image);
+          }
+          template = { ...template, name: broadcastConfig.imageTemplateName, headerImage: image };
+        }
+        const from = b.fromNumberId ?? undefined;
+        const sent = await whatsapp.sendTemplate(to, template, from);
+        try {
+          const contactId = await store.upsertContact(to);
+          await store.recordOutbound(contactId, {
+            waMessageId: sent.waMessageId,
+            type: "template",
+            body: `[${template.name}] ${b.body}`,
+            raw: sent.raw,
+            businessNumberId: from,
+          });
+        } catch (err) {
+          console.error("Broadcast sent but not saved to the chat history:", err);
+        }
+        return sent.waMessageId;
+      },
+      notifyOwner: async (b, tally) => {
+        pictures.delete(b.id);
+        try {
+          await sendAndRecord({ store, whatsapp }, b.ownerWaId, finishedText(b, tally), b.fromNumberId ?? undefined);
+        } catch (err) {
+          // Most likely the owner hasn't messaged in the last day.
+          console.error(`Broadcast ${b.id} finished but the owner couldn't be told:`, err);
+        }
+      },
+    }),
+  );
+}
+
 // Every 15 minutes, send quote reminders that are due (one per unanswered
 // quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
 // businesses can set their own hours in quote_businesses.follow_up_hours.
@@ -402,6 +471,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
   );
 });
