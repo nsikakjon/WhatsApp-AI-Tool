@@ -265,6 +265,22 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(seen).toMatchObject({ type: "interactive", text: "design 8" });
   });
 
+  it("hands a tapped template button to the product as its label", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.btn", timestamp: "1", type: "button",
+          button: { text: "Stop promotions", payload: "Stop promotions" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({ type: "button", text: "Stop promotions" });
+  });
+
   it("rejects a missing signature without doing any work", async () => {
     const { app, sent, contacts } = setup();
     const res = await post(app, textWebhook("wamid.1", "Hello"));

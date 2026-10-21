@@ -18,6 +18,7 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 
 | Section | Numbers |
 | --- | --- |
+| Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |
 | WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart |
 | yarnOga Flyers | groups, members, birthday flyers sent, groups per plan, what paid plans are worth per month at list price |
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
@@ -30,6 +31,28 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 not money received: flyer payments aren't recorded in the database yet.
 
 Nothing on the page is estimated. Every number is a count or sum of real rows.
+The dashboard only reads, except for the profit and loss entries you add or
+remove yourself.
+
+## Profit and loss
+
+The top section is yarnOga's own money: what it has cost and what it has
+earned. It only counts entries you add, because flyer plan payments and setup
+fees aren't recorded automatically yet. KahnPrints sales are the shop's money,
+so they aren't counted here.
+
+To switch it on, once: Supabase > **SQL Editor** > **New query** > paste all of
+`supabase/migrations/0024_money_lines.sql` > **Run**. That also copies in the
+costs already in the cost ledger spreadsheet (₦82,432.90 at ₦1,370 to $1, all
+on 11 Oct 2026). Running it twice is safe. Until it's run, the section says it
+couldn't read the entries and the rest of the dashboard works as normal.
+
+Adding money in or out: fill in **Add an entry** at the bottom of the section
+and press **Save entry**. For a dollar cost, choose Dollars and type the naira
+rate you paid at; the dashboard keeps both the dollar amount and its naira
+value. Monthly bills (Railway, hosting, Claude Pro) aren't added by themselves:
+add each one when it is paid, so the page never shows a cost that didn't
+happen. A wrong entry can be taken out with **Remove**.
 
 ## Connecting socials
 

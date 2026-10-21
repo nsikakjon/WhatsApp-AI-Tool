@@ -14,13 +14,28 @@ import {
   createSupabaseBusinesses,
   createSupabaseCatalog,
   createSupabaseOrders,
+  createSupabaseSetup,
   DEFAULT_BUSINESS_ID,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
+import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
+import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
+import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
+import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createDispatch } from "./products/quote/delivery/index.js";
 import { createSupabaseDeliveryStore } from "./products/quote/delivery/store.js";
 import { createTrackingLinks } from "./products/quote/delivery/tracking.js";
+import {
+  createPlanGate,
+  createPlanPaidHandler,
+  createSupabasePlanPayments,
+  createSupabasePlanStore,
+} from "./products/quote/plan.js";
+import { createClaudeDrafter } from "./products/quote/drafter.js";
+import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
+import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -28,6 +43,10 @@ import { createLeadQualifier } from "./products/leads/index.js";
 import { createSupabaseLeadStore } from "./products/leads/store.js";
 import { createClaudeLeadUnderstander } from "./products/leads/understand.js";
 import { runEvery } from "./core/schedule.js";
+import { createTestBots } from "./bottest/bots.js";
+import { loadBotTestConfig } from "./bottest/config.js";
+import { createBotTest } from "./bottest/index.js";
+import { createSupabaseMarkStore } from "./bottest/store.js";
 import {
   canMessageFreely,
   sendAndRecord,
@@ -43,7 +62,11 @@ import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
+import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
+import { createPaystackClient } from "./core/payments/paystack.js";
+import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
+import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
 
@@ -61,10 +84,47 @@ const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 const delivery = config.activeProduct === "quote" ? config.delivery : undefined;
 const trackingLinks = delivery && createTrackingLinks(config.whatsapp.appSecret, delivery.publicUrl);
 
+// Paystack links for quote plan upgrades. `payments` is set up further down;
+// the link is only asked for when an owner sends "upgrade ...".
+const planCheckout = (businessId: string) =>
+  config.paystack
+    ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
+    : undefined;
+// Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
+// is exactly as before.
+const broadcastConfig = config.broadcasts;
+const broadcastStore = broadcastConfig ? createSupabaseBroadcasts(supabase) : undefined;
+function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined): Product {
+  if (!broadcastConfig || !broadcastStore) return bot;
+  return withBroadcasts(bot, {
+    businessId,
+    businessName,
+    ownerWaId,
+    store: broadcastStore,
+    monthlyLimit: (id) => broadcastStore.monthlyLimit(id),
+    pictures: !!broadcastConfig.imageTemplateName,
+    costPerMessageKobo: broadcastConfig.costPerMessageKobo,
+  });
+}
+
+// Quote follow-up reminders; with QUOTE_FOLLOW_UPS off nothing reads or writes them.
+const followUpConfig = config.quoteFollowUps;
+const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined;
+const optOutFor = (businessId: string) =>
+  followUps ? (contactId: string) => followUps.optOut(businessId, contactId) : undefined;
+
+// Plan features (AI credits, voice notes, invoices), only with
+// QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
+function planFeatures(businessId: string, code?: string) {
+  if (!config.quotePlanFeatures) return {};
+  const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
+  return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+}
+
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
-  product = createQuoteProduct({
+  const quoteBot = createQuoteProduct({
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
     ownerWaId: config.quote.ownerWaId,
@@ -86,6 +146,17 @@ if (config.activeProduct === "quote" && config.quote) {
             template: delivery.template,
           })
         : undefined,
+    optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
+    plan: config.quote.plan
+      ? createPlanGate({
+          code: config.quote.plan,
+          // Business #1's row holds any plan it paid for in the chat.
+          store: createSupabasePlanStore(supabase, DEFAULT_BUSINESS_ID),
+          checkout: planCheckout(DEFAULT_BUSINESS_ID),
+        })
+      : undefined,
+    // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
+    ...(config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {}),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
@@ -93,6 +164,7 @@ if (config.activeProduct === "quote" && config.quote) {
       description: config.quote.businessDescription,
     }),
   });
+  product = addBroadcasts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.ownerWaId);
 }
 
 // Other businesses on the quote bot each answer their own WhatsApp number.
@@ -103,7 +175,7 @@ if (quoteBusinesses) {
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) => {
       const orders = createSupabaseOrders(supabase, business.id);
-      return createQuoteProduct({
+      return addBroadcasts(createQuoteProduct({
         businessName: business.name,
         orderPrefix: business.orderPrefix,
         ownerWaId: business.ownerWaId ?? undefined,
@@ -126,13 +198,16 @@ if (quoteBusinesses) {
                 template: delivery.template,
               })
             : undefined,
+        optOutOfFollowUps: optOutFor(business.id),
+        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(business.id) }),
+        ...planFeatures(business.id),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
           businessName: business.name,
           description: business.description ?? undefined,
         }),
-      });
+      }), business.id, business.name, business.ownerWaId ?? undefined);
     },
   });
 }
@@ -162,6 +237,26 @@ const leadQualifier = leadsConfig
     })
   : undefined;
 
+const store = createSupabaseStore(supabase);
+const whatsapp = createWhatsAppClient(config.whatsapp);
+
+// Paystack checkout links, when PAYSTACK_SECRET_KEY is set. Each product that
+// sells something adds what happens once it's paid, and the WhatsApp number
+// its messages about the payment come from.
+const paidHandlers: Record<string, PaidHandler> = {};
+const productNumbers: Record<string, string> = {};
+const paystackConfig = config.paystack;
+const payments = paystackConfig
+  ? createPayments({
+      paystack: createPaystackClient(paystackConfig),
+      store: createSupabasePaymentStore(supabase),
+      callbackUrl: `${paystackConfig.publicUrl}/payments/done`,
+      customerEmail: paystackConfig.customerEmail,
+      onPaid: paidHandlers,
+      send: (product, to, text) => sendAndRecord({ store, whatsapp }, to, text, productNumbers[product]),
+    })
+  : undefined;
+
 // The flyer bot answers its own WhatsApp number (FLYER_PHONE_NUMBER_ID).
 const flyerConfig = config.flyer;
 const flyerBot = flyerConfig
@@ -174,11 +269,19 @@ const flyerBot = flyerConfig
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
       trial: TRIAL,
+      payments,
     })
   : undefined;
+if (flyerBot && flyerConfig) {
+  paidHandlers.flyer = flyerBot.planPaid;
+  productNumbers.flyer = flyerConfig.phoneNumberId;
+}
 
-const store = createSupabaseStore(supabase);
-const whatsapp = createWhatsAppClient(config.whatsapp);
+// Quote bot plan upgrades paid in the chat.
+if (config.quote || quoteBusinesses) {
+  paidHandlers.quote = createPlanPaidHandler({ store: createSupabasePlanPayments(supabase), mainBusinessId: DEFAULT_BUSINESS_ID });
+  productNumbers.quote = config.whatsapp.phoneNumberId;
+}
 
 // Our WhatsApp numbers as the staff inbox labels them, main number first.
 const numbers = [
@@ -206,6 +309,7 @@ const app = createApp({
       password: config.dashboard.password,
       stats: createSupabaseStats(supabase),
       website: createSupabaseWebsiteStats(supabase),
+      money: createSupabaseMoneyStore(supabase),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
@@ -247,6 +351,24 @@ const app = createApp({
       whatsapp,
       numbers,
     }
+  : undefined, payments && paystackConfig ? { payments, secretKey: paystackConfig.secretKey } : undefined, config.quoteSetup
+  ? {
+      password: config.quoteSetup.password,
+      businesses: createSupabaseBusinesses(supabase),
+      setup: createSupabaseSetup(supabase),
+      // Numbers that already answer for something else can't be given to a business.
+      reservedNumberIds: [
+        config.whatsapp.phoneNumberId,
+        config.site?.phoneNumberId,
+        config.leads?.phoneNumberId,
+        config.flyer?.phoneNumberId,
+      ].filter((id): id is string => Boolean(id)),
+      multiBusinessOn: Boolean(quoteBusinesses),
+      drafter: config.quoteSetup.aiDraft
+        ? createClaudeDrafter({ apiKey: config.quoteSetup.aiDraft.anthropicApiKey, model: config.quoteSetup.aiDraft.model })
+        : undefined,
+      draftsPerDay: config.quoteSetup.aiDraft?.perDay,
+    }
   : undefined, delivery
   ? {
       secret: config.whatsapp.appSecret,
@@ -277,6 +399,25 @@ if (siteReporter && siteConfig) {
       }
     }
   });
+}
+
+// The owner test screen at /bot-test (BOT_TEST_PASSWORD): try a bot on common
+// customer questions before it goes live. It never sends WhatsApp messages.
+const botTest = loadBotTestConfig();
+if (botTest.status === "weak") console.warn("Bot test screen is OFF: BOT_TEST_PASSWORD must be at least 12 characters");
+if (botTest.status === "on") {
+  // Typed with a slash at the end, the address still opens the screen.
+  app.get("/bot-test/", (c) => c.redirect("/bot-test"));
+  app.route(
+    "/bot-test",
+    createBotTest({
+      password: botTest.password,
+      dailyLimit: botTest.dailyLimit,
+      bots: createTestBots(supabase, config),
+      marks: createSupabaseMarkStore(supabase),
+    }),
+  );
+  console.log("Bot test screen: on at /bot-test");
 }
 
 // Every 5 minutes, send any birthday flyers that are due to group admins.
@@ -310,8 +451,108 @@ if (flyerBot && flyerConfig) {
   );
 }
 
+// Every minute, send the next few messages of any confirmed broadcasts.
+if (broadcastConfig && broadcastStore) {
+  const pictures = new Map<number, OutgoingImage>();
+  runEvery(60 * 1000, () =>
+    sendDueBroadcasts({
+      store: broadcastStore,
+      perRun: broadcastConfig.perMinute,
+      send: async (to, b) => {
+        let template: OutgoingTemplate = { ...broadcastConfig.template, bodyParams: [b.businessName, b.body] };
+        if (b.imageMediaId && broadcastConfig.imageTemplateName) {
+          let image = pictures.get(b.id);
+          if (!image) {
+            // The owner's photo: downloaded once per broadcast.
+            const file = await whatsapp.downloadMedia(b.imageMediaId);
+            image = { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType === "image/png" ? "image/png" : "image/jpeg" };
+            pictures.set(b.id, image);
+          }
+          template = { ...template, name: broadcastConfig.imageTemplateName, headerImage: image };
+        }
+        const from = b.fromNumberId ?? undefined;
+        const sent = await whatsapp.sendTemplate(to, template, from);
+        try {
+          const contactId = await store.upsertContact(to);
+          await store.recordOutbound(contactId, {
+            waMessageId: sent.waMessageId,
+            type: "template",
+            body: `[${template.name}] ${b.body}`,
+            raw: sent.raw,
+            businessNumberId: from,
+          });
+        } catch (err) {
+          console.error("Broadcast sent but not saved to the chat history:", err);
+        }
+        return sent.waMessageId;
+      },
+      notifyOwner: async (b, tally) => {
+        pictures.delete(b.id);
+        try {
+          await sendAndRecord({ store, whatsapp }, b.ownerWaId, finishedText(b, tally), b.fromNumberId ?? undefined);
+        } catch (err) {
+          // Most likely the owner hasn't messaged in the last day.
+          console.error(`Broadcast ${b.id} finished but the owner couldn't be told:`, err);
+        }
+      },
+    }),
+  );
+}
+
+// Every 15 minutes, send quote reminders that are due (one per unanswered
+// quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
+// businesses can set their own hours in quote_businesses.follow_up_hours.
+if (followUps && followUpConfig) {
+  const deps = { store, whatsapp };
+  const template = followUpConfig.template;
+  runEvery(15 * 60 * 1000, async () => {
+    const targets: FollowUpTarget[] = [];
+    if (config.activeProduct === "quote" && config.quote) {
+      targets.push({
+        businessId: mainBusinessId,
+        businessName: config.quote.businessName,
+        orderPrefix: config.quote.orderPrefix,
+        hours: followUpConfig.hours,
+        phoneNumberId: config.whatsapp.phoneNumberId,
+      });
+    }
+    if (quoteBusinesses) {
+      const hours = await followUps.businessHours();
+      for (const b of await createSupabaseBusinesses(supabase).list()) {
+        if (b.id === DEFAULT_BUSINESS_ID || !b.active || !b.phoneNumberId) continue;
+        targets.push({
+          businessId: b.id,
+          businessName: b.name,
+          orderPrefix: b.orderPrefix,
+          hours: hours.get(b.id) ?? followUpConfig.hours,
+          phoneNumberId: b.phoneNumberId,
+        });
+      }
+    }
+    for (const target of targets) {
+      try {
+        await sendDueFollowUps(target, {
+          store: followUps,
+          lastInboundAt: (waId) => store.lastInboundAt(waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId, numberId) =>
+            isPauseActive(await store.botPause(contactId, numberId ?? config.whatsapp.phoneNumberId), new Date()),
+          // When plan tiers land, check the business's plan here, e.g.
+          // allowed: (id) => createPlanFeatures({ store: createSupabaseFeatureStore(supabase, id) }).has("follow_ups"),
+          sendText: (to, text, from) => sendAndRecord(deps, to, text, from),
+          sendTemplate: template
+            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, bodyParams: params }, from)
+            : undefined,
+        });
+      } catch (err) {
+        console.error(`Quote reminders failed for ${target.businessName}:`, err);
+      }
+    }
+  });
+}
+
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, delivery: ${delivery ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"})`,
   );
 });
