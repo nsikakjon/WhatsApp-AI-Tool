@@ -18,6 +18,8 @@ import {
   DEFAULT_BUSINESS_ID,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
+import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
@@ -64,6 +66,12 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// Quote follow-up reminders; with QUOTE_FOLLOW_UPS off nothing reads or writes them.
+const followUpConfig = config.quoteFollowUps;
+const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined;
+const optOutFor = (businessId: string) =>
+  followUps ? (contactId: string) => followUps.optOut(businessId, contactId) : undefined;
+
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
 function planFeatures(businessId: string, code?: string) {
@@ -83,6 +91,7 @@ if (config.activeProduct === "quote" && config.quote) {
     branding: createSupabaseBranding(supabase, mainBusinessId),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders: createSupabaseOrders(supabase, mainBusinessId),
+    optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({ code: config.quote.plan, store: createSupabasePlanStore(supabase, mainBusinessId) })
       : undefined,
@@ -113,6 +122,7 @@ if (quoteBusinesses) {
         branding: createSupabaseBranding(supabase, business.id),
         catalog: createSupabaseCatalog(supabase, business.id),
         orders: createSupabaseOrders(supabase, business.id),
+        optOutOfFollowUps: optOutFor(business.id),
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id) }),
         ...planFeatures(business.id),
         ai: createClaudeUnderstander({
@@ -338,8 +348,60 @@ if (flyerBot && flyerConfig) {
   );
 }
 
+// Every 15 minutes, send quote reminders that are due (one per unanswered
+// quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
+// businesses can set their own hours in quote_businesses.follow_up_hours.
+if (followUps && followUpConfig) {
+  const deps = { store, whatsapp };
+  const template = followUpConfig.template;
+  runEvery(15 * 60 * 1000, async () => {
+    const targets: FollowUpTarget[] = [];
+    if (config.activeProduct === "quote" && config.quote) {
+      targets.push({
+        businessId: mainBusinessId,
+        businessName: config.quote.businessName,
+        orderPrefix: config.quote.orderPrefix,
+        hours: followUpConfig.hours,
+        phoneNumberId: config.whatsapp.phoneNumberId,
+      });
+    }
+    if (quoteBusinesses) {
+      const hours = await followUps.businessHours();
+      for (const b of await createSupabaseBusinesses(supabase).list()) {
+        if (b.id === DEFAULT_BUSINESS_ID || !b.active || !b.phoneNumberId) continue;
+        targets.push({
+          businessId: b.id,
+          businessName: b.name,
+          orderPrefix: b.orderPrefix,
+          hours: hours.get(b.id) ?? followUpConfig.hours,
+          phoneNumberId: b.phoneNumberId,
+        });
+      }
+    }
+    for (const target of targets) {
+      try {
+        await sendDueFollowUps(target, {
+          store: followUps,
+          lastInboundAt: (waId) => store.lastInboundAt(waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId, numberId) =>
+            isPauseActive(await store.botPause(contactId, numberId ?? config.whatsapp.phoneNumberId), new Date()),
+          // When plan tiers land, check the business's plan here, e.g.
+          // allowed: (id) => createPlanFeatures({ store: createSupabaseFeatureStore(supabase, id) }).has("follow_ups"),
+          sendText: (to, text, from) => sendAndRecord(deps, to, text, from),
+          sendTemplate: template
+            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, bodyParams: params }, from)
+            : undefined,
+        });
+      } catch (err) {
+        console.error(`Quote reminders failed for ${target.businessName}:`, err);
+      }
+    }
+  });
+}
+
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
   );
 });
