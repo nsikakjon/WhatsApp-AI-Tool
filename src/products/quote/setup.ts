@@ -1,9 +1,20 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { basicAuth } from "hono/basic-auth";
+import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { formatNaira } from "../../core/money.js";
 import { fetchSheet as defaultFetchSheet, parseCsv } from "../../core/sheets.js";
+import {
+  DRAFT_IMAGE_TYPES,
+  MAX_DRAFT_IMAGE_BYTES,
+  MAX_DRAFT_IMAGES,
+  MAX_DRAFT_TEXT,
+  draftToCsv,
+  type DraftImage,
+  type DraftImageType,
+  type PriceListDrafter,
+} from "./drafter.js";
 import { priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
 import {
   DEFAULT_BUSINESS_ID,
@@ -31,15 +42,21 @@ export interface QuoteSetupDeps {
   /** Whether QUOTE_MULTI_BUSINESS is on (otherwise only business #1 answers customers). */
   multiBusinessOn: boolean;
   fetchSheet?: (link: string) => Promise<string>;
+  /** Drafts a price list from the owner's description or photos. Off (no button) when not given. */
+  drafter?: PriceListDrafter;
+  /** Most AI drafts allowed per day across all businesses, so the AI bill can't run away. */
+  draftsPerDay?: number;
   log?: Pick<Console, "error">;
 }
 
 const MAX_UPLOAD_BYTES = 1024 * 1024;
+const DEFAULT_DRAFTS_PER_DAY = 30;
 
 export function createQuoteSetup(deps: QuoteSetupDeps) {
   const app = new Hono();
   const log = deps.log ?? console;
   const fetchSheet = deps.fetchSheet ?? defaultFetchSheet;
+  const drafts = { day: "", count: 0 };
 
   app.use(
     "*",
@@ -140,10 +157,83 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
         `${business.name}: price list`,
         `${intro}${items.length ? priceTable(items) : `<p class="muted">No price list yet.</p>`}
 ${items.length ? `<p><a href="/quote-setup/b/${business.id}/prices.csv">Download it as a spreadsheet (CSV)</a> to edit and upload again.</p>` : ""}
+${deps.drafter ? draftForm(business.id, "") : ""}
 ${uploadForm(business.id, "")}`,
       ),
     );
   });
+
+  // The AI reads the owner's description or photos and fills the "type it
+  // here" box with draft rows. Nothing is saved: the owner checks the rows,
+  // then the usual Check and Save steps apply.
+  app.post(
+    "/b/:id/prices/draft",
+    bodyLimit({
+      maxSize: MAX_DRAFT_IMAGES * MAX_DRAFT_IMAGE_BYTES + 64 * 1024,
+      onError: (c) => c.text("That's too much to send at once. Use up to 3 photos, each under 3.5 MB.", 413),
+    }),
+    async (c) => {
+      const business = await found(c.req.param("id"));
+      if (!business) return c.notFound();
+      if (!deps.drafter) return c.notFound();
+      const title = `${business.name}: price list`;
+      const form = await c.req.parseBody({ all: true });
+      const text = field(form, "describe").trim();
+
+      let images: DraftImage[];
+      try {
+        images = await draftImages(form.photos);
+        if (text.length > MAX_DRAFT_TEXT) throw new Error(`Please keep the description under ${MAX_DRAFT_TEXT} letters, or send a photo instead.`);
+        if (!text && !images.length) throw new Error("Describe what you sell with prices, or add a photo of your price list.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.html(page(title, `<p class="error">${esc(message)}</p>${draftForm(business.id, text)}${uploadForm(business.id, "")}`), 400);
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      if (drafts.day !== today) Object.assign(drafts, { day: today, count: 0 });
+      if (drafts.count >= (deps.draftsPerDay ?? DEFAULT_DRAFTS_PER_DAY)) {
+        return c.html(
+          page(title, `<p class="error">The AI has drafted enough price lists for today. Please type or upload the list below, or try again tomorrow.</p>${uploadForm(business.id, "")}`),
+          429,
+        );
+      }
+      drafts.count++;
+
+      let draft;
+      try {
+        draft = await deps.drafter.draft({ businessName: business.name, description: business.description, text, images });
+      } catch (err) {
+        log.error("Price list draft failed:", err);
+        return c.html(
+          page(title, `<p class="error">The AI couldn't read that just now. Try again, or type the list below.</p>${draftForm(business.id, text)}${uploadForm(business.id, "")}`),
+          502,
+        );
+      }
+      // Only text typed by the owner can be checked word for word; prices read from a photo can't.
+      const { csv, droppedPrices } = draftToCsv(draft, images.length ? null : text);
+      if (csv.split("\n").filter(Boolean).length < 2) {
+        return c.html(
+          page(title, `<p class="error">The AI didn't find anything to put on the price list. Add more detail or a clearer photo.</p>${draftForm(business.id, text)}${uploadForm(business.id, "")}`),
+          422,
+        );
+      }
+      const flags = [
+        draft.notes ? esc(draft.notes) : "",
+        droppedPrices
+          ? `${droppedPrices} price${droppedPrices === 1 ? " was" : "s were"} left empty because ${droppedPrices === 1 ? "it isn't" : "they aren't"} in what you typed. Fill ${droppedPrices === 1 ? "it" : "them"} in, or leave empty for items the team prices by hand.`
+          : "",
+      ].filter(Boolean);
+      return c.html(
+        page(
+          `${business.name}: check the AI's draft`,
+          `<p class="notice"><b>This is only a draft, nothing is saved.</b> The AI can misread things, so check every product and price against your own list and correct them in the box below. Then press <b>Check it</b> to see the list, and <b>Save this price list</b> when it's right.</p>
+${flags.map((f) => `<p class="warn">${f}</p>`).join("")}
+${uploadForm(business.id, csv)}`,
+        ),
+      );
+    },
+  );
 
   app.get("/b/:id/prices.csv", async (c) => {
     const business = await found(c.req.param("id"));
@@ -234,6 +324,22 @@ ${priceTable(items)}
   return app;
 }
 
+/** The photos sent with a draft request, checked for count, size and type. */
+async function draftImages(value: unknown): Promise<DraftImage[]> {
+  const files = (Array.isArray(value) ? value : [value]).filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > MAX_DRAFT_IMAGES) throw new Error(`Send up to ${MAX_DRAFT_IMAGES} photos at a time.`);
+  const images: DraftImage[] = [];
+  for (const file of files) {
+    if (file.size > MAX_DRAFT_IMAGE_BYTES) throw new Error(`"${file.name}" is too big. Each photo must be under 3.5 MB.`);
+    const type = file.type.toLowerCase();
+    if (!(DRAFT_IMAGE_TYPES as readonly string[]).includes(type)) {
+      throw new Error(`"${file.name}" isn't a photo we can read. Use a JPG, PNG or WebP picture or screenshot.`);
+    }
+    images.push({ mediaType: type as DraftImageType, data: Buffer.from(await file.arrayBuffer()).toString("base64") });
+  }
+  return images;
+}
+
 const NUMBER_TAKEN = "Another business already uses that WhatsApp number ID.";
 
 const EXAMPLE: PriceListItem[] = [
@@ -306,6 +412,16 @@ function businessForm(action: string, s: BusinessSettings, problems: string[]): 
 function mainBusinessNote(b: QuoteBusiness): string {
   return `<p>${esc(b.name)} answers on the main WhatsApp number. Its name, alert number and invoice details are set on Railway (QUOTE_BUSINESS_NAME, QUOTE_OWNER_WA_ID, QUOTE_BUSINESS_DETAILS, QUOTE_PAYMENT_DETAILS), so they can't be changed here.</p>
 <p><a class="button" href="/quote-setup/b/${b.id}/prices">Price list</a> <a href="/quote-setup">Back</a></p>`;
+}
+
+function draftForm(businessId: string, describe: string): string {
+  return `<h2>Let AI draft it</h2>
+<p>Describe what you sell with your prices, or add photos or screenshots of your price list. The AI writes it out as rows for you to check and correct. Nothing is saved until you check the list and press Save.</p>
+<form method="post" action="/quote-setup/b/${businessId}/prices/draft" enctype="multipart/form-data" class="stack">
+<label>Describe what you sell<textarea name="describe" rows="5" maxlength="${MAX_DRAFT_TEXT}" placeholder="e.g. Cupcakes N600 each, box of 6 for N3,500. Birthday cakes from N25,000, price depends on size. Minimum order 2 boxes.">${esc(describe)}</textarea></label>
+<label>and/or photos of your price list <small>up to ${MAX_DRAFT_IMAGES} pictures or screenshots (JPG, PNG or WebP), each under 3.5 MB</small><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/gif" multiple></label>
+<p><button type="submit">Draft my price list</button></p>
+</form>`;
 }
 
 function uploadForm(businessId: string, pasted: string): string {

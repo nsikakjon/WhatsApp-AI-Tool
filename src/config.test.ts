@@ -47,6 +47,17 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "long enough pass" }).quoteSetup).toEqual({ password: "long enough pass" });
   });
 
+  it("adds the AI price list draft only when switched on, and needs an Anthropic key", () => {
+    const setup = { ...base, QUOTE_SETUP_PASSWORD: "long enough pass" };
+    expect(loadConfig(setup).quoteSetup?.aiDraft).toBeUndefined();
+    expect(() => loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true" })).toThrow("ANTHROPIC_API_KEY");
+    expect(loadConfig({ ...setup, QUOTE_SETUP_AI_DRAFT: "true", ANTHROPIC_API_KEY: "k" }).quoteSetup?.aiDraft).toEqual({
+      anthropicApiKey: "k",
+      model: "claude-haiku-5-5",
+      perDay: 30,
+    });
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,

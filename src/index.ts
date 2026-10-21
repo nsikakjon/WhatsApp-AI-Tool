@@ -19,6 +19,7 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
+import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
 import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
@@ -269,6 +270,10 @@ const app = createApp({
         config.flyer?.phoneNumberId,
       ].filter((id): id is string => Boolean(id)),
       multiBusinessOn: Boolean(quoteBusinesses),
+      drafter: config.quoteSetup.aiDraft
+        ? createClaudeDrafter({ apiKey: config.quoteSetup.aiDraft.anthropicApiKey, model: config.quoteSetup.aiDraft.model })
+        : undefined,
+      draftsPerDay: config.quoteSetup.aiDraft?.perDay,
     }
   : undefined);
 

@@ -60,7 +60,11 @@ export interface Config {
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
-  quoteSetup?: { password: string };
+  quoteSetup?: {
+    password: string;
+    /** "Let AI draft it" on the price list page; off unless QUOTE_SETUP_AI_DRAFT is on. */
+    aiDraft?: { anthropicApiKey: string; model: string; perDay: number };
+  };
   /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
@@ -231,7 +235,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
-    quoteSetup: env.QUOTE_SETUP_PASSWORD ? { password: longPassword(env, "QUOTE_SETUP_PASSWORD") } : undefined,
+    quoteSetup: env.QUOTE_SETUP_PASSWORD
+      ? {
+          password: longPassword(env, "QUOTE_SETUP_PASSWORD"),
+          aiDraft: /^(true|yes|on|1)$/i.test(env.QUOTE_SETUP_AI_DRAFT ?? "")
+            ? {
+                anthropicApiKey: required(env, "ANTHROPIC_API_KEY"),
+                model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+                perDay: wholeNumber(env, "QUOTE_SETUP_AI_DRAFTS_PER_DAY", 30),
+              }
+            : undefined,
+        }
+      : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
