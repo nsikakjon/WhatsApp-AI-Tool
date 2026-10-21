@@ -15,6 +15,13 @@ export interface Config {
     url: string;
     serviceRoleKey: string;
   };
+  /**
+   * WhatsApp coexistence: minutes the bot stays quiet in a chat after the
+   * owner replies from the WhatsApp Business app. 0 switches this off.
+   */
+  ownerReplyPauseMinutes: number;
+  /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
+  inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
   groq?: { apiKey: string; model: string };
   /** Which product answers messages: "echo" (test) or "quote" (quote and order bot). */
@@ -117,6 +124,29 @@ export interface Config {
     perVisitorDailyLimit: number;
     dailyLimit: number;
   };
+  /**
+   * The sign-up page at /signup where a business connects its WhatsApp number
+   * through Meta's pop-up (Embedded Signup), e.g. for coexistence. Only set
+   * when SIGNUP_PASSWORD is: without a password the page is switched off.
+   */
+  signup?: {
+    password: string;
+    /** The Meta app's App ID (the same app as the webhook and WHATSAPP_APP_SECRET). */
+    appId: string;
+    /** The Facebook Login for Business configuration made for Embedded Signup. */
+    configId: string;
+  };
+  /**
+   * Online payments through Paystack. Only set when PAYSTACK_SECRET_KEY is:
+   * without it, nothing is charged and owners take payment by hand.
+   */
+  paystack?: {
+    secretKey: string;
+    /** This server's public address, for the page payers return to. */
+    publicUrl: string;
+    /** Paystack needs an email on every payment; WhatsApp doesn't give us one. */
+    customerEmail: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -149,6 +179,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`FLYER_SEND_HOUR must be a whole hour from 0 to 23 (got "${env.FLYER_SEND_HOUR}")`);
   }
 
+  const pauseMinutes = Number(env.OWNER_REPLY_PAUSE_MINUTES || 60);
+  if (!Number.isInteger(pauseMinutes) || pauseMinutes < 0) {
+    throw new Error(
+      `OWNER_REPLY_PAUSE_MINUTES must be a whole number of minutes, 0 or more (got "${env.OWNER_REPLY_PAUSE_MINUTES}")`,
+    );
+  }
+
   return {
     port: Number(env.PORT ?? 3000),
     whatsapp: {
@@ -162,6 +199,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       url: required(env, "SUPABASE_URL"),
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
+    ownerReplyPauseMinutes: pauseMinutes,
+    inbox: inboxSettings(env.INBOX_PASSWORD),
     groq: env.GROQ_API_KEY
       ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }
       : undefined,
@@ -250,6 +289,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           dailyLimit: wholeNumber(env, "REPLY_GENERATOR_DAILY_LIMIT", 200),
         }
       : undefined,
+    signup: env.SIGNUP_PASSWORD
+      ? {
+          password: env.SIGNUP_PASSWORD,
+          appId: required(env, "META_APP_ID"),
+          configId: required(env, "META_SIGNUP_CONFIG_ID"),
+        }
+      : undefined,
+    paystack: paystackSettings(env),
   };
 }
 
@@ -257,6 +304,23 @@ function longPassword(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name] ?? "";
   if (value.length < 12) throw new Error(`${name} must be at least 12 characters long`);
   return value;
+}
+
+function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
+  const secretKey = env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return undefined;
+  if (!/^sk_(test|live)_/.test(secretKey)) {
+    throw new Error("PAYSTACK_SECRET_KEY must be the secret key (starts with sk_test_ or sk_live_), not the public key");
+  }
+  const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
+  if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
+  return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
+}
+
+function inboxSettings(password: string | undefined): Config["inbox"] {
+  if (!password) return undefined;
+  if (password.length < 12) throw new Error("INBOX_PASSWORD must be at least 12 characters long");
+  return { password };
 }
 
 function wholeNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {

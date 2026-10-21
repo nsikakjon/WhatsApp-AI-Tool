@@ -4,7 +4,7 @@ import { createApp } from "../../app.js";
 import { echoProduct } from "../../products/echo/index.js";
 import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
-import type { MessageStore } from "../db/store.js";
+import type { BotPause, MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -17,6 +17,7 @@ function memoryStore() {
   const seen = new Set<string>();
   const outbound: string[] = [];
   const inboundText = new Map<string, string>();
+  const pauses = new Map<string, BotPause>();
   const store: MessageStore = {
     async upsertContact(waId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
@@ -39,14 +40,30 @@ function memoryStore() {
     async setInboundText(waMessageId, text) {
       inboundText.set(waMessageId, text);
     },
+    async recordOwnerReply(_contactId, reply) {
+      if (seen.has(reply.waMessageId)) return "duplicate";
+      seen.add(reply.waMessageId);
+      outbound.push(`[owner] ${reply.text ?? ""}`);
+      return "new";
+    },
+    async pauseBot(contactId, businessNumberId, until, by) {
+      pauses.set(`${contactId}:${businessNumberId}`, { until, by });
+    },
+    async resumeBot(contactId, businessNumberId) {
+      pauses.delete(`${contactId}:${businessNumberId}`);
+    },
+    async botPause(contactId, businessNumberId) {
+      return pauses.get(`${contactId}:${businessNumberId}`) ?? null;
+    },
   };
-  return { store, contacts, outbound, inboundText };
+  return { store, contacts, outbound, inboundText, pauses };
 }
 
 function setup(
   product: Product = echoProduct,
   transcriber?: Transcriber,
   route?: (msg: IncomingMessage) => Product,
+  extra: { ownerReplyPauseMinutes?: number; now?: () => Date } = {},
 ) {
   const sent: Array<{ to: string; body: string }> = [];
   const sentFrom: Array<string | undefined> = [];
@@ -84,6 +101,7 @@ function setup(
     transcriber,
     route: route ?? (() => product),
     log: silent,
+    ...extra,
   });
   return { app, sent, sentFrom, ...mem };
 }
@@ -382,5 +400,128 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     const res = await post(app, body, sign(body));
     expect(res.status).toBe(200);
     expect(sent[0]?.body).toBe("I got your audio message. For now I can only echo text.");
+  });
+});
+
+function ownerEchoWebhook(id: string, text: string, to = "2348012345678", phoneNumberId = "PNID") {
+  return JSON.stringify({
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "WABA_ID",
+        changes: [
+          {
+            field: "smb_message_echoes",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { display_phone_number: "15550000000", phone_number_id: phoneNumberId },
+              message_echoes: [
+                { from: "15550000000", to, id, timestamp: "1760000000", type: "text", text: { body: text } },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  });
+}
+
+describe("owner replies from the WhatsApp Business app (coexistence)", () => {
+  function clockedSetup(minutes = 60) {
+    let time = new Date("2026-10-16T09:00:00Z");
+    const ctx = setup(echoProduct, undefined, undefined, { ownerReplyPauseMinutes: minutes, now: () => time });
+    return { ...ctx, advance: (mins: number) => (time = new Date(time.getTime() + mins * 60_000)) };
+  }
+
+  async function send(app: ReturnType<typeof setup>["app"], body: string) {
+    const res = await post(app, body, sign(body));
+    expect(res.status).toBe(200);
+  }
+
+  it("keeps the bot quiet in that chat after the owner replies, then lets it back in", async () => {
+    const { app, sent, outbound, advance } = clockedSetup(60);
+    await send(app, ownerEchoWebhook("wamid.owner1", "Hi, Jay here. Let me check for you."));
+    expect(outbound).toEqual(["[owner] Hi, Jay here. Let me check for you."]);
+
+    advance(30);
+    await send(app, textWebhook("wamid.c1", "Thanks"));
+    expect(sent).toEqual([]);
+
+    advance(31);
+    await send(app, textWebhook("wamid.c2", "Hello?"));
+    expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello?" }]);
+  });
+
+  it("pushes the pause later with each owner reply", async () => {
+    const { app, sent, advance } = clockedSetup(60);
+    await send(app, ownerEchoWebhook("wamid.o1", "One sec"));
+    advance(50);
+    await send(app, ownerEchoWebhook("wamid.o2", "Done, here you go"));
+    advance(50);
+    await send(app, textWebhook("wamid.c3", "Great"));
+    expect(sent).toEqual([]);
+  });
+
+  it("only pauses the chat the owner replied in", async () => {
+    const { app, sent } = clockedSetup(60);
+    await send(app, ownerEchoWebhook("wamid.o3", "Hi", "2348099999999"));
+    await send(app, textWebhook("wamid.c4", "Hello"));
+    expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello" }]);
+  });
+
+  it("does not pause the same chat on another of our numbers", async () => {
+    const { app, sent } = clockedSetup(60);
+    await send(app, ownerEchoWebhook("wamid.o4", "Hi", "2348012345678", "OTHER_PNID"));
+    await send(app, textWebhook("wamid.c5", "Hello"));
+    expect(sent).toHaveLength(1);
+  });
+
+  it("ignores a re-sent owner reply", async () => {
+    const { app, outbound } = clockedSetup(60);
+    const body = ownerEchoWebhook("wamid.o5", "Hi");
+    await send(app, body);
+    await send(app, body);
+    expect(outbound).toEqual(["[owner] Hi"]);
+  });
+
+  it("stays quiet in a chat taken over with no end time, even after owner replies", async () => {
+    const { app, sent, store, contacts, advance } = clockedSetup(60);
+    await send(app, textWebhook("wamid.c8", "Hello"));
+    const contactId = contacts.get("2348012345678")!;
+    await store.pauseBot(contactId, "PNID", null, "inbox");
+    await send(app, ownerEchoWebhook("wamid.o8", "I've got this"));
+    advance(24 * 60);
+    await send(app, textWebhook("wamid.c9", "Still there?"));
+    expect(sent).toHaveLength(1);
+
+    await store.resumeBot(contactId, "PNID");
+    await send(app, textWebhook("wamid.c10", "Hi again"));
+    expect(sent).toHaveLength(2);
+  });
+
+  it("does nothing with owner replies when the pause is switched off", async () => {
+    const { app, sent, outbound, pauses } = clockedSetup(0);
+    await send(app, ownerEchoWebhook("wamid.o6", "Hi"));
+    await send(app, textWebhook("wamid.c6", "Hello"));
+    expect(outbound).toEqual(["You said: Hello"]);
+    expect(pauses.size).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("still answers if the pause can't be checked (e.g. table missing)", async () => {
+    const { app, sent, store } = clockedSetup(60);
+    store.botPause = async () => {
+      throw new Error('relation "bot_pauses" does not exist');
+    };
+    await send(app, textWebhook("wamid.c7", "Hello"));
+    expect(sent).toHaveLength(1);
+  });
+
+  it("rejects an owner echo with a bad signature", async () => {
+    const { app, pauses } = clockedSetup(60);
+    const body = ownerEchoWebhook("wamid.o7", "Hi");
+    const res = await post(app, body, sign(body, "wrong-secret"));
+    expect(res.status).toBe(401);
+    expect(pauses.size).toBe(0);
   });
 });

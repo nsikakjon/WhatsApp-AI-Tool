@@ -30,3 +30,25 @@ export interface IncomingMessage {
   /** The original message object from Meta, kept for logging and storage. */
   raw: unknown;
 }
+
+/**
+ * A message the business owner sent from the WhatsApp Business app on a number
+ * that also runs the bot (WhatsApp "coexistence"). Meta copies these to us as
+ * "smb_message_echoes" so the bot knows a person has stepped in.
+ */
+export interface OwnerReply {
+  /** WhatsApp's unique ID for this message (used to skip duplicates). */
+  waMessageId: string;
+  /** The customer the owner wrote to: their WhatsApp ID, digits only. */
+  to: string;
+  /** Meta's "Phone number ID" of OUR number the owner wrote from. */
+  businessNumberId?: string;
+  /** text, image, audio, document, etc. */
+  type: string;
+  /** What the owner typed, for text messages (or the caption on a photo). */
+  text?: string;
+  /** Unix time (seconds) WhatsApp says the message was sent. */
+  timestamp: number;
+  /** The original message object from Meta, kept for storage. */
+  raw: unknown;
+}

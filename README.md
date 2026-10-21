@@ -79,11 +79,34 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
 5. With open sign-up, anyone who messages the number can set up their own
    group, and the owner gets an alert for each sign-up.
 
+## Owner and bot on the same number (coexistence)
+
+When a business also uses the WhatsApp Business app on the bot's number, the bot
+goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owner
+replies from the app, then answers again. Needs the `smb_message_echoes` webhook
+field and migration 0019. A password-protected sign-up page at `/signup`
+(`SIGNUP_PASSWORD`, off by default) connects a number through Meta's pop-up.
+See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
+
+## Payments (Paystack)
+
+Products send a Paystack checkout link on WhatsApp, and what was bought switches
+on by itself once Paystack confirms the money arrived (today: flyer plan
+upgrades). Off until `PAYSTACK_SECRET_KEY` is set; needs migration 0032. See
+[docs/PAYMENTS.md](docs/PAYMENTS.md).
+
 ## Owner dashboard
 
 A password-protected page at `/dashboard` with live numbers for every product
 (chats, flyer groups and plans, sales, site updates, leads). Switched on by
 `DASHBOARD_PASSWORD`: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+## Staff inbox (in progress)
+
+A password-protected web page at `/inbox` where staff see every chat on every
+number, read the conversation, reply, and take a chat over from the bot (the
+bot stays quiet until they hand it back). Switched on by `INBOX_PASSWORD`; needs
+migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 
 ## Setup
 
@@ -96,7 +119,7 @@ A password-protected page at `/dashboard` with live numbers for every product
 ```
 src/
   index.ts               starts the server with real settings
-  app.ts                 web routes: /health and /webhooks/whatsapp
+  app.ts                 web routes: /health, /webhooks/whatsapp and /inbox
   config.ts              reads settings from environment variables
   core/                  shared WhatsApp core (used by every product)
     product.ts           the contract every product follows
@@ -107,6 +130,11 @@ src/
       parse.ts           pulls messages out of Meta's webhook format
       client.ts          sends messages via the WhatsApp Cloud API
       outbox.ts          sends and saves alerts and scheduled messages
+    inbox/               staff inbox web page
+      routes.ts          login, chat list, chat page, reply, take over, hand back
+      views.ts           the pages' HTML
+      store.ts           reads chats and messages from Supabase
+      auth.ts            password check, login cookie, wrong-password lockout
     schedule.ts          runs a task on a timer (daily reports, birthdays)
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createSupabaseStore } from "./core/db/store.js";
+import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
@@ -25,6 +26,10 @@ import { createLeadQualifier } from "./products/leads/index.js";
 import { createSupabaseLeadStore } from "./products/leads/store.js";
 import { createClaudeLeadUnderstander } from "./products/leads/understand.js";
 import { runEvery } from "./core/schedule.js";
+import { createTestBots } from "./bottest/bots.js";
+import { loadBotTestConfig } from "./bottest/config.js";
+import { createBotTest } from "./bottest/index.js";
+import { createSupabaseMarkStore } from "./bottest/store.js";
 import {
   canMessageFreely,
   sendAndRecord,
@@ -37,8 +42,12 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
+import { createPaystackClient } from "./core/payments/paystack.js";
+import { createPayments, type PaidHandler } from "./core/payments/payments.js";
+import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
 
@@ -122,6 +131,26 @@ const leadQualifier = leadsConfig
     })
   : undefined;
 
+const store = createSupabaseStore(supabase);
+const whatsapp = createWhatsAppClient(config.whatsapp);
+
+// Paystack checkout links, when PAYSTACK_SECRET_KEY is set. Each product that
+// sells something adds what happens once it's paid, and the WhatsApp number
+// its messages about the payment come from.
+const paidHandlers: Record<string, PaidHandler> = {};
+const productNumbers: Record<string, string> = {};
+const paystackConfig = config.paystack;
+const payments = paystackConfig
+  ? createPayments({
+      paystack: createPaystackClient(paystackConfig),
+      store: createSupabasePaymentStore(supabase),
+      callbackUrl: `${paystackConfig.publicUrl}/payments/done`,
+      customerEmail: paystackConfig.customerEmail,
+      onPaid: paidHandlers,
+      send: (product, to, text) => sendAndRecord({ store, whatsapp }, to, text, productNumbers[product]),
+    })
+  : undefined;
+
 // The flyer bot answers its own WhatsApp number (FLYER_PHONE_NUMBER_ID).
 const flyerConfig = config.flyer;
 const flyerBot = flyerConfig
@@ -134,11 +163,21 @@ const flyerBot = flyerConfig
       credit: flyerConfig.credit,
       sendHour: flyerConfig.sendHour,
       trial: TRIAL,
+      payments,
     })
   : undefined;
+if (flyerBot && flyerConfig) {
+  paidHandlers.flyer = flyerBot.planPaid;
+  productNumbers.flyer = flyerConfig.phoneNumberId;
+}
 
-const store = createSupabaseStore(supabase);
-const whatsapp = createWhatsAppClient(config.whatsapp);
+// Our WhatsApp numbers as the staff inbox labels them, main number first.
+const numbers = [
+  { id: config.whatsapp.phoneNumberId, label: config.activeProduct === "quote" ? "Sales" : "Main" },
+  ...(siteConfig ? [{ id: siteConfig.phoneNumberId, label: "Site reports" }] : []),
+  ...(leadsConfig ? [{ id: leadsConfig.phoneNumberId, label: "Property leads" }] : []),
+  ...(flyerConfig ? [{ id: flyerConfig.phoneNumberId, label: "Flyers" }] : []),
+];
 
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
@@ -146,6 +185,7 @@ const app = createApp({
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
+  ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
     if (leadQualifier && msg.businessNumberId === leadsConfig?.phoneNumberId) return leadQualifier;
@@ -178,7 +218,27 @@ const app = createApp({
       perVisitorDailyLimit: config.generator.perVisitorDailyLimit,
       dailyLimit: config.generator.dailyLimit,
     }
-  : undefined, config.quoteSetup
+  : undefined, config.signup
+  ? {
+      password: config.signup.password,
+      app: {
+        appId: config.signup.appId,
+        appSecret: config.whatsapp.appSecret,
+        graphApiVersion: config.whatsapp.graphApiVersion,
+      },
+      configId: config.signup.configId,
+      store: createSupabaseConnectionStore(supabase),
+    }
+  : undefined, config.inbox
+  ? {
+      password: config.inbox.password,
+      appSecret: config.whatsapp.appSecret,
+      inbox: createSupabaseInboxStore(supabase),
+      messages: store,
+      whatsapp,
+      numbers,
+    }
+  : undefined, payments && paystackConfig ? { payments, secretKey: paystackConfig.secretKey } : undefined, config.quoteSetup
   ? {
       password: config.quoteSetup.password,
       businesses: createSupabaseBusinesses(supabase),
@@ -205,6 +265,23 @@ if (siteReporter && siteConfig) {
       }
     }
   });
+}
+
+// The owner test screen at /bot-test (BOT_TEST_PASSWORD): try a bot on common
+// customer questions before it goes live. It never sends WhatsApp messages.
+const botTest = loadBotTestConfig();
+if (botTest.status === "weak") console.warn("Bot test screen is OFF: BOT_TEST_PASSWORD must be at least 12 characters");
+if (botTest.status === "on") {
+  app.route(
+    "/bot-test",
+    createBotTest({
+      password: botTest.password,
+      dailyLimit: botTest.dailyLimit,
+      bots: createTestBots(supabase, config),
+      marks: createSupabaseMarkStore(supabase),
+    }),
+  );
+  console.log("Bot test screen: on at /bot-test");
 }
 
 // Every 5 minutes, send any birthday flyers that are due to group admins.
@@ -240,6 +317,6 @@ if (flyerBot && flyerConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"})`,
   );
 });
