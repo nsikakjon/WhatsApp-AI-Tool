@@ -65,6 +65,8 @@ export interface Config {
    * private link when the owner sends "orders". Only set when QUOTE_ORDER_BOARD is true.
    */
   quoteOrderBoard?: { publicUrl: string };
+  /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
+  quoteCatalogue: boolean;
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
    * businesses). Only set when BROADCASTS_ENABLED is true.
@@ -280,6 +282,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             : undefined,
         }
       : undefined,
+    quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,

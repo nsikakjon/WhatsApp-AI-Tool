@@ -3,7 +3,7 @@ import { readBusinessPlanCode } from "./plan.js";
 
 // What each quote bot plan includes: AI credits, number of products, voice
 // notes, invoices, staff inbox, follow-ups, broadcasts, test screen, delivery,
-// order board and sales dashboard.
+// order board, sales dashboard, product photos and stock (catalogue).
 // The rows live in quote_plan_features (migrations 0025, 0034); limits are changed
 // there, never in code.
 //
@@ -31,7 +31,8 @@ export type PlanFeature =
   | "test_screen"
   | "delivery"
   | "order_board"
-  | "sales_dashboard";
+  | "sales_dashboard"
+  | "catalogue";
 
 export interface FeatureRow {
   included: boolean;

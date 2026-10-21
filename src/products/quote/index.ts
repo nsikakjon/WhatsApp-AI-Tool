@@ -6,6 +6,7 @@ import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
+import type { Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
 import { createKeywordUnderstander } from "./fallback.js";
 import type { PlanFeatures } from "./features.js";
@@ -27,7 +28,8 @@ import type { Understander } from "./understand.js";
 //
 // The owner can also send the business logo (a photo captioned "logo"),
 // "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
-// "orders" for the link to their order board and sales (board.ts).
+// "orders" for the link to their order board and sales (board.ts), and
+// "stock" or product photos (catalogue.ts).
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -75,6 +77,8 @@ export interface QuoteProductOptions {
   credits?: AiCredits;
   /** Reads messages without AI once credits run out. Normally fallback.ts. */
   simpleAi?: Understander;
+  /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
+  catalogue?: Catalogue;
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
   log?: Pick<Console, "error">;
@@ -170,7 +174,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     waId: string,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
-    const lines: QuoteLine[] = [];
+    let lines: QuoteLine[] = [];
     const problems: string[] = [];
     // Items with no price in the database (priced by the team case by case).
     const manual: string[] = [];
@@ -183,6 +187,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       else if (result.reason === "below_minimum")
         problems.push(`${variant.name}: the minimum order is ${result.minQuantity}.`);
       else manual.push(`${item.quantity} x ${variant.name}`);
+    }
+
+    if (opts.catalogue && lines.length > 0) {
+      const short = await opts.catalogue.shortages(lines);
+      problems.push(...short.values());
+      lines = lines.filter((l) => !short.has(l.variantId));
     }
 
     // Hand items without a set price to the owner instead of guessing.
@@ -216,7 +226,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       "Reply YES to place this order, or tell me what to change.",
       ...(credit ? ["", credit] : []),
     ].join("\n");
-    return notify ? { text, notify } : { text };
+    const photos = opts.catalogue ? await opts.catalogue.photos(lines) : [];
+    return { text, ...(photos.length ? { images: photos } : {}), ...(notify ? { notify } : {}) };
   }
 
   async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
@@ -255,6 +266,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
+    await opts.catalogue?.confirmed(order.id);
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
@@ -339,11 +351,17 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
    * try the bot like a customer.
    */
   async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
+    const catalogueReply = opts.catalogue ? await opts.catalogue.ownerCommand(msg, ctx) : null;
+    if (catalogueReply) return catalogueReply;
     const caption = (msg.caption ?? "").trim();
     if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
       if (!/^logo$/i.test(caption)) {
         return opts.branding
-          ? { text: "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." }
+          ? {
+              text:
+                "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." +
+                (opts.catalogue ? " For a product photo, use the caption *photo* and the product's name, e.g. *photo T-shirts*." : ""),
+            }
           : null;
       }
       if (!opts.branding) return { text: "Logos can't be saved yet on this setup. Please let yarnOga support know." };

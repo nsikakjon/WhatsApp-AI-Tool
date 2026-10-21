@@ -37,6 +37,7 @@ import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
+import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -121,10 +122,15 @@ const ordersLinkFor = (businessId: string) =>
 
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
+// Product photos and stock (QUOTE_CATALOGUE) follow the same plan.
 function planFeatures(businessId: string, code?: string) {
-  if (!config.quotePlanFeatures) return {};
-  const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
-  return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+  const features = config.quotePlanFeatures
+    ? createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) })
+    : undefined;
+  return {
+    ...(features ? { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) } : {}),
+    ...(config.quoteCatalogue ? { catalogue: createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) } : {}),
+  };
 }
 
 let product: Product = echoProduct;
@@ -163,7 +169,9 @@ if (config.activeProduct === "quote" && config.quote) {
         })
       : undefined,
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
-    ...(config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {}),
+    ...(config.quote.plan
+      ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan)
+      : { catalogue: config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, DEFAULT_BUSINESS_ID) }) : undefined }),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
@@ -584,6 +592,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"})`,
   );
 });
