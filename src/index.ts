@@ -72,6 +72,7 @@ import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 import { createSupabasePromoAdmin } from "./core/payments/promos.js";
+import { createSupabaseDiscounts } from "./products/quote/discounts.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
 
 const config = loadConfig();
@@ -98,6 +99,9 @@ const planCheckout = (businessId: string) =>
     : undefined;
 // Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
 const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
+
+// Discount codes each business gives its own customers (QUOTE_DISCOUNT_CODES).
+const discountsFor = (businessId: string) => (config.quoteDiscountCodes ? createSupabaseDiscounts(supabase, businessId) : undefined);
 
 // Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
 // is exactly as before.
@@ -175,6 +179,7 @@ if (config.activeProduct === "quote" && config.quote) {
         : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
+    discounts: discountsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
           code: config.quote.plan,
@@ -232,6 +237,7 @@ if (quoteBusinesses) {
             : undefined,
         optOutOfFollowUps: optOutFor(business.id),
         ordersLink: ordersLinkFor(business.id),
+        discounts: discountsFor(business.id),
         referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
         ...features,

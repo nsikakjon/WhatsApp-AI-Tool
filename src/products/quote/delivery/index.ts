@@ -1,8 +1,7 @@
 import { formatNaira } from "../../../core/money.js";
 import type { Notice, ProductContext, Reply } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
-import { quoteTotal } from "../pricing.js";
-import type { OrderDetails, OrderStore, SavedOrder } from "../store.js";
+import { itemsAfterDiscount, type OrderDetails, type OrderStore, type SavedOrder } from "../store.js";
 import { deliveryNotice, riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
@@ -150,12 +149,12 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
 
     if (PICKUP.test(text)) {
       const updated = await store.update(d.id, ["asking"], { status: "pickup", feeKobo: null, zoneName: null });
-      if (!updated || !(await store.setQuoteTotal(order.id, quoteTotal(order.lines)))) return null;
+      if (!updated || !(await store.setQuoteTotal(order.id, itemsAfterDiscount(order)))) return null;
       return {
         text: [
           `No problem, you'll collect it${opts.pickup ? ` from:\n${opts.pickup}` : "."}`,
           "",
-          `*Total: ${formatNaira(quoteTotal(order.lines))}*`,
+          `*Total: ${formatNaira(itemsAfterDiscount(order))}*`,
         ].join("\n"),
         buttons: {
           body: "Tap *Confirm order* to place it.",
@@ -178,7 +177,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     zone: Zone | null,
   ): Promise<Reply | null> {
     const from: Delivery["status"][] = ["asking", "needs_fee", "proposed", "pickup"];
-    const itemsKobo = quoteTotal(order.lines);
+    const itemsKobo = itemsAfterDiscount(order);
     if (!zone) {
       const updated = await store.update(d.id, from, { ...where, status: "needs_fee", zoneName: null, feeKobo: null });
       if (!updated || !(await store.setQuoteTotal(order.id, itemsKobo))) return null;
@@ -291,7 +290,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       return { text: `${label} isn't waiting for a delivery fee, so I've left it as it is.` };
     }
     const feeKobo = naira * 100;
-    const itemsKobo = quoteTotal(order.lines);
+    const itemsKobo = itemsAfterDiscount(order);
     if (!(await store.setQuoteTotal(order.id, itemsKobo + feeKobo))) {
       return { text: `${label} has just been confirmed or cancelled, so I've left the fee as it was.` };
     }
@@ -392,7 +391,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       status: "cancelled",
     });
     if (!updated) return { text: `${label}'s delivery was already cancelled.` };
-    if (order.status === "quoted") await store.setQuoteTotal(order.id, quoteTotal(order.lines));
+    if (order.status === "quoted") await store.setQuoteTotal(order.id, itemsAfterDiscount(order));
 
     const notices: Notice[] = [
       deliveryNotice(updated.customerWaId, `The delivery of your order ${label} has been cancelled. ${opts.businessName} will contact you.`, updated, opts.template),

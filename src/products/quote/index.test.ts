@@ -246,6 +246,27 @@ describe("quote product", () => {
     expect(again?.notify).toBeUndefined();
   });
 
+  it("puts a discount code's line on the owner alert and the invoice", async () => {
+    const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    await quote.product.handle(text("100 flyers"), ctx);
+    Object.assign(quote.orders[0]!, { totalKobo: 1_200_000, discount: { code: "XMAS", amountKobo: 300_000 } });
+
+    const docs = fakeDocuments();
+    const yes = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: quote.store,
+      ai: { understand: async () => ({ intent: "confirm", items: [], message: null }) },
+      renderDocument: docs.render,
+    });
+    const reply = await yes.handle(text("yes"), ctx);
+    expect(reply?.text).toContain("Here's your invoice for ₦12,000");
+    expect(reply?.notify?.[0]?.text).toContain("• Discount (XMAS) = -₦3,000\nTotal: ₦12,000");
+    expect(docs.drawn[0]).toMatchObject({ discount: { code: "XMAS", amountKobo: 300_000 }, totalKobo: 1_200_000 });
+  });
+
   it("still confirms in text when the invoice can't be drawn", async () => {
     const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
     await quote.product.handle(text("100 flyers"), ctx);

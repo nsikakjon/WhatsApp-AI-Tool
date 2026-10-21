@@ -67,6 +67,8 @@ export interface Config {
   quoteOrderBoard?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
+  /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
+  quoteDiscountCodes: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
   quoteReferrals: boolean;
   /**
@@ -301,6 +303,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
+    quoteDiscountCodes: /^(true|yes|on|1)$/i.test(env.QUOTE_DISCOUNT_CODES ?? ""),
     quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()
       ? {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
