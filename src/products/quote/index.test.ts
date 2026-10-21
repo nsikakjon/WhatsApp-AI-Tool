@@ -571,6 +571,23 @@ describe("quote product with plan features", () => {
     expect(reply?.text).toContain("can't take voice notes");
   });
 
+  it("sends the owner their orders page, or says which plans have it", async () => {
+    const bot = (onPlan: boolean) =>
+      createQuoteProduct({
+        businessName: "KahnPrints",
+        orderPrefix: "KP",
+        ownerWaId: OWNER,
+        catalog: { activeVariants: async () => variants },
+        orders: memoryOrders().store,
+        ai: { understand: async () => ({ intent: "other", items: [], message: "Hello!" }) },
+        ordersLink: "https://bot.example.com/orders/abc",
+        features: { planCode: async () => "pro", has: async () => onPlan, limit: async () => null },
+      });
+    expect((await bot(true).handle({ ...text("orders"), from: OWNER }, ctx))?.text).toContain("https://bot.example.com/orders/abc");
+    expect((await bot(true).handle(text("orders"), ctx))?.text).toBe("Hello!");
+    expect((await bot(false).handle({ ...text("Orders"), from: OWNER }, ctx))?.text).toContain("come with Pro and above");
+  });
+
   it("confirms in text without an invoice picture when invoices aren't on the plan", async () => {
     const { product, drawn } = withFeatures({ off: ["invoices"] });
     await product.handle(text("100 cards"), ctx);

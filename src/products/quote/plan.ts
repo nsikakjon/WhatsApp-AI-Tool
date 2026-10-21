@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
 
-// Plans for the quote and order bot (Free, Starter, Standard).
+// Plans for the quote and order bot (Free, Starter, Pro, Growth, Enterprise).
 //
 // Each business is on at most one plan: business #1 (the main number) by
 // QUOTE_PLAN, every other business by plan_code on its quote_businesses row.
@@ -28,6 +28,8 @@ export interface QuotePlan {
   monthlyOrderLimit: number | null;
   /** Adds "Powered by yarnOga" under quotes and confirmations. */
   showCredit: boolean;
+  /** What the plan adds, e.g. "delivery and riders, broadcasts". */
+  description?: string | null;
 }
 
 export interface PlanStore {
@@ -158,14 +160,15 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       ];
       const upgrades = (await opts.store.paidPlans()).filter((p) => p.monthlyPriceKobo > plan.monthlyPriceKobo);
       if (upgrades.length > 0) {
-        lines.push("", "Upgrade for unlimited orders and no yarnOga line on your messages:");
+        lines.push("", "Upgrade:");
         for (const p of upgrades) {
           const yearly =
             p.monthlyPricePaidYearlyKobo != null
               ? ` (${formatNaira(p.monthlyPricePaidYearlyKobo)}/month paid yearly, ${formatNaira(p.monthlyPricePaidYearlyKobo * 12)} a year)`
               : "";
           const setup = p.setupFeeKobo > 0 ? ` + ${formatNaira(p.setupFeeKobo)} setup` : "";
-          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}`);
+          const what = p.description ? `. ${p.description[0]!.toUpperCase()}${p.description.slice(1)}` : "";
+          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}${what}`);
         }
         if (opts.checkout) {
           const example = upgrades[0]!.name.toLowerCase();
@@ -246,9 +249,10 @@ type PlanRow = {
   setup_fee_kobo: number | string;
   monthly_order_limit: number | null;
   show_credit: boolean;
+  description: string | null;
 };
 
-const PLAN_COLUMNS = "code, name, monthly_price_kobo, monthly_price_paid_yearly_kobo, setup_fee_kobo, monthly_order_limit, show_credit";
+const PLAN_COLUMNS = "code, name, monthly_price_kobo, monthly_price_paid_yearly_kobo, setup_fee_kobo, monthly_order_limit, show_credit, description";
 
 function toPlan(row: PlanRow): QuotePlan {
   return {
@@ -259,6 +263,7 @@ function toPlan(row: PlanRow): QuotePlan {
     setupFeeKobo: Number(row.setup_fee_kobo),
     monthlyOrderLimit: row.monthly_order_limit,
     showCredit: row.show_credit,
+    description: row.description,
   };
 }
 
@@ -306,14 +311,22 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
 }
 
 /**
- * The plan saved on a business's row. A paid plan whose time has run out
- * reads as "free". Shared with features.ts so both agree on the plan.
+ * The plan saved on a business's row (or its main business's, for a branch).
+ * A paid plan whose time has run out reads as "free". Shared with
+ * features.ts so both agree on the plan.
  */
 export async function readBusinessPlanCode(db: SupabaseClient, businessId: string): Promise<string | null> {
-  const { data, error } = await db.from("quote_businesses").select("plan_code, plan_paid_until").eq("id", businessId).maybeSingle();
-  if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-  const code = (data?.plan_code as string | null | undefined) ?? null;
-  const until = data?.plan_paid_until as string | null | undefined;
+  const row = async (id: string) => {
+    // Every column, so branch_of (migration 0038) is used when it's there.
+    const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
+    if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
+    return data as { plan_code?: string | null; plan_paid_until?: string | null; branch_of?: string | null } | null;
+  };
+  let data = await row(businessId);
+  // A branch is on its main business's plan.
+  if (data?.branch_of) data = await row(data.branch_of);
+  const code = data?.plan_code ?? null;
+  const until = data?.plan_paid_until;
   return code && until && new Date(until) <= new Date() ? "free" : code;
 }
 

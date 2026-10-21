@@ -6,6 +6,7 @@ import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
+import type { Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
 import { createKeywordUnderstander } from "./fallback.js";
 import type { PlanFeatures } from "./features.js";
@@ -25,8 +26,10 @@ import type { Understander } from "./understand.js";
 // 5. When the customer has paid, the owner sends "paid KP-1001" and the
 //    customer gets a receipt.
 //
-// The owner can also send the business logo (a photo captioned "logo"), and
-// "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print.
+// The owner can also send the business logo (a photo captioned "logo"),
+// "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
+// "orders" for the link to their order board and sales (board.ts), and
+// "stock" or product photos (catalogue.ts).
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -37,8 +40,9 @@ import type { Understander } from "./understand.js";
 // quoting with simple menu replies (fallback.ts). Voice notes and invoice
 // pictures follow the plan too.
 //
-// With delivery switched on (delivery/index.ts), the bot asks where to deliver
-// between the YES and the order, and the owner sends riders out from WhatsApp.
+// With delivery switched on (delivery/index.ts) and on the plan, the bot asks
+// where to deliver between the YES and the order, and the owner sends riders
+// out from WhatsApp.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -73,6 +77,10 @@ export interface QuoteProductOptions {
   credits?: AiCredits;
   /** Reads messages without AI once credits run out. Normally fallback.ts. */
   simpleAi?: Understander;
+  /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
+  catalogue?: Catalogue;
+  /** The owner's private orders page (board.ts), sent when they send "orders". */
+  ordersLink?: string;
   log?: Pick<Console, "error">;
 }
 
@@ -89,7 +97,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
       }
-      if (opts.delivery) {
+      if (opts.delivery && (await deliveryOnPlan())) {
         const deliveryReply = await opts.delivery.handle(msg, ctx);
         if (deliveryReply) return deliveryReply;
       }
@@ -166,7 +174,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     waId: string,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
-    const lines: QuoteLine[] = [];
+    let lines: QuoteLine[] = [];
     const problems: string[] = [];
     // Items with no price in the database (priced by the team case by case).
     const manual: string[] = [];
@@ -179,6 +187,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       else if (result.reason === "below_minimum")
         problems.push(`${variant.name}: the minimum order is ${result.minQuantity}.`);
       else manual.push(`${item.quantity} x ${variant.name}`);
+    }
+
+    if (opts.catalogue && lines.length > 0) {
+      const short = await opts.catalogue.shortages(lines);
+      problems.push(...short.values());
+      lines = lines.filter((l) => !short.has(l.variantId));
     }
 
     // Hand items without a set price to the owner instead of guessing.
@@ -212,7 +226,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       "Reply YES to place this order, or tell me what to change.",
       ...(credit ? ["", credit] : []),
     ].join("\n");
-    return notify ? { text, notify } : { text };
+    const photos = opts.catalogue ? await opts.catalogue.photos(lines) : [];
+    return { text, ...(photos.length ? { images: photos } : {}), ...(notify ? { notify } : {}) };
   }
 
   async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
@@ -245,15 +260,17 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       };
     }
 
-    if (opts.delivery) {
-      const ask = await opts.delivery.beforeConfirm(order, { waId, name });
+    const dispatch = opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
+    if (dispatch) {
+      const ask = await dispatch.beforeConfirm(order, { waId, name });
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
+    await opts.catalogue?.confirmed(order.id);
 
-    const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
+    const delivery = dispatch ? await dispatch.charge(order.id) : null;
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
-    const next = opts.delivery
+    const next = dispatch
       ? delivery
         ? "We'll send you a link to follow your delivery once a rider is on the way."
         : `The ${opts.businessName} team will let you know when it's ready.`
@@ -261,13 +278,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const reply: Reply = {
       text: invoice
         ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
-        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${opts.delivery ? "" : " and delivery"}.`,
+        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
     const credit = opts.plan ? await opts.plan.credit() : null;
     if (credit) reply.text += `\n\n${credit}`;
     if (opts.ownerWaId) {
-      const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
+      const note = dispatch ? await dispatch.ownerNote(order) : null;
       reply.notify = [
         {
           to: opts.ownerWaId,
@@ -285,6 +302,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       ];
     }
     return reply;
+  }
+
+  // Orders already out for delivery keep their fee on invoices and receipts
+  // even if the plan later drops delivery; only new deliveries need the plan.
+  async function deliveryOnPlan(): Promise<boolean> {
+    return opts.features ? opts.features.has("delivery") : true;
   }
 
   async function documentsIncluded(): Promise<boolean> {
@@ -328,11 +351,17 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
    * try the bot like a customer.
    */
   async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
+    const catalogueReply = opts.catalogue ? await opts.catalogue.ownerCommand(msg, ctx) : null;
+    if (catalogueReply) return catalogueReply;
     const caption = (msg.caption ?? "").trim();
     if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
       if (!/^logo$/i.test(caption)) {
         return opts.branding
-          ? { text: "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." }
+          ? {
+              text:
+                "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." +
+                (opts.catalogue ? " For a product photo, use the caption *photo* and the product's name, e.g. *photo T-shirts*." : ""),
+            }
           : null;
       }
       if (!opts.branding) return { text: "Logos can't be saved yet on this setup. Please let yarnOga support know." };
@@ -346,6 +375,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
     const text = (msg.text ?? "").trim();
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
+    if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
@@ -388,7 +418,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
     const paid = { ...order, status: "paid" as const, paidAt: new Date() };
     const receipt = await documentImage("receipt", paid, delivery);
-    const note = opts.delivery ? await opts.delivery.ownerNote(order) : null;
+    const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? `+${order.customerWaId}`;
     return {
       text:
@@ -405,6 +435,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
         },
       ],
     };
+  }
+
+  async function ordersReply(link: string): Promise<string> {
+    if (opts.features && !(await opts.features.has("order_board")) && !(await opts.features.has("sales_dashboard"))) {
+      return "The order board and sales dashboard come with Pro and above. Send *plan* to see how to upgrade.";
+    }
+    return `Your orders and sales: ${link}\n\nKeep this link to yourself: anyone who has it can see your orders.`;
   }
 
   async function cancel(contactId: string): Promise<Reply> {

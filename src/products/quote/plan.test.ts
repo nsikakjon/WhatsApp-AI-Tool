@@ -97,6 +97,17 @@ describe("plan gate", () => {
     expect(text).toContain("contact yarnOga");
   });
 
+  it("says what each higher plan adds", async () => {
+    const pro: QuotePlan = {
+      code: "pro", name: "Pro", monthlyPriceKobo: 2_300_000, monthlyPricePaidYearlyKobo: 1_925_000, setupFeeKobo: 0,
+      monthlyOrderLimit: null, showCredit: false, description: "delivery and riders, broadcasts",
+    };
+    const s = store(0, { paidPlans: async () => [plans[1]!, pro] });
+    const text = await createPlanGate({ code: "starter", store: s }).summary();
+    expect(text).toContain("• Pro: ₦23,000/month (₦19,250/month paid yearly, ₦231,000 a year). Delivery and riders, broadcasts");
+    expect(text).not.toContain("• Starter");
+  });
+
   it("lists the optional assisted setup with its price", async () => {
     const s = store(0, { addons: async () => [{ name: "We set it up for you", priceKobo: 2_500_000 }] });
     const text = await createPlanGate({ code: "starter", store: s }).summary();

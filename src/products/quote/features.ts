@@ -2,8 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readBusinessPlanCode } from "./plan.js";
 
 // What each quote bot plan includes: AI credits, number of products, voice
-// notes, invoices, staff inbox, follow-ups, broadcasts, test screen.
-// The rows live in quote_plan_features (migration 0025); limits are changed
+// notes, invoices, staff inbox, follow-ups, broadcasts, test screen, delivery,
+// order board, sales dashboard, product photos and stock (catalogue), and
+// how many numbers a business and its branches can have (branches).
+// The rows live in quote_plan_features (migrations 0025, 0034); limits are changed
 // there, never in code.
 //
 // For other parts of the quote bot (follow-ups, broadcasts, set-up screen):
@@ -27,7 +29,12 @@ export type PlanFeature =
   | "staff_inbox"
   | "follow_ups"
   | "broadcasts"
-  | "test_screen";
+  | "test_screen"
+  | "delivery"
+  | "order_board"
+  | "sales_dashboard"
+  | "catalogue"
+  | "branches";
 
 export interface FeatureRow {
   included: boolean;

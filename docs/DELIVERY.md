@@ -49,6 +49,11 @@ customer's door:
 With `QUOTE_DELIVERY` off (the default) nothing changes: customers confirm with
 YES and you arrange delivery yourself.
 
+Delivery is a Pro feature. With `QUOTE_PLAN_FEATURES=true`, a business on Free
+or Starter confirms orders without the delivery step (see
+[QUOTE_PLANS.md](QUOTE_PLANS.md)). A business with no plan, like KahnPrints,
+always gets it.
+
 ## Delivery zones
 
 Each row in `quote_delivery_zones` is one zone with one fee:

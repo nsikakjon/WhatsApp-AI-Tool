@@ -94,6 +94,8 @@ export interface FlyerStore {
   planPrices(): Promise<Map<string, number | null>>;
   /** Price per month, in kobo, when a plan is paid a year at a time; null when there's no yearly price. */
   planYearlyPrices(): Promise<Map<string, number | null>>;
+  /** "From" prices in kobo for plans priced per customer (Organisation), shown instead of "price on request". */
+  planStartingPrices?(): Promise<Map<string, number | null>>;
   /** Where this number is in a guided conversation, or null. Stale ones (over a day old) count as null. */
   chatState(waId: string): Promise<ChatState | null>;
   /** Saves where this number is in a guided conversation; null clears it. */
@@ -374,6 +376,12 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       return new Map(
         (data ?? []).map((r) => [r.id as string, r.monthly_price_paid_yearly_kobo === null ? null : Number(r.monthly_price_paid_yearly_kobo)]),
       );
+    },
+
+    async planStartingPrices() {
+      const { data, error } = await db.from("flyer_plans").select("id, starting_price_kobo");
+      if (error) throw new Error(`planStartingPrices failed: ${error.message}`);
+      return new Map((data ?? []).map((r) => [r.id as string, r.starting_price_kobo === null ? null : Number(r.starting_price_kobo)]));
     },
 
     async chatState(waId) {

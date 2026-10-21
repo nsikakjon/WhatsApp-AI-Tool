@@ -290,3 +290,38 @@ describe("AI draft of a price list", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("branches", () => {
+  const branch = { name: "Mama Cakes Ikeja", orderPrefix: "MCI", phoneNumberId: "555000222", active: "on" };
+
+  it("adds a branch when the main business's plan has room", async () => {
+    const { app, list } = memory({ branches: { limit: async () => 3 } });
+    expect(await (await app.request("/new", { headers: auth })).text()).toContain('<option value="11111111-1111-1111-1111-111111111111">Mama Cakes</option>');
+    expect((await post(app, "/new", { ...branch, branchOf: OTHER_ID })).status).toBe(303);
+    expect(list.at(-1)?.branchOf).toBe(OTHER_ID);
+    const third = await post(app, "/new", { ...branch, phoneNumberId: "555000333", branchOf: OTHER_ID });
+    expect(third.status).toBe(303);
+    const fourth = await post(app, "/new", { ...branch, phoneNumberId: "555000444", branchOf: OTHER_ID });
+    expect(await fourth.text()).toContain("allows 3 numbers in all");
+  });
+
+  it("explains when the plan has no branches, and keeps branches one level deep", async () => {
+    const { app } = memory({ branches: { limit: async () => 1 } });
+    expect(await (await post(app, "/new", { ...branch, branchOf: OTHER_ID })).text()).toContain("include branches. Growth allows up to 3 numbers");
+
+    const open = memory({ branches: { limit: async () => null } });
+    await post(open.app, "/new", { ...branch, branchOf: OTHER_ID });
+    const branchId = open.list.at(-1)!.id;
+    const nested = await post(open.app, "/new", { ...branch, phoneNumberId: "555000333", branchOf: branchId });
+    expect(await nested.text()).toContain("Pick the main business");
+    const mainAsBranch = await post(open.app, `/b/${OTHER_ID}`, { name: "Mama Cakes", orderPrefix: "MC", branchOf: DEFAULT_BUSINESS_ID });
+    expect(await mainAsBranch.text()).toContain("has branches of its own, so it can");
+  });
+
+  it("shows no branch choice and never writes it while branches are off", async () => {
+    const { app, list } = memory();
+    expect(await (await app.request("/new", { headers: auth })).text()).not.toContain("Branch of");
+    await post(app, "/new", { ...branch, branchOf: OTHER_ID });
+    expect(list.at(-1)?.branchOf).toBeUndefined();
+  });
+});

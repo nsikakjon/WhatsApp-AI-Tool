@@ -161,6 +161,9 @@ function memoryStore(plan = "organisation") {
         ["organisation", null],
       ]);
     },
+    async planStartingPrices() {
+      return new Map<string, number | null>([["organisation", 7300000]]);
+    },
   };
   return { store, groups, members, claims, chat, cutouts };
 }
@@ -514,7 +517,7 @@ describe("flyer bot: plans", () => {
     expect(reply?.text).toContain("*Standard* (₦4,500 a month, or ₦2,500 a month paid yearly (₦30,000 a year)): up to 50 members");
     expect(reply?.text).toContain("*Premium* (₦8,000 a month, or ₦6,500 a month paid yearly (₦78,000 a year)): up to 500 members");
     expect(reply?.text).toContain("*Deluxe* (₦10,000 a month, or ₦8,500 a month paid yearly (₦102,000 a year)): unlimited members");
-    expect(reply?.text).toContain("*Organisation* (price on request)");
+    expect(reply?.text).toContain("*Organisation* (from ₦73,000 a month, agreed with you)");
   });
 
   it("stops a Free group at 10 members, but still updates existing ones", async () => {
