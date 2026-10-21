@@ -81,6 +81,8 @@ export interface QuoteProductOptions {
   catalogue?: Catalogue;
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
+  /** The owner's "referral" reply: their referral code and how often it's been used (referrals.ts). */
+  referral?: () => Promise<string>;
   log?: Pick<Console, "error">;
 }
 
@@ -376,6 +378,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const text = (msg.text ?? "").trim();
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
     if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
+    if (opts.referral && /^(my )?(referral|refer|invite)( code)?$/i.test(text)) return { text: await opts.referral() };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };

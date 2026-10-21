@@ -624,7 +624,11 @@ describe("flyer bot: paying online", () => {
     return {
       createLink: vi.fn(async (req: PaymentRequest) => {
         if (fail) throw new Error("Paystack down");
-        return `https://checkout.paystack.com/${String(req.purpose.plan)}`;
+        const url = `https://checkout.paystack.com/${String(req.purpose.plan)}`;
+        if (!req.promo) return { url, amountKobo: req.amountKobo, promo: null };
+        if (req.promo.code !== "DAYONES") return { url: null, refused: { result: "used" as const, code: req.promo.code, maxUses: 10 } };
+        const off = req.amountKobo / req.promo.months / 2;
+        return { url, amountKobo: req.amountKobo - off, promo: { code: "DAYONES", percentOff: 50, amountOffKobo: off } };
       }),
     };
   }
@@ -670,6 +674,17 @@ describe("flyer bot: paying online", () => {
     const org = await bot.handle(msg(OWNER, { text: "upgrade organisation" }), ctx);
     expect(payments.createLink).not.toHaveBeenCalled();
     expect(org?.notify?.[0]?.text).toContain("set plan organisation");
+  });
+
+  it("takes off a promo code typed at the end of the upgrade", async () => {
+    const payments = paystack();
+    const { bot } = await withGroup({ plan: "free", payments });
+    const reply = await bot.handle(msg(OWNER, { text: "upgrade standard 3 months DAYONES" }), ctx);
+    expect(payments.createLink.mock.calls[0]![0]).toMatchObject({ amountKobo: 1350000, promo: { code: "DAYONES", months: 3 } });
+    expect(reply?.text).toContain("*₦11,250*");
+    expect(reply?.text).toContain("you save ₦2,250");
+    const again = await bot.handle(msg(OWNER, { text: "upgrade standard code oldone" }), ctx);
+    expect(again?.text).toContain("already used *OLDONE*");
   });
 
   it("takes at most 12 months in one payment", async () => {
