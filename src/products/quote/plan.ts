@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
+import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
 
 // Plans for the quote and order bot (Free, Starter, Standard).
 //
@@ -10,6 +11,11 @@ import { formatNaira } from "../../core/money.js";
 //
 // Each plan's price, setup fee, monthly order limit and credit line come from
 // the quote_plans table (kobo), never from code or the AI.
+//
+// Owners upgrade by sending "upgrade starter" (a month) or "upgrade starter
+// yearly" (a year at the yearly price). They get a Paystack link; once it's
+// paid, planPaid puts the business on the plan until a date (migration 0033).
+// When that date passes, the business drops back to the free plan.
 
 export interface QuotePlan {
   code: string;
@@ -32,8 +38,17 @@ export interface PlanStore {
   ordersConfirmedSince(since: Date): Promise<number>;
   /** Optional one-off extras, e.g. "We set it up for you". */
   addons?(): Promise<Array<{ name: string; priceKobo: number }>>;
-  /** The plan code saved on this business's row, or null for none. */
+  /**
+   * The plan code saved on this business's row, or null for none. A paid plan
+   * whose time has run out reads as "free".
+   */
   businessPlanCode?(): Promise<string | null>;
+}
+
+/** Saving a paid upgrade on a business's row. */
+export interface PlanPaymentStore {
+  /** Puts the business on the plan for this many more months; returns the new end date. */
+  extendPlan(businessId: string, code: string, months: number): Promise<Date>;
 }
 
 export const CREDIT_LINE = "_Powered by yarnOga · yarnoga.com_";
@@ -52,6 +67,8 @@ export interface PlanGate {
   checkOrder(): Promise<OrderCheck>;
   /** The owner's "plan" command: current plan, this month's use, and how to upgrade. */
   summary(): Promise<string>;
+  /** The owner's "upgrade starter [yearly]" command: a payment link, or how to upgrade. */
+  upgrade?(request: string, ownerWaId: string): Promise<string>;
 }
 
 export interface PlanGateOptions {
@@ -59,11 +76,10 @@ export interface PlanGateOptions {
   code?: string;
   store: PlanStore;
   /**
-   * Makes a payment link for a paid plan. Not built yet: online payment for
-   * plans arrives with Flutterwave (PR #9). Until then, owners are asked to
-   * contact yarnOga.
+   * Paystack checkout links for upgrades, for this business. Without it
+   * (PAYSTACK_SECRET_KEY not set), owners are asked to contact yarnOga.
    */
-  upgradeLink?: (plan: QuotePlan) => Promise<string | null>;
+  checkout?: { links: PaymentLinks; businessId: string };
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
@@ -82,13 +98,24 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
   // order through and are logged.
   async function current(): Promise<QuotePlan | null> {
     try {
-      const code = opts.code ?? (await opts.store.businessPlanCode?.()) ?? null;
+      // A plan paid for in the chat (saved on the business's row) wins over QUOTE_PLAN.
+      const code = (await paidOrSavedCode()) ?? opts.code ?? null;
       if (!code) return null;
       const plan = await opts.store.plan(code);
       if (!plan) log.error(`Quote plan "${code}" isn't in the quote_plans table; no plan limits apply.`);
       return plan;
     } catch (err) {
       log.error("Could not read the quote plan:", err);
+      return null;
+    }
+  }
+
+  async function paidOrSavedCode(): Promise<string | null> {
+    try {
+      return (await opts.store.businessPlanCode?.()) ?? null;
+    } catch (err) {
+      // Most likely migration 0033 hasn't been run yet; QUOTE_PLAN still applies.
+      log.error("Could not read the business's saved plan:", err);
       return null;
     }
   }
@@ -138,8 +165,11 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
               ? ` (${formatNaira(p.monthlyPricePaidYearlyKobo)}/month paid yearly, ${formatNaira(p.monthlyPricePaidYearlyKobo * 12)} a year)`
               : "";
           const setup = p.setupFeeKobo > 0 ? ` + ${formatNaira(p.setupFeeKobo)} setup` : "";
-          const link = opts.upgradeLink ? await opts.upgradeLink(p) : null;
-          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}${link ? `\n  ${link}` : ""}`);
+          lines.push(`• ${p.name}: ${formatNaira(p.monthlyPriceKobo)}/month${yearly}${setup}`);
+        }
+        if (opts.checkout) {
+          const example = upgrades[0]!.name.toLowerCase();
+          lines.push("", `To upgrade, send *upgrade ${example}* to pay for a month, or *upgrade ${example} yearly* for a year.`);
         }
       }
       const addons = (await opts.store.addons?.()) ?? [];
@@ -147,11 +177,64 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         lines.push("", "Extras (one-off):");
         for (const a of addons) lines.push(`• ${a.name}: ${formatNaira(a.priceKobo)}`);
       }
-      if ((upgrades.length > 0 || addons.length > 0) && !opts.upgradeLink) {
-        lines.push("", "To upgrade or add an extra, contact yarnOga and we'll sort it out.");
+      if (opts.checkout ? addons.length > 0 : upgrades.length > 0 || addons.length > 0) {
+        lines.push("", opts.checkout ? "For an extra, contact yarnOga." : "To upgrade or add an extra, contact yarnOga and we'll sort it out.");
       }
       return lines.join("\n");
     },
+
+    async upgrade(request, ownerWaId) {
+      const wanted = request.trim().replace(/\s+(yearly|annually|annual|(?:for )?(?:a|one|1) year)$/i, "");
+      const yearly = wanted !== request.trim();
+      const plans = await opts.store.paidPlans();
+      const plan = plans.find((p) => p.code.toLowerCase() === wanted.toLowerCase() || p.name.toLowerCase() === wanted.toLowerCase());
+      if (!plan) {
+        const names = plans.map((p) => `*upgrade ${p.name.toLowerCase()}*`).join(" or ");
+        return names ? `Which plan? Send ${names}. Send *plan* to see the prices.` : "There are no plans to upgrade to just now.";
+      }
+      if (!opts.checkout) return `To move to ${plan.name}, contact yarnOga and we'll switch you over. Online payment isn't switched on yet.`;
+
+      const months = yearly ? 12 : 1;
+      const amountKobo = yearly ? (plan.monthlyPricePaidYearlyKobo ?? plan.monthlyPriceKobo) * 12 : plan.monthlyPriceKobo;
+      const period = yearly ? "1 year" : "1 month";
+      try {
+        const link = await opts.checkout.links.createLink({
+          product: "quote",
+          waId: ownerWaId,
+          amountKobo,
+          purpose: { businessId: opts.checkout.businessId, plan: plan.code, months },
+          title: `yarnOga ${plan.name}, ${period}`,
+        });
+        return [
+          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(amountKobo)}):`,
+          link,
+          "",
+          "Your plan switches over as soon as the payment goes through.",
+        ].join("\n");
+      } catch (err) {
+        log.error("Could not make a plan payment link:", err);
+        return "Sorry, I couldn't make a payment link just now. Please try again later, or contact yarnOga.";
+      }
+    },
+  };
+}
+
+/**
+ * What happens once an upgrade is paid: the business moves onto the plan.
+ * Only the main number's owner gets a WhatsApp message about it, because
+ * payment messages come from the main number; other owners see it on the
+ * Paystack page and in their next *plan* reply.
+ */
+export function createPlanPaidHandler(opts: { store: PlanPaymentStore; mainBusinessId: string }): PaidHandler {
+  return async (payment) => {
+    const { businessId, plan, months } = payment.purpose as { businessId?: string; plan?: string; months?: number };
+    if (!businessId || !plan || !Number.isInteger(months) || months! < 1) {
+      throw new Error(`Payment ${payment.reference} is for something we can't find: ${JSON.stringify(payment.purpose)}`);
+    }
+    const until = await opts.store.extendPlan(businessId, plan, months!);
+    if (businessId !== opts.mainBusinessId) return [];
+    const date = until.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" });
+    return [{ to: payment.waId, text: `✅ Payment of ${formatNaira(payment.amountKobo)} received, thank you. You're on the plan until ${date}.` }];
   };
 }
 
@@ -218,9 +301,41 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
     },
     async businessPlanCode() {
       if (!businessId) return null;
-      const { data, error } = await db.from("quote_businesses").select("plan_code").eq("id", businessId).maybeSingle();
+      const { data, error } = await db
+        .from("quote_businesses")
+        .select("plan_code, plan_paid_until")
+        .eq("id", businessId)
+        .maybeSingle();
       if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-      return (data?.plan_code as string | null | undefined) ?? null;
+      const code = (data?.plan_code as string | null | undefined) ?? null;
+      const until = data?.plan_paid_until as string | null | undefined;
+      return code && until && new Date(until) <= new Date() ? "free" : code;
+    },
+  };
+}
+
+export function createSupabasePlanPayments(db: SupabaseClient): PlanPaymentStore {
+  return {
+    async extendPlan(businessId, code, months) {
+      const { data, error } = await db
+        .from("quote_businesses")
+        .select("plan_code, plan_paid_until")
+        .eq("id", businessId)
+        .maybeSingle();
+      if (error) throw new Error(`extendPlan read failed: ${error.message}`);
+      if (!data) throw new Error(`extendPlan: no business ${businessId}`);
+      // Paying again for the same plan adds on to the time left; otherwise the new plan starts now.
+      const now = new Date();
+      const current = data.plan_paid_until ? new Date(data.plan_paid_until as string) : null;
+      const from = data.plan_code === code && current && current > now ? current : now;
+      const until = new Date(from);
+      until.setUTCMonth(until.getUTCMonth() + months);
+      const { error: updateError } = await db
+        .from("quote_businesses")
+        .update({ plan_code: code, plan_paid_until: until.toISOString(), updated_at: now.toISOString() })
+        .eq("id", businessId);
+      if (updateError) throw new Error(`extendPlan failed: ${updateError.message}`);
+      return until;
     },
   };
 }

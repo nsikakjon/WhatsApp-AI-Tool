@@ -270,6 +270,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
     const text = (msg.text ?? "").trim();
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
+    const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
+    if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
     const command = text.match(/^(invoice|receipt|paid)\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
     if (!command) return null;

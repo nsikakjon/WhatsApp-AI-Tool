@@ -453,6 +453,31 @@ describe("quote product on a plan", () => {
     expect(reply?.text).toBe("Your plan: *Free*");
   });
 
+  it("passes the owner's upgrade request to the plan", async () => {
+    const mem = memoryOrders();
+    const asked: Array<[string, string]> = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: mem.store,
+      ai: { understand: async () => ({ intent: "other", items: [], message: null }) },
+      plan: {
+        credit: async () => null,
+        checkOrder: async () => ({ allowed: true, warning: null }),
+        summary: async () => "summary",
+        upgrade: async (req, waId) => {
+          asked.push([req, waId]);
+          return "Here's your payment link";
+        },
+      },
+    });
+    expect((await product.handle({ ...text("upgrade to starter yearly"), from: OWNER }, ctx))?.text).toBe("Here's your payment link");
+    expect(asked).toEqual([["starter yearly", OWNER]]);
+    expect((await product.handle({ ...text("upgrade"), from: OWNER }, ctx))?.text).toBe("summary");
+  });
+
   it("leaves customers who type plan to the AI", async () => {
     const { product } = onPlan({ allowed: true, warning: null });
     const reply = await product.handle(text("plan"), ctx);

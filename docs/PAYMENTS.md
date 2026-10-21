@@ -5,8 +5,12 @@ bot sends the link on WhatsApp, and whatever was bought switches on by itself
 as soon as Paystack confirms the money arrived.
 
 Today this is used for flyer plan upgrades (`upgrade standard`,
-`upgrade premium 3 months`, `upgrade deluxe 1 year`). Any other product can use
-the same code in `src/core/payments`.
+`upgrade premium 3 months`, `upgrade deluxe 1 year`) and quote bot plan
+upgrades (the business owner sends `upgrade starter` for a month or
+`upgrade starter yearly` for a year; needs migration
+`0033_quote_plan_payments.sql`). A paid quote plan lasts until a date, then the
+business is back on the free plan until it pays again. Any other product can
+use the same code in `src/core/payments`.
 
 Until `PAYSTACK_SECRET_KEY` is set, nothing is charged: `upgrade` messages go to
 the owners, who take payment by hand as before.

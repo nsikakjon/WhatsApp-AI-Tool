@@ -18,7 +18,12 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
-import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
+import {
+  createPlanGate,
+  createPlanPaidHandler,
+  createSupabasePlanPayments,
+  createSupabasePlanStore,
+} from "./products/quote/plan.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -46,7 +51,7 @@ import { createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
-import { createPayments, type PaidHandler } from "./core/payments/payments.js";
+import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 
 const config = loadConfig();
@@ -60,6 +65,13 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// Paystack links for quote plan upgrades. `payments` is set up further down;
+// the link is only asked for when an owner sends "upgrade ...".
+const planCheckout = (businessId: string) =>
+  config.paystack
+    ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
+    : undefined;
+
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
   product = createQuoteProduct({
@@ -72,7 +84,12 @@ if (config.activeProduct === "quote" && config.quote) {
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders: createSupabaseOrders(supabase, mainBusinessId),
     plan: config.quote.plan
-      ? createPlanGate({ code: config.quote.plan, store: createSupabasePlanStore(supabase, mainBusinessId) })
+      ? createPlanGate({
+          code: config.quote.plan,
+          // Business #1's row holds any plan it paid for in the chat.
+          store: createSupabasePlanStore(supabase, DEFAULT_BUSINESS_ID),
+          checkout: planCheckout(DEFAULT_BUSINESS_ID),
+        })
       : undefined,
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
@@ -99,7 +116,7 @@ if (quoteBusinesses) {
         branding: createSupabaseBranding(supabase, business.id),
         catalog: createSupabaseCatalog(supabase, business.id),
         orders: createSupabaseOrders(supabase, business.id),
-        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id) }),
+        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(business.id) }),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
@@ -173,6 +190,12 @@ const flyerBot = flyerConfig
 if (flyerBot && flyerConfig) {
   paidHandlers.flyer = flyerBot.planPaid;
   productNumbers.flyer = flyerConfig.phoneNumberId;
+}
+
+// Quote bot plan upgrades paid in the chat.
+if (config.quote || quoteBusinesses) {
+  paidHandlers.quote = createPlanPaidHandler({ store: createSupabasePlanPayments(supabase), mainBusinessId: DEFAULT_BUSINESS_ID });
+  productNumbers.quote = config.whatsapp.phoneNumberId;
 }
 
 // Our WhatsApp numbers as the staff inbox labels them, main number first.
