@@ -23,3 +23,11 @@ Saving a new price list on the setup screen keeps the photos and stock.
 
 1. In Supabase, run `supabase/migrations/0037_quote_catalogue_photos_stock.sql`.
 2. On Railway, add `QUOTE_CATALOGUE=true`.
+
+## Demo shop photos
+
+`supabase/seed/demo_quote_photos.sql` gives the yarnOga Demo Shop real
+product photos from Pexels (free licence; the credits are in the file), so
+people trying the demo get pictures with their quote. Run it after the demo
+shop seed and migration 0037. These photos are web addresses rather than
+files in storage; an owner's own photo replaces them as usual.

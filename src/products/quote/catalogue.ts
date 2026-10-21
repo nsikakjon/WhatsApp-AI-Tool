@@ -198,6 +198,12 @@ export function createSupabaseCatalogue(db: SupabaseClient, businessId: string):
       if (rowError) throw new Error(`savePhoto row failed: ${rowError.message}`);
     },
     async photo(path) {
+      // Sample photos (the demo shop's, from Pexels) are web addresses rather than stored files.
+      if (path.startsWith("https://")) {
+        const res = await fetch(path, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) return null;
+        return { data: new Uint8Array(await res.arrayBuffer()), mimeType: res.headers.get("content-type") === "image/png" ? "image/png" : "image/jpeg" };
+      }
       const { data, error } = await db.storage.from(FILES_BUCKET).download(path);
       if (error || !data) return null;
       return { data: new Uint8Array(await data.arrayBuffer()), mimeType: data.type === "image/png" ? "image/png" : "image/jpeg" };
