@@ -72,7 +72,7 @@ import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 import { createSupabasePromoAdmin } from "./core/payments/promos.js";
-import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
+import { createSupabaseReferrals, referralCommand, rewardReferrer } from "./products/quote/referrals.js";
 
 const config = loadConfig();
 
@@ -232,7 +232,7 @@ if (quoteBusinesses) {
             : undefined,
         optOutOfFollowUps: optOutFor(business.id),
         ordersLink: ordersLinkFor(business.id),
-        referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
+        referral: referrals ? (text) => referralCommand(referrals, planId, business.name, text) : undefined,
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
         ...features,
         catalogue: catalogueFor(business.id, features.features),
