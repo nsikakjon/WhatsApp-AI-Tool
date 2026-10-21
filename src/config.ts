@@ -51,6 +51,12 @@ export interface Config {
     model: string;
   };
   /**
+   * Enforce what each quote plan includes (AI credits, voice notes, invoices;
+   * quote_plan_features table). Only matters for businesses on a plan.
+   * Off unless QUOTE_PLAN_FEATURES is true.
+   */
+  quotePlanFeatures: boolean;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -228,6 +234,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
+    quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),

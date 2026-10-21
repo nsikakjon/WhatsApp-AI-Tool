@@ -21,6 +21,8 @@ import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createPlanGate, createSupabasePlanStore } from "./products/quote/plan.js";
+import { createPlanFeatures, createSupabaseFeatureStore } from "./products/quote/features.js";
+import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -62,6 +64,14 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const quoteBusinesses = config.quoteBusinesses;
 const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 
+// Plan features (AI credits, voice notes, invoices), only with
+// QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
+function planFeatures(businessId: string, code?: string) {
+  if (!config.quotePlanFeatures) return {};
+  const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
+  return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+}
+
 let product: Product = echoProduct;
 if (config.activeProduct === "quote" && config.quote) {
   product = createQuoteProduct({
@@ -76,6 +86,8 @@ if (config.activeProduct === "quote" && config.quote) {
     plan: config.quote.plan
       ? createPlanGate({ code: config.quote.plan, store: createSupabasePlanStore(supabase, mainBusinessId) })
       : undefined,
+    // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
+    ...(config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {}),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
@@ -102,6 +114,7 @@ if (quoteBusinesses) {
         catalog: createSupabaseCatalog(supabase, business.id),
         orders: createSupabaseOrders(supabase, business.id),
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id) }),
+        ...planFeatures(business.id),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,

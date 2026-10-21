@@ -100,6 +100,11 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...quote, QUOTE_PLAN: " Free " }).quote?.plan).toBe("free");
   });
 
+  it("leaves plan features off unless switched on", () => {
+    expect(loadConfig(base).quotePlanFeatures).toBe(false);
+    expect(loadConfig({ ...base, QUOTE_PLAN_FEATURES: "true" }).quotePlanFeatures).toBe(true);
+  });
+
   it("switches Paystack on only with a secret key, and then needs the rest", () => {
     expect(loadConfig(base).paystack).toBeUndefined();
     expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "pk_test_abc" })).toThrow("not the public key");
