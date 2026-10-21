@@ -5,6 +5,8 @@ import { createDashboard, type DashboardDeps } from "./dashboard/index.js";
 import { createSignup, type SignupDeps } from "./signup/index.js";
 import { createReplyGenerator, type GeneratorDeps } from "./generator/index.js";
 import { createVisitCounter, type VisitCounterDeps } from "./dashboard/visits.js";
+import { createPaymentRoutes, type PaymentRoutesDeps } from "./core/payments/routes.js";
+import { createQuoteSetup, type QuoteSetupDeps } from "./products/quote/setup.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -13,6 +15,8 @@ export function createApp(
   generator?: GeneratorDeps,
   signup?: SignupDeps,
   inbox?: InboxDeps,
+  payments?: PaymentRoutesDeps,
+  quoteSetup?: QuoteSetupDeps,
 ) {
   const app = new Hono();
 
@@ -35,6 +39,12 @@ export function createApp(
 
   // The staff inbox web page, only when INBOX_PASSWORD is set.
   if (inbox) app.route("/inbox", createInbox(inbox));
+
+  // Paystack's webhook and the page payers return to, only when PAYSTACK_SECRET_KEY is set.
+  if (payments) app.route("/", createPaymentRoutes(payments));
+
+  // The quote bot's owner setup screen; switched off unless QUOTE_SETUP_PASSWORD is set.
+  if (quoteSetup) app.route("/quote-setup", createQuoteSetup(quoteSetup));
 
   return app;
 }

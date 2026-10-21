@@ -57,6 +57,11 @@ export interface Config {
    */
   quotePlanFeatures: boolean;
   /**
+   * The owner setup screen at /quote-setup (businesses and price lists for
+   * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
+   */
+  quoteSetup?: { password: string };
+  /**
    * Construction site progress reporter. Only set when SITE_PHONE_NUMBER_ID is:
    * messages to that WhatsApp number go to the site reporter, and everything
    * else still goes to ACTIVE_PRODUCT.
@@ -139,6 +144,17 @@ export interface Config {
     /** The Facebook Login for Business configuration made for Embedded Signup. */
     configId: string;
   };
+  /**
+   * Online payments through Paystack. Only set when PAYSTACK_SECRET_KEY is:
+   * without it, nothing is charged and owners take payment by hand.
+   */
+  paystack?: {
+    secretKey: string;
+    /** This server's public address, for the page payers return to. */
+    publicUrl: string;
+    /** Paystack needs an email on every payment; WhatsApp doesn't give us one. */
+    customerEmail: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -215,6 +231,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? { anthropicApiKey: required(env, "ANTHROPIC_API_KEY"), model: env.ANTHROPIC_MODEL || "claude-haiku-5-5" }
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
+    quoteSetup: env.QUOTE_SETUP_PASSWORD ? { password: longPassword(env, "QUOTE_SETUP_PASSWORD") } : undefined,
     site: env.SITE_PHONE_NUMBER_ID
       ? {
           phoneNumberId: env.SITE_PHONE_NUMBER_ID,
@@ -289,7 +306,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           configId: required(env, "META_SIGNUP_CONFIG_ID"),
         }
       : undefined,
+    paystack: paystackSettings(env),
   };
+}
+
+function longPassword(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name] ?? "";
+  if (value.length < 12) throw new Error(`${name} must be at least 12 characters long`);
+  return value;
+}
+
+function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
+  const secretKey = env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return undefined;
+  if (!/^sk_(test|live)_/.test(secretKey)) {
+    throw new Error("PAYSTACK_SECRET_KEY must be the secret key (starts with sk_test_ or sk_live_), not the public key");
+  }
+  const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
+  if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
+  return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {

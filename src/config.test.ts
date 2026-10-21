@@ -41,6 +41,12 @@ describe("loadConfig", () => {
     });
   });
 
+  it("switches the quote setup screen on only with a long enough password", () => {
+    expect(loadConfig(base).quoteSetup).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "short" })).toThrow("at least 12");
+    expect(loadConfig({ ...base, QUOTE_SETUP_PASSWORD: "long enough pass" }).quoteSetup).toEqual({ password: "long enough pass" });
+  });
+
   it("reads invoice details, with | starting a new line", () => {
     const config = loadConfig({
       ...base,
@@ -86,6 +92,23 @@ describe("loadConfig", () => {
   it("leaves plan features off unless switched on", () => {
     expect(loadConfig(base).quotePlanFeatures).toBe(false);
     expect(loadConfig({ ...base, QUOTE_PLAN_FEATURES: "true" }).quotePlanFeatures).toBe(true);
+  });
+
+  it("switches Paystack on only with a secret key, and then needs the rest", () => {
+    expect(loadConfig(base).paystack).toBeUndefined();
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "pk_test_abc" })).toThrow("not the public key");
+    expect(() => loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc" })).toThrow("PUBLIC_URL");
+    expect(() =>
+      loadConfig({ ...base, PAYSTACK_SECRET_KEY: "sk_test_abc", PUBLIC_URL: "https://bot.example.com" }),
+    ).toThrow("PAYSTACK_CUSTOMER_EMAIL");
+    expect(
+      loadConfig({
+        ...base,
+        PAYSTACK_SECRET_KEY: "sk_test_abc",
+        PUBLIC_URL: "https://bot.example.com/",
+        PAYSTACK_CUSTOMER_EMAIL: "payments@example.com",
+      }).paystack,
+    ).toEqual({ secretKey: "sk_test_abc", publicUrl: "https://bot.example.com", customerEmail: "payments@example.com" });
   });
 
   it("rejects an unknown product", () => {

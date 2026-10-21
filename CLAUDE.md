@@ -65,7 +65,9 @@ These are non-negotiable.
 
 4. **Every webhook verifies its signature and is idempotent.**
    - WhatsApp: verify the `X-Hub-Signature-256` header against the app secret.
-   - Paystack: verify the `x-paystack-signature` header against the secret key.
+   - Paystack: verify the `x-paystack-signature` header (HMAC-SHA512 of the raw
+     body with the secret key), then confirm the payment with Paystack's verify
+     endpoint before acting on it.
    - Reject requests that fail verification before doing any work.
    - Record each event's unique ID (WhatsApp message ID, Paystack reference/event)
      and skip duplicates, so a retried webhook never sends a second reply,
