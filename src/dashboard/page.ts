@@ -1,7 +1,7 @@
 import { formatNaira } from "../core/money.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import type { SocialAccount } from "./socials.js";
-import { lagosDays, type DashboardStats } from "./stats.js";
+import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
 import type { WebsiteStats } from "./visits.js";
 
 // The owner's dashboard as one self-contained HTML page (no outside scripts,
@@ -42,6 +42,23 @@ function tile(label: string, value: string, note = ""): string {
   return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
     note ? `<div class="note">${esc(note)}</div>` : ""
   }</div>`;
+}
+
+// Meta charges for each message a number sends after its first 1,000 a month.
+const META_FREE_MESSAGES = 1000;
+
+function sentTable(rows: NumberUse[] | null): string {
+  if (rows === null) return `<p class="problem">Messages sent per number will show here once migration 0043 is run in Supabase.</p>`;
+  if (rows.length === 0) return "";
+  const body = rows
+    .map(
+      (r) =>
+        `<tr><td>${esc(r.label)}</td><td>${num(r.sent)}</td><td>${num(Math.max(0, r.sent - META_FREE_MESSAGES))}</td><td>${
+          r.ownAccount ? "The business" : "yarnOga"
+        }</td></tr>`,
+    )
+    .join("");
+  return `<p class="intro">Messages each number sent this month. Meta charges for each one past the first ${num(META_FREE_MESSAGES)} on a number.</p><table class="plans wide"><thead><tr><th>Number</th><th>Sent</th><th>Past the free ${num(META_FREE_MESSAGES)}</th><th>Meta bills</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function section(title: string, intro: string, body: string, id = ""): string {
@@ -271,7 +288,7 @@ ${tile("People who have messaged", num(w.contacts), `${num(w.newContacts7)} new 
 ${tile("Messages received", num(w.inbound30), `last 30 days (${num(w.inbound7)} this week)`)}
 ${tile("Replies sent", num(w.outbound30), "last 30 days")}
 ${tile("Voice notes", num(w.voiceNotes30), "received in the last 30 days")}
-</div>${dailyChart(w.dailyInbound)}`,
+</div>${dailyChart(w.dailyInbound)}${sentTable(w.sentThisMonth)}`,
   );
 
   const planRows = f.plans

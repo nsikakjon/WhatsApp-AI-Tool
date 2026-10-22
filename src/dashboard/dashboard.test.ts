@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDashboard } from "./index.js";
 import { renderDashboard } from "./page.js";
-import { effectivePlan, lagosDays, summariseOrders } from "./stats.js";
+import { effectivePlan, lagosDays, lagosMonth, summariseOrders, summariseSent } from "./stats.js";
 import { NOW, sampleStats } from "./testing.js";
 
 describe("lagosDays", () => {
@@ -39,6 +39,43 @@ describe("summaries", () => {
       NOW,
     );
     expect(q).toMatchObject({ paid: 2, paidKobo: 1500000, paid30Kobo: 1000000, confirmed: 1, awaitingPaymentKobo: 300000, quoted: 1 });
+  });
+});
+
+describe("messages sent per number", () => {
+  it("names each number, adds unlabelled messages to the main number, and marks who Meta bills", () => {
+    const rows = summariseSent(
+      [
+        { business_number_id: "main", sent: 600 },
+        { business_number_id: "", sent: 50 },
+        { business_number_id: "ada", sent: 900 },
+        { business_number_id: "own", sent: 20 },
+        { business_number_id: "mystery", sent: 1 },
+      ],
+      [{ id: "main", label: "Sales" }],
+      [{ phone_number_id: "ada", name: "Ada Prints" }],
+      [{ phone_number_id: "own", verified_name: "Bola Bakes" }],
+    );
+    expect(rows).toEqual([
+      { label: "Ada Prints", sent: 900, ownAccount: false },
+      { label: "Sales", sent: 650, ownAccount: false },
+      { label: "Bola Bakes", sent: 20, ownAccount: true },
+      { label: "Number mystery", sent: 1, ownAccount: false },
+    ]);
+  });
+
+  it("uses the Lagos month", () => {
+    expect(lagosMonth(new Date("2026-10-31T23:30:00Z"))).toBe("2026-11-01");
+    expect(lagosMonth(NOW)).toBe("2026-10-01");
+  });
+
+  it("shows how far past Meta's free 1,000 each number is, or asks for the migration", () => {
+    const html = renderDashboard(sampleStats());
+    expect(html).toContain("<td>Flyers</td><td>1,240</td><td>240</td><td>yarnOga</td>");
+    expect(html).toContain("<td>Ada Prints</td><td>300</td><td>0</td><td>The business</td>");
+    const before = sampleStats();
+    before.whatsapp.sentThisMonth = null;
+    expect(renderDashboard(before)).toContain("once migration 0043 is run");
   });
 });
 

@@ -69,8 +69,11 @@ export interface PlanGate {
   credit(): Promise<string | null>;
   /** Whether one more order can be confirmed this month. */
   checkOrder(): Promise<OrderCheck>;
-  /** The owner's "plan" command: current plan, this month's use, and how to upgrade. */
-  summary(): Promise<string>;
+  /**
+   * The owner's "plan" command: current plan, this month's use, and how to upgrade.
+   * `usage` adds lines under the orders count (e.g. bot messages).
+   */
+  summary(usage?: string[]): Promise<string>;
   /** The owner's "upgrade starter [yearly]" command: a payment link, or how to upgrade. */
   upgrade?(request: string, ownerWaId: string): Promise<string>;
 }
@@ -150,7 +153,7 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       return { allowed: true, warning };
     },
 
-    async summary() {
+    async summary(usage = []) {
       const plan = await current();
       if (!plan) return "I couldn't find your plan just now. Please let yarnOga support know.";
       const used = await opts.store.ordersConfirmedSince(lagosMonthStart(now()));
@@ -159,6 +162,7 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         plan.monthlyOrderLimit == null
           ? `Orders this month: ${used} (no limit)`
           : `Orders this month: ${used} of ${plan.monthlyOrderLimit}`,
+        ...usage,
       ];
       const upgrades = (await opts.store.paidPlans()).filter((p) => p.monthlyPriceKobo > plan.monthlyPriceKobo);
       if (upgrades.length > 0) {

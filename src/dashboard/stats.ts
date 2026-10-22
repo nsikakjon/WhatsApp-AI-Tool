@@ -18,6 +18,20 @@ export interface PlanCount {
   monthlyPriceKobo: number | null;
 }
 
+export interface NumberUse {
+  label: string;
+  /** Messages sent this Lagos month. */
+  sent: number;
+  /** Connected by the business through the sign-up page, so Meta bills the business, not yarnOga. */
+  ownAccount: boolean;
+}
+
+/** One of our WhatsApp numbers and the name to show for it. The main number comes first. */
+export interface NumberLabel {
+  id: string;
+  label: string;
+}
+
 export interface DashboardStats {
   generatedAt: Date;
   whatsapp: {
@@ -31,6 +45,8 @@ export interface DashboardStats {
     voiceNotes30: number;
     /** Messages received per Lagos day, oldest first, last 30 days. */
     dailyInbound: DailyCount[];
+    /** Messages each number sent this month, busiest first; null until migration 0043 is run. */
+    sentThisMonth: NumberUse[] | null;
   };
   flyers: {
     groups: number;
@@ -109,7 +125,42 @@ export function effectivePlan(plan: string, planUntil: string | null, now: Date)
 
 type Filter = (q: any) => any;
 
-export function createSupabaseStats(db: SupabaseClient): StatsSource {
+/** The Lagos month as its first day, e.g. "2026-10-01". */
+export function lagosMonth(now: Date): string {
+  return new Date(now.getTime() + LAGOS_OFFSET_MS).toISOString().slice(0, 8) + "01";
+}
+
+/**
+ * Puts a name on each number's count. Messages saved without a number id ("")
+ * went out from the main number, so they are added to it.
+ */
+export function summariseSent(
+  counts: { business_number_id: string; sent: number }[],
+  numbers: NumberLabel[],
+  businesses: { phone_number_id: string | null; name: string }[],
+  connections: { phone_number_id: string; verified_name: string | null }[],
+): NumberUse[] {
+  const mainId = numbers[0]?.id ?? "";
+  const totals = new Map<string, number>();
+  for (const c of counts) {
+    const id = c.business_number_id || mainId;
+    totals.set(id, (totals.get(id) ?? 0) + Number(c.sent));
+  }
+  const own = new Map(connections.map((c) => [c.phone_number_id, c.verified_name]));
+  return [...totals]
+    .map(([id, sent]) => ({
+      label:
+        numbers.find((n) => n.id === id)?.label ??
+        businesses.find((b) => b.phone_number_id === id)?.name ??
+        own.get(id) ??
+        `Number ${id}`,
+      sent,
+      ownAccount: own.has(id),
+    }))
+    .sort((a, b) => b.sent - a.sent);
+}
+
+export function createSupabaseStats(db: SupabaseClient, numbers: NumberLabel[] = []): StatsSource {
   async function count(table: string, filter: Filter = (q) => q): Promise<number> {
     const { count: n, error } = await filter(db.from(table).select("*", { count: "exact", head: true }));
     if (error) throw new Error(`Counting ${table} failed: ${error.message}`);
@@ -184,6 +235,20 @@ export function createSupabaseStats(db: SupabaseClient): StatsSource {
         count("lead_leads", (q) => q.eq("status", "handed_off")),
       ]);
 
+      // Read on its own so the page still loads before migration 0043 is run.
+      const sentThisMonth = await Promise.all([
+        all<{ business_number_id: string; sent: number; month: string }>("whatsapp_sent_counts", "business_number_id, sent, month"),
+        all<{ phone_number_id: string | null; name: string }>("quote_businesses", "phone_number_id, name"),
+        all<{ phone_number_id: string; verified_name: string | null }>("whatsapp_connections", "phone_number_id, verified_name"),
+      ]).then(
+        ([counts, businesses, connections]) =>
+          summariseSent(counts.filter((c) => c.month === lagosMonth(now)), numbers, businesses, connections),
+        (err) => {
+          console.error("Messages sent per number failed to load:", err);
+          return null;
+        },
+      );
+
       return {
         generatedAt: now,
         whatsapp: {
@@ -195,6 +260,7 @@ export function createSupabaseStats(db: SupabaseClient): StatsSource {
           outbound30,
           voiceNotes30,
           dailyInbound: days.map((d, i) => ({ date: d.date, count: daily[i] })),
+          sentThisMonth,
         },
         flyers: summariseFlyerPlans(
           { groups, newGroups30, members, birthdayFlyersAll, birthdayFlyers30 },
