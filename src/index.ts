@@ -392,7 +392,10 @@ const app = createApp({
 }, config.dashboard
   ? {
       password: config.dashboard.password,
-      stats: createSupabaseStats(supabase),
+      stats: createSupabaseStats(supabase, [
+        ...numbers,
+        ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
+      ]),
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       socials: createSocials({

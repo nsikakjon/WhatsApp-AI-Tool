@@ -15,6 +15,10 @@ export function sampleStats(): DashboardStats {
       outbound30: 310,
       voiceNotes30: 9,
       dailyInbound: lagosDays(NOW, 30).map((d, i) => ({ date: d.date, count: i % 4 })),
+      sentThisMonth: [
+        { label: "Flyers", sent: 1240, ownAccount: false },
+        { label: "Ada Prints", sent: 300, ownAccount: true },
+      ],
     },
     flyers: summariseFlyerPlans(
       { groups: 3, newGroups30: 2, members: 55, birthdayFlyersAll: 20, birthdayFlyers30: 6 },
