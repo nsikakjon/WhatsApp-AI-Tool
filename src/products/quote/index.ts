@@ -8,6 +8,7 @@ import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
 import type { Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
+import type { MessageAllowance } from "./messages.js";
 import { createKeywordUnderstander } from "./fallback.js";
 import type { PlanFeatures } from "./features.js";
 import type { PlanGate } from "./plan.js";
@@ -77,6 +78,8 @@ export interface QuoteProductOptions {
   credits?: AiCredits;
   /** Reads messages without AI once credits run out. Normally fallback.ts. */
   simpleAi?: Understander;
+  /** The plan's monthly WhatsApp messages on a number yarnOga pays for (messages.ts). Without it, nothing is checked. */
+  botMessages?: MessageAllowance;
   /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
   catalogue?: Catalogue;
   /** The owner's private orders page (board.ts), sent when they send "orders". */
@@ -161,8 +164,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
           // The simple replies are written in code, not by the AI, so they can list items freely.
           reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants) };
       }
-      if (credit.ownerNotice && opts.ownerWaId) {
-        reply.notify = [...(reply.notify ?? []), { to: opts.ownerWaId, text: credit.ownerNotice }];
+      const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
+      for (const notice of [credit.ownerNotice, messagesNotice]) {
+        if (notice && opts.ownerWaId) reply.notify = [...(reply.notify ?? []), { to: opts.ownerWaId, text: notice }];
       }
       return reply;
     },
@@ -376,7 +380,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     }
 
     const text = (msg.text ?? "").trim();
-    if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) return { text: await opts.plan.summary() };
+    if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) {
+      const messagesLine = opts.botMessages ? await opts.botMessages.summaryLine() : null;
+      return { text: await opts.plan.summary(messagesLine ? [messagesLine] : []) };
+    }
     if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
     if (opts.referral && /^(my )?(referral|refer|invite)( code)?$/i.test(text)) return { text: await opts.referral() };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);

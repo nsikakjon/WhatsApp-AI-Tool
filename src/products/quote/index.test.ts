@@ -461,6 +461,32 @@ describe("quote product on a plan", () => {
     expect(reply?.notify?.[0]?.text).toContain("order 47 of 50");
   });
 
+  it("tells the owner about their bot messages, and lists them in the plan reply", async () => {
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => quote },
+      renderDocument: fakeDocuments().render,
+      plan: {
+        credit: async () => null,
+        checkOrder: async () => ({ allowed: true, warning: null }),
+        summary: async (usage = []) => ["Your plan: *Starter*", ...usage].join("\n"),
+      },
+      botMessages: {
+        check: async () => "Heads-up: your WhatsApp number has sent 800 of the 1000 bot messages",
+        summaryLine: async () => "Bot messages this month: 800 of 1000",
+      },
+      log: { error() {} },
+    });
+    const reply = await product.handle(text("100 flyers"), ctx);
+    expect(reply?.notify).toEqual([{ to: OWNER, text: "Heads-up: your WhatsApp number has sent 800 of the 1000 bot messages" }]);
+    const plan = await product.handle({ ...text("plan"), from: OWNER }, ctx);
+    expect(plan?.text).toBe("Your plan: *Starter*\nBot messages this month: 800 of 1000");
+  });
+
   it("hands the order to the owner instead of confirming it once the month's orders are used up", async () => {
     const { say, orders } = onPlan({ allowed: false, used: 50, limit: 50, planName: "Free" });
     await say("100 flyers", quote);

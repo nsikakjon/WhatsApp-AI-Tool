@@ -38,6 +38,7 @@ import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-sig
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
+import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
 import { createSiteReporter } from "./products/site/index.js";
@@ -136,6 +137,11 @@ function planFeatures(businessId: string, code?: string) {
   return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
 }
 
+// Bot messages a number may send a month on its plan, with plan features on.
+// The main number also counts messages saved without a number id ("").
+const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
+  features ? createMessageAllowance({ features, store: createSupabaseSentStore(supabase, numberIds) }) : undefined;
+
 // Product photos and stock (QUOTE_CATALOGUE), on the business's own price list.
 const catalogueFor = (businessId: string, features?: PlanFeatures) =>
   config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) : undefined;
@@ -185,6 +191,7 @@ if (config.activeProduct === "quote" && config.quote) {
       : undefined,
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...mainFeatures,
+    botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
     catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
@@ -235,6 +242,7 @@ if (quoteBusinesses) {
         referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
         plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
         ...features,
+        botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
         catalogue: catalogueFor(business.id, features.features),
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,

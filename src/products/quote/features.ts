@@ -3,8 +3,9 @@ import { readBusinessPlanCode } from "./plan.js";
 
 // What each quote bot plan includes: AI credits, number of products, voice
 // notes, invoices, staff inbox, follow-ups, broadcasts, test screen, delivery,
-// order board, sales dashboard, product photos and stock (catalogue), and
-// how many numbers a business and its branches can have (branches).
+// order board, sales dashboard, product photos and stock (catalogue), how
+// many numbers a business and its branches can have (branches), and how many
+// WhatsApp messages each number may send a month (bot_messages, messages.ts).
 // The rows live in quote_plan_features (migrations 0025, 0034); limits are changed
 // there, never in code.
 //
@@ -34,7 +35,8 @@ export type PlanFeature =
   | "order_board"
   | "sales_dashboard"
   | "catalogue"
-  | "branches";
+  | "branches"
+  | "bot_messages";
 
 export interface FeatureRow {
   included: boolean;
