@@ -19,7 +19,7 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 | Section | Numbers |
 | --- | --- |
 | Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |
-| WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart |
+| WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart, and messages each number sent this month with how many are past Meta's free 1,000 (needs migration 0043) |
 | yarnOga Flyers | groups, members, birthday flyers sent, groups per plan, what paid plans are worth per month at list price |
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
 | Site Reporter | active sites, team members, updates, photos, voice notes, daily reports |
