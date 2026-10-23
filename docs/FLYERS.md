@@ -148,6 +148,7 @@ Other commands:
 | `flyer Ada`           | Ada's birthday flyer and a message           |
 | `remove Ada Okafor`   | removes Ada                                  |
 | photo captioned `photo Ada Okafor` | adds or changes Ada's photo     |
+| `brighter`, `rotate` and the other photo words below | touch up the last photo added |
 | `groups`, `switch …`  | lists your groups, changes group             |
 | `help`                | the full list                                |
 
@@ -216,6 +217,39 @@ in a Canva or Photoshop flyer. This runs on our own server with a free model
   time. The model is unloaded after two idle minutes. If Railway shows the
   service running out of memory, raise its memory limit in the service's
   settings.
+
+### Photo touch-ups
+
+Every member photo is touched up as it comes in, like the "Auto" button in a
+photo editor:
+
+- **Framed on the face.** The bot finds the person's head (using the same
+  cut-out model) and crops to head and shoulders, centred, so the photo sits
+  right in round and arched frames without cropping by hand. Group photos and
+  photos with no person in them are left uncropped.
+- **Light fixed.** Dull, hazy photos get their darks and lights stretched; a
+  blue or green cast is taken out, judged only from greys and whites (walls,
+  shirts) so brown skin is never turned grey; dark photos have their
+  mid-tones lifted part of the way. Good photos are left as they are.
+- Event photos get the light fix too, but are not cropped.
+
+The photo as sent is kept next to the touched-up one in Storage. After a photo
+is added, the bot offers an **Edit photo** list. Admins can tap an option, or
+type the word, optionally with a name (`rotate Ada`):
+
+| Word               | What it does                                                   |
+| ------------------ | -------------------------------------------------------------- |
+| `brighter`         | lifts shadows and mid-tones, leaves highlights alone           |
+| `warmer`           | fixes a cold, bluish or greenish look                           |
+| `plain background` | swaps the background for a soft light studio backdrop           |
+| `closer`           | zooms in on the face                                            |
+| `black and white`  | black and white weighted towards red, which keeps skin luminous |
+| `rotate`           | turns the photo as sent a quarter turn and frames it again      |
+| `original`         | goes back to the photo exactly as it was sent                   |
+
+Edits build on each other (brighter twice is brighter still). `rotate` and
+`original` start again from the photo as sent. Photos added before this
+change have no kept original, so `original` says they're already as sent.
 
 Designs are shown six to a page so the list stays easy to browse however many
 there are. Each design keeps its number on every page, so `design 14` always
