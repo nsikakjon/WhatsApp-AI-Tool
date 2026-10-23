@@ -57,14 +57,23 @@ export interface FlyerStore {
   /**
    * Adds a member, or updates their birthday (and photo, if one is given) if
    * the name is already in the group. Returns whether they were new.
+   * `original` is the photo as it was sent, kept when `photo` is a touched-up copy.
    */
-  saveMember(groupId: string, name: string, birthday: MonthDay, photo: Picture | null): Promise<Member & { isNew: boolean }>;
+  saveMember(
+    groupId: string,
+    name: string,
+    birthday: MonthDay,
+    photo: Picture | null,
+    original?: Picture,
+  ): Promise<Member & { isNew: boolean }>;
   removeMember(memberId: string): Promise<void>;
   members(groupId: string): Promise<Member[]>;
   /** Members with one of these birthdays, in active groups, with each group and its admins. */
   birthdaysOn(dates: MonthDay[]): Promise<Array<{ member: Member; group: Group; admins: string[] }>>;
   /** Downloads a saved photo or logo. */
   loadPicture(path: string): Promise<Uint8Array>;
+  /** A member photo as it was sent, before any touching up; undefined if none was kept. */
+  loadOriginal(photoPath: string): Promise<Uint8Array | undefined>;
   /**
    * The saved cut-out of a member photo (see cutout.ts): the PNG, null if the
    * photo has no person in it, or undefined if it hasn't been made yet.
@@ -108,6 +117,16 @@ const BUCKET = "flyer-photos";
 /** A photo's cut-out is saved next to it. A one-byte file means "no person found". */
 export function cutoutPath(photoPath: string): string {
   return `${photoPath}.cutout.png`;
+}
+
+/** The photo as it was sent is saved next to the touched-up one. */
+export function originalPath(photoPath: string): string {
+  return `${photoPath}.original`;
+}
+
+/** Everything saved for one member photo. */
+function photoFiles(photoPath: string): string[] {
+  return [photoPath, cutoutPath(photoPath), originalPath(photoPath)];
 }
 
 function extFor(mimeType: string): string {
@@ -230,11 +249,12 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       if (error) throw new Error(`setStyle failed: ${error.message}`);
     },
 
-    async saveMember(groupId, name, birthday, photo) {
+    async saveMember(groupId, name, birthday, photo, original) {
       let path: string | null = null;
       if (photo) {
         path = `${groupId}/members/${crypto.randomUUID()}.${extFor(photo.mimeType)}`;
         await upload(path, photo);
+        if (original) await upload(originalPath(path), original);
       }
       const row: Record<string, unknown> = { group_id: groupId, name, birth_month: birthday.month, birth_day: birthday.day };
       if (path) row.photo_path = path;
@@ -246,7 +266,7 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await query.select(MEMBER_COLUMNS).single();
       if (error) throw new Error(`saveMember failed: ${error.message}`);
       // A new photo replaces the old one, which is then deleted.
-      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove([existing.photoPath, cutoutPath(existing.photoPath)]);
+      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove(photoFiles(existing.photoPath));
       return { ...toMember(data as MemberRow), isNew: !existing };
     },
 
@@ -254,7 +274,7 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await db.from("flyer_members").delete().eq("id", memberId).select("photo_path");
       if (error) throw new Error(`removeMember failed: ${error.message}`);
       const paths = (data ?? []).map((r) => r.photo_path as string | null).filter((p): p is string => !!p);
-      if (paths.length) await db.storage.from(BUCKET).remove(paths.flatMap((p) => [p, cutoutPath(p)]));
+      if (paths.length) await db.storage.from(BUCKET).remove(paths.flatMap(photoFiles));
     },
 
     async members(groupId) {
@@ -288,6 +308,12 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     async loadPicture(path) {
       const { data, error } = await db.storage.from(BUCKET).download(path);
       if (error || !data) throw new Error(`loadPicture failed: ${error?.message ?? "no data"}`);
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async loadOriginal(photoPath) {
+      const { data, error } = await db.storage.from(BUCKET).download(originalPath(photoPath));
+      if (error || !data) return undefined;
       return new Uint8Array(await data.arrayBuffer());
     },
 

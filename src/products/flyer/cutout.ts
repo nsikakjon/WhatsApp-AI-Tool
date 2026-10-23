@@ -7,7 +7,7 @@
 // (see store.ts); flyers reuse the saved cutout.
 
 import { createRequire } from "node:module";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type Canvas, type Image } from "@napi-rs/canvas";
 import type { InferenceSession } from "onnxruntime-node";
 
 const SIZE = 1024; // the model looks at a 1024 x 1024 copy of the photo
@@ -41,25 +41,36 @@ function releaseLater() {
   idleTimer.unref();
 }
 
+/** One photo at a time, so a big import can't use several times the memory. */
+function queued<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work);
+  queue = run.catch(() => {});
+  return run.finally(releaseLater);
+}
+
 /**
  * Returns the person on a see-through background as a PNG, trimmed to the
  * person with a little margin. Returns null when no one is found (for example
  * a logo or a picture of a cake), so the plain photo is used instead.
  */
 export function cutOut(photo: Uint8Array): Promise<Buffer | null> {
-  // One photo at a time, so a big import can't use several times the memory.
-  const run = queue.then(() => cutOutNow(photo));
-  queue = run.catch(() => {});
-  return run.finally(releaseLater);
+  return queued(async () => {
+    const img = await loadImage(Buffer.from(photo));
+    const mask = await maskOf(img);
+    return mask && trimmedCutout(img, mask);
+  });
 }
 
-async function cutOutNow(photo: Uint8Array): Promise<Buffer | null> {
-  const ort = await import("onnxruntime-node");
-  const img = await loadImage(Buffer.from(photo));
-  const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
+/**
+ * The person's outline: a 1024 x 1024 picture, see-through except where the
+ * person is, to be stretched back over the photo. Null when no one is found.
+ */
+export function personMask(photo: Uint8Array): Promise<Canvas | null> {
+  return queued(async () => maskOf(await loadImage(Buffer.from(photo))));
+}
 
+async function maskOf(img: Image): Promise<Canvas | null> {
+  const ort = await import("onnxruntime-node");
   // The model's input: the photo squashed to 1024 x 1024, colours as -0.5 to 0.5.
   const small = createCanvas(SIZE, SIZE);
   const sctx = small.getContext("2d");
@@ -97,6 +108,13 @@ async function cutOutNow(photo: Uint8Array): Promise<Buffer | null> {
   // Under 3% of the picture: no person to speak of.
   if (person < SIZE * SIZE * 0.03) return null;
   mctx.putImageData(m, 0, 0);
+  return mask;
+}
+
+function trimmedCutout(img: Image, mask: Canvas): Promise<Buffer> {
+  const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
 
   // The photo at full size, keeping only the person.
   const full = createCanvas(w, h);
