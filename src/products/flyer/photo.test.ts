@@ -1,16 +1,8 @@
+import { readFileSync } from "node:fs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
-import { autoTone, editPhoto, findHead, findPhotoEdit, frameAround } from "./photo.js";
-
-/** A head-and-shoulders outline: a 40-wide head from y=20 to 70, then 120-wide shoulders. */
-function silhouette(w = 200, h = 250, cx = 120) {
-  const alpha = new Uint8ClampedArray(w * h);
-  for (let y = 0; y < h; y++) {
-    const half = y < 20 ? 0 : y < 70 ? 20 : y < 80 ? 12 : 60;
-    for (let x = cx - half; x < cx + half; x++) if (half && x >= 0 && x < w) alpha[y * w + x] = 255;
-  }
-  return { alpha, w, h };
-}
+import { autoTone, editPhoto, findPhotoEdit, frameAround, mainFace } from "./photo.js";
+import { findFaces } from "./face.js";
 
 async function solid(w: number, h: number, colour: string) {
   const c = createCanvas(w, h);
@@ -21,17 +13,31 @@ async function solid(w: number, h: number, colour: string) {
 }
 
 describe("photo touch-ups", () => {
-  it("finds the head above the shoulders", () => {
-    const { alpha, w, h } = silhouette();
-    const head = findHead(alpha, w, h)!;
-    expect(head.y).toBe(20);
-    expect(head.w).toBe(40);
-    expect(Math.abs(head.x + head.w / 2 - 120)).toBeLessThanOrEqual(1);
-    expect(head.h).toBeLessThanOrEqual(60);
+  it("finds the face in a real photo", async () => {
+    // Photo from Pexels (free licence): pexels.com/photo/18658795
+    const img = await loadImage(readFileSync(new URL("./testdata/face.jpg", import.meta.url)));
+    const faces = await findFaces(img);
+    expect(faces).toHaveLength(1);
+    const f = faces[0]!;
+    // His face is in the upper middle of the picture, about a quarter of its width.
+    expect(f.x + f.w / 2).toBeGreaterThan(img.width * 0.5);
+    expect(f.x + f.w / 2).toBeLessThan(img.width * 0.75);
+    expect(f.y + f.h / 2).toBeGreaterThan(img.height * 0.3);
+    expect(f.y + f.h / 2).toBeLessThan(img.height * 0.5);
+    expect(f.w / img.width).toBeGreaterThan(0.15);
+    expect(f.w / img.width).toBeLessThan(0.4);
   });
 
-  it("finds nothing in an empty outline", () => {
-    expect(findHead(new Uint8ClampedArray(100 * 100), 100, 100)).toBeNull();
+  it("finds no face in a plain picture", async () => {
+    expect(await findFaces(await loadImage(await solid(200, 200, "#336699")))).toEqual([]);
+  });
+
+  it("frames on one clear face, not on a couple or a group", () => {
+    const big = { x: 0, y: 0, w: 100, h: 130 };
+    expect(mainFace([big])).toBe(big);
+    expect(mainFace([big, { x: 300, y: 0, w: 40, h: 50 }])).toBe(big);
+    expect(mainFace([big, { x: 300, y: 0, w: 90, h: 120 }])).toBeNull();
+    expect(mainFace([])).toBeNull();
   });
 
   it("frames a 4:5 crop centred on the head, inside the photo", () => {
@@ -112,7 +118,7 @@ describe("photo touch-ups", () => {
     expect(warm[2]!).toBeLessThan(0x30);
 
     const closer = await loadImage((await editPhoto("closer", photo, photo)).photo);
-    expect(closer.width).toBe(64);
+    expect(closer.width).toBe(56);
 
     const original = await editPhoto("original", photo, photo);
     expect(Buffer.compare(original.photo, Buffer.from(photo))).toBe(0);

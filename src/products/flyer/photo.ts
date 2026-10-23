@@ -1,18 +1,23 @@
 // Touches up member photos, like the "Auto" button in a photo editor, plus a
 // few one-tap edits admins can pick from in the chat.
 //
-// When a photo comes in it's framed on the person's head and shoulders (so it
+// When a photo comes in it's framed on the person's face, head and shoulders (so it
 // sits right in round and arched photo frames without cropping by hand) and
 // dark or dull photos are brightened and balanced. The photo as sent is kept,
 // so "original" can always go back to it.
 
 import { createCanvas, loadImage, type Canvas, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { personMask } from "./cutout.js";
+import { findFaces } from "./face.js";
 
 /** Longest side of a saved photo; designs never draw one bigger. */
 const MAX_SIDE = 1400;
 /** Head width as a share of the framed photo's width: head and shoulders, not a passport photo. */
 const HEAD_SHARE = 0.34;
+/** The narrowest automatic crop in pixels, so a small face in a small photo isn't blown up blurry. */
+const MIN_CROP = 300;
+/** Head width as a share of the width for "closer". */
+const CLOSE_HEAD_SHARE = 0.7;
 /** Space above the head, as a share of the framed photo's height. */
 const HEADROOM = 0.1;
 /** Framed photos are 4:5 portrait where the photo allows. */
@@ -52,32 +57,21 @@ export interface Box {
 }
 
 /**
- * Where the head is, from the person's outline (alpha values, one per pixel,
- * of a w x h picture). A head is roughly round, so reading down from the top
- * of the outline, the first row as wide as twice its depth is about halfway
- * down the head, and its width is the head's width. Shoulders further down
- * don't matter. Null when there's no single head, e.g. a row of people.
+ * The whole head (hair, ears) around a face box, which runs from the
+ * forehead to the chin.
  */
-export function findHead(alpha: Uint8ClampedArray | Uint8Array, w: number, h: number): Box | null {
-  let top = -1;
-  for (let y = 0; y < h; y++) {
-    let x0 = -1;
-    let x1 = -1;
-    for (let x = 0; x < w; x++) {
-      if (alpha[y * w + x]! > 128) {
-        if (x0 < 0) x0 = x;
-        x1 = x;
-      }
-    }
-    if (x0 < 0 || x1 - x0 + 1 < w * 0.02) continue;
-    if (top < 0) top = y;
-    const width = x1 - x0 + 1;
-    if (width <= 2 * (y - top + 1)) {
-      if (width < w * 0.03 || width > w * 0.75) return null;
-      return { x: (x0 + x1) / 2 - width / 2, y: top, w: width, h: Math.round(width * 1.3) };
-    }
-  }
-  return null;
+export function headAround(face: Box): Box {
+  return { x: face.x - face.w * 0.15, y: face.y - face.h * 0.25, w: face.w * 1.3, h: face.h * 1.3 };
+}
+
+/**
+ * The face to frame on: the biggest, as long as no other face is nearly as
+ * big. A couple or a group photo has no one face to frame on, so it's left whole.
+ */
+export function mainFace(faces: Box[]): Box | null {
+  const [first, second] = faces;
+  if (!first || (second && second.w > first.w * 0.6)) return null;
+  return first;
 }
 
 /**
@@ -85,8 +79,8 @@ export function findHead(alpha: Uint8ClampedArray | Uint8Array, w: number, h: nu
  * and the shoulders in. When the photo is too short for that, it goes up to
  * square rather than cutting off the chin.
  */
-export function frameAround(head: Box, w: number, h: number): Box {
-  let cw = Math.min(Math.max(head.w / HEAD_SHARE, Math.min(w, 400)), w);
+export function frameAround(head: Box, w: number, h: number, share = HEAD_SHARE, minWidth = MIN_CROP): Box {
+  let cw = Math.min(Math.max(head.w / share, Math.min(w, minWidth)), w);
   const ch = Math.min(cw / ASPECT, h);
   cw = Math.min(cw, ch);
   const x = clamp(head.x + head.w / 2 - cw / 2, 0, w - cw);
@@ -96,30 +90,13 @@ export function frameAround(head: Box, w: number, h: number): Box {
 
 /**
  * What happens to every member photo when it's added: framed on the head and
- * shoulders, then brightened and balanced if it needs it. Photos with no
- * person found (a logo, a cartoon) are only toned.
+ * shoulders, then brightened and balanced if it needs it. Photos without one
+ * clear face (a logo, a group) are only toned.
  */
 export async function preparePhoto(photo: Uint8Array): Promise<Buffer> {
   const img = await loadImage(Buffer.from(photo));
-  let crop: Box = { x: 0, y: 0, w: img.width, h: img.height };
-  const mask = await personMask(photo);
-  if (mask) {
-    // The outline at a small size, with the photo's real shape, is plenty to find the head.
-    const s = 240 / Math.max(img.width, img.height);
-    const mw = Math.max(1, Math.round(img.width * s));
-    const mh = Math.max(1, Math.round(img.height * s));
-    const small = createCanvas(mw, mh);
-    const sctx = small.getContext("2d");
-    sctx.drawImage(mask, 0, 0, mw, mh);
-    const rgba = sctx.getImageData(0, 0, mw, mh).data;
-    const alpha = new Uint8ClampedArray(mw * mh);
-    for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3]!;
-    const head = findHead(alpha, mw, mh);
-    if (head) {
-      const f = frameAround(head, mw, mh);
-      crop = { x: f.x / s, y: f.y / s, w: f.w / s, h: f.h / s };
-    }
-  }
+  const face = mainFace(await findFaces(img));
+  const crop = face ? frameAround(headAround(face), img.width, img.height) : { x: 0, y: 0, w: img.width, h: img.height };
   const out = drawCrop(img, crop);
   autoTone(out.getContext("2d"), out.width, out.height);
   return out.encode("jpeg", 92);
@@ -153,11 +130,14 @@ export async function editPhoto(edit: PhotoEdit, current: Uint8Array, original: 
 
   const img = await loadImage(Buffer.from(current));
   if (edit === "closer") {
-    // Framed photos have the face a little above the middle; zoom in on that spot.
-    const w = img.width * 0.8;
-    const h = img.height * 0.8;
-    const out = drawCrop(img, { x: (img.width - w) / 2, y: clamp(img.height * 0.38 - h * 0.4, 0, img.height - h), w, h });
-    return { photo: await out.encode("jpeg", 92) };
+    // A head shot: the head fills most of the width. Without a face, zoom in on the upper middle.
+    const face = mainFace(await findFaces(img));
+    const w = img.width * 0.7;
+    const h = img.height * 0.7;
+    const crop = face
+      ? frameAround(headAround(face), img.width, img.height, CLOSE_HEAD_SHARE, 0)
+      : { x: (img.width - w) / 2, y: clamp(img.height * 0.38 - h * 0.4, 0, img.height - h), w, h };
+    return { photo: await drawCrop(img, crop).encode("jpeg", 92) };
   }
 
   if (edit === "plain") {

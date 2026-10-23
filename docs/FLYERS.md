@@ -223,10 +223,12 @@ in a Canva or Photoshop flyer. This runs on our own server with a free model
 Every member photo is touched up as it comes in, like the "Auto" button in a
 photo editor:
 
-- **Framed on the face.** The bot finds the person's head (using the same
-  cut-out model) and crops to head and shoulders, centred, so the photo sits
-  right in round and arched frames without cropping by hand. Group photos and
-  photos with no person in them are left uncropped.
+- **Framed on the face.** The bot finds the face with YuNet, OpenCV's small
+  free face detector (MIT licence, `assets/models`, runs on our server in a
+  fraction of a second), and crops to head and shoulders, centred, so the photo
+  sits right in round and arched frames without cropping by hand, even from a
+  full-length photo. Couples, group photos and pictures with no face are left
+  uncropped.
 - **Light fixed.** Dull, hazy photos get their darks and lights stretched; a
   blue or green cast is taken out, judged only from greys and whites (walls,
   shirts) so brown skin is never turned grey; dark photos have their
@@ -242,7 +244,7 @@ type the word, optionally with a name (`rotate Ada`):
 | `brighter`         | lifts shadows and mid-tones, leaves highlights alone           |
 | `warmer`           | fixes a cold, bluish or greenish look                           |
 | `plain background` | swaps the background for a soft light studio backdrop           |
-| `closer`           | zooms in on the face                                            |
+| `closer`           | crops to a head shot around the face                            |
 | `black and white`  | black and white weighted towards red, which keeps skin luminous |
 | `rotate`           | turns the photo as sent a quarter turn and frames it again      |
 | `original`         | goes back to the photo exactly as it was sent                   |
