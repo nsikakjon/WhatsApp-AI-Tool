@@ -17,7 +17,8 @@ import { promoAppliedText, promoRefusedText, takePromoCode } from "../../core/pa
 // yearly" (a year at the yearly price). They get a Paystack link; once it's
 // paid, planPaid puts the business on the plan until a date (migration 0033).
 // When that date passes, the business drops back to the free plan. A promo
-// or referral code goes at the end: "upgrade starter DAYONES".
+// or referral code goes at the end: "upgrade starter DAYONES". A code given
+// in the sign-up chat is used when none is typed.
 
 export interface QuotePlan {
   code: string;
@@ -47,6 +48,8 @@ export interface PlanStore {
    * whose time has run out reads as "free".
    */
   businessPlanCode?(): Promise<string | null>;
+  /** The promo or referral code the business gave when it signed up (migration 0046), or null. */
+  signupCode?(): Promise<string | null>;
 }
 
 /** Saving a paid upgrade on a business's row. */
@@ -123,6 +126,15 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
     } catch (err) {
       // Most likely migration 0033 hasn't been run yet; QUOTE_PLAN still applies.
       log.error("Could not read the business's saved plan:", err);
+      return null;
+    }
+  }
+
+  async function savedSignupCode(): Promise<string | null> {
+    try {
+      return (await opts.store.signupCode?.()) ?? null;
+    } catch (err) {
+      log.error("Could not read the business's sign-up code:", err);
       return null;
     }
   }
@@ -215,14 +227,18 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       const amountKobo = yearly ? (plan.monthlyPricePaidYearlyKobo ?? plan.monthlyPriceKobo) * 12 : plan.monthlyPriceKobo;
       const period = yearly ? "1 year" : "1 month";
       try {
-        const link = await opts.checkout.links.createLink({
+        const signupCode = asked.code ? null : await savedSignupCode();
+        const code = asked.code ?? signupCode;
+        const request = {
           product: "quote",
           waId: ownerWaId,
           amountKobo,
           purpose: { businessId: opts.checkout.businessId, plan: plan.code, months },
           title: `yarnOga ${plan.name}, ${period}`,
-          promo: asked.code ? { code: asked.code, months } : undefined,
-        });
+        };
+        let link = await opts.checkout.links.createLink({ ...request, promo: code ? { code, months } : undefined });
+        // The sign-up code only counts once; after that (or once it has ended) the owner pays the full price.
+        if (link.url === null && signupCode) link = await opts.checkout.links.createLink(request);
         if (link.url === null) return promoRefusedText(link.refused);
         return [
           `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(link.amountKobo)}):`,
@@ -338,6 +354,12 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
     },
     async businessPlanCode() {
       return businessId ? readBusinessPlanCode(db, businessId) : null;
+    },
+    async signupCode() {
+      if (!businessId) return null;
+      const { data, error } = await db.from("quote_businesses").select("referral_code").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`signupCode failed: ${error.message}`);
+      return (data?.referral_code as string | null | undefined) ?? null;
     },
   };
 }

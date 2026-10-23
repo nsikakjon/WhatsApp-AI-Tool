@@ -178,6 +178,17 @@ describe("plan upgrades", () => {
     expect(await gate.upgrade!("starter OTHER1", "2348000000001")).toContain("first 10 subscribers");
   });
 
+  it("uses the code given at sign-up, and charges the full price once it no longer applies", async () => {
+    const c = checkout();
+    const withDayones = createPlanGate({ code: "free", store: store(0, { signupCode: async () => "DAYONES" }), checkout: c.value });
+    expect(await withDayones.upgrade!("starter", "1")).toContain("50% off your first month");
+
+    const ended = createPlanGate({ code: "free", store: store(0, { signupCode: async () => "OTHER1" }), checkout: c.value });
+    const text = await ended.upgrade!("starter", "1");
+    expect(text).toContain("(1 month, ₦7,500)");
+    expect(c.requests.slice(1).map((r) => r.promo?.code)).toEqual(["OTHER1", undefined]);
+  });
+
   it("asks which plan when it doesn't know the name, and never charges for the free plan", async () => {
     const c = checkout();
     const gate = createPlanGate({ code: "free", store: store(0), checkout: c.value });
