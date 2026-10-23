@@ -140,6 +140,17 @@ describe("chat sign-up on the quotes number", () => {
     expect((await bot.handle(msg("And mugs?"), ctx(3)))?.text).toBe("Demo shop here.");
   });
 
+  it("invites visitors who say hi to sign up, with a button under the demo shop's welcome", async () => {
+    const welcome: Product = {
+      name: "quote",
+      handle: async () => ({ text: "", buttons: { body: "Welcome to the demo shop.", buttons: [{ id: "get a quote", title: "Get a quote" }] } }),
+    };
+    const bot = withChatSignup(welcome, { numberId: NUMBER, store: memoryStore().store, setup: memorySetup().setup, drafter: drafter(CUPCAKES).d });
+    const reply = (await bot.handle(msg("Hi"), ctx(5)))!;
+    expect(reply.buttons?.body).toMatch(/Welcome to the demo shop\.\n\n.*sign up/);
+    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["get a quote", "sign up"]);
+  });
+
   it("walks an owner from sign up to a saved business on the Free plan", async () => {
     const { say, mem, setup, ai } = setUp();
     expect((await say("sign up")).text).toMatch(/what's your business called/i);
@@ -286,7 +297,7 @@ describe("chat sign-up on the quotes number", () => {
     expect((await say("2 boxes of cupcakes")).text).toBe("Your bot here.");
     expect(tried).toEqual(["2 boxes of cupcakes"]);
     expect((await say("done")).text).toMatch(/back with yarnOga/);
-    expect((await say("hello")).text).toBe("Demo shop here.");
+    expect((await say("hello")).text).toBe("Demo shop here.\n\nSend *try* to chat with your bot as a customer would, or *prices* to change your price list.");
 
     const prices = await say("prices");
     expect(prices.text).toContain("• Cupcakes: ₦600 each");

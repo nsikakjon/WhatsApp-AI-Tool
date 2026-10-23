@@ -14,6 +14,7 @@ import {
 } from "./drafter.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import type { SetupStore } from "./store.js";
+import { welcomeAsk } from "./welcome.js";
 
 // Sign-up by WhatsApp on the yarnOga quotes number. That number runs the demo
 // shop; a business owner who sends "sign up" is instead walked through:
@@ -141,9 +142,15 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           };
         }
         const reply = await next.handle(msg, ctx);
-        if (signup || ctx.history.length > 0) return reply;
-        const invite = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
-        return reply ? { ...reply, text: reply.text ? `${reply.text}\n\n${invite}` : invite } : { text: invite };
+        const welcome = welcomeAsk(text) !== null;
+        if (signup?.businessId && welcome && reply) return addNote(reply, AFTER);
+        if (signup || (ctx.history.length > 0 && !welcome)) return reply;
+        if (!reply) return { text: INVITE };
+        const invited = addNote(reply, INVITE);
+        if (invited.buttons && invited.buttons.buttons.length < 3) {
+          invited.buttons.buttons = [...invited.buttons.buttons, { id: "sign up", title: "Get my own bot" }];
+        }
+        return invited;
       }
 
       if (CANCEL.test(text)) {
@@ -359,6 +366,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   function alert(text: string): Pick<Reply, "notify"> {
     return opts.alertWaId ? { notify: [{ to: opts.alertWaId, text }] } : {};
   }
+}
+
+const INVITE = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
+
+/** Adds a paragraph to the end of a reply, inside its buttons message if it has one. */
+function addNote(reply: Reply, note: string): Reply {
+  if (reply.buttons) return { ...reply, buttons: { ...reply.buttons, body: `${reply.buttons.body}\n\n${note}` } };
+  return { ...reply, text: reply.text ? `${reply.text}\n\n${note}` : note };
 }
 
 const AFTER = "Send *try* to chat with your bot as a customer would, or *prices* to change your price list.";
