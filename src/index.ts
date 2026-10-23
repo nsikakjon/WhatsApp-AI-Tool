@@ -330,7 +330,7 @@ const payments = paystackConfig
       callbackUrl: `${paystackConfig.publicUrl}/payments/done`,
       customerEmail: paystackConfig.customerEmail,
       onPaid: paidHandlers,
-      send: (product, to, text) => sendAndRecord({ store, whatsapp }, to, text, productNumbers[product]),
+      send: (product, note) => sendNotice({ store, whatsapp }, note, note.fromNumberId ?? productNumbers[product]),
     })
   : undefined;
 
