@@ -26,8 +26,8 @@ function memory(items: CatalogueItem[]) {
 }
 
 const items = (): CatalogueItem[] => [
-  { variantId: "v-large", name: "T-shirts: Large", productId: "p-shirt", productName: "T-shirts", stock: 5, photoPath: null },
-  { variantId: "v-mug", name: "Mugs: White", productId: "p-mug", productName: "Mugs", stock: null, photoPath: null },
+  { variantId: "v-large", name: "T-shirts: Large", productId: "p-shirt", productName: "T-shirts", productDescription: null, stock: 5, photoPath: null },
+  { variantId: "v-mug", name: "Mugs: White", productId: "p-mug", productName: "Mugs", productDescription: "11oz ceramic, printed with your logo.", stock: null, photoPath: null },
 ];
 
 let n = 0;
@@ -84,6 +84,8 @@ function bot(opts: { onPlan?: boolean; quantity?: number } = {}) {
       understand: async ({ text }) =>
         /^yes$/i.test(text)
           ? { intent: "confirm", items: [], message: null }
+          : /catalogue$|mugs\?/i.test(text)
+          ? { intent: "catalogue", items: [], show: /mugs/i.test(text) ? ["v-mug"] : [], message: "We sell T-shirts and mugs." }
           : {
               intent: "quote",
               items: [
@@ -142,6 +144,70 @@ describe("product photos", () => {
 
     const quote = await product.handle(msg(CUSTOMER, "2 shirts and 10 mugs"), ctx);
     expect(quote?.images).toEqual([{ data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg", caption: "T-shirts" }]);
+  });
+});
+
+describe("product cards", () => {
+  it("answers a catalogue request with a card per product, priced from the price list", async () => {
+    const { product } = bot();
+    await product.handle(msg(OWNER, "", { type: "image", mediaId: "m1", text: undefined, caption: "photo mugs" }), ctx);
+    const reply = await product.handle(msg(CUSTOMER, "Can I see your catalogue"), ctx);
+    expect(reply?.text).toContain("Tap *Order this*");
+    expect(reply?.cards).toEqual([
+      {
+        image: { data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" },
+        body: "*Mugs*\n• White: ₦3,000 each\n\n11oz ceramic, printed with your logo.",
+        buttons: [{ id: "I'd like Mugs", title: "Order this" }],
+      },
+      { body: "*T-shirts*\n• Large: ₦5,000 each", buttons: [{ id: "I'd like T-shirts", title: "Order this" }] },
+    ]);
+    expect(reply?.buttons).toBeUndefined();
+  });
+
+  it("shows just the product asked about", async () => {
+    const { product } = bot();
+    const reply = await product.handle(msg(CUSTOMER, "how much are your mugs?"), ctx);
+    expect(reply?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Mugs*"]);
+  });
+
+  it("sends cards without photos on a plan without them", async () => {
+    const { product } = bot({ onPlan: false });
+    const reply = await product.handle(msg(CUSTOMER, "catalogue"), ctx);
+    expect(reply?.cards?.every((c) => !c.image)).toBe(true);
+  });
+
+  it("pages five products at a time, with bulk prices, minimums and unpriced items", async () => {
+    const many: CatalogueItem[] = Array.from({ length: 7 }, (_, i) => ({
+      variantId: `v${i}`,
+      name: `Item ${i}: Standard`,
+      productId: `p${i}`,
+      productName: `Item ${i}`,
+      productDescription: null,
+      stock: null,
+      photoPath: null,
+    }));
+    const variants = [
+      { id: "v0", name: "Item 0: Standard", minQuantity: 10, tiers: [{ minQuantity: 10, unitPriceKobo: 500_000 }, { minQuantity: 50, unitPriceKobo: 420_000 }] },
+      { id: "v1", name: "Item 1: Standard", minQuantity: 1, tiers: [] },
+    ];
+    const catalogue = createCatalogue({ store: memory(many).store });
+
+    const first = await catalogue.cards(variants, 1);
+    expect(first?.cards).toHaveLength(5);
+    expect(first?.cards?.[0]?.body).toBe("*Item 0*\n• Standard: ₦5,000 each, ₦4,200 each from 50 (min. 10)");
+    expect(first?.cards?.[1]?.body).toBe("*Item 1*\n• Standard: price on request");
+    expect(first?.buttons).toEqual({ body: "That's 5 of 7 products.", buttons: [{ id: "catalogue page 2", title: "See more" }] });
+
+    const second = await catalogue.cards(variants, 2);
+    expect(second?.text).toBe("");
+    expect(second?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Item 5*", "*Item 6*"]);
+    expect(second?.buttons).toBeUndefined();
+  });
+
+  it("sends the next page when the customer taps See more, without the AI", async () => {
+    const { product } = bot();
+    const reply = await product.handle(msg(CUSTOMER, "catalogue page 1"), ctx);
+    expect(reply?.cards).toHaveLength(2);
   });
 });
 
