@@ -1,5 +1,7 @@
 // Sends messages through the WhatsApp Cloud API.
 
+import { isPhoneNumber } from "./ids.js";
+
 export interface WhatsAppClient {
   /**
    * Sends a plain text message. Returns WhatsApp's ID for the sent message.
@@ -96,12 +98,14 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
   const graph = `https://graph.facebook.com/${opts.graphApiVersion}`;
   const auth = { Authorization: `Bearer ${opts.accessToken}` };
 
-  async function send(fromNumberId: string | undefined, message: Record<string, unknown>) {
+  async function send(fromNumberId: string | undefined, { to, ...message }: { to: string } & Record<string, unknown>) {
+    // A customer with a hidden number is addressed by their user ID, which Meta takes as "recipient".
+    const address = isPhoneNumber(to) ? { to } : { recipient: to };
     const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
     const res = await doFetch(url, {
       method: "POST",
       headers: { ...auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...message }),
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...address, ...message }),
     });
     const data = (await res.json().catch(() => ({}))) as {
       messages?: Array<{ id: string }>;

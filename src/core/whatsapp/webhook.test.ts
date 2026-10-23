@@ -18,10 +18,15 @@ function memoryStore() {
   const outbound: string[] = [];
   const inboundText = new Map<string, string>();
   const pauses = new Map<string, BotPause>();
+  const userIds = new Map<string, string>();
   const store: MessageStore = {
-    async upsertContact(waId) {
+    async upsertContact(waId, _name, userId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
+      if (userId && !userIds.has(userId)) userIds.set(userId, waId);
       return contacts.get(waId)!;
+    },
+    async waIdForUser(userId) {
+      return userIds.get(userId) ?? null;
     },
     async recordInbound(_contactId, msg) {
       if (seen.has(msg.waMessageId)) return "duplicate";
@@ -176,6 +181,39 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello" }]);
     expect(outbound).toEqual(["You said: Hello"]);
     expect(contacts.has("2348012345678")).toBe(true);
+  });
+
+  it("still answers a customer who hides their number behind a WhatsApp username", async () => {
+    const { app, sent, contacts } = setup();
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        contacts: [{ profile: { name: "Ada" }, user_id: "NG.1349120865530274" }],
+        messages: [{ from_user_id: "NG.1349120865530274", id: "wamid.hidden", timestamp: "1", type: "text", text: { body: "Hello" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(sent).toEqual([{ to: "NG.1349120865530274", body: "You said: Hello" }]);
+    expect(contacts.has("NG.1349120865530274")).toBe(true);
+  });
+
+  it("keeps a known customer on their phone number after they hide it", async () => {
+    const { app, sent, contacts } = setup();
+    const message = (extra: Record<string, unknown>, id: string) => {
+      const body = JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{ changes: [{ field: "messages", value: {
+          metadata: { phone_number_id: "PNID" },
+          messages: [{ ...extra, from_user_id: "NG.1349120865530274", id, timestamp: "1", type: "text", text: { body: "Hi" } }],
+        } }] }],
+      });
+      return post(app, body, sign(body));
+    };
+    await message({ from: "2348012345678" }, "wamid.first");
+    await message({}, "wamid.later");
+    expect(sent.map((s) => s.to)).toEqual(["2348012345678", "2348012345678"]);
+    expect([...contacts.keys()]).toEqual(["2348012345678"]);
   });
 
   it("routes by the number that was messaged and replies from that number", async () => {

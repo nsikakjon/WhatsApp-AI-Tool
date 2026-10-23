@@ -94,7 +94,13 @@ async function handleMessage(
   msg: IncomingMessage,
   log: Pick<Console, "info" | "warn" | "error">,
 ) {
-  const contactId = await deps.store.upsertContact(msg.from, msg.contactName);
+  // Someone we know by phone number who now hides it behind a username:
+  // carry on under the number we have, so their orders and settings follow them.
+  if (msg.userId && msg.from === msg.userId) {
+    const known = await deps.store.waIdForUser(msg.userId);
+    if (known) msg = { ...msg, from: known };
+  }
+  const contactId = await deps.store.upsertContact(msg.from, msg.contactName, msg.userId);
 
   // Saving the message doubles as the duplicate check: WhatsApp message IDs are
   // unique in the database, so a retried webhook is spotted here.

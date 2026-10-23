@@ -31,6 +31,19 @@ describe("WhatsApp client", () => {
     expect(captured?.url).toBe("https://graph.facebook.com/v23.0/OTHER_PNID/messages");
   });
 
+  it("addresses a customer with a hidden number by their user ID", async () => {
+    let sentBody: Record<string, unknown> = {};
+    const fakeFetch = (async (_url: string, init: RequestInit) => {
+      sentBody = JSON.parse(init.body as string);
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.sent" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+
+    await client.sendText("NG.1349120865530274", "Hi");
+    expect(sentBody).toMatchObject({ recipient: "NG.1349120865530274", type: "text" });
+    expect(sentBody).not.toHaveProperty("to");
+  });
+
   it("throws with Meta's error message when the send fails", async () => {
     const fakeFetch = (async () =>
       new Response(JSON.stringify({ error: { message: "Invalid OAuth access token" } }), {

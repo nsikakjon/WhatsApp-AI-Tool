@@ -3,8 +3,14 @@
 export interface IncomingMessage {
   /** WhatsApp's unique ID for this message (used to skip duplicates). */
   waMessageId: string;
-  /** Sender's WhatsApp ID: their phone number, digits only, e.g. 2348012345678. */
+  /**
+   * Sender's WhatsApp ID: their phone number, digits only, e.g. 2348012345678.
+   * When they hide their number behind a WhatsApp username, this is their
+   * business-scoped user ID instead (see ids.ts); replies still reach them.
+   */
   from: string;
+  /** Meta's business-scoped user ID for the sender, when Meta sent one. */
+  userId?: string;
   /**
    * Meta's "Phone number ID" of OUR number that received the message. Lets one
    * server run several numbers, each answered by a different product.
