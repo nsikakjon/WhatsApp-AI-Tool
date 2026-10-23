@@ -19,6 +19,8 @@ export interface NewCheckout {
   /** Shown against the payment in the Paystack dashboard. */
   description: string;
   waId: string;
+  /** Splits the payment to this subaccount, which bears Paystack's fee. */
+  subaccount?: string;
 }
 
 /** What Paystack says about one transaction. */
@@ -72,6 +74,7 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
           currency: "NGN",
           email: p.email,
           callback_url: p.callbackUrl,
+          ...(p.subaccount ? { subaccount: p.subaccount, bearer: "subaccount" } : {}),
           metadata: {
             wa_id: p.waId,
             custom_fields: [

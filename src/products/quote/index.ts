@@ -1,5 +1,5 @@
 import { formatNaira } from "../../core/money.js";
-import type { Product, ProductContext, Reply } from "../../core/product.js";
+import type { Notice, Product, ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
@@ -45,6 +45,10 @@ import { showWaId } from "../../core/whatsapp/ids.js";
 // With delivery switched on (delivery/index.ts) and on the plan, the bot asks
 // where to deliver between the YES and the order, and the owner sends riders
 // out from WhatsApp.
+//
+// With pay links on (paylinks.ts), the invoice comes with a Paystack link.
+// Once Paystack confirms the payment, orderPaid marks the order paid and the
+// customer gets a receipt, as if the owner had sent "paid KP-1001".
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -87,10 +91,17 @@ export interface QuoteProductOptions {
   ordersLink?: string;
   /** The owner's "referral" reply: their referral code and how often it's been used (referrals.ts). */
   referral?: () => Promise<string>;
+  /** Makes an online payment link for a confirmed order (paylinks.ts). Without it, customers pay the business directly. */
+  payLink?: (order: SavedOrder, waId: string) => Promise<string>;
   log?: Pick<Console, "error">;
 }
 
-export function createQuoteProduct(opts: QuoteProductOptions): Product {
+export interface QuoteProduct extends Product {
+  /** Marks an order paid after Paystack confirmed its pay link, and returns the receipt and owner messages. */
+  orderPaid(orderNumber: number): Promise<Notice[]>;
+}
+
+export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   const log = opts.log ?? console;
   const ref = (o: SavedOrder) => `${opts.orderPrefix}-${o.orderNumber}`;
   const draw = opts.renderDocument ?? renderDocument;
@@ -171,7 +182,49 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       }
       return reply;
     },
+
+    async orderPaid(orderNumber) {
+      const label = `${opts.orderPrefix}-${orderNumber}`;
+      const order = await opts.orders.findOrder(orderNumber);
+      if (!order) throw new Error(`Order ${label} was paid online but can't be found`);
+      const toOwner = (text: string): Notice[] => (opts.ownerWaId ? [{ to: opts.ownerWaId, text }] : []);
+      const who = order.customerName ?? showWaId(order.customerWaId);
+      if (order.status === "paid" || order.status === "cancelled" || !(await opts.orders.markPaid(order.id))) {
+        return toOwner(
+          `⚠️ ${who} paid ${label} online (${formatNaira(order.totalKobo)}), but it was already ${order.status === "cancelled" ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
+        );
+      }
+      const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
+      const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery);
+      const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
+      return [
+        receiptNote(order, label, receipt),
+        ...toOwner(
+          `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account.` +
+            (note ? `\n\n${note}` : ""),
+        ),
+      ];
+    },
   };
+
+  function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null): Notice {
+    return {
+      to: order.customerWaId,
+      text: `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!${receipt ? " Here's your receipt:" : ""}`,
+      ...(receipt ? { images: [receipt] } : {}),
+    };
+  }
+
+  /** The order's pay link, or null so the customer pays the business directly if Paystack is down. */
+  async function payLinkFor(order: SavedOrder, waId: string): Promise<string | null> {
+    if (!opts.payLink) return null;
+    try {
+      return await opts.payLink(order, waId);
+    } catch (err) {
+      log.error(`Couldn't make a pay link for order ${ref(order)}:`, err);
+      return null;
+    }
+  }
 
   async function makeQuote(
     items: Array<{ variantId: string; quantity: number }>,
@@ -277,6 +330,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
+    const payUrl = await payLinkFor(order, waId);
+    const payLine = payUrl ? `Pay online by card, bank transfer or USSD: ${payUrl}` : null;
+    if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
     const next = dispatch
       ? delivery
         ? "We'll send you a link to follow your delivery once a rider is on the way."
@@ -285,7 +341,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const reply: Reply = {
       text: invoice
         ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
-        : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
+        : payLine
+          ? `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). ${next}\n\n${payLine}`
+          : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
     const credit = opts.plan ? await opts.plan.credit() : null;
@@ -302,7 +360,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
             `Total: ${formatNaira(order.totalKobo)}`,
             ...(note ? ["", note] : []),
             "",
-            `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
+            payUrl
+              ? `They've been sent a link to pay online. I'll tell you when it's paid and send them a receipt. If they pay you another way, reply *paid ${ref(order)}*.`
+              : `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
             ...(check.warning ? ["", check.warning] : []),
           ].join("\n"),
         },
@@ -427,8 +487,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     if (!(await opts.orders.markPaid(order.id))) {
       return { text: `${label} has just been updated by another message. Send *receipt ${label}* to see where it stands.` };
     }
-    const paid = { ...order, status: "paid" as const, paidAt: new Date() };
-    const receipt = await documentImage("receipt", paid, delivery);
+    const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery);
     const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? showWaId(order.customerWaId);
     return {
@@ -438,13 +497,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
           : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`) +
         (note ? `\n\n${note}` : ""),
       ...(receipt ? { images: [receipt] } : {}),
-      notify: [
-        {
-          to: order.customerWaId,
-          text: `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!${receipt ? " Here's your receipt:" : ""}`,
-          ...(receipt ? { images: [receipt] } : {}),
-        },
-      ],
+      notify: [receiptNote(order, label, receipt)],
     };
   }
 

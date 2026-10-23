@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { assertKobo } from "../money.js";
+import type { Notice } from "../product.js";
 import type { PaystackClient } from "./paystack.js";
 import type { Payment, PaymentStore, PromoCheck } from "./store.js";
 
@@ -23,6 +24,8 @@ export interface PaymentRequest {
   title: string;
   /** A promo or referral code the payer typed. Its discount comes off the first of `months`. */
   promo?: { code: string; months: number };
+  /** A store's Paystack subaccount (ACCT_...): the money goes to its bank account, and Paystack's fee comes off its share. */
+  subaccount?: string;
 }
 
 export type AppliedPromo = { code: string; percentOff: number; amountOffKobo: number };
@@ -38,7 +41,8 @@ export interface PaymentLinks {
   createLink(req: PaymentRequest): Promise<CheckoutLink>;
 }
 
-export type OutgoingNote = { to: string; text: string };
+/** A WhatsApp message about a payment; from the product's own number unless fromNumberId says otherwise. */
+export type OutgoingNote = Notice & { fromNumberId?: string };
 
 /** A product's reaction to a paid payment: the WhatsApp messages to send. */
 export type PaidHandler = (payment: Payment) => Promise<OutgoingNote[]>;
@@ -58,8 +62,7 @@ export interface PaymentsOptions {
   /** Paystack needs an email for every payment; WhatsApp doesn't give us one. */
   customerEmail: string;
   onPaid: Record<string, PaidHandler>;
-  /** Sends a WhatsApp message from the product's own number. */
-  send: (product: string, to: string, text: string) => Promise<void>;
+  send: (product: string, note: OutgoingNote) => Promise<void>;
   log?: Pick<Console, "info" | "warn" | "error">;
 }
 
@@ -89,6 +92,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
         callbackUrl: opts.callbackUrl,
         description: req.title,
         waId: req.waId,
+        subaccount: req.subaccount,
       });
       return { url, amountKobo, promo };
     },
@@ -120,7 +124,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
 
       for (const n of notes) {
         try {
-          await opts.send(payment.product, n.to, n.text);
+          await opts.send(payment.product, n);
         } catch (err) {
           log.error(`Paid, but couldn't message ...${n.to.slice(-4)}:`, err);
         }

@@ -107,7 +107,7 @@ describe("payments", () => {
     expect(await payments.confirm(ref)).toBe("paid");
     expect(await payments.confirm(ref)).toBe("already-paid");
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("flyer", "2348011111111", "Thanks");
+    expect(send).toHaveBeenCalledWith("flyer", { to: "2348011111111", text: "Thanks" });
   });
 
   it("doesn't activate anything paid short, failed or unknown", async () => {
@@ -165,6 +165,23 @@ describe("paystack", () => {
     expect(url).toBe("https://api.paystack.co/transaction/initialize");
     expect(JSON.parse(String(init.body))).toMatchObject({ amount: 450000, currency: "NGN", reference: "yarnoga-flyer-1" });
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${SECRET}`);
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("subaccount");
+  });
+
+  it("splits a store's payment to its subaccount, which pays Paystack's fee", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ status: true, data: { authorization_url: "https://checkout.paystack.com/abc" } }));
+    const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);
+    await client.initialize({
+      reference: "yarnoga-quote-1",
+      amountKobo: 13200000,
+      email: "payments@example.com",
+      callbackUrl: "https://bot.example.com/payments/done",
+      description: "Order DEMO-1010",
+      waId: "2348011111111",
+      subaccount: "ACCT_abc123",
+    });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ amount: 13200000, subaccount: "ACCT_abc123", bearer: "subaccount" });
   });
 
   it("reports Paystack's own error message", async () => {

@@ -622,3 +622,59 @@ describe("quote product with plan features", () => {
     expect(drawn).toHaveLength(0);
   });
 });
+
+describe("pay links", () => {
+  async function confirmWithLink(payLink: (order: SavedOrder, waId: string) => Promise<string>) {
+    const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    await quote.product.handle(text("100 flyers"), ctx);
+    const docs = fakeDocuments();
+    const bot = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: quote.store,
+      ai: { understand: async () => ({ intent: "confirm", items: [], message: null }) },
+      renderDocument: docs.render,
+      payLink,
+      log: { error() {} },
+    });
+    return { bot, reply: await bot.handle(text("yes"), ctx), orders: quote.orders, drawn: docs.drawn };
+  }
+
+  it("puts the pay link on the invoice for the order's saved total", async () => {
+    const asked: Array<[number, number, string]> = [];
+    const { reply } = await confirmWithLink(async (order, waId) => {
+      asked.push([order.orderNumber, order.totalKobo, waId]);
+      return "https://checkout.paystack.com/abc";
+    });
+    expect(asked).toEqual([[1001, 1_500_000, "2348012345678"]]);
+    expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001\n\nPay online by card, bank transfer or USSD: https://checkout.paystack.com/abc");
+    expect(reply?.notify?.[0]?.text).toContain("sent a link to pay online");
+  });
+
+  it("falls back to paying the business directly when Paystack is down", async () => {
+    const { reply } = await confirmWithLink(async () => {
+      throw new Error("down");
+    });
+    expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001");
+    expect(reply?.notify?.[0]?.text).toContain("reply *paid KP-1001*");
+  });
+
+  it("marks the order paid once Paystack confirms, and sends the receipt", async () => {
+    const { bot, orders, drawn } = await confirmWithLink(async () => "https://checkout.paystack.com/abc");
+    const notes = await bot.orderPaid(1001);
+    expect(orders[0]?.status).toBe("paid");
+    expect(drawn.at(-1)).toMatchObject({ kind: "receipt", totalKobo: 1_500_000 });
+    expect(notes[0]).toMatchObject({ to: "2348012345678", text: expect.stringContaining("Payment received for order KP-1001"), images: [{ caption: "Receipt KP-1001" }] });
+    expect(notes[1]).toMatchObject({ to: OWNER, text: expect.stringContaining("KP-1001 paid online (₦15,000) by Ada") });
+  });
+
+  it("warns the owner instead of a second receipt when the order was already paid", async () => {
+    const { bot, orders } = await confirmWithLink(async () => "https://checkout.paystack.com/abc");
+    orders[0]!.status = "paid";
+    const notes = await bot.orderPaid(1001);
+    expect(notes).toEqual([{ to: OWNER, text: expect.stringContaining("already marked paid") }]);
+    await expect(bot.orderPaid(2000)).rejects.toThrow("can't be found");
+  });
+});
