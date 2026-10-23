@@ -293,7 +293,7 @@ describe("quote product", () => {
 
   it("falls back politely when the AI fails", async () => {
     const { product } = setup(new Error("timeout"));
-    expect((await product.handle(text("hi"), ctx))?.text).toContain("Sorry, I didn't catch that");
+    expect((await product.handle(text("do you open on sundays"), ctx))?.text).toContain("Sorry, I didn't catch that");
   });
 
   it("handles a transcribed voice note like a typed message", async () => {
@@ -408,6 +408,64 @@ describe("owner: logo, invoices and receipts", () => {
   it("lets the owner chat like a customer otherwise", async () => {
     const s = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
     expect((await s.product.handle(fromOwner("100 flyers"), ctx))?.text).toContain("*Total: ₦15,000*");
+  });
+});
+
+describe("welcome and menu", () => {
+  it("greets with how to order and buttons, without asking the AI", async () => {
+    const { product, seen } = setup(new Error("unused"));
+    const reply = (await product.handle(text("Hi there!"), ctx))!;
+    expect(seen).toHaveLength(0);
+    expect(reply.text).toBe("");
+    expect(reply.buttons?.body).toContain("Hi Ada! Welcome to KahnPrints.");
+    expect(reply.buttons?.body).toContain("We offer: Flyers, Business cards, DTF transfers.");
+    expect(reply.buttons?.body).toContain("e.g. *50 Flyers*. You can type it or send a voice note.");
+    expect(reply.buttons?.body).toContain("4. You get your invoice here.");
+    expect(reply.buttons?.body).not.toContain("pickup");
+    expect(reply.buttons?.buttons.map((b) => b.title)).toEqual(["Get a quote", "Talk to someone"]);
+    expect((await product.handle(text("menu"), ctx))?.buttons?.body).toContain("How to order:");
+  });
+
+  it("leaves greetings with a request in them to the AI", async () => {
+    const { product, seen } = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    expect((await product.handle(text("hi, I need 100 flyers"), ctx))?.text).toContain("Here's your quote");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("answers the buttons", async () => {
+    const { product } = setup(new Error("unused"));
+    expect((await product.handle(text("get a quote"), ctx))?.text).toContain("I can give you a quote for: Flyers");
+    const team = (await product.handle(text("talk to someone"), ctx))!;
+    expect(team.text).toContain("let the KahnPrints team know");
+    expect(team.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("Ada (+2348012345678) would like to talk to someone") });
+  });
+
+  it("shows only what the plan includes", async () => {
+    const product = createQuoteProduct({
+      businessName: "Mama Cakes",
+      orderPrefix: "MC",
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => ({ intent: "other", items: [], message: "ok" }) },
+      features: { planCode: async () => "free", has: async (f) => f === "catalogue", limit: async () => null },
+      log: { error() {} },
+    });
+    const body = (await product.handle(text("good morning"), ctx))!.buttons!.body;
+    expect(body).not.toContain("voice note");
+    expect(body).not.toContain("invoice");
+    expect((await product.handle(text("good morning"), ctx))!.buttons!.buttons).toHaveLength(1);
+  });
+
+  it("gives the owner their commands on menu, and the customer view on hi", async () => {
+    const { product } = setup(new Error("unused"));
+    const menu = (await product.handle({ ...text("help"), from: OWNER }, ctx))!.text;
+    expect(menu).toContain("Your owner commands:");
+    expect(menu).toContain("*paid KP-1001*: marks an order paid and sends the customer a receipt");
+    expect(menu).toContain("captioned *logo*");
+    expect(menu).not.toContain("*orders*");
+    expect(menu).not.toContain("*stock*");
+    const hi = (await product.handle({ ...text("hello"), from: OWNER }, ctx))!;
+    expect(hi.buttons?.body).toContain("You're the owner: send *menu* for your commands.");
   });
 });
 

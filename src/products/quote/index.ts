@@ -15,6 +15,7 @@ import type { PlanGate } from "./plan.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
+import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -45,6 +46,9 @@ import { showWaId } from "../../core/whatsapp/ids.js";
 // With delivery switched on (delivery/index.ts) and on the plan, the bot asks
 // where to deliver between the YES and the order, and the owner sends riders
 // out from WhatsApp.
+//
+// "hi" gets a welcome with how ordering works (welcome.ts); "menu" brings it
+// back, or the owner's command list when the owner sends it.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -130,6 +134,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       if (variants.length === 0) {
         return { text: `Thanks for messaging ${opts.businessName}! Our price list isn't online yet, so someone from the team will get back to you.` };
       }
+      const welcome = await welcomeReply(msg, variants);
+      if (welcome) return welcome;
 
       // Out of AI credits: simple menu replies instead, and the owner hears about it.
       const credit = opts.credits ? await opts.credits.spend() : { useAi: true, ownerNotice: null };
@@ -172,6 +178,31 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
       return reply;
     },
   };
+
+  async function welcomeReply(msg: IncomingMessage, variants: Variant[]): Promise<Reply | null> {
+    const text = msg.text!.trim();
+    if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants) };
+    if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
+      return {
+        text: `I've let the ${opts.businessName} team know. Someone will reply to you here shortly.`,
+        notify: [{ to: opts.ownerWaId, text: `${msg.contactName ?? "A customer"} (${showWaId(msg.from)}) would like to talk to someone. Please reply to them on WhatsApp.` }],
+      };
+    }
+    if (!welcomeAsk(text)) return null;
+    const reply = customerWelcome({
+      businessName: opts.businessName,
+      customerName: msg.contactName,
+      items: variants,
+      voiceNotes: opts.features ? await opts.features.has("voice_notes") : true,
+      delivery: !!opts.delivery && (await deliveryOnPlan()),
+      invoices: await documentsIncluded(),
+      team: !!opts.ownerWaId,
+    });
+    if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
+      reply.buttons.body += "\n\nYou're the owner: send *menu* for your commands.";
+    }
+    return reply;
+  }
 
   async function makeQuote(
     items: Array<{ variantId: string; quantity: number }>,
@@ -390,6 +421,20 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
+    if (welcomeAsk(text) === "menu") {
+      return {
+        text: ownerMenu({
+          orderPrefix: opts.orderPrefix,
+          ordersLink: !!opts.ordersLink,
+          invoices: await documentsIncluded(),
+          logo: !!opts.branding,
+          catalogue: !!opts.catalogue && (opts.features ? await opts.features.has("catalogue") : true),
+          plan: !!opts.plan,
+          referral: !!opts.referral,
+          delivery: !!opts.delivery && (await deliveryOnPlan()),
+        }),
+      };
+    }
     const command = text.match(/^(invoice|receipt|paid)\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
     if (!command) return null;
 
