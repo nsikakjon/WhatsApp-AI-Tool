@@ -23,11 +23,12 @@ const HEADROOM = 0.1;
 /** Framed photos are 4:5 portrait where the photo allows. */
 const ASPECT = 4 / 5;
 
-export type PhotoEdit = "brighter" | "warmer" | "mono" | "plain" | "closer" | "rotate" | "original";
+export type PhotoEdit = "brighter" | "darker" | "warmer" | "mono" | "plain" | "closer" | "rotate" | "original";
 
 /** The edits as admins see them, in the order offered. `word` is what they type. */
 export const PHOTO_EDITS: Array<{ edit: PhotoEdit; word: string; title: string; description: string }> = [
   { edit: "brighter", word: "brighter", title: "Brighter", description: "Lift a dark or shadowy face" },
+  { edit: "darker", word: "darker", title: "Darker", description: "Tone down a washed-out or too-bright photo" },
   { edit: "warmer", word: "warmer", title: "Warmer", description: "Fix a cold, bluish or greenish look" },
   { edit: "plain", word: "plain background", title: "Plain background", description: "Swap a busy background for a clean studio look" },
   { edit: "closer", word: "closer", title: "Closer to the face", description: "Zoom in on the face" },
@@ -40,6 +41,7 @@ export const PHOTO_EDITS: Array<{ edit: PhotoEdit; word: string; title: string; 
 export function findPhotoEdit(word: string): PhotoEdit | null {
   const w = word.toLowerCase().replace(/\s+/g, " ").trim();
   if (/^(brighter|brighten|lighter|more light)$/.test(w)) return "brighter";
+  if (/^(darker|darken|less bright|reduce brightness|less light)$/.test(w)) return "darker";
   if (/^warm(er)?$/.test(w)) return "warmer";
   if (/^(black (and|&) white|b ?& ?w|bw|mono|grayscale|greyscale)$/.test(w)) return "mono";
   if (/^(plain|white|clean|remove|no) (background|bg)$|^remove the background$/.test(w)) return "plain";
@@ -165,10 +167,11 @@ export async function editPhoto(edit: PhotoEdit, current: Uint8Array, original: 
   const ctx = out.getContext("2d");
   const data = ctx.getImageData(0, 0, out.width, out.height);
   const px = data.data;
-  if (edit === "brighter") {
-    // Lifts shadows and mid-tones and leaves highlights alone, so dark skin
-    // shows its detail without white clothes or sky blowing out.
-    const curve = lut((v) => 255 * Math.pow(v / 255, 0.78));
+  if (edit === "brighter" || edit === "darker") {
+    // Brighter lifts shadows and mid-tones and leaves highlights alone, so dark
+    // skin shows its detail without white clothes or sky blowing out. Darker
+    // does the opposite: brings back a washed-out face, keeping black and white.
+    const curve = lut((v) => 255 * Math.pow(v / 255, edit === "brighter" ? 0.78 : 1.28));
     for (let i = 0; i < px.length; i += 4) {
       px[i] = curve[px[i]!]!;
       px[i + 1] = curve[px[i + 1]!]!;

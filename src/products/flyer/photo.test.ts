@@ -59,6 +59,7 @@ describe("photo touch-ups", () => {
 
   it("understands the edit words", () => {
     expect(findPhotoEdit("Brighter")).toBe("brighter");
+    expect(findPhotoEdit("reduce brightness")).toBe("darker");
     expect(findPhotoEdit("black and white")).toBe("mono");
     expect(findPhotoEdit("b&w")).toBe("mono");
     expect(findPhotoEdit("remove background")).toBe("plain");
@@ -113,6 +114,11 @@ describe("photo touch-ups", () => {
     const [r, g, b] = px(mono);
     expect(Math.abs(r! - g!)).toBeLessThan(3);
     expect(Math.abs(g! - b!)).toBeLessThan(3);
+
+    const darker = px(await loadImage((await editPhoto("darker", photo, photo)).photo));
+    const brighter = px(await loadImage((await editPhoto("brighter", photo, photo)).photo));
+    expect(darker[0]!).toBeLessThan(0xc0 - 10);
+    expect(brighter[0]!).toBeGreaterThan(0xc0 + 10);
 
     const warm = px(await loadImage((await editPhoto("warmer", photo, photo)).photo));
     expect(warm[2]!).toBeLessThan(0x30);

@@ -242,6 +242,7 @@ type the word, optionally with a name (`rotate Ada`):
 | Word               | What it does                                                   |
 | ------------------ | -------------------------------------------------------------- |
 | `brighter`         | lifts shadows and mid-tones, leaves highlights alone           |
+| `darker`           | tones down a washed-out or too-bright photo                     |
 | `warmer`           | fixes a cold, bluish or greenish look                           |
 | `plain background` | swaps the background for a soft light studio backdrop           |
 | `closer`           | crops to a head shot around the face                            |
