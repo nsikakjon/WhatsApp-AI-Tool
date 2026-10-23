@@ -220,7 +220,7 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
 
 /** "White, one-colour print: ₦5,000 each, ₦4,200 each from 50 (min. 10)", priced the way a quote would be. */
 function priceLine(option: string, variant: Variant | undefined): string {
-  const label = option ? `${option}: ` : "";
+  const label = option ? `${option[0]!.toUpperCase()}${option.slice(1)}: ` : "";
   const first = variant && quoteLine(variant, variant.minQuantity);
   if (!variant || !first?.ok) return `• ${label}price on request`;
   const top = Math.max(...variant.tiers.map((t) => t.minQuantity));
