@@ -10,7 +10,7 @@ const OWNER = "2348011111111";
 
 function memoryStore() {
   const rows = new Map<string, Signup & { signedUpAt?: Date }>();
-  const created: Array<{ name: string; orderPrefix: string; ownerWaId: string }> = [];
+  const created: Array<{ name: string; orderPrefix: string; ownerWaId: string; referralCode: string | null }> = [];
   let signedUpToday = 0;
   const store: SignupStore = {
     async get(waId) {
@@ -23,6 +23,7 @@ function memoryStore() {
         step: "name",
         businessName: null,
         description: null,
+        referralCode: null,
         draftCsv: null,
         businessId: null,
         trying: false,
@@ -36,6 +37,9 @@ function memoryStore() {
     },
     async signedUpSince() {
       return signedUpToday + [...rows.values()].filter((r) => r.signedUpAt).length;
+    },
+    async codeExists(code) {
+      return code === "KAHNP4821";
     },
     async createBusiness(b) {
       created.push(b);
@@ -120,6 +124,7 @@ async function signUpToPrices(say: (t: string) => Promise<{ text: string }>) {
   await say("I want to sign up");
   await say("Mama Cakes");
   await say("cakes and pastries");
+  await say("no");
 }
 
 describe("chat sign-up on the quotes number", () => {
@@ -150,7 +155,8 @@ describe("chat sign-up on the quotes number", () => {
     const { say, mem, setup, ai } = setUp();
     expect((await say("sign up")).text).toMatch(/what's your business called/i);
     expect((await say("Mama  Cakes")).text).toMatch(/what does \*Mama Cakes\* sell/);
-    expect((await say("cakes and pastries")).text).toMatch(/Now your prices/);
+    expect((await say("cakes and pastries")).text).toBe("Do you have a referral code? Send it now, or send *no* to carry on.");
+    expect((await say("No")).text).toMatch(/Now your prices/);
 
     const preview = await say("Cupcakes N600 each, box of 6 for 3,500, minimum 2 boxes. Birthday cakes price on request");
     expect(ai.calls[0]!.text).toContain("Cupcakes N600");
@@ -163,9 +169,22 @@ describe("chat sign-up on the quotes number", () => {
     const done = await say("YES");
     expect(done.text).toMatch(/Mama Cakes\* is set up on the yarnOga Free plan/);
     expect(done.notify?.[0]).toMatchObject({ to: "2348099999999" });
-    expect(mem.created).toEqual([{ name: "Mama Cakes", description: "cakes and pastries", orderPrefix: "MC", ownerWaId: OWNER }]);
+    expect(mem.created).toEqual([{ name: "Mama Cakes", description: "cakes and pastries", orderPrefix: "MC", ownerWaId: OWNER, referralCode: null }]);
     expect(setup.lists.get("biz-1")).toHaveLength(3);
     expect(mem.rows.get(OWNER)).toMatchObject({ step: "done", businessId: "biz-1", draftCsv: null });
+  });
+
+  it("keeps a referral code for the first upgrade, and asks again when it can't find one", async () => {
+    const { say, mem } = setUp();
+    await say("sign up");
+    await say("Mama Cakes");
+    await say("cakes and pastries");
+    expect((await say("KAHNP482")).text).toMatch(/can't find the code \*KAHNP482\*/);
+    expect((await say("kahnp 4821")).text).toMatch(/^Thanks, I've kept \*KAHNP4821\*.*\n\nNow your prices/s);
+    await say("Cupcakes 600 each, box of 6 3500 min 2, birthday cakes on request");
+    const done = await say("yes");
+    expect(mem.created[0]?.referralCode).toBe("KAHNP4821");
+    expect(done.notify?.[0]?.text).toContain("code KAHNP4821");
   });
 
   it("drops typed prices the owner never wrote", async () => {
@@ -214,7 +233,8 @@ describe("chat sign-up on the quotes number", () => {
     const { say, ai } = setUp(CUPCAKES, { fetchSheet: async (link) => (links.push(link), "Product,Price\nMugs,2500\n") });
     await say("sign up");
     await say("Mama Cakes");
-    expect((await say("cakes")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
+    await say("cakes");
+    expect((await say("skip")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
     const reply = await say("here https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing");
     expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);
     expect(ai.calls).toHaveLength(0);

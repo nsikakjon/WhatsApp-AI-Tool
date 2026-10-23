@@ -65,3 +65,17 @@ insert into public.quote_variants (product_id, name, min_quantity)
 select id, 'any size, priced by the team', 1 from public.quote_products
 where business_id = '00000000-0000-0000-0000-000000000002' and slug = 'custom-cakes'
 on conflict (product_id, name) do update set active = true, updated_at = now();
+
+-- What customers read under each product on its catalogue card.
+update public.quote_products p
+set description = v.description, updated_at = now()
+from (
+  values
+    ('t-shirts', 'Cotton round-neck T-shirts printed with your logo or design, sizes S to XXL.'),
+    ('mugs', 'White ceramic mugs printed with your logo, photo or message.'),
+    ('water', '50cl bottles with your own label, for events, offices and launches.'),
+    ('cupcakes', 'Vanilla, chocolate or red velvet cupcakes, boxed for parties and gifts.'),
+    ('souvenir-bags', 'Small paper gift bags printed with your logo, for weddings, birthdays and events.'),
+    ('custom-cakes', 'Birthday, wedding and anniversary cakes made to your design. Tell us the size, flavour and date and the team will send a price.')
+) as v(slug, description)
+where p.business_id = '00000000-0000-0000-0000-000000000002' and p.slug = v.slug;

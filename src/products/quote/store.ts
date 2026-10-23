@@ -32,6 +32,8 @@ export interface QuoteBusiness {
   active: boolean;
   /** The main business this one is a branch of (migration 0038), or null. A branch follows its main business's plan. */
   branchOf?: string | null;
+  /** Where pay links on its invoices pay out (migration 0045): a Paystack subaccount code, ACCT_... */
+  paystackSubaccount?: string | null;
   updatedAt: Date;
 }
 
@@ -108,6 +110,7 @@ type BusinessRow = {
   payment_details: string | null;
   active: boolean;
   branch_of?: string | null;
+  paystack_subaccount?: string | null;
   updated_at: string;
 };
 
@@ -127,6 +130,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     paymentDetails: row.payment_details,
     active: row.active,
     branchOf: row.branch_of ?? null,
+    paystackSubaccount: row.paystack_subaccount ?? null,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -350,6 +354,8 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
     active: s.active,
     // Only written when the branches setting is on (the column needs migration 0038).
     ...(s.branchOf !== undefined ? { branch_of: s.branchOf } : {}),
+    // Only written when pay links are on (migration 0045).
+    ...(s.paystackSubaccount !== undefined ? { paystack_subaccount: s.paystackSubaccount } : {}),
   });
   const failed = (what: string, error: { code?: string; message: string }) =>
     error.code === "23505" ? new NumberTakenError("number taken") : new Error(`${what} failed: ${error.message}`);
