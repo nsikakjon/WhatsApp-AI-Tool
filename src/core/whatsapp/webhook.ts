@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
-import type { WhatsAppClient } from "./client.js";
+import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
 import { extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
@@ -189,7 +189,7 @@ function now(deps: WebhookDeps): Date {
   return deps.now ? deps.now() : new Date();
 }
 
-/** Sends a product's reply: its text, its pictures, any list or buttons, any location request, then any alerts to other people. */
+/** Sends a product's reply: its text, its pictures, any cards, any list or buttons, any location request, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
   to: string,
@@ -213,6 +213,17 @@ async function sendReply(
     await sendImageAndRecord(deps, to, image, fromNumber);
     log.info(`Sent a picture to ${mask(to)}`);
   }
+  const sendButtons = async (buttons: OutgoingButtons) => {
+    const sent = await deps.whatsapp.sendButtons(to, buttons, fromNumber);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "interactive",
+      body: buttons.body,
+      raw: sent.raw,
+      businessNumberId: fromNumber,
+    });
+  };
+  for (const card of reply.cards ?? []) await sendButtons(card);
   if (reply.list) {
     const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);
     await deps.store.recordOutbound(contactId, {
@@ -223,16 +234,7 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   }
-  if (reply.buttons) {
-    const sent = await deps.whatsapp.sendButtons(to, reply.buttons, fromNumber);
-    await deps.store.recordOutbound(contactId, {
-      waMessageId: sent.waMessageId,
-      type: "interactive",
-      body: reply.buttons.body,
-      raw: sent.raw,
-      businessNumberId: fromNumber,
-    });
-  }
+  if (reply.buttons) await sendButtons(reply.buttons);
   if (reply.locationRequest) {
     const sent = await deps.whatsapp.sendLocationRequest(to, reply.locationRequest, fromNumber);
     await deps.store.recordOutbound(contactId, {

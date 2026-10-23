@@ -4,12 +4,14 @@ import type { CatalogEntry, Understander, Understanding } from "./understand.js"
 // used up its AI credits for the month (see credits.ts). It understands:
 // - YES / OK / confirm, and NO / cancel,
 // - an item number from the menu and how many, e.g. "3 x 100" (one per line),
-// - a plain request whose words point at exactly one item, e.g. "50 tote bags".
+// - a plain request whose words point at exactly one item, e.g. "50 tote bags",
+// - asking for the catalogue, menu or price list.
 // Anything else gets the numbered menu. Prices are still worked out in code
 // from the database, exactly as with the AI.
 
 const CONFIRM = /^(yes|yeah|yep|yup|ok|okay|confirm|confirmed|go ahead|sure|proceed)\b/i;
 const CANCEL = /^(no|nope|cancel|stop|not now)\b/i;
+const CATALOGUE = /\b(catalog(ue)?|menu|price ?list|products|what do you (sell|have))\b/i;
 // "3 x 100", "3*100", "item 3: 100", "#3 - 100"
 const MENU_PICK = /^(?:item|no\.?|number|#)?\s*(\d{1,3})\s*(?:x|\*|:|-|=|,|for)\s*(\d{1,7})\s*(?:pcs|pieces|copies|units|packs?)?\.?$/i;
 
@@ -24,6 +26,7 @@ export function createKeywordUnderstander(): Understander {
       if (!/\d/.test(message)) {
         if (CONFIRM.test(message)) return { intent: "confirm", items: [], message: null };
         if (CANCEL.test(message)) return { intent: "cancel", items: [], message: null };
+        if (CATALOGUE.test(message)) return { intent: "catalogue", items: [], message: menu(catalog) };
       }
 
       const lines = message.split(/\n|;|,\s*(?=\d)|\band\b/i).map((l) => l.trim()).filter(Boolean);

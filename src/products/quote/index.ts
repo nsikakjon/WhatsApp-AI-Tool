@@ -6,7 +6,7 @@ import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
-import type { Catalogue } from "./catalogue.js";
+import { CARDS_PAGE, type Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
 import type { MessageAllowance } from "./messages.js";
 import { createKeywordUnderstander } from "./fallback.js";
@@ -142,6 +142,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         return { text: `Thanks for messaging ${opts.businessName}! Our price list isn't online yet, so someone from the team will get back to you.` };
       }
 
+      // A tap on "See more" under the product cards: no need for the AI.
+      const page = msg.text.trim().match(CARDS_PAGE);
+      if (page && opts.catalogue) {
+        const cards = await opts.catalogue.cards(variants, Number(page[1]));
+        if (cards) return cards;
+      }
+
       // Out of AI credits: simple menu replies instead, and the owner hears about it.
       const credit = opts.credits ? await opts.credits.spend() : { useAi: true, ownerNotice: null };
       const input = {
@@ -171,6 +178,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           break;
         case "cancel":
           reply = await cancel(ctx.contactId);
+          break;
+        case "catalogue":
+          reply = (opts.catalogue && (await opts.catalogue.cards(variants, 1, understanding.show))) || {
+            text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants),
+          };
           break;
         default:
           // The simple replies are written in code, not by the AI, so they can list items freely.

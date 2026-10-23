@@ -444,6 +444,30 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(outbound).toEqual(["Your total", "Confirm?", "Where should we deliver?"]);
   });
 
+  it("sends cards after the text and before any buttons", async () => {
+    const showing: Product = {
+      name: "showing",
+      handle: async () => ({
+        text: "Here's what we sell",
+        cards: [
+          { body: "Mugs", buttons: [{ id: "I'd like Mugs", title: "Order this" }] },
+          { body: "Cupcakes", buttons: [{ id: "I'd like Cupcakes", title: "Order this" }] },
+        ],
+        buttons: { body: "2 of 3", buttons: [{ id: "catalogue page 2", title: "See more" }] },
+      }),
+    };
+    const { app, sent, outbound } = setup(showing);
+    const body = textWebhook("wamid.cards", "catalogue");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual([
+      "Here's what we sell",
+      "[buttons] Mugs | I'd like Mugs",
+      "[buttons] Cupcakes | I'd like Cupcakes",
+      "[buttons] 2 of 3 | catalogue page 2",
+    ]);
+    expect(outbound).toEqual(["Here's what we sell", "Mugs", "Cupcakes", "2 of 3"]);
+  });
+
   it("sends a notice's template to someone who hasn't messaged in the last day", async () => {
     const notifying: Product = {
       name: "notifying",
