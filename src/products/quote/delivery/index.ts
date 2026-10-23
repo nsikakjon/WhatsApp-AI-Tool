@@ -6,6 +6,7 @@ import type { OrderDetails, OrderStore, SavedOrder } from "../store.js";
 import { deliveryNotice, riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
+import { showWaId } from "../../../core/whatsapp/ids.js";
 
 // Delivery for the quote and order bot, with the business's own riders.
 //
@@ -299,7 +300,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (!updated) return { text: `${label} has just changed. Send the fee again if it's still needed.` };
     const offer = proposal(updated, itemsKobo);
     return {
-      text: `Sent ${updated.customerName ?? `+${updated.customerWaId}`} the delivery fee of ${formatNaira(feeKobo)} for ${label} (new total ${formatNaira(itemsKobo + feeKobo)}).`,
+      text: `Sent ${updated.customerName ?? showWaId(updated.customerWaId)} the delivery fee of ${formatNaira(feeKobo)} for ${label} (new total ${formatNaira(itemsKobo + feeKobo)}).`,
       notify: [{ to: updated.customerWaId, text: offer.text, buttons: offer.buttons }],
     };
   }

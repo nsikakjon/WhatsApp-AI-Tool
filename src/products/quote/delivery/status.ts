@@ -1,5 +1,6 @@
 import type { Notice } from "../../../core/product.js";
 import type { Delivery, DeliveryStatus, DeliveryStore } from "./store.js";
+import { showWaId } from "../../../core/whatsapp/ids.js";
 
 // A rider's progress on a job. The same steps run whether the rider taps a
 // button in WhatsApp or on the tracking page.
@@ -39,7 +40,7 @@ export async function riderStep(
   if (!delivery) return null;
 
   const rider = delivery.riderName ?? "The rider";
-  const customer = delivery.customerName ?? `+${delivery.customerWaId}`;
+  const customer = delivery.customerName ?? showWaId(delivery.customerWaId);
   const forCustomer = {
     picked_up: `${rider} has picked up your order ${delivery.orderRef} and is on the way. Follow it here: ${opts.trackingLink}`,
     delivered: `Your order ${delivery.orderRef} has been delivered. Thank you for choosing ${delivery.businessName}!`,

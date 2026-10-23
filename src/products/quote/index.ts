@@ -14,6 +14,7 @@ import type { PlanFeatures } from "./features.js";
 import type { PlanGate } from "./plan.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
+import { showWaId } from "../../core/whatsapp/ids.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -429,7 +430,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): Product {
     const paid = { ...order, status: "paid" as const, paidAt: new Date() };
     const receipt = await documentImage("receipt", paid, delivery);
     const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
-    const who = order.customerName ?? `+${order.customerWaId}`;
+    const who = order.customerName ?? showWaId(order.customerWaId);
     return {
       text:
         (receipt
