@@ -9,8 +9,9 @@ Today this is used for flyer plan upgrades (`upgrade standard`,
 upgrades (the business owner sends `upgrade starter` for a month or
 `upgrade starter yearly` for a year; needs migration
 `0033_quote_plan_payments.sql`). A paid quote plan lasts until a date, then the
-business is back on the free plan until it pays again. Any other product can
-use the same code in `src/core/payments`.
+business is back on the free plan until it pays again. Quote invoices can
+also carry a pay link that pays the store's own bank account (docs/PAY_LINKS.md).
+Any other product can use the same code in `src/core/payments`.
 
 Until `PAYSTACK_SECRET_KEY` is set, nothing is charged: `upgrade` messages go to
 the owners, who take payment by hand as before.

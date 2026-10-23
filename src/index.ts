@@ -480,6 +480,7 @@ const app = createApp({
         : undefined,
       draftsPerDay: config.quoteSetup.aiDraft?.perDay,
       branches: config.quoteBranches ? { limit: numbersAllowed } : undefined,
+      payLinks: config.quotePayLinks && Boolean(config.paystack),
     }
   : undefined, delivery
   ? {
