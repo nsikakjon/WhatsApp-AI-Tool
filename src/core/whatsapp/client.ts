@@ -67,6 +67,8 @@ export interface OutgoingList {
 }
 
 export interface OutgoingButtons {
+  /** A picture on top, which makes the message look like a card. */
+  image?: OutgoingImage;
   /** The message above the buttons (up to 1024 characters). */
   body: string;
   /** At most 3. `id` comes back as the message text when tapped; titles are cut to 20 characters. */
@@ -187,11 +189,13 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     },
 
     async sendButtons(to, message, fromNumberId) {
+      const header = message.image ? { header: { type: "image", image: { id: await uploadImage(fromNumberId, message.image) } } } : {};
       return send(fromNumberId, {
         to,
         type: "interactive",
         interactive: {
           type: "button",
+          ...header,
           body: { text: cut(message.body, 1024) },
           action: {
             buttons: message.buttons

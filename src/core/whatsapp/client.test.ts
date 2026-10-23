@@ -156,6 +156,25 @@ describe("WhatsApp client", () => {
     });
   });
 
+  it("puts a card's picture on top of its buttons", async () => {
+    const bodies: unknown[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      if (url.endsWith("/media")) return new Response(JSON.stringify({ id: "media-5" }), { status: 200 });
+      bodies.push(JSON.parse(init.body as string));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.c" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    await client.sendButtons("2348012345678", {
+      image: { data: new Uint8Array([1]), mimeType: "image/jpeg" },
+      body: "*Mugs*",
+      buttons: [{ id: "I'd like Mugs", title: "Order this" }],
+    });
+
+    const [sent] = bodies as Array<{ interactive: Record<string, any> }>;
+    expect(sent!.interactive.header).toEqual({ type: "image", image: { id: "media-5" } });
+    expect(sent!.interactive.body).toEqual({ text: "*Mugs*" });
+  });
+
   it("downloads media in two steps, sending the token both times", async () => {
     const calls: Array<{ url: string; auth?: string }> = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {
