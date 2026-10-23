@@ -8,7 +8,8 @@ import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { echoProduct } from "./products/echo/index.js";
-import { createQuoteProduct } from "./products/quote/index.js";
+import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
+import { orderPayLinks, withOrderPayments } from "./products/quote/paylinks.js";
 import {
   createSupabaseBranding,
   createSupabaseBusinesses,
@@ -16,6 +17,7 @@ import {
   createSupabaseOrders,
   createSupabaseSetup,
   DEFAULT_BUSINESS_ID,
+  type QuoteBusiness,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
@@ -97,6 +99,12 @@ const planCheckout = (businessId: string) =>
   config.paystack
     ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
     : undefined;
+// Pay links on invoices (QUOTE_PAY_LINKS), for a business with a Paystack
+// subaccount: the money goes to its own bank account.
+const payLinkFor = (businessId: string, businessName: string, orderPrefix: string, subaccount: string | null | undefined) =>
+  config.quotePayLinks && config.paystack && subaccount
+    ? orderPayLinks({ links: { createLink: (req) => payments!.createLink(req) }, businessId, businessName, orderPrefix, subaccount })
+    : undefined;
 // Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
 const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
 
@@ -154,6 +162,7 @@ async function numbersAllowed(mainId: string): Promise<number | null> {
 }
 
 let product: Product = echoProduct;
+let mainQuoteBot: QuoteProduct | undefined;
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
   const mainFeatures = config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {};
@@ -181,6 +190,7 @@ if (config.activeProduct === "quote" && config.quote) {
         : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
+    payLink: payLinkFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.paystackSubaccount),
     plan: config.quote.plan
       ? createPlanGate({
           code: config.quote.plan,
@@ -200,58 +210,62 @@ if (config.activeProduct === "quote" && config.quote) {
       description: config.quote.businessDescription,
     }),
   });
+  mainQuoteBot = quoteBot;
   product = addBroadcasts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.ownerWaId);
 }
 
 // Other businesses on the quote bot each answer their own WhatsApp number.
+function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBusinesses>): QuoteProduct {
+  const orders = createSupabaseOrders(supabase, business.id);
+  // A branch is billed, and counts AI replies, under its main business.
+  const planId = business.branchOf ?? business.id;
+  const features = planFeatures(planId);
+  return createQuoteProduct({
+    businessName: business.name,
+    orderPrefix: business.orderPrefix,
+    ownerWaId: business.ownerWaId ?? undefined,
+    businessDetails: business.businessDetails ?? undefined,
+    paymentDetails: business.paymentDetails ?? undefined,
+    branding: createSupabaseBranding(supabase, business.id),
+    catalog: createSupabaseCatalog(supabase, business.id),
+    orders,
+    delivery:
+      delivery && trackingLinks
+        ? createDispatch({
+            businessName: business.name,
+            orderPrefix: business.orderPrefix,
+            ownerWaId: business.ownerWaId ?? undefined,
+            pickup: business.businessDetails ?? undefined,
+            fromNumberId: business.phoneNumberId ?? undefined,
+            store: createSupabaseDeliveryStore(supabase, business.id),
+            orders,
+            links: trackingLinks,
+            template: delivery.template,
+          })
+        : undefined,
+    optOutOfFollowUps: optOutFor(business.id),
+    ordersLink: ordersLinkFor(business.id),
+    referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
+    payLink: payLinkFor(business.id, business.name, business.orderPrefix, business.paystackSubaccount),
+    plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
+    ...features,
+    botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
+    catalogue: catalogueFor(business.id, features.features),
+    ai: createClaudeUnderstander({
+      apiKey: multi.anthropicApiKey,
+      model: multi.model,
+      businessName: business.name,
+      description: business.description ?? undefined,
+    }),
+  });
+}
 if (quoteBusinesses) {
   product = createQuoteRouter({
     businesses: createSupabaseBusinesses(supabase),
     fallback: product,
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
-    build: (business) => {
-      const orders = createSupabaseOrders(supabase, business.id);
-      // A branch is billed, and counts AI replies, under its main business.
-      const planId = business.branchOf ?? business.id;
-      const features = planFeatures(planId);
-      return addBroadcasts(createQuoteProduct({
-        businessName: business.name,
-        orderPrefix: business.orderPrefix,
-        ownerWaId: business.ownerWaId ?? undefined,
-        businessDetails: business.businessDetails ?? undefined,
-        paymentDetails: business.paymentDetails ?? undefined,
-        branding: createSupabaseBranding(supabase, business.id),
-        catalog: createSupabaseCatalog(supabase, business.id),
-        orders,
-        delivery:
-          delivery && trackingLinks
-            ? createDispatch({
-                businessName: business.name,
-                orderPrefix: business.orderPrefix,
-                ownerWaId: business.ownerWaId ?? undefined,
-                pickup: business.businessDetails ?? undefined,
-                fromNumberId: business.phoneNumberId ?? undefined,
-                store: createSupabaseDeliveryStore(supabase, business.id),
-                orders,
-                links: trackingLinks,
-                template: delivery.template,
-              })
-            : undefined,
-        optOutOfFollowUps: optOutFor(business.id),
-        ordersLink: ordersLinkFor(business.id),
-        referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
-        plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
-        ...features,
-        botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
-        catalogue: catalogueFor(business.id, features.features),
-        ai: createClaudeUnderstander({
-          apiKey: quoteBusinesses.anthropicApiKey,
-          model: quoteBusinesses.model,
-          businessName: business.name,
-          description: business.description ?? undefined,
-        }),
-      }), business.id, business.name, business.ownerWaId ?? undefined);
-    },
+    build: (business) =>
+      addBroadcasts(businessBot(business, quoteBusinesses), business.id, business.name, business.ownerWaId ?? undefined),
   });
 }
 
@@ -358,12 +372,21 @@ if (flyerBot && flyerConfig) {
 // Quote bot plan upgrades paid in the chat.
 if (config.quote || quoteBusinesses) {
   const planPayments = createSupabasePlanPayments(supabase);
-  paidHandlers.quote = createPlanPaidHandler({
+  const planPaid = createPlanPaidHandler({
     store: planPayments,
     mainBusinessId: DEFAULT_BUSINESS_ID,
     rewardReferral: referrals
       ? (code) => rewardReferrer({ code, store: referrals, plans: planPayments, mainBusinessId: DEFAULT_BUSINESS_ID })
       : undefined,
+  });
+  const businesses = createSupabaseBusinesses(supabase);
+  // An order paid by pay link: that business's bot marks it paid, and its messages come from the business's number.
+  paidHandlers.quote = withOrderPayments(planPaid, async (businessId, orderNumber) => {
+    if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot) return mainQuoteBot.orderPaid(orderNumber);
+    const business = quoteBusinesses ? await businesses.get(businessId) : null;
+    if (!business || !quoteBusinesses) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
+    const notes = await businessBot(business, quoteBusinesses).orderPaid(orderNumber);
+    return notes.map((n) => ({ ...n, fromNumberId: business.phoneNumberId ?? undefined }));
   });
   productNumbers.quote = config.whatsapp.phoneNumberId;
 }

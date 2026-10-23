@@ -41,6 +41,8 @@ export interface Config {
     paymentDetails?: string;
     /** The plan this business is on (a code in quote_plans, e.g. "free"). Unset = no plan limits. */
     plan?: string;
+    /** Its Paystack subaccount (ACCT_...), where pay links on its invoices pay out. */
+    paystackSubaccount?: string;
   };
   /**
    * More businesses on the quote bot, each on its own WhatsApp number, set up
@@ -69,6 +71,11 @@ export interface Config {
   quoteCatalogue: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
   quoteReferrals: boolean;
+  /**
+   * Paystack pay links on quote invoices, for businesses with a Paystack
+   * subaccount (migration 0045). Off unless QUOTE_PAY_LINKS is true; needs Paystack.
+   */
+  quotePayLinks: boolean;
   /**
    * Quote businesses can be branches of another (migration 0038), up to the
    * main business's plan limit. Off unless QUOTE_BRANCHES is true.
@@ -285,6 +292,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             businessDetails: multiline(env.QUOTE_BUSINESS_DETAILS),
             paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
             plan: env.QUOTE_PLAN?.trim().toLowerCase() || undefined,
+            paystackSubaccount: subaccount(env.QUOTE_PAYSTACK_SUBACCOUNT),
           }
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
@@ -301,6 +309,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
+    quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
     quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()
       ? {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
@@ -440,6 +449,13 @@ function longPassword(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name] ?? "";
   if (value.length < 12) throw new Error(`${name} must be at least 12 characters long`);
   return value;
+}
+
+function subaccount(value: string | undefined): string | undefined {
+  const code = value?.trim();
+  if (!code) return undefined;
+  if (!/^ACCT_[a-z0-9]+$/i.test(code)) throw new Error("QUOTE_PAYSTACK_SUBACCOUNT must be a Paystack subaccount code, e.g. ACCT_8f4s1eq7ml6rlzj");
+  return code;
 }
 
 function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
