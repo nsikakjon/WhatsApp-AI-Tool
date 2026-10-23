@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { formatNaira } from "../../core/money.js";
 import type { QuoteLine } from "./pricing.js";
+import { isPhoneNumber } from "../../core/whatsapp/ids.js";
 
 const fontDir = fileURLToPath(new URL("../../../assets/fonts/", import.meta.url));
 let fontsLoaded = false;
@@ -144,7 +145,7 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   ctx.fillText(input.customerName?.trim() || "Customer", MARGIN, y + 38);
   ctx.font = "28px Inter";
   ctx.fillStyle = MUTED;
-  ctx.fillText(`+${input.customerWaId}`, MARGIN, y + 84);
+  if (isPhoneNumber(input.customerWaId)) ctx.fillText(`+${input.customerWaId}`, MARGIN, y + 84);
 
   // Items table.
   y += 160;

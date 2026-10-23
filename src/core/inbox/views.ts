@@ -1,5 +1,6 @@
 import { html } from "hono/html";
 import type { ChatMessage, ChatSummary } from "./store.js";
+import { showWaId } from "../whatsapp/ids.js";
 
 // The inbox's web pages, written as plain HTML. Every value placed inside
 // html`...` is escaped, so a customer's message can't inject anything into the page.
@@ -111,7 +112,7 @@ export function chatListPage(chats: ChatSummary[], numbers: NumberLabel[], chatL
   const items = chats.map(
     (chat) => html`<a href="${chatLink(chat)}">
   <div class="row">
-    <span><span class="name">${chat.name || `+${chat.waId}`}</span>${numbers.length > 1 ? html`<span class="tag">${label(chat.businessNumberId)}</span>` : ""}</span>
+    <span><span class="name">${chat.name || showWaId(chat.waId)}</span>${numbers.length > 1 ? html`<span class="tag">${label(chat.businessNumberId)}</span>` : ""}</span>
     <span class="muted">${when(chat.lastAt)}</span>
   </div>
   <div class="preview">${chat.lastDirection === "outbound" ? "You: " : ""}${describe(chat.lastType, chat.lastBody)}</div>
