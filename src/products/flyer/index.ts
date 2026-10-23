@@ -19,6 +19,7 @@ import {
   type FlyerStyle,
 } from "./render.js";
 import { cutOut } from "./cutout.js";
+import { editPhoto, findPhotoEdit, NoPersonError, PHOTO_EDITS, preparePhoto, tonePhoto, type PhotoEdit } from "./photo.js";
 import { COLOUR_NAMES, findTheme, parseColour, THEMES, themeById } from "./themes.js";
 import { fetchPicture, fetchSheet, isCsv, MAX_ROWS, parseCsv, rowsFromTable, type ImportRow } from "./import.js";
 import {
@@ -40,7 +41,9 @@ import type { WishWriter } from "./wish.js";
 // Phase 3: birthday and event flyers for WhatsApp groups (alumni, friends).
 //
 // Group admins chat with the bot on its own WhatsApp number:
-// - a photo captioned "add Ada Okafor, 14 March" saves a member,
+// - a photo captioned "add Ada Okafor, 14 March" saves a member; their photo
+//   is framed and brightened automatically, and "brighter", "rotate" and a few
+//   other words touch it up further,
 // - a photo captioned "logo" sets the group's logo,
 // - any other photo comes back as an event flyer: the photo with the logo
 //   and the caption on it.
@@ -69,6 +72,12 @@ export interface FlyerBotOptions {
     designSheet: typeof renderDesignSheet;
     /** Cuts the person out of a photo (see cutout.ts). */
     cutout: typeof cutOut;
+  };
+  /** Touching up photos (see photo.ts). */
+  photos?: {
+    prepare: typeof preparePhoto;
+    tone: typeof tonePhoto;
+    edit: typeof editPhoto;
   };
   log?: Pick<Console, "info" | "error">;
   /** For downloading Google Sheets and photo links. */
@@ -129,6 +138,7 @@ Other commands:
 • *flyer Ada*: see Ada's birthday flyer now
 • *remove Ada Okafor*
 • a photo captioned *photo Ada Okafor*: add or change Ada's photo
+• *brighter*, *warmer*, *black and white*, *plain background*, *closer*, *rotate* or *original*: touch up the last photo you added (or add a name, e.g. *rotate Ada*)
 • *add admin 08012345678*: let someone else manage this group
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
@@ -198,6 +208,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     designSheet: renderDesignSheet,
     cutout: cutOut,
   };
+  const photos = opts.photos ?? { prepare: preparePhoto, tone: tonePhoto, edit: editPhoto };
+  /** Each admin's last member photo, so "brighter" on its own knows whose. Forgotten on restart; a name still works. */
+  const lastPhoto = new Map<string, string>();
   const owners = new Set(opts.owners);
   const now = opts.now ?? (() => new Date());
   const planOf = (group: Group) => currentPlan(group, now());
@@ -340,6 +353,69 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     }
   }
 
+  /** A new member photo, framed and brightened, with the photo as sent kept alongside. If that fails, the photo as sent. */
+  async function touchUp(picture: Picture): Promise<{ photo: Picture; original?: Picture }> {
+    try {
+      return { photo: { data: await photos.prepare(picture.data), mimeType: JPEG }, original: picture };
+    } catch (err) {
+      log.error("Could not touch up a photo:", err);
+      return { photo: picture };
+    }
+  }
+
+  /** The member's photo with the edits to choose from, as a tappable list. */
+  async function photoSaved(lead: string, member: Member, group: Group, from: string): Promise<Reply> {
+    lastPhoto.set(from, member.id);
+    const first = member.name.split(" ")[0];
+    return {
+      text: lead,
+      images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }],
+      list: {
+        body: `I've centred ${first}'s photo and fixed the light. Want to change anything? Tap *Edit photo*, or just type *brighter*, *rotate* and so on.`,
+        button: "Edit photo",
+        rows: PHOTO_EDITS.map((e) => ({ id: `${e.word} ${member.name}`, title: e.title, description: e.description })),
+      },
+    };
+  }
+
+  /** "brighter", "rotate Ada Okafor", "black and white Ada"... -> the edit and who it's for. */
+  function photoEditWanted(text: string): { edit: PhotoEdit; name: string } | null {
+    const words = text.trim().split(/\s+/);
+    for (let i = Math.min(3, words.length); i >= 1; i--) {
+      const edit = findPhotoEdit(words.slice(0, i).join(" "));
+      if (edit) return { edit, name: words.slice(i).join(" ").replace(/^for\s+/i, "") };
+    }
+    return null;
+  }
+
+  async function changePhoto(group: Group, from: string, edit: PhotoEdit, name: string): Promise<Reply> {
+    const members = await opts.store.members(group.id);
+    const found = name ? findMember(members, name) : members.filter((m) => m.id === lastPhoto.get(from));
+    if (found.length !== 1) {
+      if (name) return { text: notFound(found, name) };
+      return { text: `Whose photo? Add their name, e.g. *${PHOTO_EDITS.find((e) => e.edit === edit)!.word} Ada Okafor*.` };
+    }
+    const m = found[0]!;
+    if (!m.photoPath) return { text: `${m.name} has no photo yet. Send one with the caption *photo ${m.name}*.` };
+    const current = await opts.store.loadPicture(m.photoPath!);
+    const kept = await opts.store.loadOriginal(m.photoPath!);
+    if (edit === "original" && !kept) return { text: `${m.name}'s photo is already as it was sent.` };
+    const original = kept ?? current;
+    let result: Awaited<ReturnType<typeof editPhoto>>;
+    try {
+      result = await photos.edit(edit, current, original);
+    } catch (err) {
+      if (err instanceof NoPersonError) return { text: `I couldn't find a person in ${m.name}'s photo, so I left the background as it is.` };
+      throw err;
+    }
+    const saved = await opts.store.saveMember(group.id, m.name, m.birthday, { data: result.photo, mimeType: JPEG }, {
+      data: result.original ?? original,
+      mimeType: JPEG,
+    });
+    const done = edit === "original" ? `Back to ${m.name}'s photo as you sent it ✅` : `Done ✅ Here's ${m.name}'s flyer now:`;
+    return photoSaved(done, saved, group, from);
+  }
+
   async function birthdayFlyer(member: Member, group: Group, wish?: string): Promise<Uint8Array> {
     const style = await styleFor(group);
     const photo = member.photoPath ? await opts.store.loadPicture(member.photoPath) : undefined;
@@ -420,7 +496,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           }
         }
         try {
-          const saved = await opts.store.saveMember(group.id, row.name, row.birthday, picture);
+          const touched = picture ? await touchUp(picture) : null;
+          const saved = await opts.store.saveMember(group.id, row.name, row.birthday, touched?.photo ?? null, touched?.original);
           if (saved.isNew) added++;
           else updated++;
           if (!saved.photoPath) noPhoto.push(saved.name);
@@ -452,14 +529,15 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     return parts.join("\n\n");
   }
 
-  async function handlePicture(group: Group, caption: string, picture: Picture): Promise<Reply> {
+  async function handlePicture(group: Group, caption: string, picture: Picture, from: string): Promise<Reply> {
     const photoFor = caption.match(/^photo\s+(.+)$/i);
     if (photoFor) {
       const found = findMember(await opts.store.members(group.id), photoFor[1]!);
       if (found.length !== 1) return { text: notFound(found, photoFor[1]!) };
       const m = found[0]!;
-      const member = await opts.store.saveMember(group.id, m.name, m.birthday, picture);
-      return { text: `Photo saved for ${member.name} ✅`, images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }] };
+      const touched = await touchUp(picture);
+      const member = await opts.store.saveMember(group.id, m.name, m.birthday, touched.photo, touched.original);
+      return photoSaved(`Photo saved for ${member.name} ✅`, member, group, from);
     }
 
     if (/^logo$/i.test(caption)) {
@@ -488,12 +566,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       }
       const full = await fullReply(group, parsed.name);
       if (full) return full;
-      const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, picture);
-      const flyer = await birthdayFlyer(member, group);
-      return {
-        text: `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`,
-        images: [{ data: flyer, mimeType: JPEG }],
-      };
+      const touched = await touchUp(picture);
+      const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, touched.photo, touched.original);
+      return photoSaved(`Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, member, group, from);
     }
 
     if (!planOf(group).eventFlyers) {
@@ -502,8 +577,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         (p) => p.eventFlyers,
       );
     }
+    let photo = picture.data;
+    try {
+      photo = await photos.tone(photo);
+    } catch (err) {
+      log.error("Could not touch up an event photo:", err);
+    }
     const flyer = await render.event({
-      photo: picture.data,
+      photo,
       caption,
       logo: await logoFor(group),
       style: await styleFor(group),
@@ -559,6 +640,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         images: [{ data: flyer, mimeType: JPEG }],
       };
     }
+
+    const photoEdit = photoEditWanted(text);
+    if (photoEdit) return changePhoto(group, from, photoEdit.edit, photoEdit.name);
 
     if (lower === "background off" || lower === "background reset") {
       await opts.store.saveBackground(group.id, null);
@@ -1029,7 +1113,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             text: "Please send a photo (JPG or PNG), or a member list as a CSV file. From Excel or Google Sheets: File > Download > CSV.",
           };
         }
-        return handlePicture(group, text, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
+        return handlePicture(group, text, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType }, msg.from);
       }
       if (!text) return { text: `*${group.name}*\n\n${HELP}` };
 
