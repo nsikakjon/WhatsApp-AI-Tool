@@ -138,7 +138,7 @@ Other commands:
 • *flyer Ada*: see Ada's birthday flyer now
 • *remove Ada Okafor*
 • a photo captioned *photo Ada Okafor*: add or change Ada's photo
-• *brighter*, *warmer*, *black and white*, *plain background*, *closer*, *rotate* or *original*: touch up the last photo you added (or add a name, e.g. *rotate Ada*)
+• *brighter*, *darker*, *warmer*, *black and white*, *plain background*, *closer*, *rotate* or *original*: touch up the last photo you added (or add a name, e.g. *rotate Ada*)
 • *add admin 08012345678*: let someone else manage this group
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
