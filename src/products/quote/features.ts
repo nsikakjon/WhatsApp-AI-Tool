@@ -5,7 +5,10 @@ import { readBusinessPlanCode } from "./plan.js";
 // notes, invoices, staff inbox, follow-ups, broadcasts, test screen, delivery,
 // order board, sales dashboard, product photos and stock (catalogue), how
 // many numbers a business and its branches can have (branches), and how many
-// WhatsApp messages each number may send a month (bot_messages, messages.ts).
+// WhatsApp messages each number may send a month (bot_messages, messages.ts),
+// walk-in orders and how many pickup screens (walk_in, stations, walkin/),
+// and yarnOga's fee on pay-link payments (transaction_fee, in hundredths of a
+// percent, paylinks.ts).
 // The rows live in quote_plan_features (migrations 0025, 0034); limits are changed
 // there, never in code.
 //
@@ -36,7 +39,10 @@ export type PlanFeature =
   | "sales_dashboard"
   | "catalogue"
   | "branches"
-  | "bot_messages";
+  | "bot_messages"
+  | "walk_in"
+  | "stations"
+  | "transaction_fee";
 
 export interface FeatureRow {
   included: boolean;

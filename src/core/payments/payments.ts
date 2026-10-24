@@ -26,6 +26,8 @@ export interface PaymentRequest {
   promo?: { code: string; months: number };
   /** A store's Paystack subaccount (ACCT_...): the money goes to its bank account, and Paystack's fee comes off its share. */
   subaccount?: string;
+  /** yarnOga's share of a subaccount payment, in kobo, worked out in code. The store gets the rest. */
+  platformFeeKobo?: number;
 }
 
 export type AppliedPromo = { code: string; percentOff: number; amountOffKobo: number };
@@ -85,6 +87,10 @@ export function createPayments(opts: PaymentsOptions): Payments {
         await opts.store.create(payment);
       }
       const amountKobo = req.amountKobo - (promo?.amountOffKobo ?? 0);
+      if (req.platformFeeKobo) {
+        assertKobo(req.platformFeeKobo);
+        if (!req.subaccount || req.platformFeeKobo >= amountKobo) throw new Error("A platform fee needs a subaccount and must be less than the payment");
+      }
       const url = await opts.paystack.initialize({
         reference,
         amountKobo,
@@ -93,6 +99,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
         description: req.title,
         waId: req.waId,
         subaccount: req.subaccount,
+        transactionChargeKobo: req.platformFeeKobo || undefined,
       });
       return { url, amountKobo, promo };
     },

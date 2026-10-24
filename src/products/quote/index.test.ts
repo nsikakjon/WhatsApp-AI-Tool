@@ -6,6 +6,9 @@ import type { BrandingStore, CatalogStore, OrderStore, SavedOrder } from "./stor
 import type { DocumentInput } from "./documents.js";
 import type { Understander, Understanding } from "./understand.js";
 import type { PlanGate } from "./plan.js";
+import type { Dispatch } from "./delivery/index.js";
+import { createWalkIn } from "./walkin/index.js";
+import { BUSINESS, links, memoryWalkIn } from "./walkin/testing.js";
 
 const variants: Variant[] = [
   {
@@ -734,5 +737,113 @@ describe("pay links", () => {
     const notes = await bot.orderPaid(1001);
     expect(notes).toEqual([{ to: OWNER, text: expect.stringContaining("already marked paid") }]);
     await expect(bot.orderPaid(2000)).rejects.toThrow("can't be found");
+  });
+});
+
+describe("quote product with walk-in orders", () => {
+  function walkInBot(opts: { delivery?: boolean } = {}) {
+    const mem = memoryOrders();
+    const walk = memoryWalkIn();
+    walk.settings.walkIn = true;
+    const docs = fakeDocuments();
+    const deliveryAsked: string[] = [];
+    // A delivery set-up that would ask for an address: walk-in orders must never reach it.
+    const delivery = {
+      handle: async () => null,
+      beforeConfirm: async (order: SavedOrder) => {
+        deliveryAsked.push(order.id);
+        return { text: "Where should we deliver?" };
+      },
+      charge: async () => null,
+      ownerNote: async () => null,
+    } as unknown as Dispatch;
+    const product = createQuoteProduct({
+      businessName: "Element House",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: mem.store,
+      ai: {
+        understand: async ({ text }) =>
+          /^yes$/i.test(text) ? { intent: "confirm", items: [], message: null } : { intent: "quote", items: [{ variantId: "v-card", quantity: 100 }], message: null },
+      },
+      ...(opts.delivery === false ? {} : { delivery }),
+      renderDocument: docs.render,
+      walkIn: createWalkIn({ businessId: BUSINESS, orderPrefix: "KP", store: walk.store, links }),
+      log: { error() {} },
+    });
+    return { product, walk, drawn: docs.drawn, deliveryAsked };
+  }
+
+  it("skips delivery, gives the order a pickup code and tells the owner the table", async () => {
+    const { product, walk, deliveryAsked } = walkInBot();
+    expect((await product.handle(text("table 7"), ctx))?.text).toContain("you're at Table 7");
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(deliveryAsked).toEqual([]);
+    expect(reply?.text).toContain("Please pay at the counter and give them your order number, KP-1001.");
+    expect(reply?.notify?.[0]?.text).toContain("New walk-in order KP-1001 from Ada (+2348012345678) at Table 7:");
+    expect(walk.orders.get("o1")?.pickupCode).toMatch(/^\d{4}$/);
+  });
+
+  it("puts the QR code on the receipt and the order on its screens once paid online", async () => {
+    const { product, walk, drawn } = walkInBot();
+    await product.handle(text("table 7"), ctx);
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    await product.handle(text("YES"), ctx);
+
+    const notes = await product.orderPaid(1001, { how: "online", feeKobo: 12_500 });
+    const receipt = drawn.find((d) => d.kind === "receipt")!;
+    expect(receipt.pickup).toMatchObject({ table: "Table 7", stations: ["Counter"] });
+    expect(receipt.pickup!.qrText).toContain("https://bot.example.com/pickup/");
+    expect(notes[0]?.text).toContain("We'll bring it to Table 7. Show the QR code on this receipt when you collect.");
+    expect(notes[1]?.text).toContain("less the yarnOga fee (₦125) and Paystack's fee");
+    expect(notes[1]?.text).toContain("It's on your pickup screen: Counter.");
+    expect(walk.tickets).toHaveLength(1);
+  });
+
+  it("keeps delivering to customers who haven't checked in at the venue", async () => {
+    const { product, walk, deliveryAsked } = walkInBot();
+    walk.settings.paused = true;
+    await product.handle(text("100 business cards"), ctx);
+    expect((await product.handle(text("YES"), ctx))?.text).toBe("Where should we deliver?");
+    expect(deliveryAsked).toEqual(["o1"]);
+  });
+
+  it("checks a customer in without a table, and treats every chat as walk-in when there's no delivery", async () => {
+    const { product, walk } = walkInBot();
+    expect((await product.handle(text("I'm here"), ctx))?.text).toContain("Welcome! Order here");
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(reply?.notify?.[0]?.text).toContain("New walk-in order KP-1001 from Ada (+2348012345678):");
+    expect(walk.orders.get("o1")?.tableLabel).toBeNull();
+
+    const noDelivery = walkInBot({ delivery: false });
+    await noDelivery.product.handle(text("100 business cards"), ctx);
+    noDelivery.walk.addOrder("o1", 1001);
+    expect((await noDelivery.product.handle(text("YES"), ctx))?.text).toContain("Please pay at the counter");
+  });
+
+  it("says so when the owner has closed orders at the venue", async () => {
+    const { product, walk } = walkInBot();
+    walk.settings.paused = true;
+    await product.handle(text("table 7"), ctx);
+    expect((await product.handle(text("100 business cards"), ctx))?.text).toBe(
+      "Sorry, Element House isn't taking new orders right now. Please ask a member of staff.",
+    );
+  });
+
+  it("tells the owner an order was paid at the counter", async () => {
+    const { product, walk } = walkInBot();
+    await product.handle(text("I'm here"), ctx);
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    await product.handle(text("YES"), ctx);
+    const notes = await product.orderPaid(1001, { how: "counter" });
+    expect(notes[1]?.text).toContain("KP-1001 was paid at the counter");
+    expect(await product.orderPaid(1001, { how: "counter" })).toEqual([]);
   });
 });

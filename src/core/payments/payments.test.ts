@@ -184,6 +184,25 @@ describe("paystack", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ amount: 13200000, subaccount: "ACCT_abc123", bearer: "subaccount" });
   });
 
+  it("keeps yarnOga's fee on the main account when a split payment carries one", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ status: true, data: { authorization_url: "https://checkout.paystack.com/abc" } }));
+    const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);
+    const checkout = {
+      reference: "yarnoga-quote-2",
+      amountKobo: 1_000_000,
+      email: "payments@example.com",
+      callbackUrl: "https://bot.example.com/payments/done",
+      description: "Order DEMO-1011",
+      waId: "2348011111111",
+      transactionChargeKobo: 25_000,
+    };
+    await client.initialize({ ...checkout, subaccount: "ACCT_abc123" });
+    await client.initialize(checkout);
+    const body = (i: number) => JSON.parse(String((fetchImpl.mock.calls[i] as unknown as [string, RequestInit])[1].body));
+    expect(body(0)).toMatchObject({ subaccount: "ACCT_abc123", bearer: "subaccount", transaction_charge: 25_000 });
+    expect(body(1)).not.toHaveProperty("transaction_charge");
+  });
+
   it("reports Paystack's own error message", async () => {
     const fetchImpl = async () => Response.json({ status: false, message: "Invalid key" }, { status: 401 });
     const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);

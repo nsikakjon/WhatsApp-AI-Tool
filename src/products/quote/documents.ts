@@ -4,6 +4,7 @@
 // the saved order, so nothing here calculates a price.
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
+import QRCode from "qrcode";
 import { formatNaira } from "../../core/money.js";
 import type { QuoteLine } from "./pricing.js";
 import { isPhoneNumber } from "../../core/whatsapp/ids.js";
@@ -39,6 +40,19 @@ export interface DocumentInput {
   totalKobo: number;
   /** Bank details printed on invoices so the customer knows where to pay. */
   paymentDetails?: string;
+  /** On walk-in receipts: the QR code staff scan to hand the order over, and the code they can type instead. */
+  pickup?: Pickup;
+}
+
+export interface Pickup {
+  /** What the QR code holds: the order's pickup page link. */
+  qrText: string;
+  /** e.g. "EH-214 · 4827" */
+  code: string;
+  /** e.g. "Table 7", when the customer said where they are. */
+  table?: string;
+  /** The screens that make it, e.g. ["Bar", "Kitchen"]. */
+  stations: string[];
 }
 
 // A4 shape, wide enough to read on a phone.
@@ -81,7 +95,8 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   const notes = input.kind === "invoice" && input.paymentDetails ? input.paymentDetails : "";
   scratch.font = "28px Inter";
   const noteLines = notes ? notes.split("\n").flatMap((p) => wrap(scratch, p, WIDTH - 2 * MARGIN - 48)) : [];
-  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + (noteLines.length ? 120 + noteLines.length * 40 : 0));
+  const pickup = input.kind === "receipt" ? input.pickup : undefined;
+  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + (noteLines.length ? 120 + noteLines.length * 40 : 0) + (pickup ? PICKUP_HEIGHT + 100 : 0));
 
   const canvas = createCanvas(WIDTH, height);
   const ctx = canvas.getContext("2d");
@@ -208,6 +223,11 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   ctx.textBaseline = "top";
   y += 120;
 
+  if (pickup) {
+    drawPickup(ctx, pickup, y);
+    y += PICKUP_HEIGHT;
+  }
+
   if (noteLines.length) {
     ctx.fillStyle = SHADE;
     ctx.fillRect(MARGIN, y, WIDTH - 2 * MARGIN, 80 + noteLines.length * 40);
@@ -230,6 +250,50 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   );
 
   return canvas.toBuffer("image/jpeg", 92);
+}
+
+const PICKUP_HEIGHT = 420;
+const QR_SIZE = 320;
+
+/** The collection box on a walk-in receipt: QR code on the left, the typed code and where to collect on the right. */
+function drawPickup(ctx: SKRSContext2D, pickup: Pickup, top: number) {
+  ctx.fillStyle = SHADE;
+  ctx.fillRect(MARGIN, top, WIDTH - 2 * MARGIN, PICKUP_HEIGHT - 50);
+  const qr = QRCode.create(pickup.qrText, { errorCorrectionLevel: "M" }).modules;
+  const quiet = 4;
+  const cell = Math.floor(QR_SIZE / (qr.size + 2 * quiet));
+  const qrX = MARGIN + 25;
+  const qrY = top + 25;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(qrX, qrY, cell * (qr.size + 2 * quiet), cell * (qr.size + 2 * quiet));
+  ctx.fillStyle = "#000000";
+  for (let r = 0; r < qr.size; r++) {
+    for (let c = 0; c < qr.size; c++) {
+      if (qr.get(r, c)) ctx.fillRect(qrX + (c + quiet) * cell, qrY + (r + quiet) * cell, cell, cell);
+    }
+  }
+
+  const x = qrX + QR_SIZE + 50;
+  const textWidth = WIDTH - MARGIN - 24 - x;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = MUTED;
+  ctx.font = "24px Inter SemiBold";
+  ctx.fillText("SHOW THIS WHEN YOU COLLECT", x, top + 40);
+  ctx.fillStyle = INK;
+  ctx.font = "56px Inter ExtraBold";
+  ctx.fillText(pickup.code, x, top + 80);
+  ctx.font = "30px Inter";
+  let y = top + 170;
+  const lines = [
+    ...(pickup.table ? [`For ${pickup.table}`] : []),
+    ...(pickup.stations.length ? [`Collect at: ${pickup.stations.join(", ")}`] : []),
+    "Each code works once.",
+  ];
+  for (const line of lines.flatMap((l) => wrap(ctx, l, textWidth))) {
+    ctx.fillText(line, x, y);
+    y += 42;
+  }
 }
 
 /** Splits text into lines that fit `maxWidth` in the current font. */

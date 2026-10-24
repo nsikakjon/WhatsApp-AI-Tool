@@ -67,6 +67,11 @@ export interface Config {
    * private link when the owner sends "orders". Only set when QUOTE_ORDER_BOARD is true.
    */
   quoteOrderBoard?: { publicUrl: string };
+  /**
+   * Walk-in orders for restaurants, bars and events (migration 0047): QR
+   * receipts, pickup screens, table numbers. Only set when QUOTE_WALK_IN is true.
+   */
+  quoteWalkIn?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
@@ -316,6 +321,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")
+      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
+    quoteWalkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_WALK_IN ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
     broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")

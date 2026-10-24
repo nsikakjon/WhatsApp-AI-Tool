@@ -3,7 +3,7 @@ import type { Notice, Product, ProductContext, Reply } from "../../core/product.
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
-import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
+import { formatDocDate, renderDocument, type DocumentInput, type Pickup } from "./documents.js";
 import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
 import { CARDS_PAGE, type Catalogue } from "./catalogue.js";
@@ -16,6 +16,7 @@ import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder 
 import type { Understander } from "./understand.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
+import type { WalkIn, WalkInMode } from "./walkin/index.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -50,6 +51,10 @@ import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } fro
 // With pay links on (paylinks.ts), the invoice comes with a Paystack link.
 // Once Paystack confirms the payment, orderPaid marks the order paid and the
 // customer gets a receipt, as if the owner had sent "paid KP-1001".
+//
+// With walk-in orders on (walkin/), the bot skips delivery, paid orders go
+// to the kitchen and bar screens, and the receipt carries a QR code that
+// staff scan when the customer collects.
 //
 // "hi" gets a welcome with how ordering works (welcome.ts); "menu" brings it
 // back, or the owner's command list when the owner sends it.
@@ -97,13 +102,20 @@ export interface QuoteProductOptions {
   referral?: () => Promise<string>;
   /** Makes an online payment link for a confirmed order (paylinks.ts). Without it, customers pay the business directly. */
   payLink?: (order: SavedOrder, waId: string) => Promise<string>;
+  /** Walk-in orders for restaurants, bars and events (walkin/). Without it, every order is delivered or arranged by the team. */
+  walkIn?: WalkIn;
   log?: Pick<Console, "error">;
 }
 
+/** How an order was paid outside the owner's "paid KP-1001": online by pay link (with yarnOga's fee, in kobo), or at a walk-in counter. */
+export type PaidVia = { how: "online"; feeKobo: number } | { how: "counter" };
+
 export interface QuoteProduct extends Product {
-  /** Marks an order paid after Paystack confirmed its pay link, and returns the receipt and owner messages. */
-  orderPaid(orderNumber: number): Promise<Notice[]>;
+  /** Marks an order paid after Paystack confirmed its pay link (or staff took payment at the counter), and returns the receipt and owner messages. */
+  orderPaid(orderNumber: number, via?: PaidVia): Promise<Notice[]>;
 }
+
+const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
 
 export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   const log = opts.log ?? console;
@@ -118,7 +130,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
       }
-      if (opts.delivery && (await deliveryOnPlan())) {
+      const venue = await walkInMode();
+      if (venue.on) {
+        const spotReply = await opts.walkIn!.customerMessage(msg, ctx.contactId);
+        if (spotReply) return spotReply;
+      }
+      const walkIn = venue.on && (await walkInChat(ctx.contactId)) ? venue : WALK_IN_OFF;
+      if (!walkIn.on && opts.delivery && (await deliveryOnPlan())) {
         const deliveryReply = await opts.delivery.handle(msg, ctx);
         if (deliveryReply) return deliveryReply;
       }
@@ -145,7 +163,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (variants.length === 0) {
         return { text: `Thanks for messaging ${opts.businessName}! Our price list isn't online yet, so someone from the team will get back to you.` };
       }
-      const welcome = await welcomeReply(msg, variants);
+      const welcome = await welcomeReply(msg, variants, walkIn);
       if (welcome) return welcome;
 
       // A tap on "See more" under the product cards: no need for the AI.
@@ -177,10 +195,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       let reply: Reply;
       switch (understanding.intent) {
         case "quote":
-          reply = await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
+          reply = walkIn.paused ? closedReply() : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
           break;
         case "confirm":
-          reply = await confirm(ctx.contactId, msg.contactName, msg.from);
+          reply = walkIn.paused ? closedReply() : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn);
           break;
         case "cancel":
           reply = await cancel(ctx.contactId);
@@ -201,31 +219,35 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       return reply;
     },
 
-    async orderPaid(orderNumber) {
+    async orderPaid(orderNumber, via = { how: "online", feeKobo: 0 }) {
       const label = `${opts.orderPrefix}-${orderNumber}`;
       const order = await opts.orders.findOrder(orderNumber);
       if (!order) throw new Error(`Order ${label} was paid online but can't be found`);
       const toOwner = (text: string): Notice[] => (opts.ownerWaId ? [{ to: opts.ownerWaId, text }] : []);
       const who = order.customerName ?? showWaId(order.customerWaId);
       if (order.status === "paid" || order.status === "cancelled" || !(await opts.orders.markPaid(order.id))) {
+        if (via.how === "counter") return [];
         return toOwner(
           `⚠️ ${who} paid ${label} online (${formatNaira(order.totalKobo)}), but it was already ${order.status === "cancelled" ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
         );
       }
+      const pickup = await walkInPaid(order);
       const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
-      const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery);
-      const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
+      const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup);
+      const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
+      const how =
+        via.how === "counter"
+          ? `💰 ${label} was paid at the counter (${formatNaira(order.totalKobo)}). I've sent ${who} their receipt.`
+          : `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account` +
+            (via.feeKobo > 0 ? `, less the yarnOga fee (${formatNaira(via.feeKobo)}) and Paystack's fee.` : ".");
       return [
-        receiptNote(order, label, receipt),
-        ...toOwner(
-          `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account.` +
-            (note ? `\n\n${note}` : ""),
-        ),
+        receiptNote(order, label, receipt, pickup),
+        ...toOwner(how + (pickup ? `\n\nIt's on your pickup ${pickup.stations.length > 1 ? "screens" : "screen"}: ${pickup.stations.join(", ")}.` : "") + (note ? `\n\n${note}` : "")),
       ];
     },
   };
 
-  async function welcomeReply(msg: IncomingMessage, variants: Variant[]): Promise<Reply | null> {
+  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode): Promise<Reply | null> {
     const text = msg.text!.trim();
     if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants) };
     if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
@@ -240,7 +262,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       customerName: msg.contactName,
       items: variants,
       voiceNotes: opts.features ? await opts.features.has("voice_notes") : true,
-      delivery: !!opts.delivery && (await deliveryOnPlan()),
+      delivery: !walkIn.on && !!opts.delivery && (await deliveryOnPlan()),
       invoices: await documentsIncluded(),
       team: !!opts.ownerWaId,
     });
@@ -250,12 +272,61 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     return reply;
   }
 
-  function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null): Notice {
+  function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null, pickup: Pickup | null): Notice {
+    const thanks = `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!`;
+    if (pickup) {
+      const where = pickup.table ? `We'll bring it to ${pickup.table}.` : "We'll message you when it's ready to collect.";
+      return {
+        to: order.customerWaId,
+        text: `${thanks} ${where} ${receipt ? "Show the QR code on this receipt when you collect" : `Show this message when you collect. Your code is ${pickup.code}`}.`,
+        ...(receipt ? { images: [receipt] } : {}),
+      };
+    }
     return {
       to: order.customerWaId,
-      text: `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!${receipt ? " Here's your receipt:" : ""}`,
+      text: `${thanks}${receipt ? " Here's your receipt:" : ""}`,
       ...(receipt ? { images: [receipt] } : {}),
     };
+  }
+
+  function closedReply(): Reply {
+    return { text: `Sorry, ${opts.businessName} isn't taking new orders right now. Please ask a member of staff.` };
+  }
+
+  /** Walk-in mode, read each time so "walk-in on" takes effect at once. Off if it can't be read. */
+  async function walkInMode(): Promise<WalkInMode> {
+    if (!opts.walkIn) return WALK_IN_OFF;
+    try {
+      return await opts.walkIn.mode();
+    } catch (err) {
+      log.error("Could not read the walk-in setting:", err);
+      return WALK_IN_OFF;
+    }
+  }
+
+  /**
+   * Whether this chat is a walk-in one. A business that delivers keeps
+   * delivering to everyone who hasn't checked in at the venue.
+   */
+  async function walkInChat(contactId: string): Promise<boolean> {
+    if (!opts.delivery || !(await deliveryOnPlan())) return true;
+    try {
+      return await opts.walkIn!.checkedIn(contactId);
+    } catch (err) {
+      log.error("Could not read the customer's check-in:", err);
+      return false;
+    }
+  }
+
+  /** A paid walk-in order goes to its screens; the receipt gets the pickup box. Null for other orders. */
+  async function walkInPaid(order: SavedOrder): Promise<Pickup | null> {
+    if (!opts.walkIn) return null;
+    try {
+      return await opts.walkIn.paid(order);
+    } catch (err) {
+      log.error(`Couldn't send order ${ref(order)} to the pickup screens:`, err);
+      return null;
+    }
   }
 
   /** The order's pay link, or null so the customer pays the business directly if Paystack is down. */
@@ -333,7 +404,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     return { text, ...(photos.length ? { images: photos } : {}), ...(notify ? { notify } : {}) };
   }
 
-  async function confirm(contactId: string, name: string | undefined, waId: string): Promise<Reply> {
+  async function confirm(contactId: string, name: string | undefined, waId: string, walkIn: WalkInMode): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
     const noQuote = { text: "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one." };
     if (!order) return noQuote;
@@ -363,20 +434,32 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       };
     }
 
-    const dispatch = opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
+    const dispatch = !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
     if (dispatch) {
       const ask = await dispatch.beforeConfirm(order, { waId, name });
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
     await opts.catalogue?.confirmed(order.id);
+    let spot: { code: string; table: string | null } | null = null;
+    if (walkIn.on) {
+      try {
+        spot = await opts.walkIn!.confirmed(order, contactId);
+      } catch (err) {
+        log.error(`Couldn't give order ${ref(order)} a pickup code:`, err);
+      }
+    }
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
     const payUrl = await payLinkFor(order, waId);
     const payLine = payUrl ? `Pay online by card, bank transfer or USSD: ${payUrl}` : null;
     if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
-    const next = dispatch
+    const next = spot
+      ? payUrl
+        ? "Pay with the link, then show the QR code on your receipt when you collect."
+        : `Please pay at the counter and give them your order number, ${ref(order)}.`
+      : dispatch
       ? delivery
         ? "We'll send you a link to follow your delivery once a rider is on the way."
         : `The ${opts.businessName} team will let you know when it's ready.`
@@ -384,8 +467,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const reply: Reply = {
       text: invoice
         ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
-        : payLine
-          ? `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). ${next}\n\n${payLine}`
+        : payLine || spot
+          ? `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). ${next}${payLine ? `\n\n${payLine}` : ""}`
           : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
       ...(invoice ? { images: [invoice] } : {}),
     };
@@ -397,15 +480,17 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         {
           to: opts.ownerWaId,
           text: [
-            `New order ${ref(order)} from ${name ?? "a customer"} (+${waId}):`,
+            `New ${spot ? "walk-in " : ""}order ${ref(order)} from ${name ?? "a customer"} (+${waId})${spot?.table ? ` at ${spot.table}` : ""}:`,
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
             ...(delivery ? [`• ${delivery.label} = ${formatNaira(delivery.feeKobo)}`] : []),
             `Total: ${formatNaira(order.totalKobo)}`,
             ...(note ? ["", note] : []),
             "",
-            payUrl
-              ? `They've been sent a link to pay online. I'll tell you when it's paid and send them a receipt. If they pay you another way, reply *paid ${ref(order)}*.`
-              : `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
+            spot
+              ? `It goes to your pickup screens once it's paid${payUrl ? " online" : `. If they pay at the counter, tap *Paid at counter* on the screen or reply *paid ${ref(order)}*`}.`
+              : payUrl
+                ? `They've been sent a link to pay online. I'll tell you when it's paid and send them a receipt. If they pay you another way, reply *paid ${ref(order)}*.`
+                : `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
             ...(check.warning ? ["", check.warning] : []),
           ].join("\n"),
         },
@@ -429,6 +514,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     kind: "invoice" | "receipt",
     order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
     delivery: DeliveryCharge | null,
+    pickup: Pickup | null = null,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
@@ -446,6 +532,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
+        ...(pickup ? { pickup } : {}),
       });
       const label = kind === "invoice" ? "Invoice" : "Receipt";
       return { data, mimeType: "image/jpeg", caption: `${label} ${opts.orderPrefix}-${order.orderNumber}` };
@@ -463,6 +550,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
     const catalogueReply = opts.catalogue ? await opts.catalogue.ownerCommand(msg, ctx) : null;
     if (catalogueReply) return catalogueReply;
+    const walkInReply = opts.walkIn ? await opts.walkIn.ownerCommand(msg) : null;
+    if (walkInReply) return walkInReply;
     const caption = (msg.caption ?? "").trim();
     if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
       if (!/^logo$/i.test(caption)) {
@@ -504,6 +593,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           plan: !!opts.plan,
           referral: !!opts.referral,
           delivery: !!opts.delivery && (await deliveryOnPlan()),
+          walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
         }),
       };
     }
@@ -528,14 +618,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
     if (action === "receipt") {
       if (order.status !== "paid") return { text: `${label} isn't marked paid yet. Send *paid ${label}* once the customer has paid.` };
-      const receipt = await documentImage("receipt", order, delivery);
+      const receipt = await documentImage("receipt", order, delivery, await walkInPickup(order));
       return receipt ? { text: `Receipt for ${label}:`, images: [receipt] } : { text: DRAW_FAILED };
     }
 
     // paid
     if (order.status === "cancelled") return { text: `${label} was cancelled, so I can't mark it paid.` };
     if (order.status === "paid") {
-      const receipt = await documentImage("receipt", order, delivery);
+      const receipt = await documentImage("receipt", order, delivery, await walkInPickup(order));
       return {
         text: `${label} was already marked paid${order.paidAt ? ` on ${formatDocDate(order.paidAt)}` : ""}. Here's the receipt again:`,
         ...(receipt ? { images: [receipt] } : {}),
@@ -544,8 +634,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (!(await opts.orders.markPaid(order.id))) {
       return { text: `${label} has just been updated by another message. Send *receipt ${label}* to see where it stands.` };
     }
-    const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery);
-    const note = opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
+    const pickup = await walkInPaid(order);
+    const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup);
+    const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? showWaId(order.customerWaId);
     return {
       text:
@@ -554,8 +645,17 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`) +
         (note ? `\n\n${note}` : ""),
       ...(receipt ? { images: [receipt] } : {}),
-      notify: [receiptNote(order, label, receipt)],
+      notify: [receiptNote(order, label, receipt, pickup)],
     };
+  }
+
+  async function walkInPickup(order: SavedOrder): Promise<Pickup | null> {
+    try {
+      return opts.walkIn ? await opts.walkIn.pickup(order) : null;
+    } catch (err) {
+      log.error(`Couldn't read the pickup code for ${ref(order)}:`, err);
+      return null;
+    }
   }
 
   async function ordersReply(link: string): Promise<string> {
