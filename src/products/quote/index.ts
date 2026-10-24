@@ -130,11 +130,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
       }
-      const walkIn = await walkInMode();
-      if (walkIn.on) {
+      const venue = await walkInMode();
+      if (venue.on) {
         const spotReply = await opts.walkIn!.customerMessage(msg, ctx.contactId);
         if (spotReply) return spotReply;
-      } else if (opts.delivery && (await deliveryOnPlan())) {
+      }
+      const walkIn = venue.on && (await walkInChat(ctx.contactId)) ? venue : WALK_IN_OFF;
+      if (!walkIn.on && opts.delivery && (await deliveryOnPlan())) {
         const deliveryReply = await opts.delivery.handle(msg, ctx);
         if (deliveryReply) return deliveryReply;
       }
@@ -299,6 +301,20 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     } catch (err) {
       log.error("Could not read the walk-in setting:", err);
       return WALK_IN_OFF;
+    }
+  }
+
+  /**
+   * Whether this chat is a walk-in one. A business that delivers keeps
+   * delivering to everyone who hasn't checked in at the venue.
+   */
+  async function walkInChat(contactId: string): Promise<boolean> {
+    if (!opts.delivery || !(await deliveryOnPlan())) return true;
+    try {
+      return await opts.walkIn!.checkedIn(contactId);
+    } catch (err) {
+      log.error("Could not read the customer's check-in:", err);
+      return false;
     }
   }
 

@@ -11,10 +11,17 @@ import { itemsText, type WalkInStore } from "./store.js";
 // Walk-in orders (QUOTE_WALK_IN, migration 0047) for restaurants, bars and
 // events, on the plans that include walk_in. The owner sends "walk-in on".
 //
-// 1. A customer at the venue messages the bot. A table poster's QR code can
-//    open the chat with "Table 7" already typed, so staff know where to bring it.
+// 1. A customer at the venue messages the bot. A poster's QR code opens the
+//    chat with "I'm here" (or a table card's with "Table 7") already typed,
+//    which checks them in for the next 12 hours.
 // 2. They order as usual, but the bot doesn't ask about delivery. On YES
 //    the order gets a 4-digit pickup code.
+//
+// A business that also delivers keeps delivering: only checked-in chats are
+// walk-in, so customers at home carry on as before, and "close orders" only
+// stops orders at the venue. A business with no delivery treats every chat
+// as walk-in. Each branch has its own number and its own walk-in switch, so
+// an event at one branch doesn't touch the others.
 // 3. Once paid (pay link, or staff tap "Paid at counter"), each screen that
 //    makes part of it gets a ticket: drinks to the Bar, food to the Kitchen.
 //    The receipt carries a QR code and the code to type instead.
@@ -26,8 +33,10 @@ import { itemsText, type WalkInStore } from "./store.js";
 
 /** Products with no screen of their own go to this one. */
 export const COUNTER = "Counter";
-/** A table label from a customer only counts for this long. */
+/** A check-in or table label from a customer only counts for this long. */
 const SPOT_HOURS = 12;
+/** Saved for a customer who checked in without a table. */
+const ON_SITE = "On site";
 
 export interface WalkInMode {
   on: boolean;
@@ -38,8 +47,10 @@ export interface WalkIn {
   /** Whether walk-in orders are on for this business and its plan, and whether new orders are paused. */
   mode(): Promise<WalkInMode>;
   ownerCommand(msg: IncomingMessage): Promise<Reply | null>;
-  /** A customer saying where they are ("Table 7"); null for anything else. Only call while walk-in is on. */
+  /** A customer checking in ("I'm here", "Table 7"); null for anything else. Only call while walk-in is on. */
   customerMessage(msg: IncomingMessage, contactId: string): Promise<Reply | null>;
+  /** Whether this customer checked in at the venue in the last 12 hours. */
+  checkedIn(contactId: string): Promise<boolean>;
   /** Gives a newly confirmed order its pickup code and the customer's table. */
   confirmed(order: SavedOrder, contactId: string): Promise<{ code: string; table: string | null }>;
   /** Sends a paid walk-in order to its screens and returns the receipt's pickup box; null for other orders. */
@@ -57,6 +68,7 @@ export interface WalkInOptions {
   now?: () => Date;
 }
 
+const CHECK_IN = /^(?:(?:i'?m|we'?re|i am|we are)\s+(?:here|at the (?:event|venue|party|bar|restaurant|shop|counter))|check(?:ing)?[\s-]?in)[.!]?$/i;
 const TABLE = /^(?:(?:i'?m|we'?re|i am|we are)\s+(?:at|on)\s+|at\s+)?(table|tbl|seat|booth|spot|section|zone)\s*(?:no\.?|number)?\s*#?\s*([a-z0-9][a-z0-9-]{0,7})[.!]?$/i;
 
 export function createWalkIn(opts: WalkInOptions): WalkIn {
@@ -64,6 +76,8 @@ export function createWalkIn(opts: WalkInOptions): WalkIn {
   const onPlan = () => (opts.features ? opts.features.has("walk_in") : Promise.resolve(true));
   const notOnPlan: Reply = { text: "Walk-in orders come with Starter and above. Send *plan* to see how to upgrade." };
   const ref = (n: number) => `${opts.orderPrefix}-${n}`;
+
+  const spotOf = (contactId: string) => opts.store.spot(contactId, new Date(now().getTime() - SPOT_HOURS * 3_600_000));
 
   async function stationsFor(lines: QuoteLine[]): Promise<Map<string, QuoteLine[]>> {
     const byVariant = await opts.store.stationsOf([...new Set(lines.map((l) => l.variantId))]);
@@ -162,7 +176,7 @@ export function createWalkIn(opts: WalkInOptions): WalkIn {
         return {
           text:
             want === "on"
-              ? "Walk-in orders are on ✅ The bot won't ask about delivery, and paid orders go to your pickup screens with a QR code on the receipt. Send *screens* for the links, and *stations* to send drinks and food to different screens."
+              ? "Walk-in orders are on ✅ Paid orders go to your pickup screens with a QR code on the receipt. Send *screens* for the links, and *stations* to send drinks and food to different screens.\n\nIf you also deliver, customers at home carry on as before. Customers at your venue check in by sending *I'm here* or their table (*Table 7*): put that on your posters and table cards."
               : "Walk-in orders are off. The bot is back to taking orders as before.",
         };
       }
@@ -181,7 +195,12 @@ export function createWalkIn(opts: WalkInOptions): WalkIn {
     },
 
     async customerMessage(msg, contactId) {
-      const match = (msg.text ?? "").trim().match(TABLE);
+      const text = (msg.text ?? "").trim();
+      if (CHECK_IN.test(text)) {
+        await opts.store.setSpot(contactId, ON_SITE);
+        return { text: "Welcome! Order here and collect it when it's ready. What would you like? Send *menu* to see everything." };
+      }
+      const match = text.match(TABLE);
       if (!match) return null;
       const kind = match[1]!.toLowerCase() === "tbl" ? "Table" : capitalise(match[1]!);
       const label = `${kind} ${match[2]!.toUpperCase()}`;
@@ -189,9 +208,14 @@ export function createWalkIn(opts: WalkInOptions): WalkIn {
       return { text: `Thanks, you're at ${label}. What would you like? Send *menu* to see everything.` };
     },
 
+    async checkedIn(contactId) {
+      return (await spotOf(contactId)) !== null;
+    },
+
     async confirmed(order, contactId) {
       const code = String(randomInt(0, 10_000)).padStart(4, "0");
-      const table = await opts.store.spot(contactId, new Date(now().getTime() - SPOT_HOURS * 3_600_000));
+      const spot = await spotOf(contactId);
+      const table = spot === ON_SITE ? null : spot;
       await opts.store.setPickup(order.id, table, code);
       return { code, table };
     },

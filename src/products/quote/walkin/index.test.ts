@@ -85,6 +85,9 @@ describe("walk-in orders", () => {
     expect((await walkIn.customerMessage(say("Table 7"), "c1"))?.text).toContain("you're at Table 7");
     expect(await walkIn.customerMessage(say("2 beers and a jollof"), "c1")).toBeNull();
     expect(await walkIn.customerMessage(say("I'm at booth b2"), "c2")).not.toBeNull();
+    expect(await walkIn.checkedIn("c3")).toBe(false);
+    expect((await walkIn.customerMessage(say("I'm at the event!"), "c3"))?.text).toContain("Welcome");
+    expect(await walkIn.checkedIn("c3")).toBe(true);
 
     addOrder(ORDER_ID, 214);
     const { code, table } = await walkIn.confirmed(order, "c1");

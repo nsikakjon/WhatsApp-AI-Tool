@@ -8,8 +8,9 @@ customer collects. Each order can only be handed over once.
 ## What the customer sees
 
 1. They scan a poster (or a table card) that opens the business's WhatsApp
-   chat. A table card can open it with "Table 7" already typed, so staff know
-   where to bring the order. Customers can also just type "table 7".
+   chat with "I'm here" already typed (a table card: "Table 7", so staff know
+   where to bring the order). That checks them in for 12 hours. Customers can
+   also just type it. Poster link: `https://wa.me/<number>?text=I'm%20here`.
 2. They order as usual ("2 Desperados and a jollof"), get a quote and reply YES.
    The bot doesn't ask about delivery.
 3. They pay with the Paystack link (card, transfer or USSD), or at the counter.
@@ -17,6 +18,26 @@ customer collects. Each order can only be handed over once.
    where to collect (Bar, Kitchen).
 5. When staff tap Ready, they get "Your order EH-214 is ready at the Bar".
    With a table, the message says it's on its way to the table instead.
+
+## Businesses that also deliver, and branches
+
+Walk-in orders never get in the way of delivery:
+
+- **A business with delivery switched on** keeps delivering. Only customers
+  who checked in ("I'm here" or a table) are treated as walk-in. Someone
+  ordering from home gets the usual delivery questions, even while an event
+  is running. **close orders** only stops orders at the venue.
+- **A business without delivery** treats every chat as walk-in, so a
+  restaurant or a stand needs no check-in step.
+- **Branches**: each branch has its own WhatsApp number, its own walk-in
+  switch and its own screens. For an event at one branch, that branch's owner
+  number sends **walk-in on** (and **walk-in off** after); the other branches
+  carry on as normal. The main business's order board still shows every
+  branch's orders. A branch counts towards the main business's plan, so the
+  plan needs walk-in and enough screens.
+- **A one-off event away from your branches**: add it as a branch with its
+  own number for the night, so its posters, screens and closing time are its
+  own.
 
 ## What staff see
 

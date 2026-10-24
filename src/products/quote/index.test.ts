@@ -741,7 +741,7 @@ describe("pay links", () => {
 });
 
 describe("quote product with walk-in orders", () => {
-  function walkInBot() {
+  function walkInBot(opts: { delivery?: boolean } = {}) {
     const mem = memoryOrders();
     const walk = memoryWalkIn();
     walk.settings.walkIn = true;
@@ -767,7 +767,7 @@ describe("quote product with walk-in orders", () => {
         understand: async ({ text }) =>
           /^yes$/i.test(text) ? { intent: "confirm", items: [], message: null } : { intent: "quote", items: [{ variantId: "v-card", quantity: 100 }], message: null },
       },
-      delivery,
+      ...(opts.delivery === false ? {} : { delivery }),
       renderDocument: docs.render,
       walkIn: createWalkIn({ businessId: BUSINESS, orderPrefix: "KP", store: walk.store, links }),
       log: { error() {} },
@@ -804,9 +804,33 @@ describe("quote product with walk-in orders", () => {
     expect(walk.tickets).toHaveLength(1);
   });
 
-  it("says so when the owner has closed orders", async () => {
+  it("keeps delivering to customers who haven't checked in at the venue", async () => {
+    const { product, walk, deliveryAsked } = walkInBot();
+    walk.settings.paused = true;
+    await product.handle(text("100 business cards"), ctx);
+    expect((await product.handle(text("YES"), ctx))?.text).toBe("Where should we deliver?");
+    expect(deliveryAsked).toEqual(["o1"]);
+  });
+
+  it("checks a customer in without a table, and treats every chat as walk-in when there's no delivery", async () => {
+    const { product, walk } = walkInBot();
+    expect((await product.handle(text("I'm here"), ctx))?.text).toContain("Welcome! Order here");
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(reply?.notify?.[0]?.text).toContain("New walk-in order KP-1001 from Ada (+2348012345678):");
+    expect(walk.orders.get("o1")?.tableLabel).toBeNull();
+
+    const noDelivery = walkInBot({ delivery: false });
+    await noDelivery.product.handle(text("100 business cards"), ctx);
+    noDelivery.walk.addOrder("o1", 1001);
+    expect((await noDelivery.product.handle(text("YES"), ctx))?.text).toContain("Please pay at the counter");
+  });
+
+  it("says so when the owner has closed orders at the venue", async () => {
     const { product, walk } = walkInBot();
     walk.settings.paused = true;
+    await product.handle(text("table 7"), ctx);
     expect((await product.handle(text("100 business cards"), ctx))?.text).toBe(
       "Sorry, Element House isn't taking new orders right now. Please ask a member of staff.",
     );
@@ -814,6 +838,7 @@ describe("quote product with walk-in orders", () => {
 
   it("tells the owner an order was paid at the counter", async () => {
     const { product, walk } = walkInBot();
+    await product.handle(text("I'm here"), ctx);
     await product.handle(text("100 business cards"), ctx);
     walk.addOrder("o1", 1001);
     await product.handle(text("YES"), ctx);
