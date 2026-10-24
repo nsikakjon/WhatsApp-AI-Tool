@@ -1,23 +1,35 @@
 import type { Reply } from "../../core/product.js";
 
 // What the bot says to "hi" (a welcome and how ordering works, with buttons)
-// and to "menu" or "help" (the same for customers, the command list for the
-// owner). Written in code, not by the AI, so it only offers what the
-// business has switched on.
+// and to "help" (the same for customers, the command list for the owner).
+// Written in code, not by the AI, so it only offers what the business has
+// switched on. "Menu", "price list", "rate card" and the like ask to see what
+// the business sells: the product cards when they're on, else the welcome.
 
 const GREETING =
   /^(hi+|hello+|hel+o|hey+|hiya|howdy|yo|good (morning|afternoon|evening|day)|morning|evening|how far|how are you)( (there|sir|ma|madam|boss|team|o|oh|all))?$/;
-const MENU = /^(menu|help|start|options|commands|what can you do)$/;
+const HELP = /^(help|start|options|commands|what can you do)$/;
+const LIST =
+  "(food |drinks? |bar |cocktail |lunch |dinner |breakfast |today s |todays |daily )?(menu|menus|specials|list)" +
+  "|(price|product|drinks?|wine|cocktail|service|item)s? ?list|pricelist|prices|rates|rate ?card|tariffs?" +
+  "|catalog(ue)?s?|products|services|flavou?rs|combos|packages|bill of fare|whats on the menu|what s on the menu" +
+  "|what (do|can) (you|u|una) (sell|have|offer|make)|what (you|u) (sell|have|got)|whats available|what s available" +
+  "|wetin (you|u|una) (get|dey sell|sell|dey)";
+const CATALOGUE = new RegExp(
+  `^(abeg |please |pls |plz |kindly )?((can|may) (i|we) (see|have|get) |(send|show|share|give|drop|i want|i need|i d like)( me| us)? )?` +
+    `(your |ur |the |una |ya |a )?(${LIST})( please| pls| abeg| biko)?$`,
+);
 
 const PRODUCTS_SHOWN = 8;
 
 export const QUOTE_CHOICE = "get a quote";
 export const TEAM_CHOICE = "talk to someone";
 
-/** "greeting" for a plain hi, "menu" for menu or help, null for anything else. */
-export function welcomeAsk(text: string): "greeting" | "menu" | null {
+/** "greeting" for a plain hi, "help", "catalogue" for menu or price list, null for anything else. */
+export function welcomeAsk(text: string): "greeting" | "help" | "catalogue" | null {
   const plain = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  if (MENU.test(plain)) return "menu";
+  if (HELP.test(plain)) return "help";
+  if (CATALOGUE.test(plain)) return "catalogue";
   return GREETING.test(plain) ? "greeting" : null;
 }
 
@@ -29,6 +41,8 @@ export interface CustomerWelcome {
   voiceNotes: boolean;
   delivery: boolean;
   invoices: boolean;
+  /** "menu" shows product cards. */
+  catalogue?: boolean;
   /** Someone gets told when the customer taps "Talk to someone". */
   team: boolean;
 }
@@ -49,7 +63,7 @@ export function customerWelcome(w: CustomerWelcome): Reply {
     ...(w.delivery ? ["4. Tell me where to deliver, or say *pickup* to collect it."] : []),
     ...(w.invoices ? [`${w.delivery ? 5 : 4}. You get your invoice here.`] : []),
     "",
-    "Send *menu* any time to see this again.",
+    w.catalogue ? "Send *menu* to see everything we sell, and *help* to see this again." : "Send *help* any time to see this again.",
   ].join("\n");
   return {
     text: "",

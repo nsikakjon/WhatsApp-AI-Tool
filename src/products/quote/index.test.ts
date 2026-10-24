@@ -9,6 +9,7 @@ import type { PlanGate } from "./plan.js";
 import type { Dispatch } from "./delivery/index.js";
 import { createWalkIn } from "./walkin/index.js";
 import { BUSINESS, links, memoryWalkIn } from "./walkin/testing.js";
+import { welcomeAsk } from "./welcome.js";
 
 const variants: Variant[] = [
   {
@@ -457,6 +458,50 @@ describe("welcome and menu", () => {
     expect(body).not.toContain("voice note");
     expect(body).not.toContain("invoice");
     expect((await product.handle(text("good morning"), ctx))!.buttons!.buttons).toHaveLength(1);
+  });
+
+  it("knows the words customers use for a menu or price list", () => {
+    for (const ask of ["menu", "Menu?", "food menu", "Drinks menu pls", "can I see the menu", "send me your price list", "pricelist", "Rate card",
+      "catalogue", "what do you sell?", "What's on the menu", "wetin una get", "abeg send una menu", "today's specials", "flavours", "wine list"]) {
+      expect(welcomeAsk(ask), ask).toBe("catalogue");
+    }
+    for (const other of ["2 shawarma and a coke", "menu for a wedding of 200 guests", "how much is jollof rice", "list of 50 names"]) {
+      expect(welcomeAsk(other), other).not.toBe("catalogue");
+    }
+    expect(welcomeAsk("help")).toBe("help");
+  });
+
+  it("sends the product cards for menu or price list, without asking the AI", async () => {
+    const shown: number[] = [];
+    const product = createQuoteProduct({
+      businessName: "Grill House",
+      orderPrefix: "GH",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => { throw new Error("unused"); } },
+      catalogue: {
+        ownerCommand: async () => null,
+        shortages: async () => new Map(),
+        photos: async () => [],
+        confirmed: async () => {},
+        cards: async (_v, page) => (shown.push(page), { text: "Here's what we sell.", cards: [] }),
+      },
+      log: { error() {} },
+    });
+    expect((await product.handle(text("menu"), ctx))?.text).toBe("Here's what we sell.");
+    expect((await product.handle(text("Price list please"), ctx))?.text).toBe("Here's what we sell.");
+    expect(shown).toEqual([1, 1]);
+    expect((await product.handle(text("hi"), ctx))?.buttons?.body).toContain("Send *menu* to see everything we sell");
+    expect((await product.handle({ ...text("menu"), from: OWNER }, ctx))?.text).toContain("Your owner commands:");
+  });
+
+  it("shows the welcome for menu when product cards are off", async () => {
+    const { product, seen } = setup(new Error("unused"));
+    const body = (await product.handle(text("price list"), ctx))?.buttons?.body;
+    expect(body).toContain("We offer: Flyers");
+    expect(body).toContain("Send *help* any time to see this again.");
+    expect(seen).toHaveLength(0);
   });
 
   it("gives the owner their commands on menu, and the customer view on hi", async () => {

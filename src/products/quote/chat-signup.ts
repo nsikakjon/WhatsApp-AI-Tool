@@ -142,7 +142,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           };
         }
         const reply = await next.handle(msg, ctx);
-        const welcome = welcomeAsk(text) !== null;
+        const ask = welcomeAsk(text);
+        const welcome = ask === "greeting" || ask === "help";
         if (signup?.businessId && welcome && reply) return addNote(reply, AFTER);
         if (signup || (ctx.history.length > 0 && !welcome)) return reply;
         if (!reply) return { text: INVITE };

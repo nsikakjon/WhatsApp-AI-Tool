@@ -256,7 +256,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         notify: [{ to: opts.ownerWaId, text: `${msg.contactName ?? "A customer"} (${showWaId(msg.from)}) would like to talk to someone. Please reply to them on WhatsApp.` }],
       };
     }
-    if (!welcomeAsk(text)) return null;
+    const ask = welcomeAsk(text);
+    if (!ask) return null;
+    if (ask === "catalogue" && opts.catalogue) {
+      const cards = await opts.catalogue.cards(variants, 1);
+      if (cards) return cards;
+    }
     const reply = customerWelcome({
       businessName: opts.businessName,
       customerName: msg.contactName,
@@ -264,6 +269,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       voiceNotes: opts.features ? await opts.features.has("voice_notes") : true,
       delivery: !walkIn.on && !!opts.delivery && (await deliveryOnPlan()),
       invoices: await documentsIncluded(),
+      catalogue: !!opts.catalogue,
       team: !!opts.ownerWaId,
     });
     if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
@@ -582,7 +588,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
     if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
-    if (welcomeAsk(text) === "menu") {
+    if (welcomeAsk(text) === "help" || /^menu$/i.test(text)) {
       return {
         text: ownerMenu({
           orderPrefix: opts.orderPrefix,
