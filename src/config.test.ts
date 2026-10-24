@@ -55,6 +55,14 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps walk-in orders off unless QUOTE_WALK_IN is true, and then needs the public address", () => {
+    expect(loadConfig(base).quoteWalkIn).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_WALK_IN: "true" })).toThrow("PUBLIC_URL");
+    expect(loadConfig({ ...base, QUOTE_WALK_IN: "true", PUBLIC_URL: "https://bot.example.com" }).quoteWalkIn).toEqual({
+      publicUrl: "https://bot.example.com",
+    });
+  });
+
   it("keeps delivery off unless QUOTE_DELIVERY is true, and then needs the public address", () => {
     expect(loadConfig(base).delivery).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true" })).toThrow("PUBLIC_URL");

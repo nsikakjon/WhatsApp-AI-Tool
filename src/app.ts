@@ -9,6 +9,7 @@ import { createPaymentRoutes, type PaymentRoutesDeps } from "./core/payments/rou
 import { createQuoteSetup, type QuoteSetupDeps } from "./products/quote/setup.js";
 import { createTracking, type TrackingDeps } from "./products/quote/delivery/tracking.js";
 import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
+import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -21,6 +22,7 @@ export function createApp(
   quoteSetup?: QuoteSetupDeps,
   tracking?: TrackingDeps,
   orderBoard?: BoardDeps,
+  walkInScreens?: ScreenDeps,
 ) {
   const app = new Hono();
 
@@ -55,6 +57,9 @@ export function createApp(
 
   // Each quote business's orders page, behind its own signed link; only when QUOTE_ORDER_BOARD is on.
   if (orderBoard) app.route("/", createOrderBoard(orderBoard));
+
+  // Kitchen and bar screens and receipt QR codes for walk-in orders; only when QUOTE_WALK_IN is on.
+  if (walkInScreens) app.route("/", createWalkInScreens(walkInScreens));
 
   return app;
 }

@@ -69,6 +69,7 @@ export interface OwnerMenu {
   plan: boolean;
   referral: boolean;
   delivery: boolean;
+  walkIn?: boolean;
 }
 
 export function ownerMenu(m: OwnerMenu): string {
@@ -81,6 +82,7 @@ export function ownerMenu(m: OwnerMenu): string {
     ...(m.logo ? ["• a picture captioned *logo*: your logo on invoices and receipts"] : []),
     ...(m.catalogue ? ["• *stock*: what's left of each item, and *stock 3 25* to set it", "• a photo captioned *photo T-shirts*: a product photo for quotes"] : []),
     ...(m.delivery ? ["• *delivery*: riders and delivery commands"] : []),
+    ...(m.walkIn ? ["• *walk-in*: walk-in orders, pickup screens and closing orders"] : []),
     ...(m.plan ? ["• *plan*: your plan, this month's use and upgrades"] : []),
     ...(m.referral ? ["• *referral*: your referral code"] : []),
     "",

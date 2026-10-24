@@ -43,6 +43,9 @@ import { createAiCredits, createSupabaseCreditStore } from "./products/quote/cre
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
+import { createWalkIn } from "./products/quote/walkin/index.js";
+import { createWalkInLinks } from "./products/quote/walkin/links.js";
+import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -101,9 +104,25 @@ const planCheckout = (businessId: string) =>
     : undefined;
 // Pay links on invoices (QUOTE_PAY_LINKS), for a business with a Paystack
 // subaccount: the money goes to its own bank account.
-const payLinkFor = (businessId: string, businessName: string, orderPrefix: string, subaccount: string | null | undefined) =>
+// yarnOga's fee comes from the plan (transaction_fee, migration 0048); no plan or no row, no fee.
+const payLinkFor = (
+  businessId: string,
+  businessName: string,
+  orderPrefix: string,
+  subaccount: string | null | undefined,
+  features?: PlanFeatures,
+) =>
   config.quotePayLinks && config.paystack && subaccount
-    ? orderPayLinks({ links: { createLink: (req) => payments!.createLink(req) }, businessId, businessName, orderPrefix, subaccount })
+    ? orderPayLinks({
+        links: { createLink: (req) => payments!.createLink(req) },
+        businessId,
+        businessName,
+        orderPrefix,
+        subaccount,
+        feeBasisPoints: features
+          ? async () => ((await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0)
+          : undefined,
+      })
     : undefined;
 // Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
 const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
@@ -154,6 +173,14 @@ const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
 const catalogueFor = (businessId: string, features?: PlanFeatures) =>
   config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) : undefined;
 
+// Walk-in orders, pickup screens and receipt QR codes (QUOTE_WALK_IN).
+const walkInConfig = config.activeProduct === "quote" ? config.quoteWalkIn : undefined;
+const walkInLinks = walkInConfig && createWalkInLinks(config.whatsapp.appSecret, walkInConfig.publicUrl);
+const walkInFor = (businessId: string, orderPrefix: string, features?: PlanFeatures) =>
+  walkInLinks
+    ? createWalkIn({ businessId, orderPrefix, store: createSupabaseWalkInStore(supabase, businessId), links: walkInLinks, features })
+    : undefined;
+
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
 async function numbersAllowed(mainId: string): Promise<number | null> {
   const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
@@ -163,6 +190,17 @@ async function numbersAllowed(mainId: string): Promise<number | null> {
 
 let product: Product = echoProduct;
 let mainQuoteBot: QuoteProduct | undefined;
+
+/** A business's quote bot and the number it answers on (null = main number), for work that starts outside a chat. */
+async function quoteBotFor(businessId: string): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string } | null> {
+  if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot && config.quote) {
+    return { bot: mainQuoteBot, fromNumberId: null, name: config.quote.businessName, orderPrefix: config.quote.orderPrefix };
+  }
+  if (!quoteBusinesses) return null;
+  const business = await createSupabaseBusinesses(supabase).get(businessId);
+  if (!business) return null;
+  return { bot: businessBot(business, quoteBusinesses), fromNumberId: business.phoneNumberId, name: business.name, orderPrefix: business.orderPrefix };
+}
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
   const mainFeatures = config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {};
@@ -190,7 +228,14 @@ if (config.activeProduct === "quote" && config.quote) {
         : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
-    payLink: payLinkFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.paystackSubaccount),
+    payLink: payLinkFor(
+      DEFAULT_BUSINESS_ID,
+      config.quote.businessName,
+      config.quote.orderPrefix,
+      config.quote.paystackSubaccount,
+      mainFeatures.features,
+    ),
+    walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
     plan: config.quote.plan
       ? createPlanGate({
           code: config.quote.plan,
@@ -246,7 +291,8 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
-    payLink: payLinkFor(business.id, business.name, business.orderPrefix, business.paystackSubaccount),
+    payLink: payLinkFor(business.id, business.name, business.orderPrefix, business.paystackSubaccount, features.features),
+    walkIn: walkInFor(business.id, business.orderPrefix, features.features),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
@@ -379,14 +425,12 @@ if (config.quote || quoteBusinesses) {
       ? (code) => rewardReferrer({ code, store: referrals, plans: planPayments, mainBusinessId: DEFAULT_BUSINESS_ID })
       : undefined,
   });
-  const businesses = createSupabaseBusinesses(supabase);
   // An order paid by pay link: that business's bot marks it paid, and its messages come from the business's number.
-  paidHandlers.quote = withOrderPayments(planPaid, async (businessId, orderNumber) => {
-    if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot) return mainQuoteBot.orderPaid(orderNumber);
-    const business = quoteBusinesses ? await businesses.get(businessId) : null;
-    if (!business || !quoteBusinesses) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
-    const notes = await businessBot(business, quoteBusinesses).orderPaid(orderNumber);
-    return notes.map((n) => ({ ...n, fromNumberId: business.phoneNumberId ?? undefined }));
+  paidHandlers.quote = withOrderPayments(planPaid, async (businessId, orderNumber, feeKobo) => {
+    const found = await quoteBotFor(businessId);
+    if (!found) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
+    const notes = await found.bot.orderPaid(orderNumber, { how: "online", feeKobo });
+    return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
   });
   productNumbers.quote = config.whatsapp.phoneNumberId;
 }
@@ -523,6 +567,30 @@ const app = createApp({
           store: createSupabaseBoardStore(supabase, ids, { withDelivery }),
           features: planFeatures(id).features,
         };
+      },
+    }
+  : undefined, walkInConfig
+  ? {
+      secret: config.whatsapp.appSecret,
+      async business(id) {
+        const found = await quoteBotFor(id);
+        if (!found) return null;
+        return {
+          name: found.name,
+          orderPrefix: found.orderPrefix,
+          store: createSupabaseWalkInStore(supabase, id),
+          fromNumberId: found.fromNumberId,
+          paidAtCounter: (orderNumber) => found.bot.orderPaid(orderNumber, { how: "counter" }),
+        };
+      },
+      send: async (notices, fromNumberId) => {
+        for (const note of notices) {
+          try {
+            await sendNotice({ store, whatsapp }, note, fromNumberId ?? undefined);
+          } catch (err) {
+            console.error(`Failed to send a walk-in update to ...${note.to.slice(-4)}:`, err);
+          }
+        }
       },
     }
   : undefined);
@@ -692,6 +760,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
   );
 });
