@@ -54,3 +54,17 @@ export async function phoneDetails(
   );
   return { displayNumber: data.display_phone_number, verifiedName: data.verified_name };
 }
+
+/**
+ * Puts a brand-new number on the Cloud API. Numbers that stay in the WhatsApp
+ * Business app (coexistence) must skip this. The PIN becomes the number's
+ * two-step verification PIN.
+ */
+export async function registerNumber(doFetch: typeof fetch, app: MetaApp, phoneNumberId: string, token: string, pin: string) {
+  const res = await doFetch(`https://graph.facebook.com/${app.graphApiVersion}/${encodeURIComponent(phoneNumberId)}/register`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", pin }),
+  });
+  await graphJson(res, "Registering the number");
+}

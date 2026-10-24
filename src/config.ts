@@ -200,12 +200,11 @@ export interface Config {
     dailyLimit: number;
   };
   /**
-   * The sign-up page at /signup where a business connects its WhatsApp number
-   * through Meta's pop-up (Embedded Signup), e.g. for coexistence. Only set
-   * when SIGNUP_PASSWORD is: without a password the page is switched off.
+   * The public sign-up page at /signup where a business connects its WhatsApp
+   * number through Meta's pop-up (Embedded Signup). Only set when
+   * META_SIGNUP_CONFIG_ID is.
    */
   signup?: {
-    password: string;
     /** The Meta app's App ID (the same app as the webhook and WHATSAPP_APP_SECRET). */
     appId: string;
     /** The Facebook Login for Business configuration made for Embedded Signup. */
@@ -418,11 +417,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           dailyLimit: wholeNumber(env, "REPLY_GENERATOR_DAILY_LIMIT", 200),
         }
       : undefined,
-    signup: env.SIGNUP_PASSWORD
+    signup: env.META_SIGNUP_CONFIG_ID?.trim()
       ? {
-          password: env.SIGNUP_PASSWORD,
           appId: required(env, "META_APP_ID"),
-          configId: required(env, "META_SIGNUP_CONFIG_ID"),
+          configId: env.META_SIGNUP_CONFIG_ID.trim(),
         }
       : undefined,
     paystack: paystackSettings(env),
