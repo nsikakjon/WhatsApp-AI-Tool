@@ -103,25 +103,34 @@ In Railway > **Variables**, add:
 
 | Variable | Value |
 | --- | --- |
-| `SIGNUP_PASSWORD` | A password you invent for the page |
 | `META_APP_ID` | Meta app > **App settings** > **Basic** > **App ID** |
 | `META_SIGNUP_CONFIG_ID` | The Configuration ID from step 4 |
 
-While `SIGNUP_PASSWORD` is empty the page stays switched off, and nothing
+While `META_SIGNUP_CONFIG_ID` is empty the page stays switched off, and nothing
 changes for the bots that are already live.
+
+The page has no password, so Meta's reviewers (and clients) can use it
+straight away. That's safe because every number connected through it is added
+on `/quote-setup` as a **switched-off** business: the bot stays quiet on it
+until you add a price list and tick "Answer customers". Each visitor can finish
+5 sign-ups a day, and 50 can finish in total each day.
 
 ### Step 6: Connect the number
 
-1. On a computer, open `https://<your-railway-address>/signup` and type the
-   password (any username works).
-2. Click **Connect my WhatsApp Business app**, log in with Facebook and choose
-   your business.
+1. On a computer, open `https://<your-railway-address>/signup`.
+2. Choose **It's on the WhatsApp Business app**, click **Connect with
+   WhatsApp**, log in with Facebook and choose your business.
 3. Choose the option to **connect your existing WhatsApp Business app**.
 4. Meta shows a QR code. Scan it with the WhatsApp Business app on the phone
    with that number. The app guides you and may ask whether to share your chat
    history.
-5. The page then shows the number's **Phone number ID**. Send it to Claude so
-   the right bot is switched on for that number.
+5. The page then shows the number and its **Phone number ID**, and the
+   business appears, switched off, on `/quote-setup`. Add its price list there
+   and switch it on.
+
+For a brand-new number (a SIM that isn't on WhatsApp), choose **It's a new
+number** instead: Meta sends a code to the number, and the page registers it
+and shows its new two-step PIN once.
 6. In **Business Settings** > **System users**, give the `whatsapp-bot` system
    user access to the new WhatsApp account (**Assign assets**, full control),
    so the bot's key can send messages from that number.

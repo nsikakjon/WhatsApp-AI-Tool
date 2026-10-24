@@ -38,7 +38,7 @@ export function createApp(
   // The free reply generator on yarnoga.com; switched off unless REPLY_GENERATOR_ENABLED is set.
   if (generator) app.route("/tools/reply-generator", createReplyGenerator(generator));
 
-  // Where a business connects its WhatsApp number; switched off unless SIGNUP_PASSWORD is set.
+  // Where a business connects its WhatsApp number; switched off unless META_SIGNUP_CONFIG_ID is set.
   if (signup) app.route("/signup", createSignup(signup));
 
   // The staff inbox web page, only when INBOX_PASSWORD is set.

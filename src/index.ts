@@ -17,6 +17,7 @@ import {
   createSupabaseOrders,
   createSupabaseSetup,
   DEFAULT_BUSINESS_ID,
+  NumberTakenError,
   type QuoteBusiness,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
@@ -444,7 +445,6 @@ const app = createApp({
     }
   : undefined, config.signup
   ? {
-      password: config.signup.password,
       app: {
         appId: config.signup.appId,
         appSecret: config.whatsapp.appSecret,
@@ -452,6 +452,28 @@ const app = createApp({
       },
       configId: config.signup.configId,
       store: createSupabaseConnectionStore(supabase),
+      // A newly connected number becomes a switched-off quote business, so it
+      // shows on /quote-setup and the bot stays quiet on it until it's set up.
+      onConnected: quoteBusinesses
+        ? async (c) => {
+            try {
+              await createSupabaseSetup(supabase).createBusiness({
+                name: c.verifiedName ?? c.displayNumber ?? "New business",
+                description: null,
+                orderPrefix: "ORD",
+                phoneNumberId: c.phoneNumberId,
+                ownerWaId: null,
+                businessDetails: null,
+                paymentDetails: null,
+                active: false,
+              });
+              return true;
+            } catch (err) {
+              if (err instanceof NumberTakenError) return false;
+              throw err;
+            }
+          }
+        : undefined,
     }
   : undefined, config.inbox
   ? {
