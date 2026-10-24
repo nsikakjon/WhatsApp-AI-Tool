@@ -21,6 +21,8 @@ export interface NewCheckout {
   waId: string;
   /** Splits the payment to this subaccount, which bears Paystack's fee. */
   subaccount?: string;
+  /** With a subaccount: the kobo that stay with our main account (Paystack's transaction_charge). */
+  transactionChargeKobo?: number;
 }
 
 /** What Paystack says about one transaction. */
@@ -75,6 +77,7 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
           email: p.email,
           callback_url: p.callbackUrl,
           ...(p.subaccount ? { subaccount: p.subaccount, bearer: "subaccount" } : {}),
+          ...(p.subaccount && p.transactionChargeKobo ? { transaction_charge: p.transactionChargeKobo } : {}),
           metadata: {
             wa_id: p.waId,
             custom_fields: [

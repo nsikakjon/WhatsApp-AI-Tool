@@ -15,8 +15,14 @@ subaccount: one per business, holding only its bank name and account number.
   other people's sales.
 - A store doesn't need its own Paystack account, and nobody shares secret keys.
 - Paystack's fee (1.5% + ₦100, at most ₦2,000 a payment) comes out of the
-  store's share. If yarnOga ever takes a cut, it's set per subaccount in
-  Paystack ("Percentage charge"); no code changes.
+  store's share.
+- yarnOga's fee (2.5% of each pay-link payment, from the plan's
+  `transaction_fee` row, migration 0048) stays in yarnOga's account when
+  Paystack splits the payment. The customer pays the order total and nothing
+  more; the store gets the rest, less Paystack's fee. The owner's "paid online"
+  message says how much our fee was. It overrides any "Percentage charge" set
+  on the subaccount in Paystack, so leave that at 0. Cash and transfers
+  straight to the store's bank never pass through us, so carry no fee.
 - Refunds and disputes go through yarnOga's Paystack account, so only add a
   subaccount for businesses we've onboarded.
 
