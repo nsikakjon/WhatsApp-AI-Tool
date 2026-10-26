@@ -7,6 +7,7 @@ import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
 import { isPhoto } from "./prices.js";
+import { cleanHours, DAYS, type BusinessAbout, type Day } from "../../products/quote/about.js";
 import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
 
 // Settings (owners only): business details and logo, bank accounts (with
@@ -35,12 +36,13 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
   app.get("/settings", async (c) => {
     const biz = c.get("biz");
     const user = c.get("user");
-    const [info, banks, alerts, team, logo] = await Promise.all([
+    const [info, banks, alerts, team, logo, about] = await Promise.all([
       biz.data.info(),
       biz.data.banks().catch(() => []),
       biz.data.alertNumbers().catch(() => []),
       ctx.deps.users.team(biz.id).catch(() => []),
       biz.logo().catch(() => null),
+      biz.data.about ? biz.data.about().catch(() => null) : Promise.resolve(null),
     ]);
     const v = (x: string | null | undefined) => esc(x ?? "");
     const envNote = biz.fromEnv
@@ -115,6 +117,8 @@ ${
 <label>Owner's number <span class="muted">(gets new-order alerts and owner commands)</span><input name="owner" inputmode="tel" value="${v(info?.ownerWaId ? showWaId(info.ownerWaId) : "")}"${biz.fromEnv ? " disabled" : ""}></label></div>
 <label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/app/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
 <div class="actions"><button>Save details</button></div></form>
+
+${aboutForm(about)}
 
 <h2 id="language">Language and currency</h2>
 <form method="post" action="/app/settings/language" class="card">
@@ -200,6 +204,20 @@ ${feeNote}
       await biz.saveLogo(data, type);
     }
     return done(c, "saved", "#business");
+  });
+
+  app.post("/settings/about", async (c) => {
+    const biz = c.get("biz");
+    if (!biz.data.saveAbout) return done(c, "bad", "#about");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const raw: Record<string, [string, string]> = {};
+    for (const day of DAYS) {
+      if (field(form, `${day}_open`, 4) !== "on") continue;
+      raw[day] = [field(form, `${day}_from`, 5), field(form, `${day}_to`, 5)];
+    }
+    await biz.data.saveAbout(field(form, "about", 1500) || null, cleanHours(raw));
+    ctx.log.info(`Owner app: ${biz.name} saved its About section`);
+    return done(c, "saved", "#about");
   });
 
   app.post("/settings/language", async (c) => {
@@ -306,4 +324,28 @@ ${feeNote}
 
 function option(value: string, label: string, current: string): string {
   return `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`;
+}
+
+const DAY_LABELS: Record<Day, string> = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+
+/** "About your business": what the bot may tell customers, and opening hours. */
+function aboutForm(about: BusinessAbout | null): string {
+  const hours = about?.hours ?? null;
+  const rows = (["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as Day[])
+    .map((d) => {
+      const slot = hours?.[d];
+      // With no hours saved yet, suggest a usual week so the owner only adjusts it.
+      const open = hours ? Boolean(slot) : d !== "sun";
+      const [from, to] = slot ?? (d === "sat" ? ["10:00", "16:00"] : ["08:00", "18:00"]);
+      return `<tr><td><label class="check" style="margin:0"><input type="checkbox" name="${d}_open" value="on"${open ? " checked" : ""}> ${DAY_LABELS[d]}</label></td>
+<td><input type="time" name="${d}_from" value="${from}" aria-label="${DAY_LABELS[d]} opens"></td><td><input type="time" name="${d}_to" value="${to}" aria-label="${DAY_LABELS[d]} closes"></td></tr>`;
+    })
+    .join("");
+  return `<h2 id="about">About your business</h2>
+<form method="post" action="/app/settings/about" class="card">
+<label>What customers often ask <span class="muted">(where you are, landmarks, delivery days, returns, how long orders take; don't put prices here, they come from your price list)</span>
+<textarea name="about" maxlength="1500" rows="6" placeholder="e.g. We're at 12 Allen Avenue, Ikeja, opposite the filling station. Orders are ready in 2 working days. We deliver Monday to Saturday. Returns within 7 days with the receipt.">${esc(about?.text ?? "")}</textarea></label>
+<p style="margin:14px 0 6px"><b>Opening hours</b> <span class="muted small">(Lagos time; outside these hours the bot tells customers when you open again)</span></p>
+<div class="scroll"><table class="hours"><tr><th>Open on</th><th>From</th><th>To</th></tr>${rows}</table></div>
+<div class="actions"><button>Save</button></div></form>`;
 }

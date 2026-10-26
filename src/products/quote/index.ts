@@ -1,3 +1,4 @@
+import { aboutForAi, nextOpenText, openState, type BusinessAbout } from "./about.js";
 import { guessLanguage, type Lang } from "../../core/i18n.js";
 import { formatMoney, type Currency } from "../../core/money.js";
 import { QUOTE_TEXTS, type QuoteTexts } from "./texts.js";
@@ -75,6 +76,8 @@ export interface QuoteProductOptions {
   branding?: BrandingStore;
   /** Address or phone printed under the business name on invoices and receipts. */
   businessDetails?: string;
+  /** What the owner wrote about the business and its opening hours (migration 0054), read fresh every minute. */
+  about?: () => Promise<BusinessAbout | null>;
   /** Bank details printed on invoices, e.g. "GTBank 0123456789, Example Ltd". */
   paymentDetails?: string;
   /** Delivery addresses, fees and riders. Without it, the team arranges delivery themselves. */
@@ -206,6 +209,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         history: ctx.history,
         catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
         language: lang,
+        about: aboutForAi(opts.about ? await opts.about() : null),
       };
       let understanding;
       let simple = !credit.useAi;
@@ -232,6 +236,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           break;
         case "confirm":
           reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang);
+          // Out of hours, the customer knows the order waits for opening time.
+          if (!walkIn.on) await addClosedNote(reply, lang);
           break;
         case "cancel":
           reply = await cancel(ctx.contactId, t);
@@ -300,8 +306,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const t = QUOTE_TEXTS[lang];
     if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants, t) };
     if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
+      const closed = await closedNote(lang);
       return {
-        text: t.teamNotified(opts.businessName),
+        text: closed ? `${t.teamNotified(opts.businessName)}\n\n${closed}` : t.teamNotified(opts.businessName),
         notify: [{ to: opts.ownerWaId, text: own.talkRequest(msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }],
       };
     }
@@ -324,8 +331,24 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     });
     if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
       reply.buttons.body += `\n\n${own.ownerHint()}`;
+    } else if (reply.buttons && !walkIn.on) {
+      const closed = await closedNote(lang);
+      if (closed) reply.buttons.body += `\n\n${closed}`;
     }
     return reply;
+  }
+
+  /** "We're closed right now and open again tomorrow at 08:00", or null when open or no hours are set. */
+  async function closedNote(lang: Lang): Promise<string | null> {
+    const about = opts.about ? await opts.about() : null;
+    const state = openState(about?.hours ?? null, new Date());
+    if (!state || state.open) return null;
+    return QUOTE_TEXTS[lang].closedNow(state.next ? nextOpenText(state.next, lang) : null);
+  }
+
+  async function addClosedNote(reply: Reply, lang: Lang): Promise<void> {
+    const closed = await closedNote(lang);
+    if (closed) reply.text = reply.text ? `${reply.text}\n\n${closed}` : closed;
   }
 
   function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null, pickup: Pickup | null, t: QuoteTexts): Notice {

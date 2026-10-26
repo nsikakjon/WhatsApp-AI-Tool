@@ -28,6 +28,7 @@ import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quot
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
+import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createDispatch, type Dispatch, type DispatchOptions } from "./products/quote/delivery/index.js";
@@ -351,6 +352,7 @@ if (config.activeProduct === "quote" && config.quote) {
     delivery: mainDispatch,
     language: config.quote.language,
     currency: config.quote.currency,
+    about: cachedAbout(createSupabaseAbout(supabase, DEFAULT_BUSINESS_ID)),
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
@@ -435,6 +437,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     delivery: dispatch,
     language: business.language,
     currency: business.currency,
+    about: cachedAbout(createSupabaseAbout(supabase, business.id)),
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
@@ -831,6 +834,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                 orders: memoryOrderStore(),
                 language,
                 currency,
+                about: createSupabaseAbout(supabase, id),
                 ai: createClaudeUnderstander({
                   apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
                   model: main ? config.quote!.model : quoteBusinesses!.model,

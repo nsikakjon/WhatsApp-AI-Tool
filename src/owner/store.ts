@@ -1,3 +1,4 @@
+import { createSupabaseAbout, type BusinessAbout, type OpeningHours } from "../products/quote/about.js";
 import type { Lang } from "../core/i18n.js";
 import type { Currency } from "../core/money.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -165,6 +166,9 @@ export interface BusinessInfo {
 export interface BusinessData {
   info(): Promise<BusinessInfo | null>;
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
+  /** What the owner wrote about the business and its opening hours (migration 0054). */
+  about?(): Promise<BusinessAbout | null>;
+  saveAbout?(text: string | null, hours: OpeningHours | null): Promise<void>;
   /** The bot's language, the currency prices are in, and voice replies (migration 0051). */
   saveLanguage(settings: { language: Lang; currency: Currency; voiceReplies: boolean }): Promise<void>;
   /** A new key for the Google Sheets link; the old link stops working. */
@@ -567,6 +571,11 @@ export function createSupabaseBusinessData(
         })
         .eq("id", id);
       if (error) throw new Error(`save business info failed: ${error.message}`);
+    },
+    about: createSupabaseAbout(db, id),
+    async saveAbout(text, hours) {
+      const { error } = await db.from("quote_businesses").update({ about: text, opening_hours: hours, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw new Error(`save about failed: ${error.message}`);
     },
     async saveLanguage(settings) {
       const { error } = await db

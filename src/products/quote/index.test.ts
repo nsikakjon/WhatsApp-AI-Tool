@@ -963,3 +963,24 @@ describe("payment reminders", () => {
     expect(await product.paymentReminder(1001, 2)).toBeNull();
   });
 });
+
+describe("about and opening hours", () => {
+  it("passes the About section to the AI and says when the shop is closed", async () => {
+    const seen: Array<{ about?: string | null }> = [];
+    const nearlyNever = { mon: ["00:00", "00:01"], tue: ["00:00", "00:01"], wed: ["00:00", "00:01"], thu: ["00:00", "00:01"], fri: ["00:00", "00:01"], sat: ["00:00", "00:01"], sun: ["00:00", "00:01"] } as const;
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (input) => (seen.push(input), { intent: "other", items: [], message: "We're opposite the filling station." }) },
+      about: async () => ({ text: "Opposite the filling station.", hours: { ...nearlyNever } as never }),
+      log: { error() {} },
+    });
+    await product.handle(text("where are you located?"), ctx);
+    expect(seen[0]?.about).toContain("Opposite the filling station.");
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("We're closed right now and open again");
+  });
+});

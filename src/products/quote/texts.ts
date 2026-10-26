@@ -18,6 +18,8 @@ export interface QuoteTexts {
   noPriceList(business: string): string;
   didntCatch(): string;
   teamNotified(business: string): string;
+  /** Added when the business is closed: `when` is like "tomorrow at 08:00". */
+  closedNow(when: string | null): string;
   closed(business: string): string;
   minimum(item: string, min: number): string;
   teamWillPrice(items: string): string;
@@ -95,6 +97,7 @@ const en: QuoteTexts = {
   noPriceList: (b) => `Thanks for messaging ${b}! Our price list isn't online yet, so someone from the team will get back to you.`,
   didntCatch: () => "Sorry, I didn't catch that. Could you tell me what you'd like and how many?",
   teamNotified: (b) => `I've let the ${b} team know. Someone will reply to you here shortly.`,
+  closedNow: (when) => `🕗 We're closed right now${when ? ` and open again ${when}` : ""}. You can still order here; the team will take it from there when we open.`,
   closed: (b) => `Sorry, ${b} isn't taking new orders right now. Please ask a member of staff.`,
   minimum: (item, min) => `${item}: the minimum order is ${min}.`,
   teamWillPrice: (items) => `The team will send you a price for: ${items}.`,
@@ -196,6 +199,7 @@ const fr: QuoteTexts = {
   noPriceList: (b) => `Merci d'avoir écrit à ${b} ! Notre liste de prix n'est pas encore en ligne : quelqu'un de l'équipe va vous répondre.`,
   didntCatch: () => "Désolé, je n'ai pas bien compris. Pouvez-vous me dire ce que vous voulez et en quelle quantité ?",
   teamNotified: (b) => `J'ai prévenu l'équipe de ${b}. Quelqu'un va vous répondre ici très vite.`,
+  closedNow: (when) => `🕗 Nous sommes fermés pour le moment${when ? ` et rouvrons ${when}` : ""}. Vous pouvez quand même commander ici ; l'équipe s'en occupera à l'ouverture.`,
   closed: (b) => `Désolé, ${b} ne prend pas de nouvelles commandes pour le moment. Adressez-vous à un membre du personnel.`,
   minimum: (item, min) => `${item} : la commande minimum est de ${min}.`,
   teamWillPrice: (items) => `L'équipe va vous envoyer un prix pour : ${items}.`,
