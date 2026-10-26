@@ -42,7 +42,10 @@ export type PlanFeature =
   | "bot_messages"
   | "walk_in"
   | "stations"
-  | "transaction_fee";
+  | "transaction_fee"
+  /** The most yarnOga's fee can be on one payment, in kobo (naira) or centimes (CFA francs), migration 0052. */
+  | "transaction_fee_cap_ngn"
+  | "transaction_fee_cap_cfa";
 
 export interface FeatureRow {
   included: boolean;

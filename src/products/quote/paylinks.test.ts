@@ -21,6 +21,7 @@ describe("order pay links", () => {
       product: "quote",
       waId: "2348012345678",
       amountKobo: 1_500_000,
+      currency: "NGN",
       purpose: { kind: "order", businessId: "b2", orderNumber: 1010 },
       title: "Demo Shop order DEMO-1010",
       subaccount: "ACCT_abc",
@@ -64,5 +65,28 @@ describe("order pay links", () => {
     expect(transactionFeeKobo(10_001, 250)).toBe(250);
     expect(transactionFeeKobo(10_020, 250)).toBe(251);
     expect(transactionFeeKobo(1_500_000, 0)).toBe(0);
+  });
+
+  it("caps yarnOga's 2.5% at N2,000, or 800 FCFA in whole francs", () => {
+    expect(transactionFeeKobo(1_500_000, 250, 200_000)).toBe(37_500); // N15,000 -> N375
+    expect(transactionFeeKobo(20_000_000, 250, 200_000)).toBe(200_000); // N200,000 -> capped at N2,000
+    expect(transactionFeeKobo(1_000_000, 250, 80_000, "XOF")).toBe(25_000); // 10 000 F -> 250 F
+    expect(transactionFeeKobo(5_000_000, 250, 80_000, "XOF")).toBe(80_000); // 50 000 F -> capped at 800 F
+    expect(transactionFeeKobo(1_234_500, 250, 80_000, "XOF")).toBe(30_800); // 308.6 F -> 308 F
+  });
+
+  it("asks for a CFA franc link to the business's Flutterwave subaccount, with the capped fee", async () => {
+    const createLink = vi.fn(async () => ({ url: "https://checkout.flutterwave.com/v3/hosted/pay/x", amountKobo: 5_000_000, promo: null }));
+    const link = orderPayLinks({
+      links: { createLink },
+      businessId: "b3",
+      businessName: "Chez Awa",
+      orderPrefix: "CA",
+      subaccount: "RS_ABC123",
+      currency: "XOF",
+      feeBasisPoints: async () => 250,
+    });
+    await link({ id: "o1", orderNumber: 1001, totalKobo: 5_000_000, lines: [] }, "2250712345678");
+    expect(createLink).toHaveBeenCalledWith(expect.objectContaining({ currency: "XOF", subaccount: "RS_ABC123", platformFeeKobo: 80_000 }));
   });
 });

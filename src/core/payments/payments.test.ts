@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createPayments, type PaidHandler } from "./payments.js";
+import { createFlutterwaveClient, isValidFlutterwaveHash } from "./flutterwave.js";
 import { createPaystackClient, isValidPaystackSignature, type PaystackTransaction } from "./paystack.js";
 import { createPaymentRoutes } from "./routes.js";
 import type { Payment, PaymentStore } from "./store.js";
@@ -254,5 +255,91 @@ describe("payment routes", () => {
     expect(await (await app.request(`/payments/done?reference=${ref}`)).text()).toContain("Payment received");
     expect(await (await app.request("/payments/done?reference=<script>")).text()).toContain("wasn't completed");
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Flutterwave (CFA francs)", () => {
+  const HASH = "flw-secret-hash-1234567890";
+
+  function cfaSetup(tx: Partial<{ status: string; amountMinor: number; currency: string }> = {}) {
+    const { store, rows } = memoryStore();
+    const flutterwave = {
+      initialize: vi.fn(async (p: { reference: string }) => `https://checkout.flutterwave.com/pay/${p.reference}`),
+      verify: vi.fn(async (reference: string) => ({
+        id: "88001",
+        reference,
+        status: "success",
+        amountMinor: rows.find((r) => r.reference === reference)?.amountKobo ?? 0,
+        currency: "XOF",
+        ...tx,
+      })),
+    };
+    const handler = vi.fn(async (p: Payment) => [{ to: p.waId, text: "Merci" }]);
+    const payments = createPayments({
+      flutterwave,
+      store,
+      callbackUrl: "https://bot.example.com/payments/done",
+      customerEmail: "payments@example.com",
+      onPaid: { quote: handler },
+      send: vi.fn(async () => {}),
+      log: silent,
+    });
+    return { payments, flutterwave, rows, handler };
+  }
+  const cfa = { product: "quote", waId: "2250712345678", amountKobo: 5_000_000, currency: "XOF" as const, purpose: { kind: "order" }, title: "Chez Awa CA-1001" };
+
+  it("makes CFA links on Flutterwave and confirms them once, checking currency and amount", async () => {
+    const { payments, flutterwave, rows, handler } = cfaSetup();
+    const link = await payments.createLink({ ...cfa, subaccount: "RS_ABC", platformFeeKobo: 80_000 });
+    expect(link.url).toContain("checkout.flutterwave.com");
+    expect(rows[0]).toMatchObject({ currency: "XOF", provider: "flutterwave" });
+    expect(flutterwave.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountMinor: 5_000_000, currency: "XOF", subaccount: "RS_ABC", platformFeeMinor: 80_000 }));
+    expect(await payments.confirm(rows[0]!.reference)).toBe("paid");
+    expect(await payments.confirm(rows[0]!.reference)).toBe("already-paid");
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("won't activate a payment in the wrong currency or for less", async () => {
+    const short = cfaSetup({ amountMinor: 100 });
+    await short.payments.createLink(cfa);
+    expect(await short.payments.confirm(short.rows[0]!.reference)).toBe("not-paid");
+    const naira = cfaSetup({ currency: "NGN" });
+    await naira.payments.createLink(cfa);
+    expect(await naira.payments.confirm(naira.rows[0]!.reference)).toBe("not-paid");
+  });
+
+  it("needs Flutterwave set up for CFA and Paystack for naira", async () => {
+    const { payments } = cfaSetup();
+    await expect(payments.createLink({ ...cfa, currency: undefined })).rejects.toThrow("Paystack");
+  });
+
+  it("rejects webhooks without the secret hash, and confirms the rest with Flutterwave", async () => {
+    const { payments, rows, handler } = cfaSetup();
+    await payments.createLink(cfa);
+    const app = createPaymentRoutes({ payments, flutterwaveHash: HASH, log: silent });
+    const body = JSON.stringify({ event: "charge.completed", data: { tx_ref: rows[0]!.reference, status: "successful" } });
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": "wrong" } })).status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": HASH } })).status).toBe(200);
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": HASH } })).status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    const page = await (await app.request(`/payments/done?status=successful&tx_ref=${rows[0]!.reference}&transaction_id=88001`)).text();
+    expect(page).toContain("Paiement reçu");
+  });
+
+  it("sends Flutterwave whole francs and reads them back as hundredths", async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url.includes("verify_by_reference")
+        ? Response.json({ status: "success", data: { id: 88001, tx_ref: "yarnoga-quote-x", status: "successful", amount: 50000, currency: "XOF" } })
+        : Response.json({ status: "success", data: { link: "https://checkout.flutterwave.com/pay/x" } }),
+    );
+    const client = createFlutterwaveClient({ secretKey: "FLWSECK_TEST-abc", secretHash: HASH }, fetch as unknown as typeof globalThis.fetch);
+    await client.initialize({ reference: "yarnoga-quote-x", amountMinor: 5_000_000, currency: "XOF", email: "p@example.com", callbackUrl: "https://x/done", description: "Order", waId: "2250712345678", subaccount: "RS_ABC", platformFeeMinor: 80_000 });
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent).toMatchObject({ amount: 50000, currency: "XOF", payment_options: "mobilemoneyfranco,card", subaccounts: [{ id: "RS_ABC", transaction_charge_type: "flat", transaction_charge: 800 }] });
+    expect(await client.verify("yarnoga-quote-x")).toMatchObject({ status: "success", amountMinor: 5_000_000, currency: "XOF" });
+    await expect(client.initialize({ reference: "r", amountMinor: 150, currency: "XOF", email: "e", callbackUrl: "c", description: "d", waId: "1" })).rejects.toThrow("whole francs");
+    expect(isValidFlutterwaveHash(HASH, HASH)).toBe(true);
+    expect(isValidFlutterwaveHash(undefined, HASH)).toBe(false);
   });
 });

@@ -47,7 +47,7 @@ export interface AppBusiness {
   /** Bot messages sent this month and the plan's allowance (null = no cap). */
   botMessages?(): Promise<{ sent: number; limit: number | null } | null>;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
-  payLinks?: { on: boolean; feeBasisPoints(): Promise<number> };
+  payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }
 
 /** Banks from Paystack, to pick from and check account names. Optional. */

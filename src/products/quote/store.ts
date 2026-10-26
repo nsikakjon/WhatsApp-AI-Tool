@@ -35,6 +35,8 @@ export interface QuoteBusiness {
   branchOf?: string | null;
   /** Where pay links on its invoices pay out (migration 0045): a Paystack subaccount code, ACCT_... */
   paystackSubaccount?: string | null;
+  /** Where CFA franc pay links pay out (migration 0052): a Flutterwave subaccount ID, RS_... */
+  flutterwaveSubaccount?: string | null;
   /** The language its owner messages and invoices use, and customers get when theirs isn't clear (migration 0051). */
   language?: Lang;
   /** The currency its prices are in (migration 0051). */
@@ -118,6 +120,7 @@ type BusinessRow = {
   active: boolean;
   branch_of?: string | null;
   paystack_subaccount?: string | null;
+  flutterwave_subaccount?: string | null;
   language?: string | null;
   currency?: string | null;
   voice_replies?: boolean | null;
@@ -141,6 +144,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     active: row.active,
     branchOf: row.branch_of ?? null,
     paystackSubaccount: row.paystack_subaccount ?? null,
+    flutterwaveSubaccount: row.flutterwave_subaccount ?? null,
     language: isLang(row.language) ? row.language : "en",
     currency: isCurrency(row.currency) ? row.currency : "NGN",
     voiceReplies: row.voice_replies === true,

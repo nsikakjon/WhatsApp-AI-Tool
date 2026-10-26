@@ -37,6 +37,19 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_CURRENCY: "USD" })).toThrow("QUOTE_CURRENCY");
   });
 
+  it("switches Flutterwave on with its secret key and hash", () => {
+    expect(loadConfig(base).flutterwave).toBeUndefined();
+    const env = { ...base, FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-abc-X", PUBLIC_URL: "https://bot.example.com/", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" };
+    expect(() => loadConfig(env)).toThrow("FLUTTERWAVE_SECRET_HASH");
+    expect(loadConfig({ ...env, FLUTTERWAVE_SECRET_HASH: "a-long-secret-hash" }).flutterwave).toEqual({
+      secretKey: "FLWSECK_TEST-abc-X",
+      secretHash: "a-long-secret-hash",
+      publicUrl: "https://bot.example.com",
+      customerEmail: "p@example.com",
+    });
+    expect(() => loadConfig({ ...env, FLUTTERWAVE_SECRET_KEY: "FLWPUBK-abc", FLUTTERWAVE_SECRET_HASH: "a-long-secret-hash" })).toThrow("secret key");
+  });
+
   it("keeps broadcasts off unless BROADCASTS_ENABLED is true, and then needs a template", () => {
     expect(loadConfig(base).broadcasts).toBeUndefined();
     expect(() => loadConfig({ ...base, BROADCASTS_ENABLED: "true" })).toThrow("BROADCAST_TEMPLATE_NAME");
