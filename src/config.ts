@@ -271,8 +271,11 @@ export interface Config {
    * CFA franc payments (Mobile Money and cards) through Flutterwave. Only set
    * when FLUTTERWAVE_SECRET_KEY is.
    */
-  /** Text-to-speech for voice replies (Google Cloud). Only set when GOOGLE_TTS_API_KEY is. */
-  tts?: { apiKey: string; voices: { fr?: string; en?: string } };
+  /**
+   * Text-to-speech for voice replies: Azure (AZURE_SPEECH_KEY and
+   * AZURE_SPEECH_REGION) when set, otherwise Google (GOOGLE_TTS_API_KEY).
+   */
+  tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
   flutterwave?: {
     secretKey: string;
     /** The secret hash set in Flutterwave > Settings > Webhooks; it proves a webhook came from Flutterwave. */
@@ -508,12 +511,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     paystack: paystackSettings(env),
     flutterwave: flutterwaveSettings(env),
-    tts: env.GOOGLE_TTS_API_KEY?.trim()
-      ? {
-          apiKey: env.GOOGLE_TTS_API_KEY.trim(),
-          voices: { fr: env.GOOGLE_TTS_VOICE_FR?.trim() || undefined, en: env.GOOGLE_TTS_VOICE_EN?.trim() || undefined },
-        }
-      : undefined,
+    tts: ttsSettings(env),
   };
 }
 
@@ -562,6 +560,29 @@ function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
   if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
   return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
+}
+
+function ttsSettings(env: NodeJS.ProcessEnv): Config["tts"] {
+  const azureKey = env.AZURE_SPEECH_KEY?.trim();
+  if (azureKey) {
+    const region = env.AZURE_SPEECH_REGION?.trim().toLowerCase().replace(/\s+/g, "");
+    if (!region || !/^[a-z0-9]+$/.test(region)) {
+      throw new Error("AZURE_SPEECH_REGION must be set to your Speech resource's region, e.g. westeurope (Azure portal > your Speech resource > Keys and Endpoint)");
+    }
+    return {
+      provider: "azure",
+      apiKey: azureKey,
+      region,
+      voices: { fr: env.AZURE_TTS_VOICE_FR?.trim() || undefined, en: env.AZURE_TTS_VOICE_EN?.trim() || undefined },
+    };
+  }
+  const googleKey = env.GOOGLE_TTS_API_KEY?.trim();
+  if (!googleKey) return undefined;
+  return {
+    provider: "google",
+    apiKey: googleKey,
+    voices: { fr: env.GOOGLE_TTS_VOICE_FR?.trim() || undefined, en: env.GOOGLE_TTS_VOICE_EN?.trim() || undefined },
+  };
 }
 
 function flutterwaveSettings(env: NodeJS.ProcessEnv): Config["flutterwave"] {

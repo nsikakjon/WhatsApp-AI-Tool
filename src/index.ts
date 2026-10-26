@@ -87,7 +87,7 @@ import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks } from "./core/payments/paystack.js";
 import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
-import { createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
+import { createAzureSpeaker, createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
 import type { OwnerAppDeps } from "./owner/index.js";
 import {
   createSupabaseBusinessData,
@@ -238,8 +238,12 @@ async function copyAlerts(notes: Notice[], businessId: string, ownerWaId: string
   }
 }
 
-// Voice notes answered with a voice note (GOOGLE_TTS_API_KEY), for businesses that switch it on.
-const speaker = config.tts ? createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices }) : undefined;
+// Voice notes answered with a voice note (Azure, or Google), for businesses that switch it on.
+const speaker = !config.tts
+  ? undefined
+  : config.tts.provider === "azure"
+    ? createAzureSpeaker({ apiKey: config.tts.apiKey, region: config.tts.region!, voices: config.tts.voices })
+    : createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices });
 const withVoice = (bot: Product, enabled: () => boolean, language?: Lang): Product =>
   speaker ? withVoiceReplies(bot, { speaker, enabled, language }) : bot;
 

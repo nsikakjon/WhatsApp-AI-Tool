@@ -37,6 +37,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_CURRENCY: "USD" })).toThrow("QUOTE_CURRENCY");
   });
 
+  it("uses Azure for voice replies when its key and region are set, else Google", () => {
+    expect(loadConfig(base).tts).toBeUndefined();
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g" }).tts).toMatchObject({ provider: "google", apiKey: "g" });
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g", AZURE_SPEECH_KEY: "a", AZURE_SPEECH_REGION: "West Europe" }).tts).toMatchObject({ provider: "azure", apiKey: "a", region: "westeurope" });
+    expect(() => loadConfig({ ...base, AZURE_SPEECH_KEY: "a" })).toThrow("AZURE_SPEECH_REGION");
+  });
+
   it("switches Flutterwave on with its secret key and hash", () => {
     expect(loadConfig(base).flutterwave).toBeUndefined();
     const env = { ...base, FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-abc-X", PUBLIC_URL: "https://bot.example.com/", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" };

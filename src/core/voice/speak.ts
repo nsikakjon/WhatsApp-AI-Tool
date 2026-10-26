@@ -3,9 +3,9 @@ import type { Product, Reply } from "../product.js";
 
 // Voice replies: a customer who sends a voice note gets the bot's answer as a
 // voice note too, after the text. The words are exactly the reply's text, so
-// a price in it is still the one worked out in code. Google Cloud
-// Text-to-Speech reads it aloud and gives back OGG/Opus, the format WhatsApp
-// plays as a voice message.
+// a price in it is still the one worked out in code. Microsoft Azure Speech
+// (free tier) or Google Cloud Text-to-Speech reads it aloud and gives back
+// OGG/Opus, the format WhatsApp plays as a voice message.
 
 export interface Speaker {
   /** The text read aloud as an OGG/Opus voice note. */
@@ -39,6 +39,49 @@ export function createGoogleSpeaker(opts: GoogleSpeakerOptions): Speaker {
       const body = (await res.json().catch(() => ({}))) as { audioContent?: string; error?: { message?: string } };
       if (!res.ok || !body.audioContent) throw new Error(`Text-to-speech failed (${res.status}): ${body.error?.message ?? "no audio"}`);
       return new Uint8Array(Buffer.from(body.audioContent, "base64"));
+    },
+  };
+}
+
+export interface AzureSpeakerOptions {
+  /** Key 1 from the Speech resource in the Azure portal (Keys and Endpoint). */
+  apiKey: string;
+  /** The resource's region, e.g. westeurope. */
+  region: string;
+  /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice and a Nigerian English one. */
+  voices?: Partial<Record<Lang, string>>;
+  fetch?: typeof fetch;
+}
+
+const AZURE_VOICES: Record<Lang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural" };
+
+/** Text made safe to put inside the SSML Azure reads. */
+function xml(text: string): string {
+  return text.replace(/[<>&'"]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[ch]!);
+}
+
+export function createAzureSpeaker(opts: AzureSpeakerOptions): Speaker {
+  const doFetch = opts.fetch ?? fetch;
+  const url = `https://${encodeURIComponent(opts.region)}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  return {
+    async speak(text, lang) {
+      const name = opts.voices?.[lang] ?? AZURE_VOICES[lang];
+      const locale = name.split("-").slice(0, 2).join("-");
+      const res = await doFetch(url, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": opts.apiKey,
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "ogg-24khz-16bit-mono-opus",
+          "User-Agent": "yarnoga",
+        },
+        body: `<speak version="1.0" xml:lang="${locale}"><voice name="${xml(name)}">${xml(text)}</voice></speak>`,
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`Azure text-to-speech failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      const audio = new Uint8Array(await res.arrayBuffer());
+      if (!audio.length) throw new Error("Azure text-to-speech returned no audio");
+      return audio;
     },
   };
 }

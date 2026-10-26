@@ -63,13 +63,16 @@ This guide covers the bots for French-speaking Africa. Each section says what th
    - For the main number, use the Railway variables `QUOTE_LANGUAGE=fr`, `QUOTE_CURRENCY=XOF` (or XAF) and `QUOTE_VOICE_REPLIES=true`.
    - Changing the currency doesn't convert prices. Re-enter them in francs.
 
-4. **Voice replies:**
-   1. In the Google Cloud console, switch on the Text-to-Speech API.
-   2. Make an API key (APIs & Services > Credentials). Limiting it to Text-to-Speech is a good idea.
-   3. Add the key on Railway as `GOOGLE_TTS_API_KEY`.
-   4. Each business then switches voice replies on in Settings.
+4. **Voice replies (free with Azure):**
+   1. Create a free Microsoft Azure account at azure.microsoft.com.
+   2. In the Azure portal, search for **Speech service** and click **Create**. Pick any region near you (e.g. West Europe) and set **Pricing tier** to **Free F0**. The free tier stops when its monthly allowance runs out instead of charging you.
+   3. Open the new resource and go to **Keys and Endpoint**. Copy **Key 1** and the **Location/Region**.
+   4. On Railway, add `AZURE_SPEECH_KEY` (Key 1) and `AZURE_SPEECH_REGION` (e.g. `westeurope`).
+   5. Each business then switches voice replies on in Settings (or `QUOTE_VOICE_REPLIES=true` for the main number).
 
-   Google charges per character read, after a monthly free allowance; check its current pricing page. Long replies, like a whole price list, stay text only.
+   The voices are a French one (fr-FR-DeniseNeural) and a Nigerian English one (en-NG-EzinneNeural). To change them, set `AZURE_TTS_VOICE_FR` / `AZURE_TTS_VOICE_EN`; you can try voices on Azure's "Voice Gallery" page first. Long replies, like a whole price list, stay text only.
+
+   Google Text-to-Speech (`GOOGLE_TTS_API_KEY`) still works instead, but needs a payment card on Google Cloud. When both are set, Azure is used.
 
 5. **The French website:**
    - `site/fr/index.html` uses the same styles, fonts and images as yarnoga.com.
