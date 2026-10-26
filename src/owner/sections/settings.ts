@@ -129,7 +129,7 @@ ${
 <h2 id="banks">Bank accounts</h2>
 <p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (On the main number, invoices still show the details set by yarnOga until support updates them.)" : ""}</p>
 <div class="scroll"><table>${bankRows || `<tr><td class="muted">No bank accounts yet.</td></tr>`}</table></div>
-<details class="card" style="margin-top:12px"${banks.length ? "" : " open"}><summary><b>+ Add a bank account</b></summary>
+<details class="card" style="margin-top:12px"${banks.length ? "" : " open"}><summary><b>Add a bank account</b></summary>
 <form method="post" action="/app/settings/banks"><label>Bank${bankInput}</label>
 <div class="row"><label>Account number<input name="number" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required placeholder="10 digits"></label>
 <label>Account name ${bankList.length ? '<span class="muted">(checked with your bank)</span>' : ""}<input name="account_name" maxlength="100"${bankList.length ? "" : " required"}></label></div>
