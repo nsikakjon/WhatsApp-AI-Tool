@@ -3,25 +3,32 @@
 yarnoga.com is hosted on Hostinger, not on Railway. Pages kept here are
 uploaded there by hand.
 
-## fr/index.html: French landing page (flyers + quote bot) with an EN switch
+## fr/index.html: the French homepage, with an FR / EN switch
 
-The page opens in French. The **FR / EN** switch at the top swaps every text on
-the page without reloading; the choice is remembered on that phone or
-computer, and `?lang=en` in the address opens it in English.
+A French translation of the English homepage with the same markup. It loads
+the main site's own stylesheet, fonts, pictures and script (`/styles.css`,
+`/img/...`, `/js/motion.js`), so it always looks exactly like yarnoga.com and
+picks up any change to the main site's design by itself. **FR / EN** in the
+top bar (and "Langue" in the footer) switch between `/fr/` and `/`.
 
-Before uploading:
-
-1. Open `fr/index.html` and find `SITE_CONFIG` near the bottom. Put in the
-   WhatsApp numbers the buttons should open, digits with the country code:
-   `quotes` (the demo and sign-up number) and `flyers` (the flyer bot number).
-   Left empty, the buttons open an email to support instead.
+The product pages it links to (Quotes, Flyers, Contact...) are still in
+English; those links are marked as English for browsers and search engines.
 
 To upload:
 
-1. Hostinger > Websites > yarnoga.com > **File manager**.
-2. Open `public_html`, make a folder called `fr`, and upload `index.html` into it.
-3. Open `https://yarnoga.com/fr/` to check, and press **EN** to check the English.
-4. Add a link to it from the English home page, e.g. "Français" in the menu.
+1. Hostinger > Websites > yarnoga.com > **File manager** > `public_html`.
+2. Make a folder called `fr` (if it isn't there) and upload `index.html` into it,
+   replacing the old one.
+3. Open `https://yarnoga.com/fr/` and check, then press **EN**.
+4. On the English pages, add a link to `/fr/` (e.g. "FR" next to "Try the
+   demo"), so French speakers can find it.
+
+If the main site's `styles.css` or `motion.js` version number changes (the
+`?v=...` at the end), update it in `fr/index.html` too so browsers fetch the
+new one.
+
+The page describes the French bot, prices in FCFA, Mobile Money through
+Flutterwave and French voice replies: upload it once those are live.
 
 The page counts its visitors like the rest of the site (Dashboard > Website),
 under the path `/fr/`.
