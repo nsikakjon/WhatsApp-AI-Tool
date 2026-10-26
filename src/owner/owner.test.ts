@@ -232,6 +232,15 @@ describe("owner app login", () => {
     expect(cookieOf(ok)).toContain("yarnoga_app=");
   }, 20_000);
 
+  it("serves the yarnOga logo files without a login, and nothing else from that folder", async () => {
+    const s = setup();
+    const logo = await s.app.request("/brand/logo-96.png");
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get("content-type")).toBe("image/png");
+    expect(logo.headers.get("cache-control")).toContain("max-age");
+    expect((await s.app.request("/brand/secret.png")).status).toBe(404);
+  });
+
   it("refuses forms posted from another website", async () => {
     const s = setup();
     const res = await s.app.request("/login", { method: "POST", body: new URLSearchParams({ wa: OWNER, password: "x" }), headers: { Origin: "https://evil.example", Host: HOST } });

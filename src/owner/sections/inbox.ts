@@ -3,7 +3,7 @@ import { isPauseActive } from "../../core/db/store.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { canMessageFreely } from "../../core/whatsapp/outbox.js";
 import type { SectionContext } from "../index.js";
-import { esc } from "../layout.js";
+import { esc, initials } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
 
 // The business's own chats: read them, reply as a person, and take a chat over
@@ -32,16 +32,18 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
       .map((chat) => {
         const preview = chat.lastBody ? chat.lastBody.slice(0, 90) : `[${chat.lastType}]`;
         const waiting = chat.lastDirection === "inbound";
-        return `<a class="chatrow" href="/app/inbox/${chat.contactId}"><b>${esc(chat.name ?? showWaId(chat.waId))}</b> ${waiting ? '<span class="tag lime">new</span>' : ""}
-<span class="muted small" style="float:right">${esc(when(chat.lastAt, ctx.now()))}</span><br><span class="muted small">${waiting ? "" : "You: "}${esc(preview)}</span></a>`;
+        const name = chat.name ?? showWaId(chat.waId);
+        return `<a class="chatrow${waiting ? " new" : ""}" href="/app/inbox/${chat.contactId}"><span class="avatar">${esc(initials(name))}</span>
+<span class="body"><span class="line1"><b>${esc(name)}</b><span class="muted small">${esc(when(chat.lastAt, ctx.now()))}</span></span>
+<span class="preview">${waiting ? '<i class="dot lime"></i>' : "You: "}${esc(preview)}</span></span></a>`;
       })
       .join("");
     return ctx.render(
       c,
       "Inbox",
       "/app/inbox",
-      `<form method="get" class="row" style="margin-bottom:12px"><input name="q" value="${esc(q)}" placeholder="Search by name or number" aria-label="Search chats"><button class="ghost">Search</button></form>
-<div class="list card" style="padding:0">${rows || `<p style="padding:14px" class="muted">No chats yet.</p>`}</div>`,
+      `<form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search by name or number" aria-label="Search chats"><button class="ghost">Search</button></form>
+<div class="list">${rows || `<p style="padding:14px" class="muted">No chats yet.</p>`}</div>`,
     );
   });
 

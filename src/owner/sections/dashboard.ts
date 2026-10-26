@@ -5,7 +5,7 @@ import { lagosMonthStart } from "../../products/quote/plan.js";
 import { columnOf, type BoardOrder, type SalesFigures } from "../../products/quote/board.js";
 import type { ProductRecord } from "../store.js";
 import type { SectionContext } from "../index.js";
-import { esc, meter, stat } from "../layout.js";
+import { esc, icon, ring, stat } from "../layout.js";
 import type { Env } from "../types.js";
 
 const DAY = 86_400_000;
@@ -42,11 +42,9 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
       safe<{ sent: number; limit: number | null } | null>(biz.botMessages ? biz.botMessages() : Promise.resolve(null), null),
     ]);
 
-    const rate = (o: number, q: number) => (q ? `${Math.round((o * 100) / q)}%` : "–");
-    const change = (a: number, b: number) => (b ? `${a >= b ? "▲" : "▼"} ${Math.abs(Math.round(((a - b) * 100) / b))}% on last month` : "");
     const n = (x: number) => x.toLocaleString("en-NG");
 
-    // Orders a day, last 14 days.
+    // Orders a day, last 14 days: the busiest day in lime, today outlined.
     const days = Array.from({ length: 14 }, (_, i) => lagosDay(new Date(since14.getTime() + i * DAY)));
     const perDay = new Map(days.map((d) => [d, 0]));
     for (const t of confirmed) {
@@ -54,48 +52,88 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
       if (perDay.has(d)) perDay.set(d, perDay.get(d)! + 1);
     }
     const peak = Math.max(1, ...perDay.values());
-    const bars = days
-      .map((d) => `<span style="height:${Math.round((perDay.get(d)! * 100) / peak)}%" title="${d}: ${perDay.get(d)} orders"></span>`)
+    const weekday = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
+    const chart = days
+      .map((d, i) => {
+        const count = perDay.get(d)!;
+        const top = count === peak && count > 0;
+        const today = i === days.length - 1;
+        return `<div class="col" title="${d}: ${count} orders"><div class="barw"><div class="bar${top ? " top" : ""}${today ? " today" : ""}" style="height:${Math.max(3, Math.round((count * 100) / peak))}%"><b>${count}</b></div></div><span class="day">${today ? "Today" : weekday(d)}</span></div>`;
+      })
       .join("");
+    const twoWeeks = confirmed.length;
 
-    const waiting = open.filter((o) => columnOf(o) === "new").length;
-    const toMake = open.filter((o) => ["paid", "in_production"].includes(columnOf(o))).length;
+    const waiting = open.filter((o) => columnOf(o) === "new");
+    const toMake = open.filter((o) => ["paid", "in_production"].includes(columnOf(o)));
+    const onRoad = open.filter((o) => columnOf(o) === "out_for_delivery");
     const low = products.flatMap((p) =>
       p.options.filter((o) => o.stock !== null && o.stock <= LOW_STOCK).map((o) => `${p.name}: ${o.name} (${o.stock} left)`),
     );
+    const owed = waiting.reduce((s, o) => s + o.totalKobo, 0);
 
-    const aiText = ai == null ? "not counted" : aiLimit == null ? n(ai) : `${n(ai)} of ${n(aiLimit)}`;
+    const pct = (a: number, b: number) => (b ? ((a - b) * 100) / b : null);
+    const conversion = now.quotes ? Math.round((now.orders * 100) / now.quotes) : 0;
+    const aiPct = ai != null && aiLimit ? (ai * 100) / aiLimit : 0;
+    const msgPct = botMessages?.limit ? (botMessages.sent * 100) / botMessages.limit : 0;
+    const bestTotal = Math.max(1, ...top.map((t) => t.totalKobo));
+    const user = c.get("user");
+    const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Africa/Lagos" }).format(at));
+    const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    const dateText = at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Lagos" });
+
     const body = `
+<section class="hero">
+  <div><h2>${greeting}${user.name ? `, ${esc(user.name)}` : ""} 👋</h2><p>${esc(dateText)} · your bot has talked to ${n(chats.customers)} customers this month.</p></div>
+  <div class="quick"><a class="button" href="/app/prices/new">${icon("plus", 18)}Add product</a><a class="button ghost" href="/app/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/app/posters">${icon("posters", 18)}QR poster</a></div>
+</section>
+
 <div class="grid">
-${stat("Paid in this month", formatNaira(now.paidInKobo), change(now.paidInKobo, before.paidInKobo))}
-${stat("Orders this month", n(now.orders), change(now.orders, before.orders))}
-${stat("Quotes sent", n(now.quotes), `${rate(now.orders, now.quotes)} became orders`)}
-${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} messages in, ${n(chats.outbound)} out`)}
+${stat("Paid in this month", formatNaira(now.paidInKobo), `vs ${formatNaira(before.paidInKobo)} last month`, { change: pct(now.paidInKobo, before.paidInKobo), glow: true, icon: "prices" })}
+${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), icon: "orders" })}
+${stat("Quotes sent", n(now.quotes), `${conversion}% became orders`, { icon: "export" })}
+${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · ${n(chats.outbound)} out`, { icon: "inbox" })}
 </div>
-<h2>Needs you</h2>
-<div class="grid">
-<a class="card" href="/app/orders" style="text-decoration:none;color:inherit"><p class="label muted small">WAITING FOR PAYMENT</p><p class="value" style="font-size:1.4rem;font-weight:800;margin:0">${waiting}</p></a>
-<a class="card" href="/app/orders" style="text-decoration:none;color:inherit"><p class="label muted small">TO MAKE OR DELIVER</p><p class="value" style="font-size:1.4rem;font-weight:800;margin:0">${toMake}</p></a>
-<a class="card" href="/app/prices" style="text-decoration:none;color:inherit"><p class="label muted small">RUNNING LOW</p><p class="value" style="font-size:1.4rem;font-weight:800;margin:0">${low.length}</p>${low.length ? `<p class="muted small">${esc(low.slice(0, 3).join(", "))}${low.length > 3 ? "…" : ""}</p>` : ""}</a>
+
+<div class="split" style="margin-top:14px">
+  <section class="card">
+    <div class="cardhead"><div><h3>Orders</h3><p class="muted small" style="margin:0">Last 14 days · ${n(twoWeeks)} orders</p></div><a href="/app/orders">Order board ${icon("arrow", 16)}</a></div>
+    <div class="chart" role="img" aria-label="Orders per day for the last 14 days">${chart}</div>
+  </section>
+  <section class="card">
+    <div class="cardhead"><h3>Plan usage this month</h3>${aiLimit != null ? `<span class="tag lime">${esc((await biz.features?.planCode().catch(() => null)) ?? "")}</span>` : ""}</div>
+    <div class="rings">
+      ${ring(aiPct, ai == null ? "–" : n(ai), aiLimit != null ? `of ${n(aiLimit)} AI replies` : "AI replies")}
+      ${botMessages ? ring(msgPct, n(botMessages.sent), botMessages.limit != null ? `of ${n(botMessages.limit)} messages` : "bot messages") : ring(conversion, `${conversion}%`, "quotes to orders")}
+    </div>
+    <p class="muted small" style="margin:14px 0 0">Each customer message the AI reads counts as one AI reply.</p>
+  </section>
 </div>
-<h2>Orders, last 14 days</h2>
-<div class="card"><div class="bars" role="img" aria-label="Orders per day for the last 14 days">${bars}</div>
-<p class="muted small" style="display:flex;justify-content:space-between;margin-top:6px"><span>${days[0]}</span><span>today</span></p></div>
-<h2>AI replies and messages this month</h2>
-<div class="grid">
-<div class="stat"><p class="label">AI replies</p><p class="value">${esc(aiText)}</p>${ai != null ? meter(ai, aiLimit) : ""}<p class="muted small">Each customer message the AI reads counts as one.</p></div>
-${botMessages ? `<div class="stat"><p class="label">Bot messages sent</p><p class="value">${n(botMessages.sent)}${botMessages.limit != null ? ` of ${n(botMessages.limit)}` : ""}</p>${meter(botMessages.sent, botMessages.limit)}</div>` : ""}
-<div class="stat"><p class="label">Last month</p><p class="value">${formatNaira(before.paidInKobo)}</p><p class="muted small">${n(before.orders)} orders from ${n(before.quotes)} quotes</p></div>
+
+<div class="split even" style="margin-top:14px">
+  <section class="card">
+    <div class="cardhead"><h3>Needs you</h3><a href="/app/orders">Open orders ${icon("arrow", 16)}</a></div>
+    <div class="tiles">
+      <a class="tile" href="/app/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${formatNaira(owed)} owed` : "All paid up"}</span></a>
+      <a class="tile" href="/app/orders"><span><i class="dot lime"></i>To make</span><b>${toMake.length}</b><span>paid or in production</span></a>
+      <a class="tile" href="/app/delivery"><span><i class="dot blue"></i>On the road</span><b>${onRoad.length}</b><span>out for delivery</span></a>
+      <a class="tile" href="/app/prices"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
+    </div>
+  </section>
+  <section class="card">
+    <div class="cardhead"><h3>Best sellers this month</h3><a href="/app/prices">Price list ${icon("arrow", 16)}</a></div>
+    ${
+      top.length
+        ? `<ul class="rank">${top
+            .map(
+              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${formatNaira(t.totalKobo)}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p></li>`,
+            )
+            .join("")}</ul>`
+        : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/app/posters">make one</a>.</p>`
+    }
+  </section>
 </div>
-<h2>Best sellers this month</h2>
-${
-  top.length
-    ? `<div class="scroll"><table><tr><th>Item</th><th>Pieces</th><th>Sales</th></tr>${top
-        .map((t) => `<tr><td>${esc(t.name)}</td><td>${n(t.quantity)}</td><td>${formatNaira(t.totalKobo)}</td></tr>`)
-        .join("")}</table></div>`
-    : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/app/posters">make one</a>.</p>`
-}
-<p class="muted small">"Paid in" counts orders marked paid, including delivery fees. Numbers include any branches.</p>`;
+
+<p class="muted small" style="margin-top:14px">"Paid in" counts orders marked paid, including delivery fees. Numbers include any branches.</p>`;
     return ctx.render(c, "Dashboard", "/app", body);
   });
 
