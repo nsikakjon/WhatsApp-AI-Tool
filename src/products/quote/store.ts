@@ -79,6 +79,8 @@ export interface OrderStore {
   createQuote(contactId: string, lines: QuoteLine[], totalKobo: number): Promise<SavedOrder>;
   /** The customer's most recent quote that is still waiting for a yes or no. */
   latestOpenQuote(contactId: string): Promise<SavedOrder | null>;
+  /** The customer's most recent confirmed or paid order, for "order again". */
+  lastOrder?(contactId: string): Promise<SavedOrder | null>;
   /**
    * Moves a quote to 'confirmed' or 'cancelled'. Returns false if it was no
    * longer 'quoted' (e.g. already confirmed), so a repeated YES does nothing.
@@ -302,6 +304,21 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
         .limit(1)
         .maybeSingle();
       if (error) throw new Error(`latestOpenQuote failed: ${error.message}`);
+      return data ? toSavedOrder(data as unknown as OrderRow) : null;
+    },
+
+    async lastOrder(contactId) {
+      const { data, error } = await mine(
+        db
+          .from("quote_orders")
+          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+      )
+        .eq("contact_id", contactId)
+        .in("status", ["confirmed", "paid"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(`lastOrder failed: ${error.message}`);
       return data ? toSavedOrder(data as unknown as OrderRow) : null;
     },
 

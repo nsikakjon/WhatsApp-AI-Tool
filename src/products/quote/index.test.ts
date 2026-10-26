@@ -1011,3 +1011,35 @@ describe("ratings", () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe("order again", () => {
+  it("offers the last order on hi, and quotes it again at today's prices", async () => {
+    const mem = memoryOrders();
+    const last = {
+      id: "old", orderNumber: 900, totalKobo: 999,
+      lines: [
+        { variantId: "v-flyer", name: "Flyers: A5, double-sided", quantity: 500, unitPriceKobo: 1, totalKobo: 500 },
+        { variantId: "v-gone", name: "Old stickers", quantity: 10, unitPriceKobo: 1, totalKobo: 10 },
+      ],
+    };
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("Last time you ordered: 500 x Flyers: A5, double-sided");
+    expect(hi?.buttons?.buttons.at(-1)).toEqual({ id: "order again", title: "🔁 Order again" });
+
+    const again = await product.handle(text("order again"), ctx);
+    expect(again?.text).toContain("isn't on the price list any more (Old stickers)");
+    expect(again?.text).toContain("500 x Flyers: A5, double-sided @ ₦100 = ₦50,000");
+    expect(mem.orders.at(-1)?.totalKobo).toBe(5_000_000);
+    expect(seen).toEqual([]);
+  });
+});

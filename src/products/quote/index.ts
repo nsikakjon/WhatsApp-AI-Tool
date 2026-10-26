@@ -143,6 +143,9 @@ export interface QuoteProduct extends Product {
 }
 
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
+/** The "Order again" button's id, and the words that mean the same. */
+const ORDER_AGAIN_ID = "order again";
+const ORDER_AGAIN = /^(🔁\s*)?(order again|reorder|re-order|same as last time|same again|same order|recommander|même commande|la même chose)[.!]*$/i;
 
 export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   const log = opts.log ?? console;
@@ -211,7 +214,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (variants.length === 0) {
         return { text: t.noPriceList(opts.businessName) };
       }
-      const welcome = await welcomeReply(msg, variants, walkIn, lang);
+      const welcome = await welcomeReply(msg, variants, walkIn, lang, ctx.contactId);
       if (welcome) return welcome;
 
       // A tap on "See more" under the product cards: no need for the AI.
@@ -336,9 +339,22 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     },
   };
 
-  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang): Promise<Reply | null> {
+  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang, contactId: string): Promise<Reply | null> {
     const text = msg.text!.trim();
     const t = QUOTE_TEXTS[lang];
+    // "Order again": the last order's items at today's prices, quoted as usual.
+    if (ORDER_AGAIN.test(text) && opts.orders.lastOrder) {
+      if (walkIn.paused) return closedReply(t);
+      const last = await opts.orders.lastOrder(contactId);
+      if (!last) return { text: t.noLastOrder };
+      const active = new Set(variants.map((v) => v.id));
+      const items = last.lines.filter((l) => active.has(l.variantId)).map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+      const gone = last.lines.filter((l) => !active.has(l.variantId)).map((l) => l.name);
+      if (!items.length) return { text: `${t.someGone(gone.join(", "))}\n\n${t.noLastOrder}` };
+      const quote = await makeQuote(items, variants, contactId, msg.contactName, msg.from, t);
+      if (gone.length) quote.text = `${t.someGone(gone.join(", "))}\n\n${quote.text}`;
+      return quote;
+    }
     if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants, t) };
     if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
       const closed = await closedNote(lang);
@@ -364,6 +380,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       catalogue: !!opts.catalogue,
       team: !!opts.ownerWaId,
     });
+    // A returning customer can repeat their last order with one tap.
+    if (ask === "greeting" && reply.buttons && opts.orders.lastOrder && reply.buttons.buttons.length < 3) {
+      const last = await opts.orders.lastOrder(contactId).catch(() => null);
+      const active = new Set(variants.map((v) => v.id));
+      const still = last?.lines.filter((l) => active.has(l.variantId)) ?? [];
+      if (still.length) {
+        reply.buttons.body += `\n\n${t.lastTime(still.map((l) => `${l.quantity} x ${l.name}`).join(", "))}`;
+        reply.buttons.buttons.push({ id: ORDER_AGAIN_ID, title: t.orderAgainButton });
+      }
+    }
     if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
       reply.buttons.body += `\n\n${own.ownerHint()}`;
     } else if (reply.buttons && !walkIn.on) {

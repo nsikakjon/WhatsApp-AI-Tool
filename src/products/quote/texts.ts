@@ -16,6 +16,10 @@ export interface QuoteTexts {
   sendRequest(): string;
   stopReminders(): string;
   ratingAsk(business: string, ref: string): string;
+  orderAgainButton: string;
+  lastTime(items: string): string;
+  noLastOrder: string;
+  someGone(items: string): string;
   ratingButtons: { great: string; ok: string; bad: string };
   ratingThanks(stars: number, business: string): string;
   ratingAlready: string;
@@ -100,6 +104,10 @@ const en: QuoteTexts = {
   sendRequest: () => "Please send your request as a message or voice note (for example: 100 A5 flyers).",
   stopReminders: () => "Okay, I won't send you any more quote reminders. Message me any time you need a quote.",
   ratingAsk: (b, ref) => `How did we do with your order ${ref}? Your answer helps ${b} serve you better.`,
+  orderAgainButton: "🔁 Order again",
+  lastTime: (items) => `Last time you ordered: ${items}. Tap *Order again* for a fresh quote for the same.`,
+  noLastOrder: "I can't find an earlier order for you. Tell me what you need and I'll send you a quote.",
+  someGone: (items) => `Some of your last order isn't on the price list any more (${items}), so I've left it out.`,
   ratingButtons: { great: "😀 Great", ok: "🙂 OK", bad: "🙁 Not good" },
   ratingThanks: (stars, b) =>
     stars >= 5
@@ -212,6 +220,10 @@ const fr: QuoteTexts = {
   sendRequest: () => "Envoyez votre demande par message ou par message vocal (par exemple : 100 flyers A5).",
   stopReminders: () => "D'accord, je ne vous enverrai plus de rappels de devis. Écrivez-moi quand vous voulez un devis.",
   ratingAsk: (b, ref) => `Comment s'est passée votre commande ${ref} ? Votre avis aide ${b} à mieux vous servir.`,
+  orderAgainButton: "🔁 Recommander",
+  lastTime: (items) => `Votre dernière commande : ${items}. Touchez *Recommander* pour un nouveau devis identique.`,
+  noLastOrder: "Je ne trouve pas de commande précédente. Dites-moi ce qu'il vous faut et je vous envoie un devis.",
+  someGone: (items) => `Une partie de votre dernière commande n'est plus sur la liste de prix (${items}), je l'ai donc retirée.`,
   ratingButtons: { great: "😀 Très bien", ok: "🙂 Correct", bad: "🙁 Pas bien" },
   ratingThanks: (stars, b) =>
     stars >= 5
