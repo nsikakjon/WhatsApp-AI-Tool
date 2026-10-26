@@ -162,6 +162,13 @@ export interface BusinessInfo {
   sheetKey: string | null;
 }
 
+/** The messages the bot sends on the business's behalf. */
+export interface CareSettings {
+  payReminders: boolean;
+  ratings: boolean;
+  dailySummary: boolean;
+}
+
 /** One customer as the Customers page shows them. */
 export interface CustomerSummary {
   contactId: string;
@@ -184,6 +191,9 @@ export interface BusinessData {
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
   /** Customers' ratings given since then (migration 0054): how many, the average out of 5, and how many said "not good". */
   ratings?(since: Date): Promise<{ count: number; average: number | null; bad: number }>;
+  /** Which messages the bot sends for the business (migration 0054); all on unless switched off. */
+  care?(): Promise<CareSettings>;
+  saveCare?(settings: CareSettings): Promise<void>;
   /** What the owner wrote about the business and its opening hours (migration 0054). */
   about?(): Promise<BusinessAbout | null>;
   saveAbout?(text: string | null, hours: OpeningHours | null): Promise<void>;
@@ -589,6 +599,18 @@ export function createSupabaseBusinessData(
         })
         .eq("id", id);
       if (error) throw new Error(`save business info failed: ${error.message}`);
+    },
+    async care() {
+      const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
+      const r = one(data, error, "care settings") as Record<string, unknown> | null;
+      return { payReminders: r?.pay_reminders_on !== false, ratings: r?.ratings_on !== false, dailySummary: r?.daily_summary_on !== false };
+    },
+    async saveCare(c) {
+      const { error } = await db
+        .from("quote_businesses")
+        .update({ pay_reminders_on: c.payReminders, ratings_on: c.ratings, daily_summary_on: c.dailySummary })
+        .eq("id", id);
+      if (error) throw new Error(`save care settings failed: ${error.message}`);
     },
     about: createSupabaseAbout(db, id),
     async saveAbout(text, hours) {

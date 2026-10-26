@@ -6,6 +6,7 @@ import { hashPassword, normaliseWaId, passwordProblem } from "../auth.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
+import type { CareSettings } from "../store.js";
 import { isPhoto } from "./prices.js";
 import { cleanHours, DAYS, type BusinessAbout, type Day } from "../../products/quote/about.js";
 import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
@@ -36,13 +37,14 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
   app.get("/settings", async (c) => {
     const biz = c.get("biz");
     const user = c.get("user");
-    const [info, banks, alerts, team, logo, about] = await Promise.all([
+    const [info, banks, alerts, team, logo, about, care] = await Promise.all([
       biz.data.info(),
       biz.data.banks().catch(() => []),
       biz.data.alertNumbers().catch(() => []),
       ctx.deps.users.team(biz.id).catch(() => []),
       biz.logo().catch(() => null),
       biz.data.about ? biz.data.about().catch(() => null) : Promise.resolve(null),
+      biz.data.care ? biz.data.care().catch(() => null) : Promise.resolve(null),
     ]);
     const v = (x: string | null | undefined) => esc(x ?? "");
     const envNote = biz.fromEnv
@@ -119,6 +121,8 @@ ${
 <div class="actions"><button>Save details</button></div></form>
 
 ${aboutForm(about)}
+
+${care ? careForm(care) : ""}
 
 <h2 id="language">Language and currency</h2>
 <form method="post" action="/app/settings/language" class="card">
@@ -204,6 +208,15 @@ ${feeNote}
       await biz.saveLogo(data, type);
     }
     return done(c, "saved", "#business");
+  });
+
+  app.post("/settings/care", async (c) => {
+    const biz = c.get("biz");
+    if (!biz.data.saveCare) return done(c, "bad", "#care");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const on = (name: string) => field(form, name, 4) === "on";
+    await biz.data.saveCare({ payReminders: on("payReminders"), ratings: on("ratings"), dailySummary: on("dailySummary") });
+    return done(c, "saved", "#care");
   });
 
   app.post("/settings/about", async (c) => {
@@ -337,7 +350,7 @@ function aboutForm(about: BusinessAbout | null): string {
       // With no hours saved yet, suggest a usual week so the owner only adjusts it.
       const open = hours ? Boolean(slot) : d !== "sun";
       const [from, to] = slot ?? (d === "sat" ? ["10:00", "16:00"] : ["08:00", "18:00"]);
-      return `<tr><td><label class="check" style="margin:0"><input type="checkbox" name="${d}_open" value="on"${open ? " checked" : ""}> ${DAY_LABELS[d]}</label></td>
+      return `<tr><td><label class="check" style="margin:0"><input type="checkbox" name="${d}_open" value="on"${open ? " checked" : ""}> <span class="long">${DAY_LABELS[d]}</span><span class="short">${DAY_LABELS[d].slice(0, 3)}</span></label></td>
 <td><input type="time" name="${d}_from" value="${from}" aria-label="${DAY_LABELS[d]} opens"></td><td><input type="time" name="${d}_to" value="${to}" aria-label="${DAY_LABELS[d]} closes"></td></tr>`;
     })
     .join("");
@@ -346,6 +359,19 @@ function aboutForm(about: BusinessAbout | null): string {
 <label>What customers often ask <span class="muted">(where you are, landmarks, delivery days, returns, how long orders take; don't put prices here, they come from your price list)</span>
 <textarea name="about" maxlength="1500" rows="6" placeholder="e.g. We're at 12 Allen Avenue, Ikeja, opposite the filling station. Orders are ready in 2 working days. We deliver Monday to Saturday. Returns within 7 days with the receipt.">${esc(about?.text ?? "")}</textarea></label>
 <p style="margin:14px 0 6px"><b>Opening hours</b> <span class="muted small">(Lagos time; outside these hours the bot tells customers when you open again)</span></p>
-<div class="scroll"><table class="hours"><tr><th>Open on</th><th>From</th><th>To</th></tr>${rows}</table></div>
+<div class="scroll"><table class="hours"><tr><th>Day</th><th>From</th><th>To</th></tr>${rows}</table></div>
+<div class="actions"><button>Save</button></div></form>`;
+}
+
+/** Which messages the bot sends for the business. */
+function careForm(care: CareSettings): string {
+  const box = (name: keyof CareSettings, title: string, note: string) =>
+    `<label class="check" style="align-items:flex-start"><input type="checkbox" name="${name}" value="on"${care[name] ? " checked" : ""} style="margin-top:4px"> <span><b>${title}</b><br><span class="muted small">${note}</span></span></label>`;
+  return `<h2 id="care">Messages the bot sends for you</h2>
+<form method="post" action="/app/settings/care" class="card">
+${box("payReminders", "Remind customers who haven't paid", "At most two friendly reminders with the pay link, about 3 and 20 hours after they confirm.")}
+${box("ratings", "Ask customers how it went", "Once per paid order, with Great / OK / Not good buttons. You hear about a \"Not good\" straight away.")}
+${box("dailySummary", "Morning summary to me", "Yesterday's orders, money in, unpaid orders and low stock at 8am. Tap \"Got it\" to keep it coming.")}
+<p class="muted small">These only go inside WhatsApp's free 24-hour window, so they cost you nothing.</p>
 <div class="actions"><button>Save</button></div></form>`;
 }

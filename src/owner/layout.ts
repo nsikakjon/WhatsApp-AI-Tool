@@ -402,7 +402,8 @@ form+p,form+.muted,.actions+p,.scroll+p,.scroll+.muted,.card+p,.cards+p,table+p,
 td details>summary{white-space:nowrap}
 /* Long page titles wrap onto a second line on phones instead of being cut off. */
 @media(max-width:600px){h1{font-size:1.55rem}.titles h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
-.hours td{padding:6px 8px}.hours input[type=time]{padding:8px 10px;min-width:104px}
+.hours{width:100%;table-layout:fixed}.hours th:first-child{width:26%}.hours input[type=time]::-webkit-calendar-picker-indicator{display:none}.hours td{padding:6px 4px}.hours input[type=time]{width:100%;min-width:0;padding:8px 6px}
+.hours .short{display:none}@media(max-width:600px){.hours .long{display:none}.hours .short{display:inline}.hours input[type=time]{font-size:.85rem}}
 .who{display:flex;gap:10px;align-items:center}.avatar.sm{width:32px;height:32px;font-size:.72rem}
 /* The live riders view. */
 .livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden}
