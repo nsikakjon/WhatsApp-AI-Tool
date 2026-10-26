@@ -33,9 +33,9 @@ describe("order pay links", () => {
     const orderPaid = vi.fn(async () => [{ to: "y", text: "order" }]);
     const handler = withOrderPayments(planPaid, orderPaid);
     expect(await handler(payment({ kind: "order", businessId: "b2", orderNumber: 1010 }))).toEqual([{ to: "y", text: "order" }]);
-    expect(orderPaid).toHaveBeenCalledWith("b2", 1010, 0);
+    expect(orderPaid).toHaveBeenCalledWith("b2", 1010, 0, 0);
     await handler(payment({ kind: "order", businessId: "b2", orderNumber: 1011, feeKobo: 37_500 }));
-    expect(orderPaid).toHaveBeenLastCalledWith("b2", 1011, 37_500);
+    expect(orderPaid).toHaveBeenLastCalledWith("b2", 1011, 37_500, 0);
     expect(await handler(payment({ businessId: "b2", plan: "pro", months: 1 }))).toEqual([{ to: "x", text: "plan" }]);
     await expect(handler(payment({ kind: "order", businessId: "b2" }))).rejects.toThrow("can't find");
   });
@@ -88,5 +88,32 @@ describe("order pay links", () => {
     });
     await link({ id: "o1", orderNumber: 1001, totalKobo: 5_000_000, lines: [] }, "2250712345678");
     expect(createLink).toHaveBeenCalledWith(expect.objectContaining({ currency: "XOF", subaccount: "RS_ABC123", platformFeeKobo: 80_000 }));
+  });
+
+  it("sends a courier fee to yarnOga in the split, with our fee on the business's part only", async () => {
+    const createLink = vi.fn(async () => ({ url: "https://checkout.paystack.com/abc", amountKobo: 1_850_000, promo: null }));
+    const link = orderPayLinks({
+      links: { createLink },
+      businessId: "b2",
+      businessName: "Demo Shop",
+      orderPrefix: "DEMO",
+      subaccount: "ACCT_abc",
+      feeBasisPoints: async () => 250,
+      courierKobo: async () => 350_000,
+    });
+    await link({ id: "o1", orderNumber: 1010, totalKobo: 1_850_000, lines: [] }, "2348012345678");
+    // 2.5% of the N15,000 items is N375; plus the N3,500 courier fee.
+    expect(createLink).toHaveBeenCalledWith(
+      expect.objectContaining({ amountKobo: 1_850_000, platformFeeKobo: 387_500, purpose: expect.objectContaining({ feeKobo: 37_500, courierKobo: 350_000 }) }),
+    );
+  });
+
+  it("routes an owner's courier-fee payment to the courier booking", async () => {
+    const courierPaid = vi.fn(async () => [{ to: "z", text: "booked" }]);
+    const orderPaid = vi.fn(async () => []);
+    const handler = withOrderPayments(vi.fn(), orderPaid, courierPaid);
+    expect(await handler(payment({ kind: "courier", businessId: "b2", orderNumber: 1010 }))).toEqual([{ to: "z", text: "booked" }]);
+    await handler(payment({ kind: "order", businessId: "b2", orderNumber: 1011, courierKobo: 350_000 }));
+    expect(orderPaid).toHaveBeenLastCalledWith("b2", 1011, 0, 350_000);
   });
 });

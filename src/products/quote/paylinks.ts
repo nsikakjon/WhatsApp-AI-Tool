@@ -45,37 +45,58 @@ export function orderPayLinks(opts: {
   feeBasisPoints?: () => Promise<number>;
   /** The most the fee can be, in hundredths of the currency; null = the default cap. */
   feeCap?: () => Promise<number | null>;
+  /** A Shipbubble courier's fee in this order, which goes to yarnOga (to pay the courier) rather than the business. */
+  courierKobo?: (order: SavedOrder) => Promise<number>;
 }): (order: SavedOrder, waId: string) => Promise<string> {
   const currency = opts.currency ?? "NGN";
   return async (order, waId) => {
     const cap = (opts.feeCap ? await opts.feeCap() : null) ?? DEFAULT_FEE_CAP[currency];
-    const feeKobo = opts.feeBasisPoints ? transactionFeeKobo(order.totalKobo, await opts.feeBasisPoints(), cap, currency) : 0;
+    const courierKobo = opts.courierKobo ? await opts.courierKobo(order) : 0;
+    // Our fee is on the business's part only, not on the courier fee passing through.
+    const feeKobo = opts.feeBasisPoints ? transactionFeeKobo(order.totalKobo - courierKobo, await opts.feeBasisPoints(), cap, currency) : 0;
+    const keptKobo = feeKobo + courierKobo;
     const link = await opts.links.createLink({
       product: "quote",
       waId,
       amountKobo: order.totalKobo,
       currency,
-      purpose: { kind: "order", businessId: opts.businessId, orderNumber: order.orderNumber, ...(feeKobo ? { feeKobo } : {}) },
+      purpose: {
+        kind: "order",
+        businessId: opts.businessId,
+        orderNumber: order.orderNumber,
+        ...(feeKobo ? { feeKobo } : {}),
+        ...(courierKobo ? { courierKobo } : {}),
+      },
       title: `${opts.businessName} order ${opts.orderPrefix}-${order.orderNumber}`,
       subaccount: opts.subaccount,
-      ...(feeKobo ? { platformFeeKobo: feeKobo } : {}),
+      ...(keptKobo ? { platformFeeKobo: keptKobo } : {}),
     });
     if (!link.url) throw new Error("No payment link was made");
     return link.url;
   };
 }
 
-/** Quote payments are plan upgrades, or orders paid by pay link. */
+/**
+ * Quote payments are plan upgrades, orders paid by pay link, or a courier fee
+ * an owner paid by link ("courier KP-1001").
+ */
 export function withOrderPayments(
   planPaid: PaidHandler,
-  orderPaid: (businessId: string, orderNumber: number, feeKobo: number) => Promise<OutgoingNote[]>,
+  orderPaid: (businessId: string, orderNumber: number, feeKobo: number, courierKobo: number) => Promise<OutgoingNote[]>,
+  courierPaid?: (businessId: string, orderNumber: number) => Promise<OutgoingNote[]>,
 ): PaidHandler {
   return async (payment) => {
-    if (payment.purpose.kind !== "order") return planPaid(payment);
-    const { businessId, orderNumber, feeKobo } = payment.purpose as { businessId?: unknown; orderNumber?: unknown; feeKobo?: unknown };
+    const kind = payment.purpose.kind;
+    if (kind !== "order" && kind !== "courier") return planPaid(payment);
+    const { businessId, orderNumber, feeKobo, courierKobo } = payment.purpose as { businessId?: unknown; orderNumber?: unknown; feeKobo?: unknown; courierKobo?: unknown };
     if (typeof businessId !== "string" || !Number.isInteger(orderNumber)) {
       throw new Error(`Payment ${payment.reference} is for an order we can't find: ${JSON.stringify(payment.purpose)}`);
     }
-    return orderPaid(businessId, orderNumber as number, Number.isInteger(feeKobo) ? (feeKobo as number) : 0);
+    if (kind === "courier") {
+      if (!courierPaid) throw new Error(`Payment ${payment.reference} is a courier fee, but couriers aren't set up`);
+      return courierPaid(businessId, orderNumber as number);
+    }
+    const whole = (v: unknown) => (Number.isInteger(v) ? (v as number) : 0);
+    return orderPaid(businessId, orderNumber as number, whole(feeKobo), whole(courierKobo));
   };
 }

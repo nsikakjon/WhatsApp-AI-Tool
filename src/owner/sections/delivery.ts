@@ -34,6 +34,18 @@ export function liveJson(list: LiveDelivery[], now: Date) {
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 
+/** The Shipbubble courier switch, or nothing when couriers aren't set up for this business. */
+function courierCard(courier: { available: boolean; on: boolean; set?(on: boolean): Promise<void> } | undefined, owner: boolean): string {
+  if (!courier?.available) return "";
+  const how = `<p class="muted small" style="margin:0">When a customer's address isn't in any of your zones, the bot gets real prices from couriers like Kwik, Gokada and GIG through Shipbubble and offers the cheapest one that collects from your shop. Paid by pay link, the courier is booked straight away; if the customer pays you directly, you'll get a link to pay the courier fee first.</p>`;
+  const control = !courier.set
+    ? `<p class="muted small" style="margin:10px 0 0">On the main number this is set by yarnOga; ask support to change it.</p>`
+    : owner
+      ? `<form method="post" action="/app/delivery/courier" style="margin-top:12px"><input type="hidden" name="on" value="${courier.on ? "off" : "on"}"><button class="${courier.on ? "ghost" : ""} small">${courier.on ? "Turn couriers off" : "Turn couriers on"}</button></form>`
+      : "";
+  return `<div class="card" style="margin-top:20px"><div class="cardhead"><h3>Couriers for other areas</h3><span class="tag ${courier.on ? "lime" : ""}">${courier.on ? "On" : "Off"}</span></div>${how}${control}</div>`;
+}
+
 /** The "Out for delivery now" block: a map of riders and a list that refresh every 15 seconds. */
 function liveSection(initial: ReturnType<typeof liveJson>): string {
   const data = JSON.stringify(initial).replace(/</g, "\\u003c");
@@ -150,6 +162,7 @@ export function registerDelivery(app: Hono<Env>, ctx: SectionContext) {
       "Riders & delivery",
       "/app/delivery",
       `${live ? liveSection(liveJson(live, ctx.now())) : ""}
+${courierCard(biz.courier, owner)}
 <h2>Delivery zones and fees</h2>
 <p class="muted">A customer's address is matched to a zone by the area names in it; the longest match wins ("Lekki Phase 1" before "Lekki"). An address in no zone is sent to you to price.</p>
 <div class="scroll"><table><tr><th>Zone and areas</th><th>Fee</th><th></th></tr>${zoneRows || `<tr><td colspan="3" class="muted">No zones yet.</td></tr>`}</table></div>
@@ -166,6 +179,14 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider
 <div class="actions"><button>Add rider</button></div></form></details>` : `<p class="muted small">Only the owner can change zones and riders.</p>`}
 <p class="muted small" style="margin-top:20px">To send a rider out: on WhatsApp, send <code>rider ${esc(biz.orderPrefix)}-1001 Musa</code>. Ask each new rider to send <b>hi</b> to your business number once, so WhatsApp lets job messages through. When no zone matches an address, send <code>fee ${esc(biz.orderPrefix)}-1001 2500</code>.</p>`,
     );
+  });
+
+  app.post("/delivery/courier", async (c) => {
+    const courier = c.get("biz").courier;
+    if (!courier?.available || !courier.set) return c.redirect("/app/delivery?msg=bad", 303);
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    await courier.set(field(form, "on", 4) === "on");
+    return c.redirect("/app/delivery?msg=saved", 303);
   });
 
   // The live list, for the page to refresh itself. Staff can see it too.

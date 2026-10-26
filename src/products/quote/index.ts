@@ -118,11 +118,14 @@ export interface QuoteProductOptions {
 
 /** How an order was paid outside the owner's "paid KP-1001": online by pay link (with yarnOga's fee, in kobo), or at a walk-in counter. */
 /** How an order was paid: by pay link, at a walk-in counter, or marked paid by staff in the owner app (e.g. a bank transfer). */
-export type PaidVia = { how: "online"; feeKobo: number } | { how: "counter" } | { how: "app" };
+/** How an order was paid. Online, `courierKobo` is a Shipbubble courier's fee that came to yarnOga in the same payment. */
+export type PaidVia = { how: "online"; feeKobo: number; courierKobo?: number } | { how: "counter" } | { how: "app" };
 
 export interface QuoteProduct extends Product {
   /** Marks an order paid after Paystack confirmed its pay link (or staff took payment at the counter), and returns the receipt and owner messages. */
   orderPaid(orderNumber: number, via?: PaidVia): Promise<Notice[]>;
+  /** The owner paid an order's courier fee by link: books the courier. */
+  courierPaid(orderNumber: number): Promise<Notice[]>;
 }
 
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
@@ -256,6 +259,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       }
       const pickup = await walkInPaid(order);
       const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
+      // The courier fee came with the payment: book the courier straight away.
+      const booked = via.how === "online" && (via.courierKobo ?? 0) > 0 && opts.delivery ? await opts.delivery.bookCourier(orderNumber) : [];
       const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup, own);
       const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
       const total = money(order.totalKobo);
@@ -268,7 +273,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       return [
         receiptNote(order, label, receipt, pickup, own),
         ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (note ? `\n\n${note}` : "")),
+        ...booked,
       ];
+    },
+
+    async courierPaid(orderNumber) {
+      return opts.delivery ? opts.delivery.bookCourier(orderNumber) : [];
     },
   };
 

@@ -7,6 +7,7 @@ import type { Lang } from "../../../core/i18n.js";
 import { riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore } from "./store.js";
 import { mapLink } from "./zones.js";
+import { courierStep, isValidShipbubbleSignature } from "./shipbubble.js";
 
 // Two pages per delivery, each behind its own signed link:
 //   /ride/<token>   the rider's page. While it is open it sends the phone's
@@ -27,6 +28,8 @@ export interface TrackingDeps {
   template?: TemplateName;
   /** The language of the business a delivery belongs to (English when unset). */
   language?(d: Delivery): Promise<Lang>;
+  /** The Shipbubble API key, which signs its webhooks. Unset: the Shipbubble webhook is off. */
+  shipbubbleKey?: string;
   now?: () => Date;
 }
 
@@ -66,6 +69,39 @@ export function createTracking(deps: TrackingDeps) {
     const id = readToken(deps.secret, kind, token);
     return id ? deps.store.get(id) : null;
   }
+
+  // Shipbubble tells us a courier picked up or delivered a parcel. The
+  // signature is checked before anything else, and riderStep only moves a
+  // delivery forward once, so a repeated webhook tells nobody twice.
+  app.post("/webhooks/shipbubble", async (c) => {
+    const rawBody = await c.req.text();
+    if (!deps.shipbubbleKey || !isValidShipbubbleSignature(rawBody, c.req.header("x-ship-signature"), deps.shipbubbleKey)) {
+      return c.text("Invalid signature", 401);
+    }
+    let body: { event?: string; order_id?: string; status?: string };
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return c.text("Invalid JSON", 400);
+    }
+    const step = body.event === "shipment.cancelled" ? "failed" : courierStep(String(body.status ?? ""));
+    if (!body.order_id || !step || !deps.store.byCourierOrder) return c.text("OK", 200);
+    try {
+      const d = await deps.store.byCourierOrder(body.order_id);
+      if (!d) return c.text("OK", 200);
+      const moved = await riderStep(deps.store, d, step, {
+        trackingLink: d.courier?.trackingUrl ?? links.customer(d),
+        template: deps.template,
+        lang: await deps.language?.(d),
+      });
+      if (moved) await deps.send(moved.notices, moved.delivery.fromNumberId);
+      return c.text("OK", 200);
+    } catch (err) {
+      // Not a 200, so Shipbubble tries again.
+      console.error(`Shipbubble webhook for ${body.order_id} failed:`, err);
+      return c.text("Try again", 500);
+    }
+  });
 
   app.get("/track/:token", async (c) => {
     const d = await load("track", c.req.param("token"));

@@ -56,7 +56,7 @@ const products: ProductRecord[] = [
   { id: "22222222-2222-2222-2222-000000000003", name: "Mugs", description: null, category: "Gifts", unit: "mug", leadTimeDays: 1, active: true, photoPath: null, options: [{ id: "c", name: "white", minQuantity: 12, stock: 40, tiers: [{ minQuantity: 12, unitPriceKobo: 250_000 }] }] },
 ];
 const biz: AppBusiness = {
-  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, language: "en", currency: "NGN", voiceReplies: false, numberId: "PNID", includeUnnumbered: false,
+  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, language: "en", currency: "NGN", voiceReplies: false, courier: { available: true, on: true, set: async () => {} }, numberId: "PNID", includeUnnumbered: false,
   features: { planCode: async () => "pro", has: async () => true, limit: async (f) => (f === "ai_credits" ? 7500 : f === "bot_messages" ? 3000 : f === "transaction_fee" ? 250 : null) },
   board: {
     orders: async () => orders,

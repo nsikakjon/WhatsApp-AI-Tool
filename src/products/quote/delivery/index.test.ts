@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { createHmac } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import type { Notice, ProductContext } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
 import type { DocumentInput } from "../documents.js";
@@ -6,7 +7,8 @@ import { createQuoteProduct } from "../index.js";
 import type { Variant } from "../pricing.js";
 import type { OrderDetails, OrderStatus, OrderStore, SavedOrder } from "../store.js";
 import type { Understander } from "../understand.js";
-import { createDispatch } from "./index.js";
+import { createDispatch, type DispatchOptions } from "./index.js";
+import type { CourierService } from "./shipbubble.js";
 import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { createTracking, createTrackingLinks } from "./tracking.js";
 import type { Zone } from "./zones.js";
@@ -16,6 +18,7 @@ const OWNER = "2348000000001";
 const MUSA = "2348031234567";
 const SECRET = "test-secret";
 const links = createTrackingLinks(SECRET, "https://bot.example.com");
+const SHIP_KEY = "sb_sandbox_test";
 
 const variants: Variant[] = [
   { id: "v-flyer", name: "Flyers: A5", minQuantity: 50, tiers: [{ minQuantity: 50, unitPriceKobo: 15_000 }] },
@@ -89,6 +92,7 @@ function memory() {
         riderLat: null,
         riderLng: null,
         riderSeenAt: null,
+        courier: null,
       };
       deliveries.push(d);
       return d;
@@ -107,6 +111,10 @@ function memory() {
       o.totalKobo = totalKobo;
       return true;
     },
+    async byCourierOrder(orderId) {
+      const d = deliveries.find((x) => x.courier?.orderId === orderId);
+      return d ? { ...d } : null;
+    },
     async setRiderPosition(id, lat, lng, at) {
       const d = deliveries.find((x) => x.id === id);
       if (d && ["assigned", "picked_up"].includes(d.status)) Object.assign(d, { riderLat: lat, riderLng: lng, riderSeenAt: at });
@@ -115,7 +123,7 @@ function memory() {
   return { orders, deliveries, riders, orderStore, store };
 }
 
-function setup(planHasDelivery = true) {
+function setup(planHasDelivery = true, courier?: DispatchOptions["courier"]) {
   const mem = memory();
   const drawn: DocumentInput[] = [];
   const seen: string[] = [];
@@ -136,6 +144,7 @@ function setup(planHasDelivery = true) {
     store: mem.store,
     orders: mem.orderStore,
     links,
+    courier,
   });
   const product = createQuoteProduct({
     businessName: "KahnPrints",
@@ -155,6 +164,7 @@ function setup(planHasDelivery = true) {
     publicUrl: "https://bot.example.com",
     store: mem.store,
     send: async (notices) => void sent.push(...notices),
+    shipbubbleKey: SHIP_KEY,
   });
   return { ...mem, product, drawn, seen, tracking, sent };
 }
@@ -395,5 +405,103 @@ describe("tracking pages", () => {
       body: JSON.stringify({ lat: 6.6, lng: 3.35 }),
     });
     expect(await res.json()).toEqual({ status: "delivered", sharing: false });
+  });
+});
+
+describe("couriers through Shipbubble", () => {
+  function courierSetup(quote: Awaited<ReturnType<CourierService["quote"]>> | Error = {
+    feeKobo: 350_000, courierName: "Kwik", courierId: "kwik", serviceCode: "kwik_express", requestToken: "tok", pickupEta: "Within 2 hours", deliveryEta: "Within 5 hrs",
+  }) {
+    const service = {
+      quote: vi.fn(async () => {
+        if (quote instanceof Error) throw quote;
+        return quote;
+      }),
+      book: vi.fn(async () => ({ orderId: "SB-1", trackingUrl: "https://track.example/SB-1", courierName: "Kwik", courierPhone: "0800" })),
+    };
+    const payLink = vi.fn(async () => "https://checkout.paystack.com/courier");
+    const t = setup(true, { service, from: { name: "KahnPrints", phone: OWNER, address: "12 Allen Avenue, Ikeja" }, payLink });
+    return { ...t, service, payLink };
+  }
+  async function offered(quote?: Parameters<typeof courierSetup>[0]) {
+    const t = courierSetup(quote);
+    await t.product.handle(say("100 flyers"), ctx());
+    await t.product.handle(say("yes"), ctx());
+    const reply = await t.product.handle(say("5 Ring Road, Ibadan, Oyo State"), ctx());
+    return { ...t, reply };
+  }
+
+  it("offers the courier's own price for an address outside every zone, and adds it to the total", async () => {
+    const { reply, orders, service, deliveries } = await offered();
+    expect(service.quote).toHaveBeenCalledWith(
+      expect.objectContaining({ address: "12 Allen Avenue, Ikeja" }),
+      expect.objectContaining({ phone: CUSTOMER, address: "5 Ring Road, Ibadan, Oyo State" }),
+      [{ name: "Flyers: A5", quantity: 100, unitKobo: 15_000 }],
+    );
+    expect(reply?.text).toContain("by Kwik (within 5 hrs): ₦3,500");
+    expect(reply?.text).toContain("*Total: ₦18,500*");
+    expect(orders[0]?.totalKobo).toBe(1_850_000);
+    expect(deliveries[0]?.courier).toMatchObject({ name: "Kwik", requestToken: "tok" });
+  });
+
+  it("falls back to the owner pricing it when no courier can", async () => {
+    const none = await offered(null);
+    expect(none.reply?.text).toContain("will confirm the delivery fee");
+    const broken = await offered(new Error("Shipbubble down"));
+    expect(broken.reply?.text).toContain("will confirm the delivery fee");
+  });
+
+  it("books the courier once the fee is paid online, only once, and tells the customer and owner", async () => {
+    const t = await offered();
+    await t.product.handle(say("yes"), ctx());
+    expect(t.orders[0]?.status).toBe("confirmed");
+    const notes = await t.product.orderPaid(1001, { how: "online", feeKobo: 0, courierKobo: 350_000 });
+    expect(t.service.book).toHaveBeenCalledWith(expect.objectContaining({ requestToken: "tok", courierId: "kwik", serviceCode: "kwik_express" }));
+    expect(notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ to: CUSTOMER, text: expect.stringContaining("Kwik will deliver your order KP-1001") }),
+        expect.objectContaining({ to: OWNER, text: expect.stringContaining("🚚 Kwik is booked for KP-1001") }),
+      ]),
+    );
+    expect(t.deliveries[0]?.status).toBe("assigned");
+    expect(await t.product.courierPaid(1001)).toEqual([]);
+    expect(t.service.book).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the owner a link to pay the courier fee when the customer paid them directly", async () => {
+    const t = await offered();
+    await t.product.handle(say("yes"), ctx());
+    const paid = await t.product.orderPaid(1001, { how: "app" });
+    expect(paid.find((n) => n.to === OWNER)?.text).toContain("reply *courier KP-1001*");
+    expect(t.service.book).not.toHaveBeenCalled();
+    const link = await t.product.handle(from(OWNER, "courier KP-1001"), ctx());
+    expect(link?.text).toContain("https://checkout.paystack.com/courier");
+    expect(t.payLink).toHaveBeenCalledWith(expect.objectContaining({ orderNumber: 1001 }), 350_000);
+    await t.product.courierPaid(1001);
+    expect(t.service.book).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows Shipbubble's signed webhooks, ignoring unsigned ones and repeats", async () => {
+    const t = await offered();
+    await t.product.handle(say("yes"), ctx());
+    await t.product.orderPaid(1001, { how: "online", feeKobo: 0, courierKobo: 350_000 });
+    const post = (body: object, signature?: string) => {
+      const raw = JSON.stringify(body);
+      return t.tracking.request("/webhooks/shipbubble", {
+        method: "POST",
+        body: raw,
+        headers: { "x-ship-signature": signature ?? createHmac("sha512", SHIP_KEY).update(raw).digest("hex") },
+      });
+    };
+    expect((await post({ event: "shipment.status.changed", order_id: "SB-1", status: "picked_up" }, "00")).status).toBe(401);
+    expect(t.sent).toHaveLength(0);
+    expect((await post({ event: "shipment.status.changed", order_id: "SB-1", status: "picked_up" })).status).toBe(200);
+    expect((await post({ event: "shipment.status.changed", order_id: "SB-1", status: "in_transit" })).status).toBe(200);
+    expect((await post({ event: "shipment.status.changed", order_id: "SB-1", status: "completed" })).status).toBe(200);
+    expect(t.deliveries[0]?.status).toBe("delivered");
+    expect(t.sent.filter((n) => n.to === CUSTOMER).map((n) => n.text)).toEqual([
+      expect.stringContaining("Kwik has picked up your order KP-1001"),
+      expect.stringContaining("has been delivered"),
+    ]);
   });
 });

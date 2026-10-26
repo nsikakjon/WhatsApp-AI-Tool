@@ -37,6 +37,12 @@ export interface AppBusiness {
   };
   /** Riders and zones (QUOTE_DELIVERY); without it the page explains how to switch delivery on. */
   delivery?: DeliverySetupStore;
+  /**
+   * Shipbubble couriers for addresses outside the zones. `available` is false
+   * when yarnOga hasn't set them up or the business isn't in naira; `set` is
+   * missing on the main number, where QUOTE_COURIER_DELIVERY decides.
+   */
+  courier?: { available: boolean; on: boolean; set?(on: boolean): Promise<void> };
   data: BusinessData;
   logo(): Promise<Uint8Array | null>;
   saveLogo(data: Uint8Array, mimeType: string): Promise<void>;

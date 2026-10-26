@@ -84,6 +84,8 @@ export interface Config {
     currency: Currency;
     /** Answer voice notes with a voice note (needs TTS set up). */
     voiceReplies: boolean;
+    /** Offer Shipbubble couriers for addresses outside its zones (needs SHIPBUBBLE_API_KEY and pay links). */
+    courierDelivery: boolean;
   };
   /**
    * More businesses on the quote bot, each on its own WhatsApp number, set up
@@ -276,6 +278,8 @@ export interface Config {
    * AZURE_SPEECH_REGION) when set, otherwise Google (GOOGLE_TTS_API_KEY).
    */
   tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
+  /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
+  shipbubble?: { apiKey: string; contactEmail: string; categoryId?: number; itemKg: number };
   flutterwave?: {
     secretKey: string;
     /** The secret hash set in Flutterwave > Settings > Webhooks; it proves a webhook came from Flutterwave. */
@@ -375,6 +379,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             language: oneOf(env.QUOTE_LANGUAGE?.trim().toLowerCase() || "en", isLang, "QUOTE_LANGUAGE", "en or fr"),
             currency: oneOf(env.QUOTE_CURRENCY?.trim().toUpperCase() || "NGN", isCurrency, "QUOTE_CURRENCY", "NGN, XOF or XAF"),
             voiceReplies: /^(true|yes|on|1)$/i.test(env.QUOTE_VOICE_REPLIES ?? ""),
+            courierDelivery: /^(true|yes|on|1)$/i.test(env.QUOTE_COURIER_DELIVERY ?? ""),
           }
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
@@ -511,6 +516,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     paystack: paystackSettings(env),
     flutterwave: flutterwaveSettings(env),
+    shipbubble: shipbubbleSettings(env),
     tts: ttsSettings(env),
   };
 }
@@ -560,6 +566,21 @@ function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
   if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
   return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
+}
+
+function shipbubbleSettings(env: NodeJS.ProcessEnv): Config["shipbubble"] {
+  const apiKey = env.SHIPBUBBLE_API_KEY?.trim();
+  if (!apiKey) return undefined;
+  if (!/^sb_(sandbox|prod)_/.test(apiKey)) {
+    throw new Error("SHIPBUBBLE_API_KEY must be a Shipbubble API key (starts with sb_sandbox_ or sb_prod_)");
+  }
+  const contactEmail = env.SHIPBUBBLE_CONTACT_EMAIL?.trim() || env.PAYSTACK_CUSTOMER_EMAIL?.trim();
+  if (!contactEmail) throw new Error("Missing required environment variable: SHIPBUBBLE_CONTACT_EMAIL (or PAYSTACK_CUSTOMER_EMAIL) (see .env.example)");
+  const category = env.SHIPBUBBLE_CATEGORY_ID?.trim();
+  if (category && !/^\d+$/.test(category)) throw new Error("SHIPBUBBLE_CATEGORY_ID must be a number from Shipbubble's package categories");
+  const kg = Number(env.SHIPBUBBLE_ITEM_KG?.trim() || "0.5");
+  if (!(kg > 0 && kg <= 100)) throw new Error("SHIPBUBBLE_ITEM_KG must be a weight in kg, e.g. 0.5");
+  return { apiKey, contactEmail, categoryId: category ? Number(category) : undefined, itemKg: kg };
 }
 
 function ttsSettings(env: NodeJS.ProcessEnv): Config["tts"] {
