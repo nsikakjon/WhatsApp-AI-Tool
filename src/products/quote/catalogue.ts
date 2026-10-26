@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatNaira } from "../../core/money.js";
+import type { Lang } from "../../core/i18n.js";
+import { formatMoney, type Currency } from "../../core/money.js";
 import type { ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingButtons, OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
@@ -48,7 +49,7 @@ export interface Catalogue {
   /** The owner's stock and photo messages; null for anything else. */
   ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null>;
   /** Quote lines that ask for more than is left, with what to tell the customer. */
-  shortages(lines: QuoteLine[]): Promise<Map<string, string>>;
+  shortages(lines: QuoteLine[], lang?: Lang): Promise<Map<string, string>>;
   /** Photos of the products on a quote, at most three. */
   photos(lines: QuoteLine[]): Promise<OutgoingImage[]>;
   confirmed(orderId: string): Promise<void>;
@@ -56,7 +57,7 @@ export interface Catalogue {
    * A page of product cards, priced from `variants`. `only` narrows it to the
    * products of those variant ids. Null when there's nothing to show.
    */
-  cards(variants: Variant[], page: number, only?: string[]): Promise<Reply | null>;
+  cards(variants: Variant[], page: number, only?: string[], lang?: Lang): Promise<Reply | null>;
 }
 
 const LIST_MAX = 40;
@@ -67,7 +68,14 @@ const OPTIONS_PER_CARD = 6;
 /** The "See more" button's id, which comes back as the customer's message. */
 export const CARDS_PAGE = /^catalogue page (\d{1,3})$/i;
 
-export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFeatures; log?: Pick<Console, "error"> }): Catalogue {
+export function createCatalogue(opts: {
+  store: CatalogueStore;
+  features?: PlanFeatures;
+  /** What prices on the cards are in (default naira). */
+  currency?: Currency;
+  log?: Pick<Console, "error">;
+}): Catalogue {
+  const money = (minor: number) => formatMoney(minor, opts.currency ?? "NGN");
   const log = opts.log ?? console;
   const onPlan = () => (opts.features ? opts.features.has("catalogue") : Promise.resolve(true));
   const notOnPlan: Reply = { text: "Product photos and stock levels come with Pro and above. Send *plan* to see how to upgrade." };
@@ -126,14 +134,23 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
       return { text: stock === null ? `${item.name}: no longer counted.` : `${item.name}: ${stock} left.` };
     },
 
-    async shortages(lines) {
+    async shortages(lines, lang = "en") {
       const short = new Map<string, string>();
       if (!(await onPlan())) return short;
       const stock = new Map((await opts.store.items()).map((i) => [i.variantId, i.stock]));
       for (const line of lines) {
         const left = stock.get(line.variantId);
         if (left == null || line.quantity <= left) continue;
-        short.set(line.variantId, left === 0 ? `${line.name} is sold out at the moment.` : `${line.name}: only ${left} left.`);
+        short.set(
+          line.variantId,
+          lang === "fr"
+            ? left === 0
+              ? `${line.name} est épuisé pour le moment.`
+              : `${line.name} : il n'en reste que ${left}.`
+            : left === 0
+              ? `${line.name} is sold out at the moment.`
+              : `${line.name}: only ${left} left.`,
+        );
       }
       return short;
     },
@@ -158,7 +175,8 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
       }
     },
 
-    async cards(variants, page, only = []) {
+    async cards(variants, page, only = [], lang = "en") {
+      const fr = lang === "fr";
       const byId = new Map(variants.map((v) => [v.id, v]));
       const wanted = new Set(only);
       const products = new Map<string, CatalogueItem[]>();
@@ -173,7 +191,9 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
       const cards = await Promise.all(
         shown.slice(start, start + CARDS_PER_PAGE).map(async (options): Promise<OutgoingButtons> => {
           const product = options[0]!;
-          const prices = options.slice(0, OPTIONS_PER_CARD).map((o) => priceLine(o.name.slice(o.productName.length + 2), byId.get(o.variantId)));
+          const prices = options
+            .slice(0, OPTIONS_PER_CARD)
+            .map((o) => priceLine(o.name.slice(o.productName.length + 2), byId.get(o.variantId), money, lang));
           const more = options.length - OPTIONS_PER_CARD;
           const image = withPhotos && product.photoPath ? await cardPhoto(product.photoPath) : null;
           return {
@@ -181,19 +201,29 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
             body: [
               `*${product.productName}*`,
               ...prices,
-              ...(more > 0 ? [`…and ${more} more option${more === 1 ? "" : "s"}`] : []),
+              ...(more > 0 ? [fr ? `…et ${more} autre${more === 1 ? "" : "s"} option${more === 1 ? "" : "s"}` : `…and ${more} more option${more === 1 ? "" : "s"}`] : []),
               ...(product.productDescription?.trim() ? ["", product.productDescription.trim()] : []),
             ].join("\n"),
-            buttons: [{ id: `I'd like ${product.productName}`, title: "Order this" }],
+            buttons: [fr ? { id: `Je voudrais ${product.productName}`, title: "Commander" } : { id: `I'd like ${product.productName}`, title: "Order this" }],
           };
         }),
       );
       const shownTo = start + cards.length;
       return {
-        text: current === 1 ? "Here's what we sell. Tap *Order this* on anything you like, or just tell me what you need and how many." : "",
+        text:
+          current === 1
+            ? fr
+              ? "Voici ce que nous vendons. Touchez *Commander* sur ce qui vous plaît, ou dites-moi simplement ce qu'il vous faut et en quelle quantité."
+              : "Here's what we sell. Tap *Order this* on anything you like, or just tell me what you need and how many."
+            : "",
         cards,
         ...(current < pages
-          ? { buttons: { body: `That's ${shownTo} of ${shown.length} products.`, buttons: [{ id: `catalogue page ${current + 1}`, title: "See more" }] } }
+          ? {
+              buttons: {
+                body: fr ? `Cela fait ${shownTo} produits sur ${shown.length}.` : `That's ${shownTo} of ${shown.length} products.`,
+                buttons: [{ id: `catalogue page ${current + 1}`, title: fr ? "Voir plus" : "See more" }],
+              },
+            }
           : {}),
       };
     },
@@ -219,15 +249,20 @@ export function createCatalogue(opts: { store: CatalogueStore; features?: PlanFe
 }
 
 /** "White, one-colour print: ₦5,000 each, ₦4,200 each from 50 (min. 10)", priced the way a quote would be. */
-function priceLine(option: string, variant: Variant | undefined): string {
-  const label = option ? `${option[0]!.toUpperCase()}${option.slice(1)}: ` : "";
+function priceLine(option: string, variant: Variant | undefined, money: (minor: number) => string, lang: Lang): string {
+  const fr = lang === "fr";
+  const label = option ? `${option[0]!.toUpperCase()}${option.slice(1)}${fr ? " : " : ": "}` : "";
   const first = variant && quoteLine(variant, variant.minQuantity);
-  if (!variant || !first?.ok) return `• ${label}price on request`;
+  if (!variant || !first?.ok) return `• ${label}${fr ? "prix sur demande" : "price on request"}`;
   const top = Math.max(...variant.tiers.map((t) => t.minQuantity));
   const bulk = top > variant.minQuantity ? quoteLine(variant, top) : null;
   return [
-    `• ${label}${formatNaira(first.line.unitPriceKobo)} each`,
-    bulk?.ok && bulk.line.unitPriceKobo < first.line.unitPriceKobo ? `, ${formatNaira(bulk.line.unitPriceKobo)} each from ${top}` : "",
+    `• ${label}${money(first.line.unitPriceKobo)} ${fr ? "l'unité" : "each"}`,
+    bulk?.ok && bulk.line.unitPriceKobo < first.line.unitPriceKobo
+      ? fr
+        ? `, ${money(bulk.line.unitPriceKobo)} l'unité à partir de ${top}`
+        : `, ${money(bulk.line.unitPriceKobo)} each from ${top}`
+      : "",
     variant.minQuantity > 1 ? ` (min. ${variant.minQuantity})` : "",
   ].join("");
 }
