@@ -29,6 +29,7 @@ import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js"
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
 import { dailySummary, lagosDate } from "./owner/summary.js";
+import { askForRatings, createSupabaseRatings } from "./products/quote/ratings.js";
 import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
@@ -216,6 +217,7 @@ function addBroadcasts(bot: Product, businessId: string, businessName: string, o
 }
 
 // Quote follow-up reminders; with QUOTE_FOLLOW_UPS off nothing reads or writes them.
+const ratings = config.activeProduct === "quote" && config.quoteRatings ? createSupabaseRatings(supabase) : undefined;
 const followUpConfig = config.quoteFollowUps;
 const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined;
 const optOutFor = (businessId: string) =>
@@ -354,6 +356,7 @@ if (config.activeProduct === "quote" && config.quote) {
     language: config.quote.language,
     currency: config.quote.currency,
     about: cachedAbout(createSupabaseAbout(supabase, DEFAULT_BUSINESS_ID)),
+    saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(DEFAULT_BUSINESS_ID, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
@@ -439,6 +442,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     language: business.language,
     currency: business.currency,
     about: cachedAbout(createSupabaseAbout(supabase, business.id)),
+    saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(business.id, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
@@ -1159,6 +1163,32 @@ if (broadcastConfig && broadcastStore) {
 }
 
 // Every 15 minutes, send quote reminders that are due (one per unanswered
+// Ratings (QUOTE_RATINGS): one "How did we do?" per paid order, with Great /
+// OK / Not good buttons, a few hours after payment or soon after delivery,
+// inside WhatsApp's free window only. Each business can switch it off.
+if (ratings) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.ratingsOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !b.phoneNumberId))) continue;
+      try {
+        const found = await quoteBotFor(b.id);
+        if (!found) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        await askForRatings(b.id, {
+          store: ratings,
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
+          optedOut: followUps ? (contactId) => followUps.optedOut(b.id, contactId) : undefined,
+          send: (to, orderNumber) => sendNotice(deps, { to, ...found.bot.ratingAsk(orderNumber) }, found.fromNumberId ?? undefined),
+        });
+      } catch (err) {
+        console.error(`Asking for ratings failed for ${b.name}:`, err);
+      }
+    }
+  });
+}
+
 // Payment reminders (QUOTE_PAY_REMINDERS): at most two per confirmed, unpaid
 // order, inside WhatsApp's free 24-hour window, daytime only. A business can
 // switch them off in the app (Settings > Customers who haven't paid).

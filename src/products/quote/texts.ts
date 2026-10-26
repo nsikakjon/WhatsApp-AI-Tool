@@ -15,6 +15,11 @@ export interface QuoteTexts {
   voiceUnclear(): string;
   sendRequest(): string;
   stopReminders(): string;
+  ratingAsk(business: string, ref: string): string;
+  ratingButtons: { great: string; ok: string; bad: string };
+  ratingThanks(stars: number, business: string): string;
+  ratingAlready: string;
+  ownerLowRating(ref: string, who: string, phone: string): string;
   noPriceList(business: string): string;
   didntCatch(): string;
   teamNotified(business: string): string;
@@ -94,6 +99,16 @@ const en: QuoteTexts = {
   voiceUnclear: () => "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?",
   sendRequest: () => "Please send your request as a message or voice note (for example: 100 A5 flyers).",
   stopReminders: () => "Okay, I won't send you any more quote reminders. Message me any time you need a quote.",
+  ratingAsk: (b, ref) => `How did we do with your order ${ref}? Your answer helps ${b} serve you better.`,
+  ratingButtons: { great: "😀 Great", ok: "🙂 OK", bad: "🙁 Not good" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Thank you! 🙏 We're glad you're happy. If you know someone who'd like ${b}, please share our number with them.`
+      : stars >= 3
+        ? "Thanks for telling us. If there's anything we could do better, just reply here."
+        : `We're sorry it wasn't right. I've told the ${b} team and someone will contact you to put it right.`,
+  ratingAlready: "Thanks, we already have your answer for that order. 🙏",
+  ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) said order ${ref} was *not good*. Please contact them to put it right.`,
   noPriceList: (b) => `Thanks for messaging ${b}! Our price list isn't online yet, so someone from the team will get back to you.`,
   didntCatch: () => "Sorry, I didn't catch that. Could you tell me what you'd like and how many?",
   teamNotified: (b) => `I've let the ${b} team know. Someone will reply to you here shortly.`,
@@ -196,6 +211,16 @@ const fr: QuoteTexts = {
   voiceUnclear: () => "Désolé, je n'ai pas compris ce message vocal. Pouvez-vous m'écrire ce qu'il vous faut (par exemple : 100 flyers A5) ?",
   sendRequest: () => "Envoyez votre demande par message ou par message vocal (par exemple : 100 flyers A5).",
   stopReminders: () => "D'accord, je ne vous enverrai plus de rappels de devis. Écrivez-moi quand vous voulez un devis.",
+  ratingAsk: (b, ref) => `Comment s'est passée votre commande ${ref} ? Votre avis aide ${b} à mieux vous servir.`,
+  ratingButtons: { great: "😀 Très bien", ok: "🙂 Correct", bad: "🙁 Pas bien" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Merci ! 🙏 Ravis que vous soyez satisfait. Si vous connaissez quelqu'un qui aimerait ${b}, partagez-lui notre numéro.`
+      : stars >= 3
+        ? "Merci de nous l'avoir dit. S'il y a quelque chose à améliorer, répondez simplement ici."
+        : `Désolés que ce n'était pas bien. J'ai prévenu l'équipe de ${b}, quelqu'un va vous contacter pour arranger cela.`,
+  ratingAlready: "Merci, nous avons déjà votre avis pour cette commande. 🙏",
+  ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) a dit que la commande ${ref} n'était *pas bien*. Contactez-le pour arranger cela.`,
   noPriceList: (b) => `Merci d'avoir écrit à ${b} ! Notre liste de prix n'est pas encore en ligne : quelqu'un de l'équipe va vous répondre.`,
   didntCatch: () => "Désolé, je n'ai pas bien compris. Pouvez-vous me dire ce que vous voulez et en quelle quantité ?",
   teamNotified: (b) => `J'ai prévenu l'équipe de ${b}. Quelqu'un va vous répondre ici très vite.`,

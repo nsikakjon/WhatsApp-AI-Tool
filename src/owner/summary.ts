@@ -32,11 +32,12 @@ export async function dailySummary(biz: AppBusiness, now: Date, appUrl?: string)
   const money = (minor: number) => formatMoney(minor, biz.currency);
   const start = lagosDayStart(now, 1);
   const end = lagosDayStart(now, 0);
-  const [sales, recent, top, products] = await Promise.all([
+  const [sales, recent, top, products, rated] = await Promise.all([
     biz.board.sales(start, end),
     biz.board.orders(lagosDayStart(now, 14)),
     biz.data.topItems(start, 1).catch(() => []),
     biz.prices.products().catch(() => []),
+    biz.data.ratings ? biz.data.ratings(start).catch(() => null) : Promise.resolve(null),
   ]);
   const unpaid = recent.filter((o) => o.status === "confirmed");
   const owed = unpaid.reduce((sum, o) => sum + o.totalKobo, 0);
@@ -50,6 +51,7 @@ export async function dailySummary(biz: AppBusiness, now: Date, appUrl?: string)
     `• Orders: ${sales.orders}${sales.quotes ? ` (from ${sales.quotes} quote${sales.quotes === 1 ? "" : "s"})` : ""}`,
     `• Paid in: ${money(sales.paidInKobo)}`,
     ...(top[0] ? [`• Best seller: ${top[0].name} (${top[0].quantity})`] : []),
+    ...(rated?.count ? [`• Ratings: ${rated.average!.toFixed(1)} / 5 from ${rated.count}${rated.bad ? ` (${rated.bad} not good)` : ""}`] : []),
     ...(unpaid.length ? ["", `💰 Waiting for payment: ${unpaid.length} order${unpaid.length === 1 ? "" : "s"}, ${money(owed)}`] : []),
     ...(low.length ? ["", "📦 Running low:", ...low.slice(0, 6).map((l) => `• ${l}`), ...(low.length > 6 ? [`• and ${low.length - 6} more`] : [])] : []),
     ...(appUrl ? ["", `More in your app: ${appUrl}/app`] : []),

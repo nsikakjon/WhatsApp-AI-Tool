@@ -1,3 +1,5 @@
+import { RATE, STARS } from "./ratings.js";
+import type { OutgoingButtons } from "../../core/whatsapp/client.js";
 import { aboutForAi, nextOpenText, openState, type BusinessAbout } from "./about.js";
 import { guessLanguage, type Lang } from "../../core/i18n.js";
 import { formatMoney, type Currency } from "../../core/money.js";
@@ -76,6 +78,8 @@ export interface QuoteProductOptions {
   branding?: BrandingStore;
   /** Address or phone printed under the business name on invoices and receipts. */
   businessDetails?: string;
+  /** Saves a customer's rating for their own order (migration 0054). False when it isn't theirs or was rated already. */
+  saveRating?(orderNumber: number, customerWaId: string, stars: number): Promise<boolean>;
   /** What the owner wrote about the business and its opening hours (migration 0054), read fresh every minute. */
   about?: () => Promise<BusinessAbout | null>;
   /** Bank details printed on invoices, e.g. "GTBank 0123456789, Example Ltd". */
@@ -134,6 +138,8 @@ export interface QuoteProduct extends Product {
    * pay link (or the bank details). Null when it no longer needs one.
    */
   paymentReminder(orderNumber: number, n: 1 | 2): Promise<string | null>;
+  /** "How did we do with your order?" with Great / OK / Not good buttons. */
+  ratingAsk(orderNumber: number): { text: string; buttons: OutgoingButtons };
 }
 
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
@@ -181,6 +187,19 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         return {
           text: msg.type === "audio" ? t.voiceUnclear() : t.sendRequest(),
         };
+      }
+
+      // A tap on a rating button: saved in code, no AI.
+      const rate = msg.text.trim().match(RATE);
+      if (rate && opts.saveRating && rate[1]!.toUpperCase().startsWith(`${opts.orderPrefix.toUpperCase()}-`)) {
+        const orderNumber = Number(rate[1]!.split("-")[1]);
+        const stars = Number(rate[2]);
+        if (!(await opts.saveRating(orderNumber, msg.from, stars))) return { text: t.ratingAlready };
+        const reply: Reply = { text: t.ratingThanks(stars, opts.businessName) };
+        if (stars <= 1 && opts.ownerWaId) {
+          reply.notify = [{ to: opts.ownerWaId, text: own.ownerLowRating(`${opts.orderPrefix}-${orderNumber}`, msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }];
+        }
+        return reply;
       }
 
       if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
@@ -290,6 +309,22 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
     async courierPaid(orderNumber) {
       return opts.delivery ? opts.delivery.bookCourier(orderNumber) : [];
+    },
+
+    ratingAsk(orderNumber) {
+      const label = `${opts.orderPrefix}-${orderNumber}`;
+      const b = own.ratingButtons;
+      return {
+        text: "",
+        buttons: {
+          body: own.ratingAsk(opts.businessName, label),
+          buttons: [
+            { id: `rate ${label} ${STARS.great}`, title: b.great },
+            { id: `rate ${label} ${STARS.ok}`, title: b.ok },
+            { id: `rate ${label} ${STARS.bad}`, title: b.bad },
+          ],
+        },
+      };
     },
 
     async paymentReminder(orderNumber, n) {

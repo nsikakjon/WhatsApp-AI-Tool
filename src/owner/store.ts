@@ -166,6 +166,8 @@ export interface BusinessInfo {
 export interface BusinessData {
   info(): Promise<BusinessInfo | null>;
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
+  /** Customers' ratings given since then (migration 0054): how many, the average out of 5, and how many said "not good". */
+  ratings?(since: Date): Promise<{ count: number; average: number | null; bad: number }>;
   /** What the owner wrote about the business and its opening hours (migration 0054). */
   about?(): Promise<BusinessAbout | null>;
   saveAbout?(text: string | null, hours: OpeningHours | null): Promise<void>;
@@ -669,6 +671,18 @@ export function createSupabaseBusinessData(
         totals.set(t.name, t);
       }
       return [...totals.values()].sort((a, b) => b.totalKobo - a.totalKobo).slice(0, limit);
+    },
+    async ratings(since) {
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("rating")
+        .in("business_id", opts.businessIds)
+        .not("rating", "is", null)
+        .gte("rated_at", since.toISOString())
+        .limit(10_000);
+      const stars = (one(data, error, "ratings") ?? []).map((r) => Number(r.rating));
+      const total = stars.reduce((a, b) => a + b, 0);
+      return { count: stars.length, average: stars.length ? Math.round((total / stars.length) * 10) / 10 : null, bad: stars.filter((x) => x <= 1).length };
     },
     async chatCounts(since) {
       const base = () => numbers(db.from("messages").select("contact_id", { count: "exact" }).gte("created_at", since.toISOString()));

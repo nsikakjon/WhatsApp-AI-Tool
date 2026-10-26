@@ -19,3 +19,11 @@ alter table public.quote_businesses add column if not exists opening_hours jsonb
 -- The owner's morning summary: on unless switched off, sent once a day.
 alter table public.quote_businesses add column if not exists daily_summary_on boolean not null default true;
 alter table public.quote_businesses add column if not exists summary_sent_on date;
+
+-- Ratings: one "How did we do?" per paid order, answered with a button
+-- (5 = great, 3 = OK, 1 = not good). Each business can switch them off.
+alter table public.quote_orders add column if not exists rating_asked_at timestamptz;
+alter table public.quote_orders add column if not exists rating smallint check (rating between 1 and 5);
+alter table public.quote_orders add column if not exists rated_at timestamptz;
+create index if not exists quote_orders_rated_idx on public.quote_orders (business_id, rated_at) where rating is not null;
+alter table public.quote_businesses add column if not exists ratings_on boolean not null default true;

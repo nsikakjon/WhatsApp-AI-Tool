@@ -280,6 +280,8 @@ export interface Config {
   tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
   /** Payment reminders for confirmed, unpaid orders (QUOTE_PAY_REMINDERS, migration 0054). */
   quotePayReminders: boolean;
+  /** Ask customers to rate finished orders (QUOTE_RATINGS, migration 0054). */
+  quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
   shipbubble?: { apiKey: string; contactEmail: string; categoryId?: number; itemKg: number };
   flutterwave?: {
@@ -520,6 +522,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     flutterwave: flutterwaveSettings(env),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
+    quoteRatings: /^(true|yes|on|1)$/i.test(env.QUOTE_RATINGS ?? ""),
     tts: ttsSettings(env),
   };
 }

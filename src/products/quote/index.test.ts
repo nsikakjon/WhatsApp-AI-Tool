@@ -984,3 +984,30 @@ describe("about and opening hours", () => {
     expect(hi?.buttons?.body).toContain("We're closed right now and open again");
   });
 });
+
+describe("ratings", () => {
+  it("asks with three buttons, saves a tap without the AI, and tells the owner about a bad one", async () => {
+    const saved: Array<[number, string, number]> = [];
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      saveRating: async (n, waId, stars) => (saved.push([n, waId, stars]), saved.length === 1),
+      log: { error() {} },
+    });
+    const ask = product.ratingAsk(1001);
+    expect(ask.buttons.body).toContain("How did we do with your order KP-1001?");
+    expect(ask.buttons.buttons.map((b) => b.id)).toEqual(["rate KP-1001 5", "rate KP-1001 3", "rate KP-1001 1"]);
+
+    const bad = await product.handle(text("rate KP-1001 1"), ctx);
+    expect(bad?.text).toContain("sorry it wasn't right");
+    expect(bad?.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("*not good*") });
+    expect(saved[0]).toEqual([1001, "2348012345678", 1]);
+    expect((await product.handle(text("rate KP-1001 5"), ctx))?.text).toContain("already have your answer");
+    expect(seen).toEqual([]);
+  });
+});
