@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { formatNaira } from "../../core/money.js";
 import { nairaToKobo } from "../../products/quote/pricelist.js";
 import type { SectionContext } from "../index.js";
-import { esc, field } from "../layout.js";
+import { esc, field, icon } from "../layout.js";
 import { DuplicateProductError, type ProductInput, type ProductOption, type ProductRecord } from "../store.js";
 import type { AppContext, Env } from "../types.js";
 
@@ -105,18 +105,18 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
         const price = from.length ? `from ${formatNaira(Math.min(...from))}${p.unit ? ` per ${esc(p.unit)}` : ""}` : "priced by the team";
         const min = Math.min(...p.options.map((o) => o.minQuantity));
         const stockLow = p.options.some((o) => o.stock !== null && o.stock <= 5);
-        const photo = p.photoPath && biz.photos ? `<img class="thumb" src="/app/prices/${p.id}/photo" alt="" loading="lazy">` : `<div class="thumb"></div>`;
-        return `<a class="card" href="/app/prices/${p.id}" style="display:flex;gap:12px;text-decoration:none;color:inherit">${photo}<div><b>${esc(p.name)}</b>
-${p.category ? `<span class="tag">${esc(p.category)}</span>` : ""}${stockLow ? ' <span class="tag red">low stock</span>' : ""}
-<p class="muted small" style="margin:4px 0 0">${p.options.length} option${p.options.length === 1 ? "" : "s"} · ${price} · min ${min}</p></div></a>`;
+        const photo = p.photoPath && biz.photos ? `<img class="thumb" src="/app/prices/${p.id}/photo" alt="" loading="lazy">` : `<div class="thumb">${esc(p.name.slice(0, 1).toUpperCase())}</div>`;
+        return `<a class="card product" href="/app/prices/${p.id}">${photo}<div style="min-width:0"><b>${esc(p.name)}</b>
+<p class="price">${price}</p>
+<p class="muted small" style="margin:0">${p.category ? `<span class="tag">${esc(p.category)}</span> ` : ""}${stockLow ? '<span class="tag red">low stock</span> ' : ""}${p.options.length} option${p.options.length === 1 ? "" : "s"} · min ${min}</p></div></a>`;
       })
       .join("");
     return ctx.render(
       c,
       "Price list",
       "/app/prices",
-      `<div class="row" style="margin-bottom:12px"><form method="get" class="row" style="flex:3"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
-<a class="button" href="/app/prices/new" style="flex:0 0 auto">+ Add a product</a></div>
+      `<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
+<a class="button" href="/app/prices/new">${icon("plus", 18)}Add a product</a></div>
 <div class="cards">${cards || `<p class="muted">No products yet. <a href="/app/prices/new">Add your first one</a>.</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
     );
