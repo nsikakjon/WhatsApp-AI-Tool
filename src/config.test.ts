@@ -226,4 +226,27 @@ describe("loadConfig", () => {
     expect(loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "1", FLYER_OPEN_SIGNUP: "false" }).flyer?.openSignup).toBe(false);
     expect(() => loadConfig({ ...base, FLYER_SEND_HOUR: "24" })).toThrow("FLYER_SEND_HOUR");
   });
+
+  it("reads who gets alerts, and needs a Resend key for email", () => {
+    expect(loadConfig(base).alerts).toEqual({ waId: undefined, template: undefined, email: undefined, sentry: undefined });
+    const alerts = loadConfig({
+      ...base,
+      ALERT_WA_ID: "+234 801 234 5678",
+      ALERT_EMAIL: "jay@example.com",
+      RESEND_API_KEY: "re_x",
+      SENTRY_DSN: "https://abc@o1.ingest.sentry.io/42",
+    }).alerts;
+    expect(alerts.waId).toBe("2348012345678");
+    expect(alerts.email).toEqual({ apiKey: "re_x", to: "jay@example.com", from: "yarnOga alerts <alerts@yarnoga.com>" });
+    expect(alerts.sentry).toEqual({ dsn: "https://abc@o1.ingest.sentry.io/42", environment: "production" });
+    expect(() => loadConfig({ ...base, ALERT_EMAIL: "jay@example.com" })).toThrow("RESEND_API_KEY");
+    expect(() => loadConfig({ ...base, SENTRY_DSN: "nope" })).toThrow("SENTRY_DSN");
+  });
+
+  it("switches the owner app on with a public address", () => {
+    expect(loadConfig(base).ownerApp).toBeUndefined();
+    expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://app.yarnoga.com" }).ownerApp).toEqual({
+      publicUrl: "https://app.yarnoga.com",
+    });
+  });
 });

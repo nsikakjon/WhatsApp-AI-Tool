@@ -10,6 +10,7 @@ import { createQuoteSetup, type QuoteSetupDeps } from "./products/quote/setup.js
 import { createTracking, type TrackingDeps } from "./products/quote/delivery/tracking.js";
 import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
+import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -23,11 +24,17 @@ export function createApp(
   tracking?: TrackingDeps,
   orderBoard?: BoardDeps,
   walkInScreens?: ScreenDeps,
+  more: {
+    /** Checks behind /health/full and /status. Without them, /health alone. */
+    health?: HealthDeps;
+  } = {},
 ) {
   const app = new Hono();
 
-  // Simple "is it running?" check for Railway and for you in a browser.
-  app.get("/health", (c) => c.json({ ok: true }));
+  // Simple "is it running?" check for Railway and for you in a browser, plus
+  // the full checks and status page when they're set up.
+  if (more.health) app.route("/", createHealthRoutes(more.health));
+  else app.get("/health", (c) => c.json({ ok: true }));
 
   app.route("/webhooks/whatsapp", createWhatsAppWebhook(deps));
 

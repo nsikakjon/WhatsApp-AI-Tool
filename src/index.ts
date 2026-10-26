@@ -80,6 +80,9 @@ import { createPayments, type PaidHandler, type PaymentRequest } from "./core/pa
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 import { createSupabasePromoAdmin } from "./core/payments/promos.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
+import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
+import { createSentry } from "./core/alerts/sentry.js";
+import { createWatchdog, type HealthDeps } from "./core/health.js";
 
 const config = loadConfig();
 
@@ -378,6 +381,78 @@ const leadQualifier = leadsConfig
 const store = createSupabaseStore(supabase);
 const whatsapp = createWhatsAppClient(config.whatsapp);
 
+// Problems reach Jay: every logged error goes to Sentry and (at most every
+// 30 minutes) to ALERT_WA_ID on WhatsApp and ALERT_EMAIL by email.
+const alertConfig = config.alerts;
+const alerter = createAlerter({
+  whatsapp: alertConfig.waId
+    ? (text) =>
+        sendNotice(
+          { store, whatsapp },
+          {
+            to: alertConfig.waId!,
+            text,
+            // Template values can't hold line breaks.
+            template: alertConfig.template && { ...alertConfig.template, bodyParams: [text.replace(/\s*\n+\s*/g, " · ").slice(0, 900)] },
+          },
+        )
+    : undefined,
+  email: alertConfig.email ? resendEmail(alertConfig.email) : undefined,
+});
+const sentry = alertConfig.sentry
+  ? createSentry({ ...alertConfig.sentry, release: process.env.RAILWAY_GIT_COMMIT_SHA })
+  : null;
+watchErrors({ sentry, alerter, onProcess: true });
+
+// What /health/full and /status check, and the watchdog runs every 5 minutes.
+const health: HealthDeps = {
+  version: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
+  startedAt: Date.now(),
+  labels: { database: "Database (Supabase)", whatsapp: "WhatsApp Cloud API", ai: "AI replies (Anthropic)", messages: "Customer messages" },
+  checks: {
+    async database() {
+      const { error } = await supabase.from("contacts").select("id", { head: true, count: "estimated" }).limit(1);
+      if (error) throw new Error(error.message);
+    },
+    async whatsapp() {
+      const res = await fetch(`https://graph.facebook.com/${config.whatsapp.graphApiVersion}/${config.whatsapp.phoneNumberId}?fields=id`, {
+        headers: { Authorization: `Bearer ${config.whatsapp.accessToken}` },
+        signal: AbortSignal.timeout(7000),
+      });
+      if (!res.ok) throw new Error(`WhatsApp answered ${res.status}${res.status === 401 ? " (the access token has expired or been changed)" : ""}`);
+    },
+    ...(process.env.ANTHROPIC_API_KEY
+      ? {
+          async ai() {
+            // Listing models is free: it only checks the key and that Anthropic answers.
+            const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+              headers: { "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
+              signal: AbortSignal.timeout(7000),
+            });
+            if (!res.ok) throw new Error(`Anthropic answered ${res.status}`);
+          },
+        }
+      : {}),
+    // Never fails: says when the last customer message came in.
+    async messages() {
+      const { data } = await supabase
+        .from("messages")
+        .select("created_at")
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!data) return "none yet";
+      const minutes = Math.round((Date.now() - new Date(data.created_at as string).getTime()) / 60_000);
+      return `last one ${minutes < 60 ? `${minutes} minutes` : minutes < 2880 ? `${Math.round(minutes / 60)} hours` : `${Math.round(minutes / 1440)} days`} ago`;
+    },
+  },
+};
+const watchdog = createWatchdog({ ...health, alerter });
+runEvery(5 * 60 * 1000, async () => {
+  await watchdog();
+});
+
 // Paystack checkout links, when PAYSTACK_SECRET_KEY is set. Each product that
 // sells something adds what happens once it's paid, and the WhatsApp number
 // its messages about the payment come from.
@@ -615,7 +690,7 @@ const app = createApp({
         }
       },
     }
-  : undefined);
+  : undefined, { health });
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {

@@ -20,6 +20,26 @@ export interface Config {
    * owner replies from the WhatsApp Business app. 0 switches this off.
    */
   ownerReplyPauseMinutes: number;
+  /**
+   * Who hears about problems (errors, a check failing, the server not
+   * answering) and how. Each part is optional; with none set nobody is told.
+   */
+  alerts: {
+    /** Jay's WhatsApp number (digits only), ALERT_WA_ID. */
+    waId?: string;
+    /** Approved template with one body value ({{1}} = the alert) for when Jay hasn't messaged the bot in a day. */
+    template?: { name: string; language: string };
+    /** Email through Resend: RESEND_API_KEY, ALERT_EMAIL, ALERT_EMAIL_FROM. */
+    email?: { apiKey: string; to: string; from: string };
+    /** Sentry error tracking, SENTRY_DSN. */
+    sentry?: { dsn: string; environment: string };
+  };
+  /**
+   * The owners' and staff web app at /app (OWNER_APP=true): dashboard, inbox,
+   * orders, price list, delivery, posters, exports and settings for each
+   * quote business. Needs migration 0049.
+   */
+  ownerApp?: { publicUrl: string };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -279,6 +299,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
     ownerReplyPauseMinutes: pauseMinutes,
+    alerts: alertSettings(env),
+    ownerApp: /^(true|yes|on|1)$/i.test(env.OWNER_APP ?? "")
+      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
     inbox: inboxSettings(env.INBOX_PASSWORD),
     groq: env.GROQ_API_KEY
       ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }
@@ -473,6 +497,25 @@ function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
   if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
   return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
+}
+
+function alertSettings(env: NodeJS.ProcessEnv): Config["alerts"] {
+  const waId = env.ALERT_WA_ID?.replace(/\D/g, "") || undefined;
+  const to = env.ALERT_EMAIL?.trim();
+  const apiKey = env.RESEND_API_KEY?.trim();
+  if (to && !apiKey) throw new Error("ALERT_EMAIL needs RESEND_API_KEY too (emails are sent through resend.com)");
+  const dsn = env.SENTRY_DSN?.trim();
+  if (dsn && !/^https:\/\/[^@\s]+@[^/\s]+\/\d+$/.test(dsn)) {
+    throw new Error("SENTRY_DSN must be the DSN from Sentry > Project settings > Client Keys, e.g. https://abc123@o456.ingest.sentry.io/789");
+  }
+  return {
+    waId,
+    template: env.ALERT_TEMPLATE_NAME
+      ? { name: env.ALERT_TEMPLATE_NAME, language: env.ALERT_TEMPLATE_LANGUAGE || "en" }
+      : undefined,
+    email: to && apiKey ? { apiKey, to, from: env.ALERT_EMAIL_FROM?.trim() || "yarnOga alerts <alerts@yarnoga.com>" } : undefined,
+    sentry: dsn ? { dsn, environment: env.SENTRY_ENVIRONMENT?.trim() || "production" } : undefined,
+  };
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {
