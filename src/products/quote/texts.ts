@@ -24,6 +24,7 @@ export interface QuoteTexts {
   ratingThanks(stars: number, business: string): string;
   ratingAlready: string;
   ownerLowRating(ref: string, who: string, phone: string): string;
+  lowStock(items: Array<{ name: string; left: number }>): string;
   noPriceList(business: string): string;
   didntCatch(): string;
   teamNotified(business: string): string;
@@ -117,6 +118,12 @@ const en: QuoteTexts = {
         : `We're sorry it wasn't right. I've told the ${b} team and someone will contact you to put it right.`,
   ratingAlready: "Thanks, we already have your answer for that order. 🙏",
   ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) said order ${ref} was *not good*. Please contact them to put it right.`,
+  lowStock: (items) =>
+    [
+      "📦 Running low after this order:",
+      ...items.map((i) => `• ${i.name}: ${i.left === 0 ? "*sold out*" : `${i.left} left`}`),
+      "Send *stock* to see everything, or update it in your app's price list.",
+    ].join("\n"),
   noPriceList: (b) => `Thanks for messaging ${b}! Our price list isn't online yet, so someone from the team will get back to you.`,
   didntCatch: () => "Sorry, I didn't catch that. Could you tell me what you'd like and how many?",
   teamNotified: (b) => `I've let the ${b} team know. Someone will reply to you here shortly.`,
@@ -233,6 +240,12 @@ const fr: QuoteTexts = {
         : `Désolés que ce n'était pas bien. J'ai prévenu l'équipe de ${b}, quelqu'un va vous contacter pour arranger cela.`,
   ratingAlready: "Merci, nous avons déjà votre avis pour cette commande. 🙏",
   ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) a dit que la commande ${ref} n'était *pas bien*. Contactez-le pour arranger cela.`,
+  lowStock: (items) =>
+    [
+      "📦 Stock bas après cette commande :",
+      ...items.map((i) => `• ${i.name} : ${i.left === 0 ? "*épuisé*" : `il en reste ${i.left}`}`),
+      "Envoyez *stock* pour tout voir, ou mettez-le à jour dans la liste de prix de votre appli.",
+    ].join("\n"),
   noPriceList: (b) => `Merci d'avoir écrit à ${b} ! Notre liste de prix n'est pas encore en ligne : quelqu'un de l'équipe va vous répondre.`,
   didntCatch: () => "Désolé, je n'ai pas bien compris. Pouvez-vous me dire ce que vous voulez et en quelle quantité ?",
   teamNotified: (b) => `J'ai prévenu l'équipe de ${b}. Quelqu'un va vous répondre ici très vite.`,

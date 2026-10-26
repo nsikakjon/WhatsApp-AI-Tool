@@ -588,7 +588,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
-    await opts.catalogue?.confirmed(order.id);
+    const lowStock = (await opts.catalogue?.confirmed(order.id, order.lines)) ?? [];
     let spot: { code: string; table: string | null } | null = null;
     if (walkIn.on) {
       try {
@@ -637,6 +637,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             "",
             spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
             ...(check.warning ? ["", check.warning] : []),
+            ...(lowStock.length ? ["", own.lowStock(lowStock.map((l) => ({ name: l.name, left: l.left })))] : []),
           ].join("\n"),
         },
       ];

@@ -6,8 +6,7 @@ import type { AppBusiness } from "./types.js";
 // what's still unpaid, the best seller and anything running low. Built from
 // the same figures as the app's dashboard; nothing here is worked out by AI.
 
-/** At or below this many left, an item counts as running low (the same as the app's "low stock" tag). */
-export const LOW_STOCK = 5;
+import { LOW_STOCK } from "../products/quote/catalogue.js";
 /** The button under the summary. Tapping it keeps WhatsApp's free window open for tomorrow's summary. */
 export const SUMMARY_SEEN = "yarnoga summary seen";
 

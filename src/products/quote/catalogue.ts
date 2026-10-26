@@ -23,6 +23,9 @@ import { quoteLine, type QuoteLine, type Variant } from "./pricing.js";
 // product: its photo, its options with prices from the price list, its
 // description and an "Order this" button. Five cards at a time, then "See more".
 
+/** At or below this many left, an item is running low (the same as the app's "low stock" tag). */
+export const LOW_STOCK = 5;
+
 export interface CatalogueItem {
   variantId: string;
   /** "Product: option", as on quotes. */
@@ -52,7 +55,12 @@ export interface Catalogue {
   shortages(lines: QuoteLine[], lang?: Lang): Promise<Map<string, string>>;
   /** Photos of the products on a quote, at most three. */
   photos(lines: QuoteLine[]): Promise<OutgoingImage[]>;
-  confirmed(orderId: string): Promise<void>;
+  /**
+   * Takes a confirmed order off the stock. Returns the items this order took
+   * down to the low line (LOW_STOCK) or sold out, for the owner's alert;
+   * each crossing is reported once, by the order that caused it.
+   */
+  confirmed(orderId: string, lines?: QuoteLine[]): Promise<Array<{ name: string; left: number }>>;
   /**
    * A page of product cards, priced from `variants`. `only` narrows it to the
    * products of those variant ids. Null when there's nothing to show.
@@ -228,11 +236,23 @@ export function createCatalogue(opts: {
       };
     },
 
-    async confirmed(orderId) {
+    async confirmed(orderId, lines = []) {
       try {
-        if (await onPlan()) await opts.store.takeStock(orderId);
+        if (!(await onPlan())) return [];
+        await opts.store.takeStock(orderId);
+        if (!lines.length) return [];
+        const stock = new Map((await opts.store.items()).map((i) => [i.variantId, i]));
+        const low: Array<{ name: string; left: number }> = [];
+        for (const line of lines) {
+          const item = stock.get(line.variantId);
+          if (!item || item.stock === null) continue;
+          const before = item.stock + line.quantity;
+          if ((before > LOW_STOCK && item.stock <= LOW_STOCK) || (before > 0 && item.stock <= 0)) low.push({ name: item.name, left: Math.max(0, item.stock) });
+        }
+        return low;
       } catch (err) {
         log.error(`Could not take order ${orderId} off the stock:`, err);
+        return [];
       }
     },
   };
