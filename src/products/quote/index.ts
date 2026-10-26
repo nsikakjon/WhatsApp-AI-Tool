@@ -343,7 +343,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const text = msg.text!.trim();
     const t = QUOTE_TEXTS[lang];
     // "Order again": the last order's items at today's prices, quoted as usual.
-    if (ORDER_AGAIN.test(text) && opts.orders.lastOrder) {
+    if (ORDER_AGAIN.test(text) && opts.orders.lastOrder && (await orderAgainOnPlan())) {
       if (walkIn.paused) return closedReply(t);
       const last = await opts.orders.lastOrder(contactId);
       if (!last) return { text: t.noLastOrder };
@@ -381,7 +381,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       team: !!opts.ownerWaId,
     });
     // A returning customer can repeat their last order with one tap.
-    if (ask === "greeting" && reply.buttons && opts.orders.lastOrder && reply.buttons.buttons.length < 3) {
+    if (ask === "greeting" && reply.buttons && opts.orders.lastOrder && reply.buttons.buttons.length < 3 && (await orderAgainOnPlan())) {
       const last = await opts.orders.lastOrder(contactId).catch(() => null);
       const active = new Set(variants.map((v) => v.id));
       const still = last?.lines.filter((l) => active.has(l.variantId)) ?? [];
@@ -653,6 +653,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
   async function documentsIncluded(): Promise<boolean> {
     return opts.features ? opts.features.has("invoices") : true;
+  }
+
+  // "Order again" comes with Starter and above (plan feature "order_again").
+  async function orderAgainOnPlan(): Promise<boolean> {
+    return opts.features ? opts.features.has("order_again") : true;
   }
 
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */

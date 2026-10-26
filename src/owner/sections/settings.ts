@@ -7,6 +7,7 @@ import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
 import type { CareSettings } from "../store.js";
+import type { PlanFeature, PlanFeatures } from "../../products/quote/features.js";
 import { isPhoto } from "./prices.js";
 import { cleanHours, DAYS, type BusinessAbout, type Day } from "../../products/quote/about.js";
 import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
@@ -122,7 +123,7 @@ ${
 
 ${aboutForm(about)}
 
-${care ? careForm(care) : ""}
+${care ? careForm(care, await careOnPlan(biz.features)) : ""}
 
 <h2 id="language">Language and currency</h2>
 <form method="post" action="/app/settings/language" class="card">
@@ -214,7 +215,9 @@ ${feeNote}
     const biz = c.get("biz");
     if (!biz.data.saveCare) return done(c, "bad", "#care");
     const form = (await c.req.parseBody()) as Record<string, unknown>;
-    const on = (name: string) => field(form, name, 4) === "on";
+    // A choice the plan doesn't include keeps its saved value, so it's as the owner left it after an upgrade.
+    const [plan, before] = await Promise.all([careOnPlan(biz.features), biz.data.care ? biz.data.care() : null]);
+    const on = (name: keyof CareSettings) => (plan[name] === true ? field(form, name, 4) === "on" : (before?.[name] ?? true));
     await biz.data.saveCare({ payReminders: on("payReminders"), ratings: on("ratings"), dailySummary: on("dailySummary") });
     return done(c, "saved", "#care");
   });
@@ -363,10 +366,18 @@ function aboutForm(about: BusinessAbout | null): string {
 <div class="actions"><button>Save</button></div></form>`;
 }
 
+/** Which of the bot's messages the business's plan includes ("Starter" or "Pro" names the plan a missing one comes with). */
+async function careOnPlan(features?: PlanFeatures): Promise<Record<keyof CareSettings, true | "Starter" | "Pro">> {
+  const has = async (f: PlanFeature, plan: "Starter" | "Pro") => (!features || (await features.has(f)) ? (true as const) : plan);
+  return { payReminders: await has("pay_reminders", "Starter"), ratings: await has("ratings", "Starter"), dailySummary: await has("daily_summary", "Pro") };
+}
+
 /** Which messages the bot sends for the business. */
-function careForm(care: CareSettings): string {
+function careForm(care: CareSettings, onPlan: Record<keyof CareSettings, true | "Starter" | "Pro">): string {
   const box = (name: keyof CareSettings, title: string, note: string) =>
-    `<label class="check" style="align-items:flex-start"><input type="checkbox" name="${name}" value="on"${care[name] ? " checked" : ""} style="margin-top:4px"> <span><b>${title}</b><br><span class="muted small">${note}</span></span></label>`;
+    onPlan[name] === true
+      ? `<label class="check" style="align-items:flex-start"><input type="checkbox" name="${name}" value="on"${care[name] ? " checked" : ""} style="margin-top:4px"> <span><b>${title}</b><br><span class="muted small">${note}</span></span></label>`
+      : `<label class="check" style="align-items:flex-start"><input type="checkbox" disabled style="margin-top:4px"> <span><b>${title}</b> <span class="muted small">(comes with ${onPlan[name]} and above; send <b>plan</b> to your bot to upgrade)</span><br><span class="muted small">${note}</span></span></label>`;
   return `<h2 id="care">Messages the bot sends for you</h2>
 <form method="post" action="/app/settings/care" class="card">
 ${box("payReminders", "Remind customers who haven't paid", "At most two friendly reminders with the pay link, about 3 and 20 hours after they confirm.")}

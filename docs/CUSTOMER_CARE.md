@@ -4,6 +4,22 @@ Seven features that bring in money and save owners time. None of them needs a ne
 
 Messages to customers only go inside WhatsApp's free 24-hour window, which starts each time the customer last messaged. If that window has closed, the message is skipped rather than sent as a paid template.
 
+## Which plans get what
+
+| Feature | Free | Starter | Pro, Growth, Enterprise |
+| --- | --- | --- | --- |
+| About your business and opening hours | ✅ | ✅ | ✅ |
+| Payment reminders | – | ✅ | ✅ |
+| Ratings | – | ✅ | ✅ |
+| Order again | – | ✅ | ✅ |
+| Morning summary | – | – | ✅ |
+| Customers page | – | – | ✅ |
+| Low-stock alerts | – | – | ✅ (stock counting is already Pro) |
+
+About stays free because it makes every answer the bot gives better. The Starter features bring in money the owner would otherwise lose, which makes the step up from Free easy to sell. The owner tools (summary, customer list) give a reason to move up to Pro. Businesses on the old Standard plan keep everything Pro has.
+
+This only applies with plan features on (`QUOTE_PLAN_FEATURES`). The split lives in the database (migration 0055, table `quote_plan_features`), so it can be changed there without new code. In the app, a feature that isn't on the business's plan shows as greyed out with "comes with Starter/Pro and above".
+
 ## What each one does
 
 1. **Payment reminders.** When a customer confirms an order but doesn't pay, they get **at most two** friendly reminders:
@@ -42,7 +58,7 @@ Messages to customers only go inside WhatsApp's free 24-hour window, which start
 
 ## What Jay needs to do
 
-1. **Run the migration.** In Supabase, go to SQL Editor > New query, paste `supabase/migrations/0054_customer_care.sql`, and click Run (after 0053).
+1. **Run the migration.** In Supabase, go to SQL Editor > New query, paste `supabase/migrations/0054_customer_care.sql`, and click Run (after 0053). Then do the same with `supabase/migrations/0055_plan_features_care.sql`, which sets which plans get which feature.
 2. **Switch features on in Railway:**
    - `QUOTE_PAY_REMINDERS=true` for payment reminders;
    - `QUOTE_RATINGS=true` for ratings.

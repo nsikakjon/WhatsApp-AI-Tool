@@ -30,6 +30,9 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
   app.get("/customers", async (c) => {
     const biz = c.get("biz");
     const money = (minor: number) => formatMoney(minor, biz.currency);
+    if (biz.features && !(await biz.features.has("customers_page"))) {
+      return ctx.render(c, "Customers", "/app/customers", `<p>The customer list comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
+    }
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
     let list: CustomerSummary[];
     try {
@@ -71,6 +74,7 @@ ${shown.length > 300 ? `<p class="muted small">Showing the top 300. Search to fi
     const denied = await ctx.ownerOnly(c);
     if (denied) return denied;
     const biz = c.get("biz");
+    if (biz.features && !(await biz.features.has("customers_page"))) return c.redirect("/app/customers");
     const list = biz.data.customers ? await biz.data.customers() : [];
     return c.body(customersCsv(list), 200, {
       "Content-Type": "text/csv; charset=utf-8",

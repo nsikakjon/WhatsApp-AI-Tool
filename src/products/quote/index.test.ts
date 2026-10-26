@@ -1042,4 +1042,23 @@ describe("order again", () => {
     expect(mem.orders.at(-1)?.totalKobo).toBe(5_000_000);
     expect(seen).toEqual([]);
   });
+
+  it("is left out on a plan without it (Free)", async () => {
+    const mem = memoryOrders();
+    const last = { id: "old", orderNumber: 900, totalKobo: 1, lines: [{ variantId: "v-flyer", name: "Flyers", quantity: 500, unitPriceKobo: 1, totalKobo: 500 }] };
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      features: { planCode: async () => "free", has: async (f) => f !== "order_again", limit: async () => null },
+      ai: { understand: async () => ({ intent: "other", items: [], message: "How can I help?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.buttons.some((x) => x.id === "order again")).toBe(false);
+    await product.handle(text("order again"), ctx);
+    expect(mem.orders).toEqual([]);
+  });
 });

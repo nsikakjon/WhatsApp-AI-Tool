@@ -46,7 +46,7 @@ import {
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-signup.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
-import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
+import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeature, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
@@ -235,6 +235,13 @@ function planFeatures(businessId: string, code?: string) {
   if (!config.quotePlanFeatures) return {};
   const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
   return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+}
+
+// Whether a business's plan includes a feature (always yes with plan features
+// off). Business #1 uses QUOTE_PLAN; a branch goes by its main business's plan.
+async function onPlan(b: { id: string; branchOf?: string | null }, feature: PlanFeature): Promise<boolean> {
+  const { features } = b.id === DEFAULT_BUSINESS_ID ? planFeatures(b.id, config.quote?.plan) : planFeatures(b.branchOf ?? b.id);
+  return features ? features.has(feature) : true;
 }
 
 // Bot messages a number may send a month on its plan, with plan features on.
@@ -1162,7 +1169,6 @@ if (broadcastConfig && broadcastStore) {
   );
 }
 
-// Every 15 minutes, send quote reminders that are due (one per unanswered
 // Ratings (QUOTE_RATINGS): one "How did we do?" per paid order, with Great /
 // OK / Not good buttons, a few hours after payment or soon after delivery,
 // inside WhatsApp's free window only. Each business can switch it off.
@@ -1172,6 +1178,7 @@ if (ratings) {
     for (const b of await createSupabaseBusinesses(supabase).list()) {
       if (b.ratingsOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !b.phoneNumberId))) continue;
       try {
+        if (!(await onPlan(b, "ratings"))) continue;
         const found = await quoteBotFor(b.id);
         if (!found) continue;
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
@@ -1198,15 +1205,17 @@ if (payReminders) {
   runEvery(15 * 60 * 1000, async () => {
     // Business #1's orders carry its fixed id (migration 0020), with or without more businesses.
     const rows = await createSupabaseBusinesses(supabase).list();
-    const mainOn = rows.find((b) => b.id === DEFAULT_BUSINESS_ID)?.payRemindersOn !== false;
-    const ids = mainOn ? [DEFAULT_BUSINESS_ID] : [];
+    const main = rows.find((b) => b.id === DEFAULT_BUSINESS_ID);
+    const due = main?.payRemindersOn !== false ? [main ?? { id: DEFAULT_BUSINESS_ID }] : [];
     if (quoteBusinesses) {
       for (const b of rows) {
-        if (b.id !== DEFAULT_BUSINESS_ID && b.active && b.phoneNumberId && b.payRemindersOn !== false) ids.push(b.id);
+        if (b.id !== DEFAULT_BUSINESS_ID && b.active && b.phoneNumberId && b.payRemindersOn !== false) due.push(b);
       }
     }
-    for (const businessId of ids) {
+    for (const b of due) {
+      const businessId = b.id;
       try {
+        if (!(await onPlan(b, "pay_reminders"))) continue;
         const found = await quoteBotFor(businessId);
         if (!found) continue;
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
@@ -1240,6 +1249,7 @@ if (ownerAppDeps) {
       try {
         const found = await quoteBotFor(b.id);
         if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId))) continue;
+        if (!(await onPlan(b, "daily_summary"))) continue;
         const biz = await ownerAppDeps.business(b.id);
         const summary = biz ? await dailySummary(biz, now, ownerAppDeps.publicUrl) : null;
         if (!summary) continue;
@@ -1260,6 +1270,7 @@ if (ownerAppDeps) {
   });
 }
 
+// Every 15 minutes, send quote reminders that are due (one per unanswered
 // quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
 // businesses can set their own hours in quote_businesses.follow_up_hours.
 if (followUps && followUpConfig) {

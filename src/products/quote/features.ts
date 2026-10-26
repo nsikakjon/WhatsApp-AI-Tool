@@ -45,7 +45,14 @@ export type PlanFeature =
   | "transaction_fee"
   /** The most yarnOga's fee can be on one payment, in kobo (naira) or centimes (CFA francs), migration 0052. */
   | "transaction_fee_cap_ngn"
-  | "transaction_fee_cap_cfa";
+  | "transaction_fee_cap_cfa"
+  /** Customer care (migration 0054): payment reminders, ratings and "order again" from Starter, */
+  | "pay_reminders"
+  | "ratings"
+  | "order_again"
+  /** the morning summary and the Customers page from Pro. */
+  | "daily_summary"
+  | "customers_page";
 
 export interface FeatureRow {
   included: boolean;
