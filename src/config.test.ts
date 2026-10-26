@@ -243,6 +243,15 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, SENTRY_DSN: "nope" })).toThrow("SENTRY_DSN");
   });
 
+  it("switches the compliance page on with a long password, and Dojah when both keys are set", () => {
+    expect(loadConfig(base).compliance).toBeUndefined();
+    expect(() => loadConfig({ ...base, COMPLIANCE_PASSWORD: "short" })).toThrow("COMPLIANCE_PASSWORD");
+    expect(loadConfig({ ...base, COMPLIANCE_PASSWORD: "a long enough pass" }).compliance).toEqual({ password: "a long enough pass", dojah: undefined });
+    expect(
+      loadConfig({ ...base, COMPLIANCE_PASSWORD: "a long enough pass", DOJAH_APP_ID: "app", DOJAH_SECRET_KEY: "sk", DOJAH_SANDBOX: "true" }).compliance?.dojah,
+    ).toEqual({ appId: "app", secretKey: "sk", sandbox: true });
+  });
+
   it("switches the owner app on with a public address", () => {
     expect(loadConfig(base).ownerApp).toBeUndefined();
     expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com" }).ownerApp).toEqual({

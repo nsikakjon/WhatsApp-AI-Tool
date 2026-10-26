@@ -81,7 +81,14 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const dateText = at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Lagos" });
 
-    const body = `
+    // Owners see a reminder until their business is verified.
+    const kyb = user.role === "owner" && ctx.deps.verification ? await ctx.deps.verification.store.get(biz.id).catch(() => null) : null;
+    const verifyBanner =
+      kyb && kyb.status !== "approved" && kyb.status !== "submitted"
+        ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? "A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes." : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/app/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
+        : "";
+
+    const body = `${verifyBanner}
 <section class="hero">
   <div><h2>${greeting}${user.name ? `, ${esc(user.name)}` : ""} 👋</h2><p>${esc(dateText)} · your bot has talked to ${n(chats.customers)} customers this month.</p></div>
   <div class="quick"><a class="button" href="/app/prices/new">${icon("plus", 18)}Add product</a><a class="button ghost" href="/app/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/app/posters">${icon("posters", 18)}QR poster</a></div>

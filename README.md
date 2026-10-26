@@ -112,6 +112,13 @@ bank accounts, alert numbers and team. Owners and staff log in by sending
 **app** to their bot on WhatsApp, or with a password. Switched on by
 `OWNER_APP`; needs migration 0049. See [docs/OWNER_APP.md](docs/OWNER_APP.md).
 
+## Business verification (KYB)
+
+Owners send their registration details and documents from the app (**Verify
+business**); Jay reviews and approves them at `/compliance`, with an optional
+CAC register check through Dojah. Switched on by `COMPLIANCE_PASSWORD`; needs
+migration 0050. See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
+
 ## Monitoring
 
 `/health/full` and `/status` check the database, WhatsApp and the AI; Jay gets

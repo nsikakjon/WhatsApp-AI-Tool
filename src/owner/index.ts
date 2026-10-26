@@ -14,6 +14,7 @@ import { registerPrices } from "./sections/prices.js";
 import { registerDelivery } from "./sections/delivery.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTools } from "./sections/tools.js";
+import { registerVerify } from "./sections/verify.js";
 import type { AppUser } from "./store.js";
 import type { AppContext, Env, OwnerAppDeps } from "./types.js";
 
@@ -43,6 +44,7 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   window: { ok: false, text: "WhatsApp won't deliver this: the customer last wrote more than a day ago." },
   send: { ok: false, text: "Sending failed. Please try again." },
   owner_only: { ok: false, text: "Only the owner can do that." },
+  sent_review: { ok: true, text: "Sent. We'll review your business in 1 to 2 working days and message you on WhatsApp." },
 };
 
 export function createOwnerApp(deps: OwnerAppDeps) {
@@ -264,6 +266,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
   registerTools(app, ctx);
+  registerVerify(app, ctx);
   registerSettings(app, ctx);
 
   return app;

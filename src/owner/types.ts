@@ -7,6 +7,7 @@ import type { WhatsAppClient } from "../core/whatsapp/client.js";
 import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
 import type { AppUser, BusinessData, DeliverySetupStore, PriceStore } from "./store.js";
+import type { VerificationStore } from "../compliance/store.js";
 
 /** One quote business as the app sees it. Built by the server for whoever is logged in. */
 export interface AppBusiness {
@@ -61,6 +62,12 @@ export interface OwnerAppDeps {
   healthLabels?: Record<string, string>;
   banks?: BankDirectory;
   support: { email: string; waNumber?: string };
+  /** Business verification (migration 0050): owners send details and documents for yarnOga to check. */
+  verification?: {
+    store: VerificationStore;
+    /** Tells yarnOga a business has sent its details for review. */
+    onSubmitted?(businessId: string, businessName: string): Promise<void>;
+  };
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */
   botTestsPerDay?: number;
   now?: () => Date;

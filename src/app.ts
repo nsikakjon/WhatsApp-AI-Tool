@@ -12,6 +12,7 @@ import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
 import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
+import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -30,6 +31,8 @@ export function createApp(
     health?: HealthDeps;
     /** The owners' and staff web app at /app (OWNER_APP). */
     ownerApp?: OwnerAppDeps;
+    /** Jay's business verification page at /compliance (COMPLIANCE_PASSWORD). */
+    compliance?: ComplianceDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -78,6 +81,8 @@ export function createApp(
     // app.yarnoga.com on its own opens the app.
     app.get("/", (c) => (new URL(c.req.url).hostname.startsWith("app.") ? c.redirect("/app", 302) : c.notFound()));
   }
+
+  if (more.compliance) app.route("/compliance", createCompliance(more.compliance));
 
   return app;
 }

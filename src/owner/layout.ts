@@ -22,9 +22,11 @@ const ICONS: Record<string, string> = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
   status: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  shield: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="m8.8 12 2.2 2.2 4.2-4.4"/>',
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   logout: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   whatsapp: '<path d="M3 21l1.6-4.8A8.5 8.5 0 1 1 8 19.6Z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1-1.3 2 .9c-.2 1.1-1.2 1.9-2.3 1.9-3.3 0-6.3-3-6.3-6.3 0-1.1.8-2.1 1.9-2.3l.9 2Z"/>',
 };
@@ -51,6 +53,7 @@ export const NAV: NavItem[] = [
   { href: "/app/delivery", label: "Riders & delivery", icon: "delivery" },
   { href: "/app/test", label: "Test your bot", icon: "test" },
   { href: "/app/posters", label: "QR posters", icon: "posters" },
+  { href: "/app/verify", label: "Verify business", icon: "shield", ownerOnly: true },
   { href: "/app/export", label: "Export", icon: "export", ownerOnly: true },
   { href: "/app/settings", label: "Settings", icon: "settings", ownerOnly: true },
   { href: "/app/help", label: "Help", icon: "help" },
@@ -111,6 +114,15 @@ export function page(s: Shell, body: string): string {
   <div class="sheet"><p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${items.filter((n) => !n.tab).map(link).join("")}${switcher}${logout}</div></details>
 </nav>
 </div>`,
+  );
+}
+
+/** yarnOga's own admin pages (e.g. compliance): the logo, a title, and the content, in the app's look. */
+export function adminPage(title: string, crumb: string, body: string): string {
+  return doc(
+    title,
+    `<div class="content"><header class="topbar"><a class="topmark" style="display:block" href="/compliance"><img src="/app/brand/mark-64.png" alt="yarnOga" width="34" height="34"></a><div class="titles"><p class="crumb">${esc(crumb)}</p><h1>${esc(title)}</h1></div></header>
+<main style="margin:0 auto">${body}</main></div>`,
   );
 }
 
@@ -270,7 +282,8 @@ tr:last-child td{border-bottom:0}
 form{margin:0}label{display:block;font-weight:500;font-size:.88rem;margin:14px 0 6px}label .muted{font-weight:400}
 input,select,textarea{width:100%;font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line2);border-radius:12px;padding:11px 13px;transition:border-color .15s,box-shadow .15s}
 input::placeholder,textarea::placeholder{color:var(--dim)}
-input[type=checkbox]{width:auto}input[type=file]{padding:9px}input[type=color]{padding:4px;height:46px}
+input[type=checkbox]{width:auto}input[type=file]{padding:7px;color:var(--muted)}
+input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.84rem;color:var(--text);background:var(--surface3);border:1px solid var(--line2);border-radius:9px;padding:6px 12px;margin-right:12px;cursor:pointer}input[type=color]{padding:4px;height:46px}
 textarea{min-height:100px;resize:vertical}
 input:focus,select:focus,textarea:focus{outline:0;border-color:rgba(198,255,31,.6);box-shadow:0 0 0 4px rgba(198,255,31,.12)}
 button,.button{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--lime);color:var(--limeink);border:0;border-radius:12px;padding:11px 18px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none;transition:transform .12s,box-shadow .15s,background .15s}
@@ -327,6 +340,19 @@ details.card[open]>summary:before{content:"–"}
 .bubble.out{align-self:flex-end;border-radius:16px 16px 4px 16px;background:#24310a;border:1px solid rgba(198,255,31,.14)}
 .bubble.staff{background:#10283a;border-color:rgba(124,182,255,.2)}
 .bubble .muted{display:block;font-size:.7rem;margin-top:5px;text-align:right}
+
+/* Business verification */
+.choices{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.choice{display:flex;gap:12px;align-items:flex-start;margin:0;padding:14px;border-radius:var(--r2);background:var(--bg2);border:1px solid var(--line2);cursor:pointer;font-weight:400}
+.choice:has(input:checked){border-color:rgba(198,255,31,.55);background:var(--limesoft)}
+.choice input{width:auto;flex:none;margin-top:3px;accent-color:var(--lime)}.choice b{display:block;font-weight:600}
+.docs{padding:6px 18px}
+.docrow{padding:16px 0;border-bottom:1px solid var(--line)}.docrow:last-child{border-bottom:0}
+.dochead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.dochead b{font-weight:600;margin-right:4px}
+.files{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}.files li{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.upload{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.upload input{flex:1 1 220px}
+.cardhead h3{display:flex;gap:8px;align-items:center}
+.banner{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;margin-bottom:18px}
 
 /* Search and toolbars */
 .search{display:flex;gap:8px;margin:0 0 16px;max-width:560px}.search input{flex:1}
