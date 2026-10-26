@@ -1,3 +1,4 @@
+import type { Lang } from "../../../core/i18n.js";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Hono } from "hono";
@@ -28,6 +29,8 @@ export interface ScreenBusiness {
   store: WalkInStore;
   /** The WhatsApp number the business answers on; null for the main number. */
   fromNumberId: string | null;
+  /** The business's language for the "your order is ready" message (English when unset). */
+  language?: Lang;
   /** Marks an order paid at the counter: receipt to the customer, tickets to the screens. Returns the messages to send. */
   paidAtCounter(orderNumber: number): Promise<Notice[]>;
 }
@@ -136,16 +139,17 @@ export function createWalkInScreens(deps: ScreenDeps) {
     const ticket = UUID.test(id) ? await s.store.moveTicket(id, ["making"], "ready") : null;
     if (ticket) {
       const ref = `${s.orderPrefix}-${ticket.orderNumber}`;
-      const where = ticket.station === COUNTER ? "the counter" : `the ${ticket.station}`;
+      const fr = s.language === "fr";
+      const where = ticket.station === COUNTER ? (fr ? "au comptoir" : "the counter") : fr ? `au poste ${ticket.station}` : `the ${ticket.station}`;
+      const text = fr
+        ? ticket.tableLabel
+          ? `Votre commande ${ref} est prête (${ticket.items}). Nous l'apportons à ${ticket.tableLabel}.`
+          : `Votre commande ${ref} est prête ${where} (${ticket.items}). Montrez le code QR de votre reçu pour la récupérer.`
+        : ticket.tableLabel
+          ? `Your order ${ref} is ready (${ticket.items}). We're bringing it to ${ticket.tableLabel}.`
+          : `Your order ${ref} is ready at ${where} (${ticket.items}). Show the QR code on your receipt to collect it.`;
       await deps.send(
-        [
-          {
-            to: ticket.customerWaId,
-            text: ticket.tableLabel
-              ? `Your order ${ref} is ready (${ticket.items}). We're bringing it to ${ticket.tableLabel}.`
-              : `Your order ${ref} is ready at ${where} (${ticket.items}). Show the QR code on your receipt to collect it.`,
-          },
-        ],
+        [{ to: ticket.customerWaId, text }],
         s.fromNumberId,
       );
     }

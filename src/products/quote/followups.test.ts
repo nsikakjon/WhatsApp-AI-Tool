@@ -205,4 +205,13 @@ describe("helpers", () => {
     expect(followUpTemplateParams(target, quote({ customerName: null }))[0]).toBe("there");
     expect(followUpText(target, quote({ customerName: null }))).toMatch(/^Hi, just checking in/);
   });
+
+  it("reminds in French, in CFA francs, for a French business", () => {
+    const fr = { ...target, language: "fr" as const, currency: "XOF" as const };
+    const text = followUpText(fr, quote({ customerName: "Awa" }));
+    expect(text).toMatch(/^Bonjour Awa, je reviens vers vous/);
+    expect(text).toContain("FCFA");
+    expect(text).toContain("Répondez STOP");
+    for (const t of ["Arrêter", "plus de rappels"]) expect(isStopRequest(t)).toBe(true);
+  });
 });

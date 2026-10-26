@@ -40,6 +40,12 @@ export function currencySign(currency: Currency): string {
   return currency === "NGN" ? "₦" : "FCFA";
 }
 
+/** The currency's name in a sentence, e.g. "fee in naira" or "frais en francs CFA". */
+export function currencyName(currency: Currency, lang: "en" | "fr" = "en"): string {
+  if (currency === "NGN") return "naira";
+  return lang === "fr" ? "francs CFA" : "CFA francs";
+}
+
 /**
  * Formats an amount for display: 1250000 -> "₦12,500" in naira, and
  * 500000 -> "5 000 FCFA" in CFA francs (the French way, with a space every

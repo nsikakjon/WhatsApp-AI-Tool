@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import type { Notice } from "../../../core/product.js";
 import type { TrackingLinks } from "./index.js";
+import type { Lang } from "../../../core/i18n.js";
 import { riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore } from "./store.js";
 import { mapLink } from "./zones.js";
@@ -24,6 +25,8 @@ export interface TrackingDeps {
   /** Sends notices from the number the business uses. A failed send is logged, not thrown. */
   send(notices: Notice[], fromNumberId: string | null): Promise<void>;
   template?: TemplateName;
+  /** The language of the business a delivery belongs to (English when unset). */
+  language?(d: Delivery): Promise<Lang>;
   now?: () => Date;
 }
 
@@ -113,7 +116,7 @@ export function createTracking(deps: TrackingDeps) {
     const body = (await c.req.json().catch(() => ({}))) as { step?: string };
     const step = STEPS[body.step ?? ""];
     if (!step) return c.json({ error: "unknown step" }, 400);
-    const moved = await riderStep(deps.store, d, step, { trackingLink: links.customer(d), template: deps.template });
+    const moved = await riderStep(deps.store, d, step, { trackingLink: links.customer(d), template: deps.template, lang: await deps.language?.(d) });
     if (!moved) return c.json({ status: d.status, changed: false });
     await deps.send(moved.notices, moved.delivery.fromNumberId);
     return c.json({ status: moved.delivery.status, changed: true });
