@@ -56,7 +56,7 @@ const products: ProductRecord[] = [
   { id: "22222222-2222-2222-2222-000000000003", name: "Mugs", description: null, category: "Gifts", unit: "mug", leadTimeDays: 1, active: true, photoPath: null, options: [{ id: "c", name: "white", minQuantity: 12, stock: 40, tiers: [{ minQuantity: 12, unitPriceKobo: 250_000 }] }] },
 ];
 const biz: AppBusiness = {
-  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, numberId: "PNID", includeUnnumbered: false,
+  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, language: "en", currency: "NGN", voiceReplies: false, numberId: "PNID", includeUnnumbered: false,
   features: { planCode: async () => "pro", has: async () => true, limit: async (f) => (f === "ai_credits" ? 7500 : f === "bot_messages" ? 3000 : f === "transaction_fee" ? 250 : null) },
   board: {
     orders: async () => orders,
@@ -73,7 +73,7 @@ const biz: AppBusiness = {
   },
   data: {
     info: async () => ({ name: "KahnPrints", description: "a print shop in Ikeja", orderPrefix: "KP", ownerWaId: owner.waId, businessDetails: "12 Allen Avenue, Ikeja\n0801 111 1111", paymentDetails: null, whatsappNumber: "2348099999999", sheetKey: "a".repeat(32) }),
-    saveInfo: async () => {}, newSheetKey: async () => "b",
+    saveInfo: async () => {}, saveLanguage: async () => {}, newSheetKey: async () => "b",
     banks: async () => [{ id: "44444444-4444-4444-4444-444444444444", bankName: "GTBank", bankCode: "058", accountNumber: "0123456789", accountName: "KAHNPRINTS LTD", isPrimary: true }],
     addBank: async () => {}, removeBank: async () => {}, setPrimaryBank: async () => {},
     alertNumbers: async () => [{ id: "55555555-5555-5555-5555-555555555555", waId: "2348077777777", name: "Shop manager" }],
