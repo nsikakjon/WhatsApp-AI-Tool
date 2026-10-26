@@ -564,20 +564,29 @@ function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
 }
 
+/**
+ * Flutterwave settings. A mistake here (say the key is set but the hash isn't
+ * yet) switches Flutterwave off with a clear message in the logs, rather than
+ * stopping the whole server: everything else, Paystack included, keeps working.
+ */
 function flutterwaveSettings(env: NodeJS.ProcessEnv): Config["flutterwave"] {
   const secretKey = env.FLUTTERWAVE_SECRET_KEY?.trim();
   if (!secretKey) return undefined;
+  const off = (why: string) => {
+    console.error(`Flutterwave is OFF: ${why}. Everything else is running; fix this on Railway to switch CFA franc payments on.`);
+    return undefined;
+  };
   if (!/^FLWSECK(_TEST)?-/.test(secretKey)) {
-    throw new Error("FLUTTERWAVE_SECRET_KEY must be the secret key (starts with FLWSECK- or FLWSECK_TEST-), not the public or encryption key");
+    return off("FLUTTERWAVE_SECRET_KEY must be the secret key (starts with FLWSECK- or FLWSECK_TEST-), not the public or encryption key");
   }
   const secretHash = env.FLUTTERWAVE_SECRET_HASH?.trim();
   if (!secretHash || secretHash.length < 16) {
-    throw new Error("FLUTTERWAVE_SECRET_HASH must be set, at least 16 characters, and match the secret hash in Flutterwave > Settings > Webhooks");
+    return off("FLUTTERWAVE_SECRET_HASH must be set, at least 16 characters, and match the secret hash in Flutterwave > Settings > Webhooks");
   }
-  const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
-  if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
+  const publicUrl = env.PUBLIC_URL?.trim().replace(/\/+$/, "") ?? "";
+  if (!publicUrl.startsWith("https://")) return off(`PUBLIC_URL must be set and start with https:// (got "${publicUrl}")`);
   const customerEmail = env.FLUTTERWAVE_CUSTOMER_EMAIL?.trim() || env.PAYSTACK_CUSTOMER_EMAIL?.trim();
-  if (!customerEmail) throw new Error("Missing required environment variable: FLUTTERWAVE_CUSTOMER_EMAIL (or PAYSTACK_CUSTOMER_EMAIL) (see .env.example)");
+  if (!customerEmail) return off("FLUTTERWAVE_CUSTOMER_EMAIL (or PAYSTACK_CUSTOMER_EMAIL) must be set");
   return { secretKey, secretHash, publicUrl, customerEmail };
 }
 
