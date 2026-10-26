@@ -1,0 +1,60 @@
+# Uptime alarm from outside our own server: every 10 minutes GitHub checks
+# /health/full. If the server doesn't answer or a check fails, Jay gets a
+# WhatsApp message (when the WhatsApp secrets below are set) and GitHub emails
+# the repository owner that the "Uptime" run failed.
+#
+# Set in GitHub > repository > Settings > Secrets and variables > Actions:
+#   Variables: HEALTH_URL (e.g. https://whatsapp-ai-tool-production.up.railway.app/health/full)
+#   Secrets (optional, for the WhatsApp message):
+#     ALERT_WA_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
+#     ALERT_TEMPLATE_NAME (an approved template with one value), ALERT_TEMPLATE_LANGUAGE
+# GitHub may run scheduled checks a few minutes late; see docs/MONITORING.md.
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check /health/full
+        id: health
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then echo "Set the HEALTH_URL variable first"; exit 0; fi
+          for attempt in 1 2 3; do
+            code=$(curl -s -o body.json -w "%{http_code}" --max-time 25 "$HEALTH_URL" || echo 000)
+            if [ "$code" = "200" ]; then echo "Healthy"; exit 0; fi
+            sleep 20
+          done
+          echo "status=$code" >> "$GITHUB_OUTPUT"
+          echo "Unhealthy: HTTP $code"; cat body.json 2>/dev/null || true
+          exit 1
+
+      - name: Tell Jay on WhatsApp
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          TO: ${{ secrets.ALERT_WA_ID }}
+          TEMPLATE: ${{ secrets.ALERT_TEMPLATE_NAME }}
+          LANG_CODE: ${{ secrets.ALERT_TEMPLATE_LANGUAGE || 'en' }}
+          CODE: ${{ steps.health.outputs.status }}
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$TO" ] || [ -z "$NUMBER_ID" ] || [ -z "$TEMPLATE" ]; then
+            echo "WhatsApp alert secrets not set; GitHub's failure email is the alert."; exit 0
+          fi
+          text="yarnOga server is not healthy (HTTP ${CODE:-no answer}) at $(date -u +'%H:%M UTC'). Check $HEALTH_URL and Railway."
+          jq -n --arg to "$TO" --arg name "$TEMPLATE" --arg lang "$LANG_CODE" --arg text "$text" \
+            '{messaging_product:"whatsapp",to:$to,type:"template",template:{name:$name,language:{code:$lang},components:[{type:"body",parameters:[{type:"text",text:$text}]}]}}' > msg.json
+          curl -sS --fail-with-body -X POST "https://graph.facebook.com/v23.0/$NUMBER_ID/messages" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @msg.json

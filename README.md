@@ -103,6 +103,23 @@ A password-protected page at `/dashboard` with live numbers for every product
 (chats, flyer groups and plans, sales, site updates, leads). Switched on by
 `DASHBOARD_PASSWORD`: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
+## Owners' and staff app (app.yarnoga.com)
+
+A web app at `/app` where each business on the quote bot sees its dashboard,
+inbox, order board, price list (with photos and minimum quantities), riders
+and delivery zones, a bot test, QR posters, exports (CSV, Google Sheets, PDF),
+bank accounts, alert numbers and team. Owners and staff log in by sending
+**app** to their bot on WhatsApp, or with a password. Switched on by
+`OWNER_APP`; needs migration 0049. See [docs/OWNER_APP.md](docs/OWNER_APP.md).
+
+## Monitoring
+
+`/health/full` and `/status` check the database, WhatsApp and the AI; Jay gets
+WhatsApp and email alerts when one fails, when the server stops answering, and
+for errors (also sent to Sentry). If answering a customer fails, the bot tries
+again and otherwise tells the customer to resend. See
+[docs/MONITORING.md](docs/MONITORING.md).
+
 ## Staff inbox (in progress)
 
 A password-protected web page at `/inbox` where staff see every chat on every
@@ -121,7 +138,13 @@ migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 ```
 src/
   index.ts               starts the server with real settings
-  app.ts                 web routes: /health, /webhooks/whatsapp and /inbox
+  app.ts                 web routes: /health, /webhooks/whatsapp, /inbox and /app
+  owner/                 the owners' and staff app (app.yarnoga.com)
+    index.ts             login, sessions and the pages' routes
+    sections/            dashboard, inbox, orders, price list, delivery, tools, settings
+    store.ts             what the app reads and writes in Supabase
+    posters.ts           QR posters; exports.ts: CSV and PDF reports
+    whatsapp.ts          "app" login links and copies of alerts to extra numbers
   config.ts              reads settings from environment variables
   core/                  shared WhatsApp core (used by every product)
     product.ts           the contract every product follows
@@ -138,6 +161,10 @@ src/
       store.ts           reads chats and messages from Supabase
       auth.ts            password check, login cookie, wrong-password lockout
     schedule.ts          runs a task on a timer (daily reports, birthdays)
+    health.ts            /health/full, /status and the watchdog
+    alerts/              error alerts to Jay (WhatsApp, email) and Sentry
+    security/guard.ts    slows down password guessing on every owner page
+    pdf.ts               turns page pictures into a PDF
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/

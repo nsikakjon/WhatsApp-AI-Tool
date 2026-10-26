@@ -108,7 +108,8 @@ export interface QuoteProductOptions {
 }
 
 /** How an order was paid outside the owner's "paid KP-1001": online by pay link (with yarnOga's fee, in kobo), or at a walk-in counter. */
-export type PaidVia = { how: "online"; feeKobo: number } | { how: "counter" };
+/** How an order was paid: by pay link, at a walk-in counter, or marked paid by staff in the owner app (e.g. a bank transfer). */
+export type PaidVia = { how: "online"; feeKobo: number } | { how: "counter" } | { how: "app" };
 
 export interface QuoteProduct extends Product {
   /** Marks an order paid after Paystack confirmed its pay link (or staff took payment at the counter), and returns the receipt and owner messages. */
@@ -226,7 +227,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const toOwner = (text: string): Notice[] => (opts.ownerWaId ? [{ to: opts.ownerWaId, text }] : []);
       const who = order.customerName ?? showWaId(order.customerWaId);
       if (order.status === "paid" || order.status === "cancelled" || !(await opts.orders.markPaid(order.id))) {
-        if (via.how === "counter") return [];
+        if (via.how !== "online") return [];
         return toOwner(
           `⚠️ ${who} paid ${label} online (${formatNaira(order.totalKobo)}), but it was already ${order.status === "cancelled" ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
         );
@@ -238,7 +239,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const how =
         via.how === "counter"
           ? `💰 ${label} was paid at the counter (${formatNaira(order.totalKobo)}). I've sent ${who} their receipt.`
-          : `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account` +
+          : via.how === "app"
+            ? `💰 ${label} was marked paid in the app (${formatNaira(order.totalKobo)}). I've sent ${who} their receipt.`
+            : `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account` +
             (via.feeKobo > 0 ? `, less the yarnOga fee (${formatNaira(via.feeKobo)}) and Paystack's fee.` : ".");
       return [
         receiptNote(order, label, receipt, pickup),
