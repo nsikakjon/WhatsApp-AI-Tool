@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
@@ -55,7 +57,8 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     // Forms posted from another website are refused (the login cookie would go with them).
     if (c.req.method === "POST" && !sameSite(c)) return c.text("This form must be sent from the yarnOga app itself.", 403);
     await next();
-    c.header("Cache-Control", "no-store");
+    // Pages are never cached; the logo files set their own (longer) caching.
+    if (!c.res.headers.get("Cache-Control")) c.header("Cache-Control", "no-store");
     c.header("X-Frame-Options", "DENY");
     c.header("Referrer-Policy", "no-referrer");
     c.header("X-Content-Type-Options", "nosniff");
@@ -85,6 +88,13 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     });
     deps.users.touchLogin(user.id).catch((err) => log.warn(`Owner app: couldn't note the login time: ${String(err)}`));
   }
+
+  // The yarnOga logo and mark (assets/brand/web), for the pages and the browser tab.
+  app.get("/brand/:file", (c) => {
+    const file = BRAND_FILES.has(c.req.param("file")) ? brandFile(c.req.param("file")) : null;
+    if (!file) return c.notFound();
+    return c.body(file as unknown as ArrayBuffer, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=604800" });
+  });
 
   // ---- Logging in ----
 
@@ -268,6 +278,20 @@ export type SectionContext = {
   /** Gives this browser a fresh login (after the person's session epoch changed). */
   relogin(c: AppContext, user: AppUser): Promise<void>;
 };
+
+const BRAND_FILES = new Set(["logo-96.png", "mark-128.png", "mark-64.png", "mark-32.png"]);
+const brandDir = fileURLToPath(new URL("../../assets/brand/web/", import.meta.url));
+const brandCache = new Map<string, Uint8Array | null>();
+function brandFile(name: string): Uint8Array | null {
+  if (!brandCache.has(name)) {
+    try {
+      brandCache.set(name, new Uint8Array(readFileSync(brandDir + name)));
+    } catch {
+      brandCache.set(name, null);
+    }
+  }
+  return brandCache.get(name)!;
+}
 
 function sameSite(c: AppContext): boolean {
   if (c.req.header("sec-fetch-site") === "same-origin") return true;

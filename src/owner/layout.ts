@@ -96,13 +96,13 @@ export function page(s: Shell, body: string): string {
     s.title,
     `<div class="shell">
 <aside class="side" aria-label="Menu">
-  <a class="brand" href="/app"><span class="mark" aria-hidden="true"></span><span>yarn<b>Oga</b></span></a>
+  <a class="brand" href="/app"><img src="/app/brand/logo-96.png" alt="yarnOga" width="150" height="32"></a>
   <nav class="nav">${main}<p class="navhead">More</p>${rest}</nav>
   <div class="me"><span class="avatar">${esc(initials(s.businessName))}</span><div><b>${esc(s.businessName)}</b><span>${esc(s.userName)} · ${role}</span></div></div>
   ${switcher}${logout}
 </aside>
 <div class="content">
-  <header class="topbar"><div><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
+  <header class="topbar"><a class="topmark" href="/app"><img src="/app/brand/mark-64.png" alt="yarnOga" width="34" height="34"></a><div class="titles"><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
     <div class="topactions"><a class="iconbtn" href="/app/help" aria-label="Help">${icon("help")}</a><span class="avatar" title="${esc(s.userName)} · ${role}">${esc(initials(s.userName))}</span></div></header>
   <main>${flash}${body}</main>
 </div>
@@ -118,7 +118,7 @@ export function page(s: Shell, body: string): string {
 export function bare(title: string, body: string): string {
   return doc(
     title,
-    `<div class="auth"><div class="authcard"><a class="brand big" href="/app"><span class="mark" aria-hidden="true"></span><span>yarn<b>Oga</b></span></a>${body}</div>
+    `<div class="auth"><div class="authcard"><a class="brand big" href="/app"><img src="/app/brand/logo-96.png" alt="yarnOga" width="187" height="40"></a>${body}</div>
 <p class="authfoot">Your WhatsApp sales assistant · <a href="https://yarnoga.com">yarnoga.com</a></p></div>`,
   );
 }
@@ -126,7 +126,7 @@ export function bare(title: string, body: string): string {
 function doc(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#0a0b0b"><title>${esc(title)} · yarnOga</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23c6ff1f'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="32x32" href="/app/brand/mark-32.png"><link rel="icon" type="image/png" sizes="64x64" href="/app/brand/mark-64.png"><link rel="apple-touch-icon" href="/app/brand/mark-128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>${CSS}</style></head><body>${body}</body></html>`;
@@ -193,10 +193,11 @@ main{padding:20px 16px 110px;max-width:1240px}
   main{padding:28px 36px 64px}
   .tabs{display:none!important}
 }
-.brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-size:1.25rem;font-weight:600;letter-spacing:-.02em;padding:2px 10px 18px}
-.brand b{font-weight:800}.brand.big{font-size:1.6rem;padding:0 0 22px;justify-content:center}
-.mark{width:26px;height:26px;border-radius:9px;background:var(--lime);box-shadow:0 0 24px var(--limeglow);position:relative}
-.mark:after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--limeink)}
+.brand{display:flex;align-items:center;padding:4px 10px 20px}.brand img{display:block;height:32px;width:auto}
+.brand.big{justify-content:center;padding:0 0 24px}.brand.big img{height:40px}
+.topmark{display:block;flex:none}.topmark img{display:block;filter:drop-shadow(0 0 12px rgba(198,255,31,.25))}
+.titles{flex:1;min-width:0}.titles h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(min-width:960px){.topmark{display:none}}
 .nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto}
 .navhead{margin:16px 12px 6px;color:var(--dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
 .nav a,.sheet a,.navbtn{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;color:var(--muted);text-decoration:none;font-weight:500;transition:background .15s,color .15s}
