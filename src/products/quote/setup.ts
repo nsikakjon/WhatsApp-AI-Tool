@@ -1,6 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { guardedBasicAuth } from "../../core/security/guard.js";
 import { Hono, type Context } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { formatNaira } from "../../core/money.js";
@@ -69,10 +68,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
 
   app.use(
     "*",
-    basicAuth({
-      verifyUser: (_username, password) => samePassword(password, deps.password),
-      realm: "yarnOga quote bot setup",
-    }),
+    guardedBasicAuth({ password: deps.password, realm: "yarnOga quote bot setup" }),
   );
 
   // The browser sends the password with every request, so a form on another
@@ -570,8 +566,3 @@ function esc(text: string): string {
 }
 
 /** Compares in constant time, so response timing can't reveal the password letter by letter. */
-function samePassword(given: string, expected: string): boolean {
-  const a = createHash("sha256").update(given).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}
