@@ -16,8 +16,6 @@ import {
   GOLD,
   H,
   metal,
-  MONTHS,
-  ordinal,
   parseDate,
   personLayer,
   ringText,
@@ -29,6 +27,7 @@ import {
   wrap,
   type DesignInput,
 } from "./designs4.js";
+import { fitWidth, flyerWords } from "./words.js";
 
 type Ctx = SKRSContext2D;
 
@@ -106,6 +105,7 @@ function polaroid(ctx: Ctx, img: Image, cx: number, cy: number, w: number, h: nu
 
 export async function renderGoldPortrait(input: Design7Input): Promise<Buffer> {
   const { name, dateLabel, groupName, wish, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "goldpro");
@@ -134,10 +134,12 @@ export async function renderGoldPortrait(input: Design7Input): Promise<Buffer> {
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.font = "190px Poppins SemiBold";
-  ctx.fillText("HAPPY", 52, 330);
-  const happyW = ctx.measureText("HAPPY").width;
-  fitFont(ctx, "BIRTHDAY", "Poppins SemiBold", 200, 120, W - 110);
-  ctx.fillText("BIRTHDAY", 52, 520);
+  const happy = w.happy.toUpperCase();
+  fitWidth(ctx, happy, W - 52 - 26 - 200);
+  ctx.fillText(happy, 52, 330);
+  const happyW = ctx.measureText(happy).width;
+  fitFont(ctx, w.birthday.toUpperCase(), "Poppins SemiBold", 200, 80, W - 110);
+  ctx.fillText(w.birthday.toUpperCase(), 52, 520);
 
   // Date box beside "HAPPY".
   const d = dateOf(dateLabel);
@@ -147,10 +149,10 @@ export async function renderGoldPortrait(input: Design7Input): Promise<Buffer> {
   ctx.fillRect(bx, 182, bw, 150);
   ctx.fillStyle = "#8c5a22";
   ctx.textAlign = "center";
-  fitFont(ctx, ordinal(d.day), "Poppins SemiBold", 56, 30, bw - 20);
-  ctx.fillText(ordinal(d.day), bx + bw / 2, 250);
-  fitFont(ctx, MONTHS[d.month]!.slice(0, 3).toUpperCase(), "Poppins SemiBold", 56, 30, bw - 20);
-  ctx.fillText(MONTHS[d.month]!.slice(0, 3).toUpperCase(), bx + bw / 2, 312);
+  fitFont(ctx, w.ordinal(d.day), "Poppins SemiBold", 56, 30, bw - 20);
+  ctx.fillText(w.ordinal(d.day), bx + bw / 2, 250);
+  fitFont(ctx, w.months[d.month]!.slice(0, 3).toUpperCase(), "Poppins SemiBold", 56, 30, bw - 20);
+  ctx.fillText(w.months[d.month]!.slice(0, 3).toUpperCase(), bx + bw / 2, 312);
 
   // The birthday message, then the name with a bar beside it.
   ctx.textAlign = "left";
@@ -182,6 +184,7 @@ export async function renderGoldPortrait(input: Design7Input): Promise<Buffer> {
 
 export async function renderRedPeach(input: Design7Input): Promise<Buffer> {
   const { photo, name, dateLabel, groupName, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "peach");
@@ -218,10 +221,11 @@ export async function renderRedPeach(input: Design7Input): Promise<Buffer> {
   ctx.textAlign = "center";
   ctx.fillStyle = RED;
   ctx.font = "42px Poppins SemiBold";
-  spaced(ctx, "HAPPY", W / 2, 180, 8, "center");
+  // In French the big words are "Bonne fête", as birthdays are wished across French-speaking Africa.
+  spaced(ctx, w.lang === "fr" ? "JOYEUX ANNIVERSAIRE" : "HAPPY", W / 2, 180, 8, "center");
   ctx.font = "250px Playfair Display Black";
-  ctx.fillText("Birth", W / 2 - 10, 410);
-  ctx.fillText("Day", W / 2 + 70, 630);
+  ctx.fillText(w.lang === "fr" ? "Bonne" : "Birth", W / 2 - 10, 410);
+  ctx.fillText(w.lang === "fr" ? "Fête" : "Day", W / 2 + 70, 630);
 
   // The person, in front of "Day".
   if (input.cutout) {
@@ -245,7 +249,7 @@ export async function renderRedPeach(input: Design7Input): Promise<Buffer> {
   ctx.fillText(String(d.day).padStart(2, "0"), sx, sy + 26);
   ctx.fillStyle = RED;
   ctx.font = "22px Poppins SemiBold";
-  ringText(ctx, MONTHS[d.month]!.toUpperCase(), sx, sy, 104);
+  ringText(ctx, w.months[d.month]!.toUpperCase(), sx, sy, 104);
 
   // Name tag on the right.
   const [first = name, ...rest] = name.trim().split(/\s+/);
@@ -275,6 +279,7 @@ export async function renderRedPeach(input: Design7Input): Promise<Buffer> {
 
 export async function renderBlackGold(input: Design7Input): Promise<Buffer> {
   const { photo, name, dateLabel, groupName, wish, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "rings");
@@ -344,7 +349,7 @@ export async function renderBlackGold(input: Design7Input): Promise<Buffer> {
 
   // Date pill.
   const d = dateOf(dateLabel);
-  const dateText = `${d.day} ${MONTHS[d.month]!.toUpperCase()}`;
+  const dateText = `${w.lang === "fr" && d.day === 1 ? "1er" : d.day} ${w.months[d.month]!.toUpperCase()}`;
   ctx.font = "30px Poppins SemiBold";
   const dw = ctx.measureText(dateText).width + 70;
   ctx.fillStyle = metal(ctx, 830, 890, GOLD);
@@ -356,7 +361,7 @@ export async function renderBlackGold(input: Design7Input): Promise<Buffer> {
 
   // "Ada's Birthday" and the group name.
   ctx.fillStyle = metal(ctx, 920, 1010, GOLD);
-  const title = `·${firstName(name)}'s Birthday·`;
+  const title = `·${w.birthdayOf(firstName(name))}·`;
   fitFont(ctx, title, "Playfair Display Bold", 88, 50, W - 120);
   ctx.fillText(title, W / 2, 1000);
   ctx.fillStyle = "#e9c46a";
@@ -374,6 +379,7 @@ export async function renderBlackGold(input: Design7Input): Promise<Buffer> {
 
 export async function renderWhiteConfetti(input: Design7Input): Promise<Buffer> {
   const { photo, name, dateLabel, groupName, wish, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "confetti");
@@ -417,10 +423,11 @@ export async function renderWhiteConfetti(input: Design7Input): Promise<Buffer> 
   ctx.textAlign = "center";
   ctx.fillStyle = "#e8452c";
   ctx.font = "150px Poppins ExtraBold";
-  ctx.fillText("HAPPY", W / 2, 880);
+  ctx.fillText(w.happy.toUpperCase(), W / 2, 880);
   ctx.fillStyle = "#1a1a1a";
   ctx.font = "190px Great Vibes";
-  ctx.fillText("Birthday", W / 2 + 30, 1010);
+  fitWidth(ctx, w.birthday, W - 120);
+  ctx.fillText(w.birthday, W / 2 + 30, 1010);
 
   fitFont(ctx, name, "Poppins SemiBold", 48, 30, W - 140);
   ctx.fillText(name, W / 2, 1090);
@@ -439,6 +446,7 @@ export async function renderWhiteConfetti(input: Design7Input): Promise<Buffer> 
 
 export async function renderBigDate(input: Design7Input): Promise<Buffer> {
   const { name, dateLabel, groupName, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "bigdate");
@@ -456,7 +464,7 @@ export async function renderBigDate(input: Design7Input): Promise<Buffer> {
   ctx.textAlign = "center";
   ctx.fillStyle = "#ffffff";
   ctx.font = "30px Poppins SemiBold";
-  spaced(ctx, "HAPPY BIRTHDAY", W / 2, 80, 10, "center");
+  spaced(ctx, w.happyBirthday.toUpperCase(), W / 2, 80, 10, "center");
 
   // The day, huge, behind the person.
   const d = dateOf(dateLabel);
@@ -470,7 +478,7 @@ export async function renderBigDate(input: Design7Input): Promise<Buffer> {
   const dayW = ctx.measureText(day).width;
   ctx.font = "80px Poppins SemiBold";
   ctx.textAlign = "left";
-  ctx.fillText(ordinal(d.day).slice(day.length), W / 2 - 20 + dayW / 2 + 10, 250);
+  ctx.fillText(w.ordinal(d.day).slice(day.length), W / 2 - 20 + dayW / 2 + 10, 250);
   ctx.restore();
 
   await standing(ctx, input, (W - 720) / 2 + 20, H - 920, 720, 920, "rgba(0,10,60,0.5)");
@@ -502,12 +510,14 @@ export async function renderBigDate(input: Design7Input): Promise<Buffer> {
     sy = 880;
   ctx.fillStyle = "#ffffff";
   ctx.font = "20px Poppins SemiBold";
-  ringText(ctx, "Happy Birthday", sx, sy, 92);
+  ringText(ctx, w.happyBirthday, sx, sy, 92);
   ctx.textAlign = "center";
   ctx.font = "42px Poppins ExtraBold";
-  ctx.fillText(ordinal(d.day), sx, sy - 4);
+  ctx.fillText(w.ordinal(d.day), sx, sy - 4);
   ctx.font = "30px Poppins ExtraBold";
-  ctx.fillText(MONTHS[d.month]!.toUpperCase().slice(0, 9), sx, sy + 34);
+  const month = w.months[d.month]!.toUpperCase();
+  fitWidth(ctx, month, 150);
+  ctx.fillText(month, sx, sy + 34);
 
   // Darken the bottom so the words stay readable over the person.
   const fade = ctx.createLinearGradient(0, 1060, 0, H);
@@ -521,8 +531,8 @@ export async function renderBigDate(input: Design7Input): Promise<Buffer> {
   ctx.textAlign = "right";
   ctx.fillStyle = "#ffffff";
   ctx.font = "130px Poppins ExtraBold";
-  ctx.fillText("Birth", W - 50, 1170);
-  ctx.fillText("day", W - 50, 1290);
+  ctx.fillText(w.lang === "fr" ? "Bonne" : "Birth", W - 50, 1170);
+  ctx.fillText(w.lang === "fr" ? "fête" : "day", W - 50, 1290);
   ctx.textAlign = "left";
   ctx.fillStyle = "#3ec1ff";
   ctx.fillRect(60, 1196, 12, 76);
@@ -542,6 +552,7 @@ export async function renderBigDate(input: Design7Input): Promise<Buffer> {
 
 export async function renderPolaroidNote(input: Design7Input): Promise<Buffer> {
   const { photo, name, groupName, wish, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d");
   ctx.fillStyle = "#f9ead6";
@@ -590,18 +601,18 @@ export async function renderPolaroidNote(input: Design7Input): Promise<Buffer> {
   ctx.textAlign = "left";
   ctx.fillStyle = "#d39a6a";
   ctx.font = "46px Playfair Display Bold";
-  ctx.fillText(`dear, ${firstName(name)}`, 100, 840);
+  ctx.fillText(w.lang === "fr" ? `pour ${firstName(name)},` : `dear, ${firstName(name)}`, 100, 840);
   ctx.fillStyle = "#6e4026";
   ctx.font = "84px Playfair Display Black";
-  ctx.fillText("Many more", 100, 940);
-  ctx.fillText("happy returns!", 100, 1030);
+  ctx.fillText(w.lang === "fr" ? "Joyeux" : "Many more", 100, 940);
+  ctx.fillText(w.lang === "fr" ? "anniversaire !" : "happy returns!", 100, 1030);
   ctx.font = "30px Playfair Display Bold";
   const lines = fitWish(ctx, wish, "Playfair Display Bold", 32, 22, 760, 3).lines;
   lines.forEach((l, i) => ctx.fillText(l, 100, 1094 + i * 42));
   const y = 1094 + lines.length * 42 + 30;
   ctx.fillStyle = "#d39a6a";
   ctx.font = "28px Playfair Display Bold";
-  ctx.fillText("With love,", 100, y);
+  ctx.fillText(w.lang === "fr" ? "Avec amour," : "With love,", 100, y);
   fitFont(ctx, groupName, "Playfair Display Bold", 30, 20, 640);
   ctx.fillText(groupName, 100, y + 40);
 
@@ -614,6 +625,7 @@ export async function renderPolaroidNote(input: Design7Input): Promise<Buffer> {
 
 export async function renderBalloons(input: Design7Input): Promise<Buffer> {
   const { photo, name, dateLabel, groupName, credit, logo } = input;
+  const w = flyerWords(input.lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "balloons");
@@ -647,6 +659,7 @@ export async function renderBalloons(input: Design7Input): Promise<Buffer> {
   const sticker = (text: string, x: number, y: number, fill: string) => {
     ctx.save();
     ctx.font = "150px Pacifico";
+    fitWidth(ctx, text, W - 140);
     ctx.textAlign = "center";
     ctx.lineJoin = "round";
     ctx.shadowColor = "rgba(0,0,0,0.35)";
@@ -660,8 +673,8 @@ export async function renderBalloons(input: Design7Input): Promise<Buffer> {
     ctx.fillText(text, x, y);
     ctx.restore();
   };
-  sticker("Happy", W / 2 - 60, 960, "#e3262f");
-  sticker("Birthday", W / 2 + 40, 1110, "#2e9a2e");
+  sticker(w.happy, W / 2 - 60, 960, "#e3262f");
+  sticker(w.birthday, W / 2 + 40, 1110, "#2e9a2e");
 
   ctx.textAlign = "center";
   ctx.lineJoin = "round";

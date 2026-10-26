@@ -41,3 +41,14 @@ describe("dates", () => {
     expect(daysUntil({ month: 10, day: 9 }, today)).toBe(364);
   });
 });
+
+describe("French dates", () => {
+  it("reads French months and writes them back in French", () => {
+    expect(parseBirthday("Awa, 14 février")).toEqual({ month: 2, day: 14 });
+    expect(parseBirthday("1er août")).toEqual({ month: 8, day: 1 });
+    expect(parseBirthday("3 juil")).toEqual({ month: 7, day: 3 });
+    expect(parseBirthday("12 déc.")).toEqual({ month: 12, day: 12 });
+    expect(formatMonthDay({ month: 3, day: 1 }, "fr")).toBe("1er mars");
+    expect(formatMonthDay({ month: 8, day: 15 }, "fr")).toBe("15 août");
+  });
+});

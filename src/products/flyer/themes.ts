@@ -9,6 +9,8 @@ export interface Theme {
   id: string;
   /** Name shown to admins. */
   label: string;
+  /** The name shown to French-speaking groups. */
+  labelFr: string;
   /**
    * "circle": round photo in the middle with a coloured ring.
    * "full": the photo fills the top of the flyer and fades into the colour below.
@@ -57,6 +59,7 @@ export const THEMES: Theme[] = [
   {
     id: "royal",
     label: "Royal purple",
+    labelFr: "Violet royal",
     layout: "circle",
     background: ["#1d1350", "#6b1757"],
     accent: "#f5c451",
@@ -67,6 +70,7 @@ export const THEMES: Theme[] = [
   {
     id: "emerald",
     label: "Emerald and gold",
+    labelFr: "Émeraude et or",
     layout: "circle",
     background: ["#04382b", "#0b6e4f"],
     accent: "#f5c451",
@@ -77,6 +81,7 @@ export const THEMES: Theme[] = [
   {
     id: "sunset",
     label: "Sunset",
+    labelFr: "Coucher de soleil",
     layout: "circle",
     background: ["#ff7a45", "#d6246e"],
     accent: "#fff3c4",
@@ -87,6 +92,7 @@ export const THEMES: Theme[] = [
   {
     id: "classic",
     label: "Classic cream",
+    labelFr: "Crème classique",
     layout: "circle",
     background: ["#fbf6ec", "#efe3c8"],
     accent: "#b8860b",
@@ -98,6 +104,7 @@ export const THEMES: Theme[] = [
     id: "photo",
     cutout: true,
     label: "Big photo, navy",
+    labelFr: "Grande photo, bleu marine",
     layout: "full",
     background: ["#0d1b3d", "#0d1b3d"],
     accent: "#f5c451",
@@ -109,6 +116,7 @@ export const THEMES: Theme[] = [
     id: "midnight",
     cutout: true,
     label: "Big photo, black and gold",
+    labelFr: "Grande photo, noir et or",
     layout: "full",
     background: ["#0b0b0b", "#0b0b0b"],
     accent: "#d4af37",
@@ -119,6 +127,7 @@ export const THEMES: Theme[] = [
   {
     id: "goldstars",
     label: "Gold stars and glitter",
+    labelFr: "Étoiles dorées et paillettes",
     layout: "stars",
     background: ["#c98a2c", "#e8a33a"],
     accent: "#fff3c4",
@@ -129,6 +138,7 @@ export const THEMES: Theme[] = [
     id: "gala",
     cutout: true,
     label: "Evening gala",
+    labelFr: "Soirée de gala",
     layout: "gala",
     background: ["#2a1109", "#5a2414"],
     accent: "#f3cf6b",
@@ -140,6 +150,7 @@ export const THEMES: Theme[] = [
     id: "sunflower",
     cutout: true,
     label: "Sunflowers",
+    labelFr: "Tournesols",
     layout: "sunflower",
     background: ["#e8731c", "#f59a2c"],
     accent: "#ffffff",
@@ -151,6 +162,7 @@ export const THEMES: Theme[] = [
     id: "whitegold",
     cutout: true,
     label: "White and gold",
+    labelFr: "Blanc et or",
     layout: "whitegold",
     background: ["#b8862f", "#e2c172"],
     accent: "#ffffff",
@@ -162,6 +174,7 @@ export const THEMES: Theme[] = [
     id: "calendar",
     cutout: true,
     label: "Calendar",
+    labelFr: "Calendrier",
     layout: "calendar",
     background: ["#c62828", "#e0524f"],
     accent: "#ffffff",
@@ -172,6 +185,7 @@ export const THEMES: Theme[] = [
   {
     id: "goldportrait",
     label: "Gold portrait",
+    labelFr: "Portrait doré",
     layout: "goldportrait",
     cutout: true,
     background: ["#8c5a22", "#b7843a"],
@@ -183,6 +197,7 @@ export const THEMES: Theme[] = [
   {
     id: "redpeach",
     label: "Red and peach",
+    labelFr: "Rouge et pêche",
     layout: "redpeach",
     cutout: true,
     background: ["#cf1f2e", "#f7dcc6"],
@@ -194,6 +209,7 @@ export const THEMES: Theme[] = [
   {
     id: "blackgold",
     label: "Black and gold rings",
+    labelFr: "Anneaux noir et or",
     layout: "blackgold",
     background: ["#0b0b0b", "#2a2a2a"],
     accent: "#d4af37",
@@ -204,6 +220,7 @@ export const THEMES: Theme[] = [
   {
     id: "whiteconfetti",
     label: "White confetti",
+    labelFr: "Confettis blancs",
     layout: "whiteconfetti",
     background: ["#e8452c", "#f6c90e"],
     accent: "#ffffff",
@@ -214,6 +231,7 @@ export const THEMES: Theme[] = [
   {
     id: "bigdate",
     label: "Big date, blue",
+    labelFr: "Grande date, bleu",
     layout: "bigdate",
     cutout: true,
     background: ["#0a2a8f", "#2f6bff"],
@@ -225,6 +243,7 @@ export const THEMES: Theme[] = [
   {
     id: "polaroidnote",
     label: "Polaroid note",
+    labelFr: "Note polaroid",
     layout: "polaroidnote",
     background: ["#c98a5c", "#f9ead6"],
     accent: "#ffffff",
@@ -235,6 +254,7 @@ export const THEMES: Theme[] = [
   {
     id: "balloons",
     label: "Orange balloons",
+    labelFr: "Ballons orange",
     layout: "balloons",
     background: ["#ff6a00", "#ff8c1a"],
     accent: "#ffffff",
@@ -251,7 +271,8 @@ export function findTheme(query: string): Theme | undefined {
   const q = query.trim().toLowerCase();
   const n = Number(q);
   if (Number.isInteger(n) && n >= 1 && n <= THEMES.length) return THEMES[n - 1];
-  return THEMES.find((t) => t.id === q || t.label.toLowerCase() === q) ?? THEMES.find((t) => t.label.toLowerCase().includes(q));
+  const names = (t: Theme) => [t.label.toLowerCase(), t.labelFr.toLowerCase()];
+  return THEMES.find((t) => t.id === q || names(t).includes(q)) ?? THEMES.find((t) => names(t).some((n) => n.includes(q)));
 }
 
 /** The group's design, falling back to the default if it was removed. */

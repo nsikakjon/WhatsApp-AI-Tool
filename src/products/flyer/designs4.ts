@@ -1,7 +1,9 @@
 // Four birthday designs drawn with @napi-rs/canvas, the library the Flyer Bot uses, and only
 // the bot's own fonts (Poppins, Great Vibes). Every design takes the same input:
 //   { photo, name, dateLabel: "22 October", groupName, wish, credit }
+import type { Lang } from "../../core/i18n.js";
 import { drawCredit } from "./credit.js";
+import { fitWidth, flyerWords, MONTHS_FR } from "./words.js";
 import {
   createCanvas,
   loadImage,
@@ -25,6 +27,8 @@ export interface DesignInput {
   wish?: string;
   credit?: string;
   year?: number;
+  /** The language of the words on the flyer (English when unset). */
+  lang?: Lang;
 }
 export const W = 1080,
   H = 1350;
@@ -51,11 +55,14 @@ export function rng(seed: string): () => number {
   return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32;
 }
 
-/** "22 October" -> { day: 22, month: 9 } (month is 0-11). */
+/** "22 October" or "22 octobre" -> { day: 22, month: 9 } (month is 0-11). */
 export function parseDate(label: string): { day: number; month: number } | null {
-  const m = label.trim().match(/^(\d{1,2})\s+([A-Za-z]+)/);
+  const m = label.trim().match(/^(\d{1,2})(?:er)?\s+(\p{L}+)/u);
   if (!m) return null;
-  const month = MONTHS.findIndex((n) => n.toLowerCase().startsWith(m[2].toLowerCase().slice(0, 3)));
+  const word = m[2]!.toLowerCase();
+  // "ju" alone could be June or July, so French months match on the whole word.
+  let month = MONTHS_FR.indexOf(word);
+  if (month < 0) month = MONTHS.findIndex((n) => n.toLowerCase().startsWith(word.slice(0, 3)));
   return month < 0 ? null : { day: Number(m[1]), month };
 }
 
@@ -379,7 +386,8 @@ export function creditLine(
 
 // ---------- 1. Gala: dark cinematic photo, gold lettering, date seal ----------
 
-export async function renderGala({ photo, cutout, name, dateLabel, groupName, wish, credit }: DesignInput): Promise<Buffer> {
+export async function renderGala({ photo, cutout, name, dateLabel, groupName, wish, credit, lang }: DesignInput): Promise<Buffer> {
+  const w = flyerWords(lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "gala");
@@ -474,12 +482,14 @@ export async function renderGala({ photo, cutout, name, dateLabel, groupName, wi
   ctx.stroke();
   ctx.fillStyle = "#ffffff";
   ctx.font = "16px Poppins SemiBold";
-  ringText(ctx, "HAPPY BIRTHDAY", sx, sy, sr + 17);
+  ringText(ctx, w.happyBirthday.toUpperCase(), sx, sy, sr + 17);
   ctx.textAlign = "center";
   ctx.font = "44px Poppins SemiBold";
-  ctx.fillText(d ? ordinal(d.day) : dateLabel, sx, sy - 2);
+  ctx.fillText(d ? w.ordinal(d.day) : dateLabel, sx, sy - 2);
   ctx.font = "34px Poppins SemiBold";
-  ctx.fillText(d ? MONTHS[d.month].toUpperCase() : "", sx, sy + 40);
+  const month = d ? w.months[d.month]!.toUpperCase() : "";
+  fitWidth(ctx, month, sr * 1.7);
+  ctx.fillText(month, sx, sy + 40);
   ctx.restore();
 
   // Gold "HAPPY BIRTHDAY".
@@ -488,15 +498,22 @@ export async function renderGala({ photo, cutout, name, dateLabel, groupName, wi
   ctx.shadowColor = "rgba(0,0,0,0.6)";
   ctx.shadowBlur = 24;
   ctx.shadowOffsetY = 8;
+  const happy = w.happy.toUpperCase();
+  const birthday = w.birthday.toUpperCase();
   ctx.fillStyle = metal(ctx, 880, 1010, GOLD);
-  spaced(ctx, "HAPPY", 70, 1010, 10);
+  spaced(ctx, happy, 70, 1010, 10);
   ctx.fillStyle = metal(ctx, 1030, 1160, GOLD);
-  spaced(ctx, "BIRTHDAY", 70, 1160, 6);
+  const big = ctx.font;
+  fitWidth(ctx, birthday, W - 140, 6);
+  spaced(ctx, birthday, 70, 1160, 6);
   ctx.shadowColor = "transparent";
   ctx.lineWidth = 2;
   ctx.strokeStyle = "rgba(255,240,190,0.8)";
-  spaced(ctx, "HAPPY", 70, 1010, 10, "left", "stroke");
-  spaced(ctx, "BIRTHDAY", 70, 1160, 6, "left", "stroke");
+  const small = ctx.font;
+  ctx.font = big;
+  spaced(ctx, happy, 70, 1010, 10, "left", "stroke");
+  ctx.font = small;
+  spaced(ctx, birthday, 70, 1160, 6, "left", "stroke");
   ctx.restore();
 
   ctx.fillStyle = "#ffffff";
@@ -545,7 +562,8 @@ function sunflower(ctx: Ctx, x: number, y: number, r: number, blur: number, rot:
   ctx.restore();
 }
 
-export async function renderSunflower({ photo, cutout, name, dateLabel, groupName, credit }: DesignInput): Promise<Buffer> {
+export async function renderSunflower({ photo, cutout, name, dateLabel, groupName, credit, lang }: DesignInput): Promise<Buffer> {
+  const w = flyerWords(lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "sun");
@@ -561,7 +579,7 @@ export async function renderSunflower({ photo, cutout, name, dateLabel, groupNam
   ctx.globalAlpha = 0.16;
   ctx.fillStyle = "#fff";
   ctx.font = "460px Great Vibes";
-  ctx.fillText("Happy", -40, 520);
+  ctx.fillText(w.happy, -40, 520);
   ctx.restore();
   sunflower(ctx, 110, 150, 230, 6, 0.2);
   sunflower(ctx, 980, 330, 170, 10, 0.5);
@@ -614,7 +632,7 @@ export async function renderSunflower({ photo, cutout, name, dateLabel, groupNam
   ctx.stroke();
   ctx.fillStyle = "#ffffff";
   ctx.font = "15px Poppins SemiBold";
-  ringText(ctx, d ? MONTHS[d.month].toUpperCase() : "BIRTHDAY", dx, dy, 90);
+  ringText(ctx, (d ? w.months[d.month]! : w.birthday).toUpperCase(), dx, dy, 90);
   ctx.textAlign = "center";
   ctx.font = "70px Poppins ExtraBold";
   ctx.fillText(d ? String(d.day).padStart(2, "0") : "", dx, dy + 25);
@@ -627,13 +645,14 @@ export async function renderSunflower({ photo, cutout, name, dateLabel, groupNam
   ctx.textAlign = "center";
   ctx.shadowColor = "rgba(120,40,0,0.5)";
   ctx.shadowBlur = 12;
-  ctx.fillText("Happy", W / 2 + 60, 1050);
+  ctx.fillText(w.happy, W / 2 + 60, 1050);
   ctx.font = "220px Poppins SemiBold";
+  fitWidth(ctx, w.birthday, W - 80);
   ctx.fillStyle = metal(ctx, 1050, 1250, SILVER);
   ctx.shadowColor = "rgba(90,30,0,0.55)";
   ctx.shadowBlur = 26;
   ctx.shadowOffsetY = 10;
-  ctx.fillText("Birthday", W / 2, 1230);
+  ctx.fillText(w.birthday, W / 2, 1230);
   ctx.restore();
 
   ctx.fillStyle = "rgba(255,255,255,0.9)";
@@ -655,7 +674,9 @@ export async function renderWhiteGold({
   groupName,
   wish,
   credit,
+  lang,
 }: DesignInput): Promise<Buffer> {
+  const w = flyerWords(lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d"),
     rand = rng(name + "white");
@@ -675,10 +696,11 @@ export async function renderWhiteGold({
   ctx.textAlign = "center";
   ctx.fillStyle = metal(ctx, 90, 160, BRONZE);
   ctx.font = "78px Poppins ExtraBold";
-  spaced(ctx, "HAPPY", W / 2, 165, 12, "center");
+  spaced(ctx, w.happy.toUpperCase(), W / 2, 165, 12, "center");
   ctx.font = "230px Great Vibes";
+  fitWidth(ctx, w.birthday, W - 120);
   ctx.fillStyle = metal(ctx, 190, 380, BRONZE);
-  ctx.fillText("Birthday", W / 2, 380);
+  ctx.fillText(w.birthday, W / 2, 380);
   ctx.strokeStyle = "#a86f2c";
   ctx.lineWidth = 5;
   ctx.lineCap = "round";
@@ -731,7 +753,7 @@ export async function renderWhiteGold({
   ctx.font = "64px Poppins ExtraBold";
   ctx.fillText(d ? String(d.day) : "", bx, by + 14);
   ctx.font = "20px Poppins SemiBold";
-  ctx.fillText(d ? MONTHS[d.month].slice(0, 3).toUpperCase() : "", bx, by + 42);
+  ctx.fillText(d ? w.months[d.month]!.slice(0, 3).toUpperCase() : "", bx, by + 42);
   ctx.textAlign = "left";
 
   // Name and details on the left.
@@ -742,7 +764,7 @@ export async function renderWhiteGold({
   ctx.fillStyle = "#a86f2c";
   ctx.font = "22px Poppins";
   const after = 820 + nameLines.length * 40;
-  ctx.fillText("Birthday Celebration", 60, after + 6);
+  ctx.fillText(w.celebration, 60, after + 6);
   ctx.fillText(dateLabel, 60, after + 36);
   ctx.strokeStyle = "#c39255";
   ctx.lineWidth = 2;
@@ -780,7 +802,9 @@ export async function renderCalendar({
   groupName,
   credit,
   year,
+  lang,
 }: DesignInput): Promise<Buffer> {
+  const w = flyerWords(lang);
   const c = createCanvas(W, H),
     ctx = c.getContext("2d");
   const RED = "#e3170a";
@@ -806,13 +830,14 @@ export async function renderCalendar({
   ctx.rotate(-0.06);
   ctx.fillStyle = "#1d1d1d";
   ctx.font = "130px Great Vibes";
-  ctx.fillText("happy", 0, 0);
+  ctx.fillText(w.happy.toLowerCase(), 0, 0);
   ctx.restore();
   ctx.fillStyle = RED;
   ctx.font = "140px Poppins ExtraBold";
-  ctx.fillText("BIRTHDAY", W / 2, 250);
+  fitWidth(ctx, w.birthday.toUpperCase(), W - 100);
+  ctx.fillText(w.birthday.toUpperCase(), W / 2, 250);
   ctx.font = "48px Poppins ExtraBold";
-  spaced(ctx, MONTHS[d.month].toUpperCase(), W / 2, 330, 4, "center");
+  spaced(ctx, w.months[d.month]!.toUpperCase(), W / 2, 330, 4, "center");
 
   // Photo rising from the bottom, behind the lower rows of the grid.
   if (cutout) {
@@ -826,7 +851,7 @@ export async function renderCalendar({
   // Month grid, Sunday first. A soft white halo keeps numbers readable over the photo.
   ctx.shadowColor = "rgba(255,255,255,0.95)";
   ctx.shadowBlur = 10;
-  const cols = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"],
+  const cols = w.weekdays,
     x0 = 150,
     colW = 130,
     rowH = 92,

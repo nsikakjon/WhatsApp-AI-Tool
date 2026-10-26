@@ -1,3 +1,4 @@
+import type { Lang } from "../../core/i18n.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MonthDay } from "./dates.js";
 
@@ -19,6 +20,8 @@ export interface Group {
   planUntil: Date | null;
   /** Finished flyers left in the group's free trial; null when it isn't on one. */
   trialFlyersLeft: number | null;
+  /** The language of the bot's messages and the flyers (migration 0051). */
+  language: Lang;
 }
 
 export interface Member {
@@ -53,7 +56,7 @@ export interface FlyerStore {
   /** Saves a background picture, or removes it when null. */
   saveBackground(groupId: string, picture: Picture | null): Promise<void>;
   /** Changes the group's design and/or accent colour (null clears the colour). */
-  setStyle(groupId: string, style: { theme?: string; accent?: string | null }): Promise<void>;
+  setStyle(groupId: string, style: { theme?: string; accent?: string | null; language?: Lang }): Promise<void>;
   /**
    * Adds a member, or updates their birthday (and photo, if one is given) if
    * the name is already in the group. Returns whether they were new.
@@ -152,7 +155,8 @@ function toMember(row: MemberRow): Member {
   };
 }
 
-const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until, trial_flyers_left";
+// language needs migration 0051.
+const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until, trial_flyers_left, language";
 
 interface GroupRow {
   id: string;
@@ -164,6 +168,7 @@ interface GroupRow {
   plan: string;
   plan_until: string | null;
   trial_flyers_left: number | null;
+  language?: string | null;
 }
 
 function toGroup(row: GroupRow): Group {
@@ -177,6 +182,7 @@ function toGroup(row: GroupRow): Group {
     plan: row.plan,
     planUntil: row.plan_until ? new Date(row.plan_until) : null,
     trialFlyersLeft: row.trial_flyers_left,
+    language: row.language === "fr" ? "fr" : "en",
   };
 }
 

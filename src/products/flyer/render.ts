@@ -4,7 +4,9 @@
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { drawCredit } from "./credit.js";
-import { renderGoldStars, SAMPLE_WISH } from "./goldstars.js";
+import { renderGoldStars, SAMPLE_WISH, SAMPLE_WISH_FR } from "./goldstars.js";
+import type { Lang } from "../../core/i18n.js";
+import { fitWidth, flyerWords } from "./words.js";
 import { personLayer, renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
 import { DESIGNS_7 } from "./designs7.js";
 import { themeById, type Theme } from "./themes.js";
@@ -56,6 +58,8 @@ export interface BirthdayFlyerInput {
   style?: FlyerStyle;
   /** The birthday message, printed by the gold stars, gala and white and gold designs; previews use a sample. */
   wish?: string;
+  /** The language of the words on the flyer (English when unset). */
+  lang?: Lang;
 }
 
 export interface EventFlyerInput {
@@ -88,6 +92,7 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
       wish: input.wish,
       logo: input.logo,
       credit: style.credit,
+      lang: input.lang,
     });
   }
   const ready = READY_MADE[theme.layout as keyof typeof READY_MADE];
@@ -99,10 +104,12 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
       name: input.name,
       dateLabel: input.dateLabel,
       groupName: input.groupName,
-      wish: input.wish || SAMPLE_WISH,
+      wish: input.wish || (input.lang === "fr" ? SAMPLE_WISH_FR : SAMPLE_WISH),
       credit: style.credit,
+      lang: input.lang,
     });
   }
+  const words = flyerWords(input.lang);
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
 
@@ -160,11 +167,12 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
     let y = photoHeight - 70;
     ctx.fillStyle = accent;
     ctx.font = `100px "Great Vibes"`;
-    ctx.fillText("Happy", WIDTH / 2, y);
+    ctx.fillText(words.happy, WIDTH / 2, y);
     y += 100;
     ctx.fillStyle = theme.text;
     ctx.font = `92px "Poppins ExtraBold"`;
-    ctx.fillText("BIRTHDAY", WIDTH / 2, y);
+    fitWidth(ctx, words.birthday.toUpperCase(), WIDTH - 120);
+    ctx.fillText(words.birthday.toUpperCase(), WIDTH / 2, y);
     y += 120;
     fitText(ctx, input.name, "Poppins SemiBold", 66, WIDTH - 140);
     ctx.fillText(input.name, WIDTH / 2, y);
@@ -190,11 +198,12 @@ export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Bu
     // "Happy BIRTHDAY"
     ctx.fillStyle = accent;
     ctx.font = `110px "Great Vibes"`;
-    ctx.fillText("Happy", WIDTH / 2, y);
+    ctx.fillText(words.happy, WIDTH / 2, y);
     y += 118;
     ctx.fillStyle = theme.text;
     ctx.font = `104px "Poppins ExtraBold"`;
-    ctx.fillText("BIRTHDAY", WIDTH / 2, y);
+    fitWidth(ctx, words.birthday.toUpperCase(), WIDTH - 120);
+    ctx.fillText(words.birthday.toUpperCase(), WIDTH / 2, y);
     y += 140;
 
     // Round photo with a coloured ring.
@@ -346,7 +355,7 @@ export async function renderDesignSheet(
     ctx.drawImage(flyer, x, y, thumbW, thumbH);
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    const label = `${item.number}. ${item.theme.label}`;
+    const label = `${item.number}. ${sample.lang === "fr" ? item.theme.labelFr : item.theme.label}`;
     ctx.fillStyle = "#222222";
     fitText(ctx, label, "Poppins SemiBold", 26, thumbW);
     ctx.fillText(label, x, y + thumbH + 12);

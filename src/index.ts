@@ -971,7 +971,7 @@ if (flyerBot && flyerConfig) {
         const image = { data: d.flyer, mimeType: "image/jpeg" };
         if (await canMessageFreely(store, d.to)) {
           await sendImageAndRecord(deps, d.to, { ...image, caption: d.wish }, from);
-          await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName), from);
+          await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName, d.lang), from);
         } else if (template) {
           await sendTemplateAndRecord(
             deps,
