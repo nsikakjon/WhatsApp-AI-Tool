@@ -713,7 +713,9 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
             prices: createSupabasePrices(supabase, id),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
-            delivery: delivery ? createSupabaseDeliverySetup(supabase, id) : undefined,
+            delivery: delivery
+              ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
+              : undefined,
             data: createSupabaseBusinessData(supabase, {
               businessId: id,
               businessIds: ids,

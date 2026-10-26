@@ -38,7 +38,7 @@ function signature(secret: string, kind: Kind, id: string): string {
 
 export function createTrackingLinks(secret: string, publicUrl: string): TrackingLinks {
   const base = publicUrl.replace(/\/+$/, "");
-  const link = (kind: Kind, d: Delivery) => `${base}/${kind}/${d.id}.${signature(secret, kind, d.id)}`;
+  const link = (kind: Kind, d: Pick<Delivery, "id">) => `${base}/${kind}/${d.id}.${signature(secret, kind, d.id)}`;
   return { customer: (d) => link("track", d), rider: (d) => link("ride", d) };
 }
 

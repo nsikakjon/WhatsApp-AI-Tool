@@ -26,8 +26,8 @@ import { DELIVERY_TEXTS } from "./texts.js";
 // is why tracking runs through the rider's page (tracking.ts).
 
 export interface TrackingLinks {
-  customer(d: Delivery): string;
-  rider(d: Delivery): string;
+  customer(d: Pick<Delivery, "id">): string;
+  rider(d: Pick<Delivery, "id">): string;
 }
 
 export interface DispatchOptions {
