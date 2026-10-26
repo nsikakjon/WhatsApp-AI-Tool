@@ -126,6 +126,11 @@ export interface QuoteProduct extends Product {
   orderPaid(orderNumber: number, via?: PaidVia): Promise<Notice[]>;
   /** The owner paid an order's courier fee by link: books the courier. */
   courierPaid(orderNumber: number): Promise<Notice[]>;
+  /**
+   * Reminder 1 or 2 for a confirmed order that isn't paid yet, with a fresh
+   * pay link (or the bank details). Null when it no longer needs one.
+   */
+  paymentReminder(orderNumber: number, n: 1 | 2): Promise<string | null>;
 }
 
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
@@ -279,6 +284,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
     async courierPaid(orderNumber) {
       return opts.delivery ? opts.delivery.bookCourier(orderNumber) : [];
+    },
+
+    async paymentReminder(orderNumber, n) {
+      const order = await opts.orders.findOrder(orderNumber);
+      if (!order || order.status !== "confirmed") return null;
+      const url = await payLinkFor(order, order.customerWaId);
+      const how = url ? own.payLine(url, opts.currency ?? "NGN") : opts.paymentDetails ? opts.paymentDetails : null;
+      return own.payReminder(n, opts.businessName, ref(order), money(order.totalKobo), how);
     },
   };
 

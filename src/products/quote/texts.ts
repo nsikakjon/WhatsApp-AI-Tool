@@ -28,6 +28,8 @@ export interface QuoteTexts {
   noQuoteWaiting(): string;
   overLimitCustomer(business: string, ref: string, total: string): string;
   payLine(url: string, currency: Currency): string;
+  /** Reminder 1 or 2 for a confirmed order that hasn't been paid; `how` is the pay link line or the bank details. */
+  payReminder(n: 1 | 2, business: string, ref: string, total: string, how: string | null): string;
   nextWalkInLink(): string;
   nextWalkInCounter(ref: string): string;
   nextDeliveryLink(): string;
@@ -104,6 +106,16 @@ const en: QuoteTexts = {
   overLimitCustomer: (b, ref, total) => `Thank you! The ${b} team will contact you shortly to complete order ${ref} (total ${total}).`,
   payLine: (url, currency) =>
     currency === "NGN" ? `Pay online by card, bank transfer or USSD: ${url}` : `Pay online by Mobile Money (MTN MoMo, Orange Money) or card: ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Hi! A quick reminder from ${b}: your order ${ref} (${total}) is waiting for payment.`
+        : `Hi again from ${b}: we're still holding your order ${ref} (${total}) for you.`,
+      how ?? "",
+      n === 1 ? "Already paid? Thank you, please ignore this." : "This is our last reminder. If you've changed your mind, just reply and let us know.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   nextWalkInLink: () => "Pay with the link, then show the QR code on your receipt when you collect.",
   nextWalkInCounter: (ref) => `Please pay at the counter and give them your order number, ${ref}.`,
   nextDeliveryLink: () => "We'll send you a link to follow your delivery once a rider is on the way.",
@@ -197,6 +209,16 @@ const fr: QuoteTexts = {
     currency === "NGN"
       ? `Payez en ligne par carte, virement ou USSD : ${url}`
       : `Payez en ligne par Mobile Money (MTN MoMo, Orange Money) ou par carte : ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Bonjour ! Petit rappel de ${b} : votre commande ${ref} (${total}) attend votre paiement.`
+        : `Rebonjour de la part de ${b} : nous gardons toujours votre commande ${ref} (${total}) pour vous.`,
+      how ?? "",
+      n === 1 ? "Déjà payé ? Merci, ignorez ce message." : "C'est notre dernier rappel. Si vous avez changé d'avis, répondez simplement pour nous le dire.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   nextWalkInLink: () => "Payez avec le lien, puis montrez le QR code de votre reçu au retrait.",
   nextWalkInCounter: (ref) => `Payez à la caisse en donnant votre numéro de commande, ${ref}.`,
   nextDeliveryLink: () => "Nous vous enverrons un lien pour suivre la livraison dès qu'un livreur sera en route.",

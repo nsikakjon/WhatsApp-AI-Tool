@@ -278,6 +278,8 @@ export interface Config {
    * AZURE_SPEECH_REGION) when set, otherwise Google (GOOGLE_TTS_API_KEY).
    */
   tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
+  /** Payment reminders for confirmed, unpaid orders (QUOTE_PAY_REMINDERS, migration 0054). */
+  quotePayReminders: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
   shipbubble?: { apiKey: string; contactEmail: string; categoryId?: number; itemKg: number };
   flutterwave?: {
@@ -517,6 +519,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     paystack: paystackSettings(env),
     flutterwave: flutterwaveSettings(env),
     shipbubble: shipbubbleSettings(env),
+    quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
     tts: ttsSettings(env),
   };
 }

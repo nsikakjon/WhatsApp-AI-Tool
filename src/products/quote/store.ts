@@ -45,6 +45,8 @@ export interface QuoteBusiness {
   voiceReplies?: boolean;
   /** Offer Shipbubble couriers for addresses outside its zones (migration 0053). */
   courierDelivery?: boolean;
+  /** Remind customers who confirmed but haven't paid (migration 0054; on unless switched off). */
+  payRemindersOn?: boolean;
   updatedAt: Date;
 }
 
@@ -127,6 +129,7 @@ type BusinessRow = {
   currency?: string | null;
   voice_replies?: boolean | null;
   courier_delivery?: boolean | null;
+  pay_reminders_on?: boolean | null;
   updated_at: string;
 };
 
@@ -152,6 +155,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     currency: isCurrency(row.currency) ? row.currency : "NGN",
     voiceReplies: row.voice_replies === true,
     courierDelivery: row.courier_delivery === true,
+    payRemindersOn: row.pay_reminders_on !== false,
     updatedAt: new Date(row.updated_at),
   };
 }

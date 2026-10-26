@@ -949,3 +949,17 @@ describe("French and CFA francs", () => {
     expect(answer?.text ?? "").not.toContain("5 000");
   });
 });
+
+describe("payment reminders", () => {
+  it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
+    const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });
+    await product.handle(text("200 cards"), ctx);
+    orders[0]!.status = "confirmed";
+    const first = await product.paymentReminder(1001, 1);
+    expect(first).toContain("your order KP-1001 (₦10,000) is waiting for payment");
+    expect(first).toContain("Bank 0000000000");
+    expect(await product.paymentReminder(1001, 2)).toContain("last reminder");
+    orders[0]!.status = "paid";
+    expect(await product.paymentReminder(1001, 2)).toBeNull();
+  });
+});

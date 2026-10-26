@@ -27,6 +27,7 @@ import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
 import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createDispatch, type Dispatch, type DispatchOptions } from "./products/quote/delivery/index.js";
@@ -1153,6 +1154,42 @@ if (broadcastConfig && broadcastStore) {
 }
 
 // Every 15 minutes, send quote reminders that are due (one per unanswered
+// Payment reminders (QUOTE_PAY_REMINDERS): at most two per confirmed, unpaid
+// order, inside WhatsApp's free 24-hour window, daytime only. A business can
+// switch them off in the app (Settings > Customers who haven't paid).
+const payReminders = config.activeProduct === "quote" && config.quotePayReminders ? createSupabasePayReminders(supabase) : undefined;
+if (payReminders) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    // Business #1's orders carry its fixed id (migration 0020), with or without more businesses.
+    const rows = await createSupabaseBusinesses(supabase).list();
+    const mainOn = rows.find((b) => b.id === DEFAULT_BUSINESS_ID)?.payRemindersOn !== false;
+    const ids = mainOn ? [DEFAULT_BUSINESS_ID] : [];
+    if (quoteBusinesses) {
+      for (const b of rows) {
+        if (b.id !== DEFAULT_BUSINESS_ID && b.active && b.phoneNumberId && b.payRemindersOn !== false) ids.push(b.id);
+      }
+    }
+    for (const businessId of ids) {
+      try {
+        const found = await quoteBotFor(businessId);
+        if (!found) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        await sendPayReminders(businessId, {
+          store: payReminders,
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
+          optedOut: followUps ? (contactId) => followUps.optedOut(businessId, contactId) : undefined,
+          remind: (orderNumber, n) => found.bot.paymentReminder(orderNumber, n),
+          sendText: (to, text) => sendAndRecord(deps, to, text, found.fromNumberId ?? undefined),
+        });
+      } catch (err) {
+        console.error(`Payment reminders failed for business ${businessId}:`, err);
+      }
+    }
+  });
+}
+
 // quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
 // businesses can set their own hours in quote_businesses.follow_up_hours.
 if (followUps && followUpConfig) {
