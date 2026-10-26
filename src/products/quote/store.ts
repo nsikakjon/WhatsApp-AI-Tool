@@ -47,6 +47,8 @@ export interface QuoteBusiness {
   courierDelivery?: boolean;
   /** Remind customers who confirmed but haven't paid (migration 0054; on unless switched off). */
   payRemindersOn?: boolean;
+  /** Send the owner a morning summary (migration 0054; on unless switched off). */
+  dailySummaryOn?: boolean;
   updatedAt: Date;
 }
 
@@ -130,6 +132,7 @@ type BusinessRow = {
   voice_replies?: boolean | null;
   courier_delivery?: boolean | null;
   pay_reminders_on?: boolean | null;
+  daily_summary_on?: boolean | null;
   updated_at: string;
 };
 
@@ -156,6 +159,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     voiceReplies: row.voice_replies === true,
     courierDelivery: row.courier_delivery === true,
     payRemindersOn: row.pay_reminders_on !== false,
+    dailySummaryOn: row.daily_summary_on !== false,
     updatedAt: new Date(row.updated_at),
   };
 }

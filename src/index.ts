@@ -26,8 +26,9 @@ import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
 import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
-import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
+import { dailySummary, lagosDate } from "./owner/summary.js";
 import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
@@ -1189,6 +1190,41 @@ if (payReminders) {
         });
       } catch (err) {
         console.error(`Payment reminders failed for business ${businessId}:`, err);
+      }
+    }
+  });
+}
+
+// The owner's morning summary (OWNER_APP, migration 0054): yesterday's orders,
+// money in, unpaid orders, best seller and low stock, at 8am Lagos time. It
+// only goes while WhatsApp's free window with the owner is open; its "Got it"
+// button keeps that window open for the next day. Owners can switch it off.
+if (ownerAppDeps) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    const now = new Date();
+    if (lagosHour(now) !== 8) return;
+    const today = lagosDate(now);
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.dailySummaryOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!b.active || !b.phoneNumberId))) continue;
+      try {
+        const found = await quoteBotFor(b.id);
+        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId))) continue;
+        const biz = await ownerAppDeps.business(b.id);
+        const summary = biz ? await dailySummary(biz, now, ownerAppDeps.publicUrl) : null;
+        if (!summary) continue;
+        // Claimed for today first, so a restart or a second server never sends it twice.
+        const { data, error } = await supabase
+          .from("quote_businesses")
+          .update({ summary_sent_on: today })
+          .eq("id", b.id)
+          .or(`summary_sent_on.is.null,summary_sent_on.lt.${today}`)
+          .select("id");
+        if (error) throw new Error(`summary claim failed: ${error.message}`);
+        if (!data?.length) continue;
+        await sendNotice(deps, { to: found.ownerWaId, text: summary.text, buttons: summary.buttons }, found.fromNumberId ?? undefined);
+      } catch (err) {
+        console.error(`Daily summary for ${b.name} failed:`, err);
       }
     }
   });

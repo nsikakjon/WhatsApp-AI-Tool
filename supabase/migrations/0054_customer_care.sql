@@ -15,3 +15,7 @@ alter table public.quote_businesses add column if not exists pay_reminders_on bo
 -- as {"mon": ["08:00", "18:00"], ...} (Lagos time); a missing day is closed.
 alter table public.quote_businesses add column if not exists about text check (char_length(about) <= 1500);
 alter table public.quote_businesses add column if not exists opening_hours jsonb;
+
+-- The owner's morning summary: on unless switched off, sent once a day.
+alter table public.quote_businesses add column if not exists daily_summary_on boolean not null default true;
+alter table public.quote_businesses add column if not exists summary_sent_on date;
