@@ -1,5 +1,6 @@
+import { isLang, type Lang } from "../../core/i18n.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { assertKobo } from "../../core/money.js";
+import { assertKobo, isCurrency, type Currency } from "../../core/money.js";
 import { productSlug, type PriceListItem } from "./pricelist.js";
 import type { QuoteLine, Variant } from "./pricing.js";
 
@@ -34,6 +35,12 @@ export interface QuoteBusiness {
   branchOf?: string | null;
   /** Where pay links on its invoices pay out (migration 0045): a Paystack subaccount code, ACCT_... */
   paystackSubaccount?: string | null;
+  /** The language its owner messages and invoices use, and customers get when theirs isn't clear (migration 0051). */
+  language?: Lang;
+  /** The currency its prices are in (migration 0051). */
+  currency?: Currency;
+  /** Answer a customer's voice note with a voice note (migration 0051). */
+  voiceReplies?: boolean;
   updatedAt: Date;
 }
 
@@ -111,6 +118,9 @@ type BusinessRow = {
   active: boolean;
   branch_of?: string | null;
   paystack_subaccount?: string | null;
+  language?: string | null;
+  currency?: string | null;
+  voice_replies?: boolean | null;
   updated_at: string;
 };
 
@@ -131,6 +141,9 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     active: row.active,
     branchOf: row.branch_of ?? null,
     paystackSubaccount: row.paystack_subaccount ?? null,
+    language: isLang(row.language) ? row.language : "en",
+    currency: isCurrency(row.currency) ? row.currency : "NGN",
+    voiceReplies: row.voice_replies === true,
     updatedAt: new Date(row.updated_at),
   };
 }

@@ -1,6 +1,5 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
-import { nairaToKobo } from "../../products/quote/pricelist.js";
+import { currencyName, currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import { DuplicateProductError, type ProductInput, type ProductOption, type ProductRecord } from "../store.js";
@@ -21,8 +20,11 @@ export interface PriceForm {
   problems: string[];
 }
 
-/** Reads the product form. Prices go through nairaToKobo, so "₦1,500" and "1500.50" work and "15k" doesn't. */
-export function readProductForm(form: Record<string, unknown>): PriceForm {
+/**
+ * Reads the product form. Prices go through parseMoney, so "₦1,500" and
+ * "1500.50" work in naira, "5 000" in CFA francs, and "15k" never does.
+ */
+export function readProductForm(form: Record<string, unknown>, currency: Currency = "NGN"): PriceForm {
   const problems: string[] = [];
   const name = field(form, "name", 80);
   if (!name) problems.push("Give the product a name.");
@@ -47,14 +49,15 @@ export function readProductForm(form: Record<string, unknown>): PriceForm {
     const tiers: ProductOption["tiers"] = [];
     tiersText.forEach(([fromText, priceText], j) => {
       if (!priceText && !fromText) return;
-      const price = nairaToKobo(priceText);
+      const price = parseMoney(priceText, currency);
       if (price === null) {
-        problems.push(`${label}: "${priceText || "(empty)"}" isn't a price. Type it in naira, e.g. 1500 or 1,500.50.`);
+        const example = currency === "NGN" ? "1500 or 1,500.50" : "5000 or 5 000 (whole francs)";
+        problems.push(`${label}: "${priceText || "(empty)"}" isn't a price. Type it in ${currencyName(currency)}, e.g. ${example}.`);
         return;
       }
       const from = fromText === "" ? (j === 0 ? min : NaN) : Number(fromText.replace(/,/g, ""));
       if (!Number.isInteger(from) || from < 1) {
-        problems.push(`${label}: say from what quantity ${formatNaira(price)} applies.`);
+        problems.push(`${label}: say from what quantity ${formatMoney(price, currency)} applies.`);
         return;
       }
       tiers.push({ minQuantity: from, unitPriceKobo: price });
@@ -102,7 +105,7 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
     const cards = products
       .map((p) => {
         const from = p.options.flatMap((o) => o.tiers.map((t) => t.unitPriceKobo));
-        const price = from.length ? `from ${formatNaira(Math.min(...from))}${p.unit ? ` per ${esc(p.unit)}` : ""}` : "priced by the team";
+        const price = from.length ? `from ${formatMoney(Math.min(...from), biz.currency)}${p.unit ? ` per ${esc(p.unit)}` : ""}` : "priced by the team";
         const min = Math.min(...p.options.map((o) => o.minQuantity));
         const stockLow = p.options.some((o) => o.stock !== null && o.stock <= 5);
         const photo = p.photoPath && biz.photos ? `<img class="thumb" src="/app/prices/${p.id}/photo" alt="" loading="lazy">` : `<div class="thumb">${esc(p.name.slice(0, 1).toUpperCase())}</div>`;
@@ -133,7 +136,7 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
       const tiers = Array.from({ length: TIERS }, (_, j) => {
         const t = o?.tiers[j];
         return `<tr><td><input name="o${i}_f${j}" inputmode="numeric" value="${v(t?.minQuantity)}" placeholder="${j === 0 ? "min" : ""}" aria-label="From quantity"></td>
-<td><input name="o${i}_p${j}" inputmode="decimal" value="${t ? v((t.unitPriceKobo / 100).toFixed(2).replace(/\.00$/, "")) : ""}" placeholder="₦" aria-label="Price each in naira"></td></tr>`;
+<td><input name="o${i}_p${j}" inputmode="decimal" value="${t ? v((t.unitPriceKobo / 100).toFixed(2).replace(/\.00$/, "")) : ""}" placeholder="${currencySign(biz.currency)}" aria-label="Price each in ${currencyName(biz.currency)}"></td></tr>`;
       }).join("");
       return `<fieldset class="card" style="margin:10px 0"><legend class="muted small">Option ${i + 1}</legend>
 ${o?.id ? `<input type="hidden" name="o${i}_id" value="${o.id}">` : ""}
@@ -141,7 +144,7 @@ ${o?.id ? `<input type="hidden" name="o${i}_id" value="${o.id}">` : ""}
 <div class="row"><label>Minimum order<input name="o${i}_min" inputmode="numeric" value="${v(o?.minQuantity ?? "")}" placeholder="1"></label>
 <label>In stock <span class="muted">(empty: not counted)</span><input name="o${i}_stock" inputmode="numeric" value="${v(o?.stock)}"></label></div>
 <p style="margin:12px 0 4px"><b>Price each</b> <span class="muted small">Cheaper for bigger orders? Add a second price from a higher quantity.</span></p>
-<table class="tiers"><tr><th>From quantity</th><th>Price each (₦)</th></tr>${tiers}</table></fieldset>`;
+<table class="tiers"><tr><th>From quantity</th><th>Price each (${currencySign(biz.currency)})</th></tr>${tiers}</table></fieldset>`;
     }).join("");
     const action = product ? `/app/prices/${product.id}` : "/app/prices/new";
     const photo =
@@ -187,7 +190,7 @@ ${product ? `<form method="post" action="/app/prices/${product.id}/remove" style
     const existing = id ? await biz.prices.product(id) : null;
     if (id && !existing) return c.redirect("/app/prices", 303);
     const form = (await c.req.parseBody()) as Record<string, unknown>;
-    const { input, problems } = readProductForm(form);
+    const { input, problems } = readProductForm(form, biz.currency);
     let photo: { data: Uint8Array; type: "image/jpeg" | "image/png" } | null = null;
     const file = form.photo;
     if (biz.photos && file instanceof File && file.size > 0) {

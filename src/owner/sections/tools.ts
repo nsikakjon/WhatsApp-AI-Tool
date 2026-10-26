@@ -190,7 +190,7 @@ ${
     const to = new Date(toDay.getTime() + 86_400_000);
     const rows = await c.get("biz").data.exportRows(from, to);
     const name = `orders-${c.req.query("from")}-to-${c.req.query("to")}.csv`;
-    return c.body(ordersCsv(rows), 200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"` });
+    return c.body(ordersCsv(rows, c.get("biz").currency), 200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"` });
   });
 
   app.get("/export/report.pdf", async (c) => {
@@ -200,7 +200,7 @@ ${
     const biz = c.get("biz");
     const rows = await biz.data.exportRows(range[0], range[1]);
     const label = new Date(range[0].getTime() + 3_600_000).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
-    const pdf = salesReportPdf({ businessName: biz.name, period: label, rows, generatedAt: ctx.now() });
+    const pdf = salesReportPdf({ businessName: biz.name, period: label, rows, generatedAt: ctx.now(), currency: biz.currency });
     return c.body(pdf as unknown as ArrayBuffer, 200, { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="sales-${month}.pdf"` });
   });
 

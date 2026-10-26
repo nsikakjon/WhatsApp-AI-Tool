@@ -1,7 +1,6 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
+import { currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
-import { nairaToKobo } from "../../products/quote/pricelist.js";
 import { normaliseWaId } from "../auth.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
@@ -37,11 +36,11 @@ export function registerDelivery(app: Hono<Env>, ctx: SectionContext) {
     const owner = c.get("user").role === "owner";
     const zoneRows = zones
       .map(
-        (z) => `<tr><td><b>${esc(z.name)}</b><br><span class="muted small">${esc(z.areas.join(", ") || "no areas yet")}</span></td><td>${formatNaira(z.feeKobo)}</td>
+        (z) => `<tr><td><b>${esc(z.name)}</b><br><span class="muted small">${esc(z.areas.join(", ") || "no areas yet")}</span></td><td>${formatMoney(z.feeKobo, biz.currency)}</td>
 <td>${owner ? `<details><summary class="small">Change</summary><form method="post" action="/app/delivery/zones/${z.id}">
 <label>Name<input name="name" value="${esc(z.name)}" required maxlength="60"></label>
 <label>Areas <span class="muted">(separate with commas)</span><textarea name="areas">${esc(z.areas.join(", "))}</textarea></label>
-<label>Fee (₦)<input name="fee" inputmode="decimal" value="${(z.feeKobo / 100).toFixed(2).replace(/\.00$/, "")}" required></label>
+<label>Fee (${currencySign(biz.currency)})<input name="fee" inputmode="decimal" value="${(z.feeKobo / 100).toFixed(2).replace(/\.00$/, "")}" required></label>
 <div class="actions"><button class="small">Save</button></div></form>
 <form method="post" action="/app/delivery/zones/${z.id}/remove" style="margin-top:8px"><button class="danger small">Remove zone</button></form></details>` : ""}</td></tr>`,
       )
@@ -61,7 +60,7 @@ export function registerDelivery(app: Hono<Env>, ctx: SectionContext) {
 ${owner ? `<details class="card" style="margin-top:12px"><summary><b>+ Add a zone</b></summary><form method="post" action="/app/delivery/zones">
 <label>Name<input name="name" required maxlength="60" placeholder="e.g. Island"></label>
 <label>Areas <span class="muted">(separate with commas)</span><textarea name="areas" placeholder="Lekki, Ajah, Victoria Island, VI, Ikoyi"></textarea></label>
-<label>Fee (₦)<input name="fee" inputmode="decimal" required placeholder="2500"></label>
+<label>Fee (${currencySign(biz.currency)})<input name="fee" inputmode="decimal" required placeholder="2500"></label>
 <div class="actions"><button>Add zone</button></div></form></details>` : ""}
 <h2>Riders</h2>
 <p class="muted">Riders get the pickup and drop-off on WhatsApp, and share their location so the customer can follow the delivery.</p>
@@ -80,21 +79,21 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>+ Add a rid
     await next();
   });
 
-  const readZone = (form: Record<string, unknown>) => {
+  const readZone = (form: Record<string, unknown>, currency: Currency) => {
     const name = field(form, "name", 60);
-    const fee = nairaToKobo(field(form, "fee", 20));
+    const fee = parseMoney(field(form, "fee", 20), currency);
     return name && fee !== null ? { name, areas: readAreas(field(form, "areas", 3000)), feeKobo: fee } : null;
   };
 
   app.post("/delivery/zones", async (c) => {
-    const zone = readZone(await c.req.parseBody());
+    const zone = readZone(await c.req.parseBody(), c.get("biz").currency);
     if (!zone) return c.redirect("/app/delivery?msg=bad", 303);
     await c.get("biz").delivery!.saveZone(null, zone);
     return c.redirect("/app/delivery?msg=added", 303);
   });
 
   app.post("/delivery/zones/:id", async (c) => {
-    const zone = readZone(await c.req.parseBody());
+    const zone = readZone(await c.req.parseBody(), c.get("biz").currency);
     if (!zone || !UUID.test(c.req.param("id"))) return c.redirect("/app/delivery?msg=bad", 303);
     await c.get("biz").delivery!.saveZone(c.req.param("id"), zone);
     return c.redirect("/app/delivery?msg=saved", 303);

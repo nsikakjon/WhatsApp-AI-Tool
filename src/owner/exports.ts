@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
-import { formatNaira } from "../core/money.js";
+import { formatMoney, type Currency } from "../core/money.js";
 import { A4, jpegsToPdf } from "../core/pdf.js";
 import { showWaId } from "../core/whatsapp/ids.js";
 import type { ExportRow } from "./store.js";
@@ -13,7 +13,7 @@ import type { ExportRow } from "./store.js";
 // Amounts are worked out from kobo with whole numbers; naira only appears
 // when written out.
 
-const HEADINGS = ["Order", "Status", "Date", "Confirmed", "Paid", "Customer", "WhatsApp", "Items", "Total (NGN)"];
+const headings = (currency: Currency) => ["Order", "Status", "Date", "Confirmed", "Paid", "Customer", "WhatsApp", "Items", `Total (${currency})`];
 
 /** Kobo as a plain naira amount for spreadsheets: 1250050 -> "12500.50". */
 export function koboToPlainNaira(kobo: number): string {
@@ -46,8 +46,8 @@ export function csvCell(value: string): string {
   return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-export function ordersCsv(rows: ExportRow[]): string {
-  const lines = [HEADINGS.join(",")];
+export function ordersCsv(rows: ExportRow[], currency: Currency = "NGN"): string {
+  const lines = [headings(currency).join(",")];
   for (const r of rows) {
     lines.push(
       [
@@ -107,7 +107,8 @@ const M = 80;
 const ROW = 46;
 
 /** A printable sales report: totals, then every order (only confirmed and paid ones). */
-export function salesReportPdf(input: { businessName: string; period: string; rows: ExportRow[]; generatedAt: Date }): Uint8Array {
+export function salesReportPdf(input: { businessName: string; period: string; rows: ExportRow[]; generatedAt: Date; currency?: Currency }): Uint8Array {
+  const money = (minor: number) => formatMoney(minor, input.currency);
   loadFonts();
   const totals = reportTotals(input.rows);
   const orders = input.rows.filter((r) => r.status === "confirmed" || r.status === "paid");
@@ -135,8 +136,8 @@ export function salesReportPdf(input: { businessName: string; period: string; ro
       const boxes: Array<[string, string]> = [
         ["Quotes sent", String(totals.quotes)],
         ["Orders", String(totals.orders)],
-        ["Paid in", formatNaira(totals.paidKobo)],
-        ["Awaiting payment", formatNaira(totals.awaitingKobo)],
+        ["Paid in", money(totals.paidKobo)],
+        ["Awaiting payment", money(totals.awaitingKobo)],
       ];
       const bw = (W - 2 * M - 3 * 20) / 4;
       boxes.forEach(([label, value], i) => {
@@ -178,7 +179,7 @@ export function salesReportPdf(input: { businessName: string; period: string; ro
       ctx.fillText(clip(ctx, r.items, cols.total - cols.items - 170), cols.items, y);
       ctx.textAlign = "right";
       ctx.fillStyle = r.status === "paid" ? "#15803d" : "#111827";
-      ctx.fillText(`${formatNaira(r.totalKobo)}${r.status === "paid" ? "" : " *"}`, cols.total, y);
+      ctx.fillText(`${money(r.totalKobo)}${r.status === "paid" ? "" : " *"}`, cols.total, y);
       ctx.textAlign = "left";
       y += ROW;
       index += 1;

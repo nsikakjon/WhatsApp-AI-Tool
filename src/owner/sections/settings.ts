@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
+import { isLang } from "../../core/i18n.js";
+import { formatNaira, isCurrency } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { hashPassword, normaliseWaId, passwordProblem } from "../auth.js";
 import type { SectionContext } from "../index.js";
@@ -98,6 +99,16 @@ ${
 <label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/app/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
 <div class="actions"><button>Save details</button></div></form>
 
+<h2 id="language">Language and currency</h2>
+<form method="post" action="/app/settings/language" class="card">
+<div class="row"><label>Bot language <span class="muted">(your messages and invoices; customers who write in French or English always get replies in their own language)</span>
+<select name="language"${biz.fromEnv ? " disabled" : ""}>${option("en", "English", biz.language)}${option("fr", "Français (French)", biz.language)}</select></label>
+<label>Currency <span class="muted">(your prices are in this currency)</span>
+<select name="currency"${biz.fromEnv ? " disabled" : ""}>${option("NGN", "Naira (₦)", biz.currency)}${option("XOF", "CFA franc, West Africa (FCFA)", biz.currency)}${option("XAF", "CFA franc, Central Africa (FCFA)", biz.currency)}</select></label></div>
+<label class="check"><input type="checkbox" name="voice" value="on"${biz.voiceReplies ? " checked" : ""}${biz.fromEnv ? " disabled" : ""}> Answer voice notes with a voice note as well as text</label>
+<p class="muted small">Changing the currency doesn't convert your prices: check your price list and delivery fees afterwards.${biz.fromEnv ? " On the main number these are set by yarnOga; ask support to change them." : ""}</p>
+<div class="actions"><button${biz.fromEnv ? " disabled" : ""}>Save</button></div></form>
+
 <h2 id="banks">Bank accounts</h2>
 <p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (On the main number, invoices still show the details set by yarnOga until support updates them.)" : ""}</p>
 <div class="scroll"><table>${bankRows || `<tr><td class="muted">No bank accounts yet.</td></tr>`}</table></div>
@@ -172,6 +183,18 @@ ${feeNote}
       await biz.saveLogo(data, type);
     }
     return done(c, "saved", "#business");
+  });
+
+  app.post("/settings/language", async (c) => {
+    const biz = c.get("biz");
+    if (biz.fromEnv) return done(c, "bad", "#language");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const language = field(form, "language", 4);
+    const currency = field(form, "currency", 4);
+    if (!isLang(language) || !isCurrency(currency)) return done(c, "bad", "#language");
+    await biz.data.saveLanguage({ language, currency, voiceReplies: field(form, "voice", 4) === "on" });
+    ctx.log.info(`Owner app: ${biz.name} set language ${language}, currency ${currency}`);
+    return done(c, "saved", "#language");
   });
 
   app.post("/settings/banks", async (c) => {
@@ -262,4 +285,8 @@ ${feeNote}
     if (fresh) await ctx.relogin(c, fresh);
     return done(c, "logout_all");
   });
+}
+
+function option(value: string, label: string, current: string): string {
+  return `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`;
 }

@@ -288,7 +288,7 @@ tr:last-child td{border-bottom:0}
 form{margin:0}label{display:block;font-weight:500;font-size:.9rem;margin:16px 0 8px}label .muted{font-weight:400}
 input,select,textarea{width:100%;font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:12px 14px;transition:border-color .15s,box-shadow .15s}
 input::placeholder,textarea::placeholder{color:var(--dim)}
-input[type=checkbox]{width:auto}input[type=file]{padding:7px;color:var(--muted)}
+input[type=checkbox]{width:auto}label.check{display:flex;gap:10px;align-items:center;margin:14px 0 6px}input[type=file]{padding:7px;color:var(--muted)}
 input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.84rem;color:var(--text);background:var(--surface3);border:1px solid var(--line2);border-radius:9px;padding:6px 12px;margin-right:12px;cursor:pointer}input[type=color]{padding:4px;height:46px}
 textarea{min-height:100px;resize:vertical}
 input:focus,select:focus,textarea:focus{outline:0;border-color:rgba(198,255,31,.6);box-shadow:0 0 0 4px rgba(198,255,31,.12)}

@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
+import { formatMoney } from "../../core/money.js";
 import { lagosMonthKey } from "../../products/quote/credits.js";
 import { lagosMonthStart } from "../../products/quote/plan.js";
 import { columnOf, type BoardOrder, type SalesFigures } from "../../products/quote/board.js";
@@ -19,6 +19,7 @@ function lagosDay(d: Date): string {
 export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
   app.get("/", async (c) => {
     const biz = c.get("biz");
+    const money = (minor: number) => formatMoney(minor, biz.currency);
     const at = ctx.now();
     const thisMonth = lagosMonthStart(at);
     const lastMonth = lagosMonthStart(new Date(thisMonth.getTime() - 1));
@@ -95,7 +96,7 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
 </section>
 
 <div class="grid">
-${stat("Paid in this month", formatNaira(now.paidInKobo), `vs ${formatNaira(before.paidInKobo)} last month`, { change: pct(now.paidInKobo, before.paidInKobo), glow: true, icon: "prices" })}
+${stat("Paid in this month", money(now.paidInKobo), `vs ${money(before.paidInKobo)} last month`, { change: pct(now.paidInKobo, before.paidInKobo), glow: true, icon: "prices" })}
 ${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), icon: "orders" })}
 ${stat("Quotes sent", n(now.quotes), `${conversion}% became orders`, { icon: "export" })}
 ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · ${n(chats.outbound)} out`, { icon: "inbox" })}
@@ -120,7 +121,7 @@ ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · 
   <section class="card">
     <div class="cardhead"><h3>Needs you</h3><a href="/app/orders">Open orders ${icon("arrow", 16)}</a></div>
     <div class="tiles">
-      <a class="tile" href="/app/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${formatNaira(owed)} owed` : "All paid up"}</span></a>
+      <a class="tile" href="/app/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${money(owed)} owed` : "All paid up"}</span></a>
       <a class="tile" href="/app/orders"><span><i class="dot lime"></i>To make</span><b>${toMake.length}</b><span>paid or in production</span></a>
       <a class="tile" href="/app/delivery"><span><i class="dot blue"></i>On the road</span><b>${onRoad.length}</b><span>out for delivery</span></a>
       <a class="tile" href="/app/prices"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
@@ -132,7 +133,7 @@ ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · 
       top.length
         ? `<ul class="rank">${top
             .map(
-              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${formatNaira(t.totalKobo)}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p></li>`,
+              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${money(t.totalKobo)}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p></li>`,
             )
             .join("")}</ul>`
         : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/app/posters">make one</a>.</p>`

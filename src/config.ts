@@ -1,3 +1,5 @@
+import { isLang, type Lang } from "./core/i18n.js";
+import { isCurrency, type Currency } from "./core/money.js";
 // Reads settings from environment variables (.env locally, Variables on Railway).
 // Fails fast at startup if anything required is missing, so a misconfigured
 // deploy crashes loudly instead of silently ignoring messages.
@@ -74,6 +76,12 @@ export interface Config {
     plan?: string;
     /** Its Paystack subaccount (ACCT_...), where pay links on its invoices pay out. */
     paystackSubaccount?: string;
+    /** "en" or "fr": owner messages and invoices, and customers whose language isn't clear. */
+    language: Lang;
+    /** "NGN" (naira), "XOF" or "XAF" (CFA francs). */
+    currency: Currency;
+    /** Answer voice notes with a voice note (needs TTS set up). */
+    voiceReplies: boolean;
   };
   /**
    * More businesses on the quote bot, each on its own WhatsApp number, set up
@@ -345,6 +353,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
             plan: env.QUOTE_PLAN?.trim().toLowerCase() || undefined,
             paystackSubaccount: subaccount(env.QUOTE_PAYSTACK_SUBACCOUNT),
+            language: oneOf(env.QUOTE_LANGUAGE?.trim().toLowerCase() || "en", isLang, "QUOTE_LANGUAGE", "en or fr"),
+            currency: oneOf(env.QUOTE_CURRENCY?.trim().toUpperCase() || "NGN", isCurrency, "QUOTE_CURRENCY", "NGN, XOF or XAF"),
+            voiceReplies: /^(true|yes|on|1)$/i.test(env.QUOTE_VOICE_REPLIES ?? ""),
           }
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
@@ -561,4 +572,9 @@ function agentNumbers(list: string): string[] {
   const numbers = list.split(",").map((n) => n.replace(/\D/g, "")).filter(Boolean);
   if (!numbers.length) throw new Error("LEADS_AGENT_WA_IDS must list at least one WhatsApp number");
   return numbers;
+}
+
+function oneOf<T extends string>(value: string, ok: (v: unknown) => v is T, name: string, allowed: string): T {
+  if (!ok(value)) throw new Error(`${name} must be ${allowed} (got "${value}")`);
+  return value;
 }

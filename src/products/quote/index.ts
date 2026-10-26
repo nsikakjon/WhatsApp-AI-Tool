@@ -477,7 +477,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
     const dispatch = !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
     if (dispatch) {
-      const ask = await dispatch.beforeConfirm(order, { waId, name });
+      const ask = await dispatch.beforeConfirm(order, { waId, name }, lang);
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;

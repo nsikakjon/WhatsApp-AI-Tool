@@ -29,7 +29,12 @@ describe("loadConfig", () => {
       businessName: "KahnPrints",
       orderPrefix: "KP",
       ownerWaId: "2348012345678",
+      language: "en",
+      currency: "NGN",
+      voiceReplies: false,
     });
+    expect(loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_LANGUAGE: "FR", QUOTE_CURRENCY: "xof" }).quote).toMatchObject({ language: "fr", currency: "XOF" });
+    expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_CURRENCY: "USD" })).toThrow("QUOTE_CURRENCY");
   });
 
   it("keeps broadcasts off unless BROADCASTS_ENABLED is true, and then needs a template", () => {

@@ -1,3 +1,5 @@
+import type { Lang } from "./core/i18n.js";
+import type { Currency } from "./core/money.js";
 import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
@@ -187,8 +189,8 @@ const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
   features ? createMessageAllowance({ features, store: createSupabaseSentStore(supabase, numberIds) }) : undefined;
 
 // Product photos and stock (QUOTE_CATALOGUE), on the business's own price list.
-const catalogueFor = (businessId: string, features?: PlanFeatures) =>
-  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) : undefined;
+const catalogueFor = (businessId: string, features?: PlanFeatures, currency?: Currency) =>
+  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features, currency }) : undefined;
 
 // Walk-in orders, pickup screens and receipt QR codes (QUOTE_WALK_IN).
 const walkInConfig = config.activeProduct === "quote" ? config.quoteWalkIn : undefined;
@@ -231,7 +233,7 @@ let mainQuoteBot: QuoteProduct | undefined;
 /** A business's quote bot and the number it answers on (null = main number), for work that starts outside a chat. */
 async function quoteBotFor(
   businessId: string,
-): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string; ownerWaId: string | null } | null> {
+): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string; ownerWaId: string | null; language: Lang } | null> {
   if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot && config.quote) {
     return {
       bot: mainQuoteBot,
@@ -239,6 +241,7 @@ async function quoteBotFor(
       name: config.quote.businessName,
       orderPrefix: config.quote.orderPrefix,
       ownerWaId: config.quote.ownerWaId ?? null,
+      language: config.quote.language,
     };
   }
   if (!quoteBusinesses) return null;
@@ -250,6 +253,7 @@ async function quoteBotFor(
     name: business.name,
     orderPrefix: business.orderPrefix,
     ownerWaId: business.ownerWaId,
+    language: business.language ?? "en",
   };
 }
 if (config.activeProduct === "quote" && config.quote) {
@@ -275,8 +279,12 @@ if (config.activeProduct === "quote" && config.quote) {
             orders,
             links: trackingLinks,
             template: delivery.template,
+            language: config.quote.language,
+            currency: config.quote.currency,
           })
         : undefined,
+    language: config.quote.language,
+    currency: config.quote.currency,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
@@ -298,12 +306,14 @@ if (config.activeProduct === "quote" && config.quote) {
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...mainFeatures,
     botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
-    catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features),
+    catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features, config.quote.currency),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
       businessName: config.quote.businessName,
       description: config.quote.businessDescription,
+      language: config.quote.language,
+      currency: config.quote.currency,
     }),
   });
   mainQuoteBot = quoteBot;
@@ -342,8 +352,12 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
             orders,
             links: trackingLinks,
             template: delivery.template,
+            language: business.language,
+            currency: business.currency,
           })
         : undefined,
+    language: business.language,
+    currency: business.currency,
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
@@ -352,12 +366,14 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
-    catalogue: catalogueFor(business.id, features.features),
+    catalogue: catalogueFor(business.id, features.features, business.currency),
     ai: createClaudeUnderstander({
       apiKey: multi.anthropicApiKey,
       model: multi.model,
       businessName: business.name,
       description: business.description ?? undefined,
+      language: business.language,
+      currency: business.currency,
     }),
   });
 }
@@ -399,11 +415,15 @@ if (chatSignup && quoteBusinesses) {
         catalog: createSupabaseCatalog(supabase, business.id),
         branding: readOnlyBranding(createSupabaseBranding(supabase, business.id)),
         orders: memoryOrderStore(),
+        language: business.language,
+        currency: business.currency,
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
           businessName: business.name,
           description: business.description ?? undefined,
+          language: business.language,
+          currency: business.currency,
         }),
       });
     },
@@ -644,10 +664,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const features = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan).features : undefined) : planFeatures(row!.branchOf ?? id).features;
           const branding = createSupabaseBranding(supabase, id);
           const sentNumbers = main ? [numberId, ""] : [numberId];
+          const language = main ? config.quote!.language : (row!.language ?? "en");
+          const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
           return {
             id,
             name,
             orderPrefix,
+            language,
+            currency,
+            voiceReplies: main ? config.quote!.voiceReplies : row!.voiceReplies === true,
             fromEnv: main,
             numberId,
             includeUnnumbered: main,
@@ -693,11 +718,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                 catalog: createSupabaseCatalog(supabase, main ? mainBusinessId : id),
                 branding: readOnlyBranding(branding),
                 orders: memoryOrderStore(),
+                language,
+                currency,
                 ai: createClaudeUnderstander({
                   apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
                   model: main ? config.quote!.model : quoteBusinesses!.model,
                   businessName: name,
                   description: (main ? config.quote!.businessDescription : row!.description) ?? undefined,
+                  language,
+                  currency,
                 }),
               }),
             async botMessages() {
@@ -827,6 +856,11 @@ const app = createApp({
       // Any business's delivery, looked up by the id in the signed link.
       store: createSupabaseDeliveryStore(supabase),
       template: delivery.template,
+      // Rider updates from the tracking page go out in the business's language.
+      async language(d) {
+        if (!d.fromNumberId) return config.quote?.language ?? "en";
+        return (await createSupabaseBusinesses(supabase).findByPhoneNumberId(d.fromNumberId))?.language ?? "en";
+      },
       send: async (notices, fromNumberId) => {
         for (const note of notices) {
           try {
@@ -874,6 +908,7 @@ const app = createApp({
           orderPrefix: found.orderPrefix,
           store: createSupabaseWalkInStore(supabase, id),
           fromNumberId: found.fromNumberId,
+          language: found.language,
           paidAtCounter: (orderNumber) => found.bot.orderPaid(orderNumber, { how: "counter" }),
         };
       },
@@ -1015,6 +1050,8 @@ if (followUps && followUpConfig) {
         orderPrefix: config.quote.orderPrefix,
         hours: followUpConfig.hours,
         phoneNumberId: config.whatsapp.phoneNumberId,
+        language: config.quote.language,
+        currency: config.quote.currency,
       });
     }
     if (quoteBusinesses) {
@@ -1027,6 +1064,8 @@ if (followUps && followUpConfig) {
           orderPrefix: b.orderPrefix,
           hours: hours.get(b.id) ?? followUpConfig.hours,
           phoneNumberId: b.phoneNumberId,
+          language: b.language,
+          currency: b.currency,
         });
       }
     }
