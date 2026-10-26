@@ -153,7 +153,7 @@ export function salesReportPdf(input: { businessName: string; period: string; ro
       y += 180;
     }
 
-    const cols = { ref: M, date: M + 170, customer: M + 380, items: M + 650, total: W - M };
+    const cols = { ref: M, date: M + 150, customer: M + 320, items: M + 540, total: W - M };
     ctx.fillStyle = "#111827";
     ctx.font = "24px Inter SemiBold";
     ctx.fillText("Order", cols.ref, y);
@@ -173,9 +173,9 @@ export function salesReportPdf(input: { businessName: string; period: string; ro
       ctx.fillStyle = "#111827";
       ctx.fillText(r.ref, cols.ref, y);
       ctx.fillText(lagosDateTime(r.confirmedAt ?? r.createdAt).slice(0, 10), cols.date, y);
-      ctx.fillText(clip(ctx, r.customerName ?? showWaId(r.customerWaId), 250), cols.customer, y);
+      ctx.fillText(clip(ctx, r.customerName ?? showWaId(r.customerWaId), cols.items - cols.customer - 20), cols.customer, y);
       ctx.fillStyle = "#4b5563";
-      ctx.fillText(clip(ctx, r.items, cols.total - cols.items - 190), cols.items, y);
+      ctx.fillText(clip(ctx, r.items, cols.total - cols.items - 170), cols.items, y);
       ctx.textAlign = "right";
       ctx.fillStyle = r.status === "paid" ? "#15803d" : "#111827";
       ctx.fillText(`${formatNaira(r.totalKobo)}${r.status === "paid" ? "" : " *"}`, cols.total, y);

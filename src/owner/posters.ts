@@ -86,11 +86,12 @@ export async function renderPoster(input: PosterInput): Promise<Buffer> {
     // Coloured band with the logo and name.
     ctx.fillStyle = colour;
     ctx.fillRect(0, 0, w, 430);
-    let y = 70;
+    // With a logo: logo then name. Without: the name in the middle of the band.
+    let y = 170;
     if (logo) {
-      drawContained(ctx, logo, w / 2 - 110, y, 220, 160, true);
-      y += 190;
-    } else y += 60;
+      drawContained(ctx, logo, w / 2 - 110, 70, 220, 160, true);
+      y = 260;
+    }
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
@@ -115,7 +116,7 @@ export async function renderPoster(input: PosterInput): Promise<Buffer> {
       fitText(ctx, input.tagline, w - 200, 36, "Inter SemiBold");
       ctx.fillText(input.tagline, w / 2, 1470);
     }
-    drawSteps(ctx, t.steps, 90, 1540, w - 180, colour);
+    drawSteps(ctx, t.steps, 90, 1520, w - 180, colour);
   } else {
     // Left: name, headline, steps. Right: the QR code.
     ctx.fillStyle = colour;
@@ -147,7 +148,7 @@ export async function renderPoster(input: PosterInput): Promise<Buffer> {
       ctx.fillText(input.tagline, left, y);
       y += 60;
     }
-    drawSteps(ctx, t.steps, left, Math.max(y + 20, 760), textWidth, colour);
+    drawSteps(ctx, t.steps, left, Math.max(y + 40, 600), textWidth, colour);
 
     drawQr(ctx, link, 1060, 170, 600, colour);
     ctx.textAlign = "center";
@@ -166,7 +167,7 @@ export async function renderPoster(input: PosterInput): Promise<Buffer> {
   ctx.font = "26px Inter";
   const footer = "Powered by yarnOga · yarnoga.com";
   const fw = ctx.measureText(footer).width;
-  const fy = h - 60;
+  const fy = h - 34;
   if (mark) ctx.drawImage(mark, w / 2 - fw / 2 - 46, fy - 30, 36, 36);
   ctx.fillText(footer, w / 2, fy);
 
@@ -240,9 +241,32 @@ function drawSteps(ctx: SKRSContext2D, steps: string[], x: number, y: number, wi
     ctx.font = "38px Inter ExtraBold";
     ctx.fillText(String(i + 1), cx, y + 13);
     ctx.fillStyle = INK;
-    fitText(ctx, step, each - 24, 30, "Inter SemiBold");
-    ctx.fillText(step, cx, y + 88);
+    ctx.font = "30px Inter SemiBold";
+    const lines = wrapTwo(ctx, step, each - 24);
+    if (lines.length > 1 || ctx.measureText(lines[0]!).width > each - 24) fitText(ctx, longest(ctx, lines), each - 24, 30, "Inter SemiBold");
+    lines.forEach((line, k) => ctx.fillText(line, cx, y + 88 + k * 38));
   });
+}
+
+/** Splits text into at most two lines that fit `width`, breaking at the space nearest the middle when needed. */
+function wrapTwo(ctx: SKRSContext2D, text: string, width: number): string[] {
+  if (ctx.measureText(text).width <= width) return [text];
+  const words = text.split(" ");
+  let best: string[] = [text];
+  let bestWidth = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const pair = [words.slice(0, i).join(" "), words.slice(i).join(" ")];
+    const widest = Math.max(...pair.map((l) => ctx.measureText(l).width));
+    if (widest < bestWidth) {
+      best = pair;
+      bestWidth = widest;
+    }
+  }
+  return best;
+}
+
+function longest(ctx: SKRSContext2D, lines: string[]): string {
+  return lines.reduce((a, b) => (ctx.measureText(a).width >= ctx.measureText(b).width ? a : b));
 }
 
 /** Sets the largest font size up to `max` at which `text` fits `width`. */
