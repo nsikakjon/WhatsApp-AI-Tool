@@ -11,6 +11,7 @@ import { createTracking, type TrackingDeps } from "./products/quote/delivery/tra
 import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
 import { createHealthRoutes, type HealthDeps } from "./core/health.js";
+import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -27,6 +28,8 @@ export function createApp(
   more: {
     /** Checks behind /health/full and /status. Without them, /health alone. */
     health?: HealthDeps;
+    /** The owners' and staff web app at /app (OWNER_APP). */
+    ownerApp?: OwnerAppDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -67,6 +70,14 @@ export function createApp(
 
   // Kitchen and bar screens and receipt QR codes for walk-in orders; only when QUOTE_WALK_IN is on.
   if (walkInScreens) app.route("/", createWalkInScreens(walkInScreens));
+
+  // The owners' and staff web app (app.yarnoga.com), only when OWNER_APP is on.
+  if (more.ownerApp) {
+    app.get("/app/", (c) => c.redirect("/app", 301));
+    app.route("/app", createOwnerApp(more.ownerApp));
+    // app.yarnoga.com on its own opens the app.
+    app.get("/", (c) => (new URL(c.req.url).hostname.startsWith("app.") ? c.redirect("/app", 302) : c.notFound()));
+  }
 
   return app;
 }

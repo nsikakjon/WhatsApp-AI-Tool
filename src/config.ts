@@ -39,7 +39,12 @@ export interface Config {
    * orders, price list, delivery, posters, exports and settings for each
    * quote business. Needs migration 0049.
    */
-  ownerApp?: { publicUrl: string };
+  ownerApp?: {
+    publicUrl: string;
+    /** Where the app's Help page sends people: SUPPORT_EMAIL and SUPPORT_WA_ID. */
+    supportEmail: string;
+    supportWaId?: string;
+  };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -301,7 +306,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ownerReplyPauseMinutes: pauseMinutes,
     alerts: alertSettings(env),
     ownerApp: /^(true|yes|on|1)$/i.test(env.OWNER_APP ?? "")
-      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      ? {
+          publicUrl: publicUrl(env.OWNER_APP_URL || required(env, "PUBLIC_URL")),
+          supportEmail: env.SUPPORT_EMAIL?.trim() || "support@yarnoga.com",
+          supportWaId: env.SUPPORT_WA_ID?.replace(/\D/g, "") || undefined,
+        }
       : undefined,
     inbox: inboxSettings(env.INBOX_PASSWORD),
     groq: env.GROQ_API_KEY

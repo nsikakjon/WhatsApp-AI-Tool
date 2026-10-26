@@ -245,8 +245,13 @@ describe("loadConfig", () => {
 
   it("switches the owner app on with a public address", () => {
     expect(loadConfig(base).ownerApp).toBeUndefined();
-    expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://app.yarnoga.com" }).ownerApp).toEqual({
-      publicUrl: "https://app.yarnoga.com",
+    expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com" }).ownerApp).toEqual({
+      publicUrl: "https://bot.example.com",
+      supportEmail: "support@yarnoga.com",
+      supportWaId: undefined,
     });
+    expect(
+      loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com", OWNER_APP_URL: "https://app.yarnoga.com", SUPPORT_WA_ID: "+234 800 000 0000" }).ownerApp,
+    ).toMatchObject({ publicUrl: "https://app.yarnoga.com", supportWaId: "2348000000000" });
   });
 });

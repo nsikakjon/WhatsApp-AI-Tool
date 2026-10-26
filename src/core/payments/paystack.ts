@@ -103,3 +103,34 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
     },
   };
 }
+
+/**
+ * Nigerian banks as Paystack knows them, and the name on an account, so the
+ * owner app can check a bank account before it goes on invoices. The bank
+ * list is kept for a day.
+ */
+export function createPaystackBanks(config: PaystackConfig, fetchImpl: typeof fetch = fetch) {
+  const base = (config.apiUrl ?? "https://api.paystack.co").replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${config.secretKey}` };
+  let cached: { at: number; list: Array<{ name: string; code: string }> } | null = null;
+  return {
+    async banks() {
+      if (cached && Date.now() - cached.at < 86_400_000) return cached.list;
+      const res = await fetchImpl(`${base}/bank?country=nigeria&perPage=100&use_cursor=false`, { headers, signal: AbortSignal.timeout(10_000) });
+      const body = (await res.json().catch(() => ({}))) as { status?: boolean; data?: Array<{ name: string; code: string; active?: boolean }> };
+      if (!res.ok || body.status !== true || !Array.isArray(body.data)) throw new Error(`Paystack bank list failed (${res.status})`);
+      const list = body.data.filter((b) => b.active !== false).map((b) => ({ name: b.name, code: b.code }));
+      cached = { at: Date.now(), list };
+      return list;
+    },
+    async resolve(accountNumber: string, bankCode: string): Promise<string | null> {
+      if (!/^\d{10}$/.test(accountNumber) || !/^[0-9A-Za-z]{2,10}$/.test(bankCode)) return null;
+      const res = await fetchImpl(`${base}/bank/resolve?account_number=${accountNumber}&bank_code=${encodeURIComponent(bankCode)}`, {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { account_name?: string } };
+      return res.ok && body.status === true && body.data?.account_name ? body.data.account_name : null;
+    },
+  };
+}

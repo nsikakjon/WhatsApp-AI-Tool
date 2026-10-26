@@ -40,7 +40,7 @@ import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-signup.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
-import { createAiCredits, createSupabaseCreditStore } from "./products/quote/credits.js";
+import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
@@ -82,7 +82,17 @@ import { createSupabasePromoAdmin } from "./core/payments/promos.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
 import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
 import { createSentry } from "./core/alerts/sentry.js";
-import { createWatchdog, type HealthDeps } from "./core/health.js";
+import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
+import { createPaystackBanks } from "./core/payments/paystack.js";
+import type { OwnerAppDeps } from "./owner/index.js";
+import {
+  createSupabaseBusinessData,
+  createSupabaseDeliverySetup,
+  createSupabasePrices,
+  createSupabaseUsers,
+} from "./owner/store.js";
+import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
+import type { Notice } from "./core/product.js";
 
 const config = loadConfig();
 
@@ -192,18 +202,52 @@ async function numbersAllowed(mainId: string): Promise<number | null> {
   return (await features.has("branches")) ? features.limit("branches") : 1;
 }
 
+// The owners' and staff app (OWNER_APP, migration 0049). Its extra alert
+// numbers get a copy of every alert the bot sends the owner.
+const ownerApp = config.activeProduct === "quote" ? config.ownerApp : undefined;
+async function alertNumbersFor(businessId: string): Promise<string[]> {
+  if (!ownerApp) return [];
+  const { data, error } = await supabase.from("quote_alert_numbers").select("wa_id").eq("business_id", businessId);
+  if (error) throw new Error(`alert numbers failed: ${error.message}`);
+  return (data ?? []).map((r) => r.wa_id as string);
+}
+const withAlerts = (bot: Product, businessId: string, ownerWaId: string | null | undefined): Product =>
+  ownerApp ? withAlertCopies(bot, { ownerWaId: ownerWaId ?? undefined, numbers: () => alertNumbersFor(businessId) }) : bot;
+async function copyAlerts(notes: Notice[], businessId: string, ownerWaId: string | null | undefined): Promise<Notice[]> {
+  try {
+    return copyOwnerNotices(notes, ownerWaId ?? undefined, await alertNumbersFor(businessId));
+  } catch (err) {
+    console.error("Could not copy alerts to the extra alert numbers:", err);
+    return notes;
+  }
+}
+
 let product: Product = echoProduct;
 let mainQuoteBot: QuoteProduct | undefined;
 
 /** A business's quote bot and the number it answers on (null = main number), for work that starts outside a chat. */
-async function quoteBotFor(businessId: string): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string } | null> {
+async function quoteBotFor(
+  businessId: string,
+): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string; ownerWaId: string | null } | null> {
   if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot && config.quote) {
-    return { bot: mainQuoteBot, fromNumberId: null, name: config.quote.businessName, orderPrefix: config.quote.orderPrefix };
+    return {
+      bot: mainQuoteBot,
+      fromNumberId: null,
+      name: config.quote.businessName,
+      orderPrefix: config.quote.orderPrefix,
+      ownerWaId: config.quote.ownerWaId ?? null,
+    };
   }
   if (!quoteBusinesses) return null;
   const business = await createSupabaseBusinesses(supabase).get(businessId);
   if (!business) return null;
-  return { bot: businessBot(business, quoteBusinesses), fromNumberId: business.phoneNumberId, name: business.name, orderPrefix: business.orderPrefix };
+  return {
+    bot: businessBot(business, quoteBusinesses),
+    fromNumberId: business.phoneNumberId,
+    name: business.name,
+    orderPrefix: business.orderPrefix,
+    ownerWaId: business.ownerWaId,
+  };
 }
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
@@ -260,7 +304,12 @@ if (config.activeProduct === "quote" && config.quote) {
     }),
   });
   mainQuoteBot = quoteBot;
-  product = addBroadcasts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.ownerWaId);
+  product = addBroadcasts(
+    withAlerts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.ownerWaId),
+    DEFAULT_BUSINESS_ID,
+    config.quote.businessName,
+    config.quote.ownerWaId,
+  );
 }
 
 // Other businesses on the quote bot each answer their own WhatsApp number.
@@ -315,7 +364,12 @@ if (quoteBusinesses) {
     fallback: product,
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) =>
-      addBroadcasts(businessBot(business, quoteBusinesses), business.id, business.name, business.ownerWaId ?? undefined),
+      addBroadcasts(
+        withAlerts(businessBot(business, quoteBusinesses), business.id, business.ownerWaId),
+        business.id,
+        business.name,
+        business.ownerWaId ?? undefined,
+      ),
   });
 }
 
@@ -349,6 +403,25 @@ if (chatSignup && quoteBusinesses) {
           description: business.description ?? undefined,
         }),
       });
+    },
+  });
+}
+
+// Owners and staff send "app" to their business's number for a login link.
+const appUsers = ownerApp ? createSupabaseUsers(supabase) : undefined;
+if (ownerApp && appUsers) {
+  const businesses = createSupabaseBusinesses(supabase);
+  product = withAppLogin(product, {
+    users: appUsers,
+    publicUrl: ownerApp.publicUrl,
+    async businessFor(numberId) {
+      if (!numberId || numberId === config.whatsapp.phoneNumberId) {
+        return config.quote ? { id: DEFAULT_BUSINESS_ID, ownerWaId: config.quote.ownerWaId ?? null } : null;
+      }
+      if (!quoteBusinesses) return null;
+      const b = await businesses.findByPhoneNumberId(numberId);
+      // A switched-off business can still log in, to set up before going live.
+      return b ? { id: b.id, ownerWaId: b.ownerWaId } : null;
     },
   });
 }
@@ -505,7 +578,7 @@ if (config.quote || quoteBusinesses) {
   paidHandlers.quote = withOrderPayments(planPaid, async (businessId, orderNumber, feeKobo) => {
     const found = await quoteBotFor(businessId);
     if (!found) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
-    const notes = await found.bot.orderPaid(orderNumber, { how: "online", feeKobo });
+    const notes = await copyAlerts(await found.bot.orderPaid(orderNumber, { how: "online", feeKobo }), businessId, found.ownerWaId);
     return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
   });
   productNumbers.quote = config.whatsapp.phoneNumberId;
@@ -518,6 +591,106 @@ const numbers = [
   ...(leadsConfig ? [{ id: leadsConfig.phoneNumberId, label: "Property leads" }] : []),
   ...(flyerConfig ? [{ id: flyerConfig.phoneNumberId, label: "Flyers" }] : []),
 ];
+
+// The owners' and staff app: each logged-in person's business, put together
+// from the same stores the bot uses.
+const ownerAppDeps: OwnerAppDeps | undefined =
+  ownerApp && appUsers
+    ? {
+        secret: config.whatsapp.appSecret,
+        publicUrl: ownerApp.publicUrl,
+        users: appUsers,
+        support: { email: ownerApp.supportEmail, waNumber: ownerApp.supportWaId },
+        inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
+        health: () => runChecks(health),
+        healthLabels: health.labels,
+        banks: paystackConfig ? createPaystackBanks(paystackConfig) : undefined,
+        async business(id) {
+          const businesses = createSupabaseBusinesses(supabase);
+          const main = id === DEFAULT_BUSINESS_ID;
+          if (main && !config.quote) return null;
+          const row = main ? null : quoteBusinesses ? await businesses.get(id) : null;
+          if (!main && (!row || !row.phoneNumberId)) return null;
+          // A main business's numbers include its branches'.
+          const branches = config.quoteBranches ? (await businesses.list()).filter((b) => b.branchOf === id) : [];
+          const ids = [id, ...branches.map((b) => b.id)];
+          const name = main ? config.quote!.businessName : row!.name;
+          const orderPrefix = main ? config.quote!.orderPrefix : row!.orderPrefix;
+          const numberId = main ? config.whatsapp.phoneNumberId : row!.phoneNumberId!;
+          const features = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan).features : undefined) : planFeatures(row!.branchOf ?? id).features;
+          const branding = createSupabaseBranding(supabase, id);
+          const sentNumbers = main ? [numberId, ""] : [numberId];
+          return {
+            id,
+            name,
+            orderPrefix,
+            fromEnv: main,
+            numberId,
+            includeUnnumbered: main,
+            features,
+            board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
+            prices: createSupabasePrices(supabase, id),
+            photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
+            delivery: delivery ? createSupabaseDeliverySetup(supabase, id) : undefined,
+            data: createSupabaseBusinessData(supabase, {
+              businessId: id,
+              businessIds: ids,
+              numberIds: [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))],
+              orderPrefix,
+            }),
+            logo: () => branding.logo(),
+            saveLogo: (data, mimeType) => branding.saveLogo(data, mimeType),
+            async markPaid(orderNumber) {
+              const found = await quoteBotFor(id);
+              if (!found) return false;
+              let notes: Notice[];
+              try {
+                notes = await found.bot.orderPaid(orderNumber, { how: "app" });
+              } catch (err) {
+                console.error(`Owner app: couldn't mark ${orderPrefix}-${orderNumber} paid:`, err);
+                return false;
+              }
+              for (const note of await copyAlerts(notes, id, found.ownerWaId)) {
+                try {
+                  await sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined);
+                } catch (err) {
+                  console.error(`Owner app: receipt or alert for ${orderPrefix}-${orderNumber} not sent:`, err);
+                }
+              }
+              return notes.length > 0;
+            },
+            testBot: () =>
+              createQuoteProduct({
+                businessName: name,
+                orderPrefix,
+                ownerWaId: "test-owner",
+                businessDetails: (main ? config.quote!.businessDetails : row!.businessDetails) ?? undefined,
+                paymentDetails: (main ? config.quote!.paymentDetails : row!.paymentDetails) ?? undefined,
+                catalog: createSupabaseCatalog(supabase, main ? mainBusinessId : id),
+                branding: readOnlyBranding(branding),
+                orders: memoryOrderStore(),
+                ai: createClaudeUnderstander({
+                  apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
+                  model: main ? config.quote!.model : quoteBusinesses!.model,
+                  businessName: name,
+                  description: (main ? config.quote!.businessDescription : row!.description) ?? undefined,
+                }),
+              }),
+            async botMessages() {
+              if (!features) return null;
+              const limit = await features.limit("bot_messages");
+              const sent = await createSupabaseSentStore(supabase, sentNumbers).sent(lagosMonthKey(new Date()));
+              return { sent, limit };
+            },
+            payLinks: {
+              on: Boolean(config.quotePayLinks && config.paystack && (main ? config.quote!.paystackSubaccount : row!.paystackSubaccount)),
+              feeBasisPoints: async () =>
+                features && (await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0,
+            },
+          };
+        },
+      }
+    : undefined;
 
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
@@ -690,7 +863,7 @@ const app = createApp({
         }
       },
     }
-  : undefined, { health });
+  : undefined, { health, ownerApp: ownerAppDeps });
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
