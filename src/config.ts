@@ -579,7 +579,8 @@ function flutterwaveSettings(env: NodeJS.ProcessEnv): Config["flutterwave"] {
   if (!/^FLWSECK(_TEST)?-/.test(secretKey)) {
     return off("FLUTTERWAVE_SECRET_KEY must be the secret key (starts with FLWSECK- or FLWSECK_TEST-), not the public or encryption key");
   }
-  const secretHash = env.FLUTTERWAVE_SECRET_HASH?.trim();
+  // FLUTTERWAVE_WEBHOOK_HASH is accepted too, as it's an easy name to type.
+  const secretHash = (env.FLUTTERWAVE_SECRET_HASH || env.FLUTTERWAVE_WEBHOOK_HASH)?.trim();
   if (!secretHash || secretHash.length < 16) {
     return off("FLUTTERWAVE_SECRET_HASH must be set, at least 16 characters, and match the secret hash in Flutterwave > Settings > Webhooks");
   }
