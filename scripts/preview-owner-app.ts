@@ -8,6 +8,8 @@ import { createOwnerApp } from "../src/owner/index.js";
 import type { AppUser, ProductRecord, UserStore } from "../src/owner/store.js";
 import type { AppBusiness } from "../src/owner/types.js";
 import type { BoardOrder } from "../src/products/quote/board.js";
+import { memoryVerifications } from "../src/compliance/memory.js";
+import { createCompliance } from "../src/compliance/index.js";
 
 const BIZ = "11111111-1111-1111-1111-111111111111";
 const owner: AppUser = { id: "00000000-0000-0000-0000-000000000001", businessId: BIZ, waId: "2348011111111", name: "Jay", role: "owner", passwordHash: null, sessionEpoch: 0, active: true, lastLoginAt: new Date() };
@@ -97,7 +99,13 @@ const inboxChats = names.map((n, i) => ({
   lastDirection: (i % 3 ? "outbound" : "inbound") as "inbound" | "outbound", lastType: "text",
   lastBody: ["How much for 500 flyers?", "Here's your quote KP-1042…", "Do you deliver to Lekki?", "Thank you! Your receipt is below.", "YES"][i % 5]!, lastAt: new Date(now - i * 47 * 60_000),
 }));
+const kyb = memoryVerifications();
+const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+await kyb.store.saveDetails(BIZ, { entityType: "company", registeredName: "KahnPrints Limited", rcNumber: "1261103", tin: null, address: "12 Allen Avenue, Ikeja, Lagos", directorName: "Ada Okafor", contactEmail: "hello@kahnprints.ng" });
+await kyb.store.addDoc(BIZ, "certificate", { name: "cac-certificate.pdf", mimeType: "application/pdf", data: pdf });
+await kyb.store.addDoc(BIZ, "id", { name: "ada-nin-slip.jpg", mimeType: "application/pdf", data: pdf });
 const app = new Hono();
+app.route("/compliance", createCompliance({ password: "preview-password", store: kyb.store, notifyOwner: async () => {} }));
 app.route(
   "/app",
   createOwnerApp({
@@ -106,6 +114,7 @@ app.route(
     users,
     business: async (id) => (id === BIZ ? biz : null),
     support: { email: "support@yarnoga.com", waNumber: "2348000000000" },
+    verification: { store: kyb.store, onSubmitted: async () => {} },
     health: async () => ({ ok: true, checkedAt: new Date().toISOString(), uptimeSeconds: 9000, version: null, checks: { database: { ok: true, ms: 120 }, whatsapp: { ok: true, ms: 310 }, ai: { ok: true, ms: 140 }, messages: { ok: true, ms: 90, note: "last one 3 minutes ago" } } }),
     healthLabels: { database: "Database (Supabase)", whatsapp: "WhatsApp Cloud API", ai: "AI replies (Anthropic)", messages: "Customer messages" },
     inbox: {

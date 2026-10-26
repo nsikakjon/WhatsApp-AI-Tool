@@ -45,6 +45,12 @@ export interface Config {
     supportEmail: string;
     supportWaId?: string;
   };
+  /**
+   * The compliance page at /compliance where Jay checks businesses
+   * (COMPLIANCE_PASSWORD, migration 0050), with optional CAC checks through
+   * Dojah (DOJAH_APP_ID, DOJAH_SECRET_KEY; DOJAH_SANDBOX=true for test data).
+   */
+  compliance?: { password: string; dojah?: { appId: string; secretKey: string; sandbox: boolean } };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -310,6 +316,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           publicUrl: publicUrl(env.OWNER_APP_URL || required(env, "PUBLIC_URL")),
           supportEmail: env.SUPPORT_EMAIL?.trim() || "support@yarnoga.com",
           supportWaId: env.SUPPORT_WA_ID?.replace(/\D/g, "") || undefined,
+        }
+      : undefined,
+    compliance: env.COMPLIANCE_PASSWORD
+      ? {
+          password: longPassword(env, "COMPLIANCE_PASSWORD"),
+          dojah:
+            env.DOJAH_APP_ID?.trim() && env.DOJAH_SECRET_KEY?.trim()
+              ? { appId: env.DOJAH_APP_ID.trim(), secretKey: env.DOJAH_SECRET_KEY.trim(), sandbox: /^(true|yes|on|1)$/i.test(env.DOJAH_SANDBOX ?? "") }
+              : undefined,
         }
       : undefined,
     inbox: inboxSettings(env.INBOX_PASSWORD),

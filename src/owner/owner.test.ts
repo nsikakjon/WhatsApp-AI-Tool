@@ -11,6 +11,7 @@ import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import type { AppUser, BusinessData, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
+import { memoryVerifications } from "../compliance/memory.js";
 
 const BIZ = "11111111-1111-1111-1111-111111111111";
 const OWNER = "2348011111111";
@@ -156,6 +157,8 @@ function setup(extra: Partial<AppBusiness> = {}) {
     aiRepliesUsed: async () => 40,
   };
   const markPaid = vi.fn(async () => true);
+  const kyb = memoryVerifications();
+  const onSubmitted = vi.fn(async () => {});
   const biz: AppBusiness = {
     id: BIZ,
     name: "Kahn",
@@ -177,10 +180,11 @@ function setup(extra: Partial<AppBusiness> = {}) {
     users: users.store,
     business: async (id) => (id === BIZ ? biz : null),
     support: { email: "support@example.com" },
+    verification: { store: kyb.store, onSubmitted },
     log: quiet,
   };
   const app = createOwnerApp(deps);
-  return { app, users, prices, board, biz, markPaid };
+  return { app, users, prices, board, biz, markPaid, kyb, onSubmitted };
 }
 
 const HOST = "app.example.com";
@@ -299,6 +303,42 @@ describe("owner app pages", () => {
     expect(csv).toContain("12500.50");
     expect((await s.app.request(`/sheet/${BIZ}/${"a".repeat(32)}.csv`)).status).toBe(200);
     expect((await s.app.request(`/sheet/${BIZ}/${"c".repeat(32)}.csv`)).status).toBe(404);
+  });
+});
+
+describe("verify your business", () => {
+  it("takes details and real documents, sends once everything is there, then locks", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("Let's verify your business");
+    await s.app.request(`https://${HOST}/verify/details`, post({ type: "business_name", name: "Kahn Prints", rc: "BN 3456789", address: "12 Allen Ave", director: "Ada Okafor" }, cookie));
+    expect(s.kyb.rows.get(BIZ)).toMatchObject({ entityType: "business_name", rcNumber: "3456789" });
+
+    // Sending too early is refused.
+    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/app/verify?msg=bad");
+
+    const upload = (kind: string, bytes: Uint8Array, name: string) => {
+      const fd = new FormData();
+      fd.set("kind", kind);
+      fd.set("file", new File([bytes], name));
+      return s.app.request(`https://${HOST}/verify/doc`, { method: "POST", body: fd, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    };
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+    expect((await upload("certificate", new TextEncoder().encode("<script>"), "x.pdf")).headers.get("location")).toBe("/app/verify?msg=bad");
+    for (const kind of ["certificate", "id", "address"]) await upload(kind, pdf, `${kind}.pdf`);
+    expect(s.kyb.docs).toHaveLength(3);
+
+    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/app/verify?msg=sent_review");
+    expect(s.onSubmitted).toHaveBeenCalledWith(BIZ, "Kahn");
+    // Once sent, details can't be changed.
+    await s.app.request(`https://${HOST}/verify/details`, post({ type: "company", name: "Other" }, cookie));
+    expect(s.kyb.rows.get(BIZ)!.registeredName).toBe("Kahn Prints");
+  });
+
+  it("is for owners only", async () => {
+    const s = setup();
+    const cookie = await login(s, STAFF, "staff");
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("Only the business owner");
   });
 });
 

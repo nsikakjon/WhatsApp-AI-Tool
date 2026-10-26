@@ -92,6 +92,9 @@ import {
   createSupabaseUsers,
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
+import { createSupabaseVerifications } from "./compliance/store.js";
+import { createDojahRegistry } from "./compliance/registry.js";
+import type { ComplianceDeps } from "./compliance/index.js";
 import type { Notice } from "./core/product.js";
 
 const config = loadConfig();
@@ -594,6 +597,21 @@ const numbers = [
 
 // The owners' and staff app: each logged-in person's business, put together
 // from the same stores the bot uses.
+const verifications = createSupabaseVerifications(supabase);
+const complianceDeps: ComplianceDeps | undefined = config.compliance
+  ? {
+      password: config.compliance.password,
+      store: verifications,
+      registry: config.compliance.dojah ? createDojahRegistry(config.compliance.dojah) : undefined,
+      // The decision goes to the owner from their business's own number.
+      async notifyOwner(businessId, text) {
+        const found = await quoteBotFor(businessId);
+        if (!found?.ownerWaId) return;
+        await sendNotice({ store, whatsapp }, { to: found.ownerWaId, text }, found.fromNumberId ?? undefined);
+      },
+    }
+  : undefined;
+
 const ownerAppDeps: OwnerAppDeps | undefined =
   ownerApp && appUsers
     ? {
@@ -604,6 +622,12 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
         health: () => runChecks(health),
         healthLabels: health.labels,
+        verification: {
+          store: verifications,
+          // Jay hears about each business that sends its details.
+          onSubmitted: (id, name) =>
+            alerter.alert(`kyb:${id}`, "a business sent its verification", `${name} sent its details and documents for review.\n\n${config.compliance ? `Review it: ${ownerApp.publicUrl}/compliance/b/${id}` : "Switch on the compliance page (COMPLIANCE_PASSWORD) to review it."}`, { urgent: true }),
+        },
         banks: paystackConfig ? createPaystackBanks(paystackConfig) : undefined,
         async business(id) {
           const businesses = createSupabaseBusinesses(supabase);
@@ -863,7 +887,7 @@ const app = createApp({
         }
       },
     }
-  : undefined, { health, ownerApp: ownerAppDeps });
+  : undefined, { health, ownerApp: ownerAppDeps, compliance: complianceDeps });
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
