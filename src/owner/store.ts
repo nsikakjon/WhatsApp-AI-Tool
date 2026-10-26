@@ -162,8 +162,24 @@ export interface BusinessInfo {
   sheetKey: string | null;
 }
 
+/** One customer as the Customers page shows them. */
+export interface CustomerSummary {
+  contactId: string;
+  name: string | null;
+  waId: string;
+  /** Confirmed or paid orders. */
+  orders: number;
+  /** Money from paid orders, in hundredths. */
+  spentKobo: number;
+  lastOrderAt: Date;
+  /** Their average rating out of 5, when they've given any. */
+  rating: number | null;
+}
+
 /** Everything else for one business (and, for counts, its branches). */
 export interface BusinessData {
+  /** Everyone who has confirmed an order in the last year, biggest spenders first. */
+  customers?(): Promise<CustomerSummary[]>;
   info(): Promise<BusinessInfo | null>;
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
   /** Customers' ratings given since then (migration 0054): how many, the average out of 5, and how many said "not good". */
@@ -671,6 +687,31 @@ export function createSupabaseBusinessData(
         totals.set(t.name, t);
       }
       return [...totals.values()].sort((a, b) => b.totalKobo - a.totalKobo).slice(0, limit);
+    },
+    async customers() {
+      const since = new Date(Date.now() - 365 * 86_400_000).toISOString();
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("contact_id, status, total_kobo, confirmed_at, rating, contacts(wa_id, name)")
+        .in("business_id", opts.businessIds)
+        .in("status", ["confirmed", "paid"])
+        .gte("confirmed_at", since)
+        .order("confirmed_at", { ascending: false })
+        .limit(10_000);
+      const byContact = new Map<string, CustomerSummary & { stars: number[] }>();
+      for (const r of one(data, error, "customers") ?? []) {
+        const contact = (Array.isArray(r.contacts) ? r.contacts[0] : r.contacts) as { wa_id?: string; name?: string | null } | null;
+        if (!contact?.wa_id || !r.confirmed_at) continue;
+        const id = r.contact_id as string;
+        const c = byContact.get(id) ?? { contactId: id, name: contact.name ?? null, waId: contact.wa_id, orders: 0, spentKobo: 0, lastOrderAt: new Date(r.confirmed_at as string), rating: null, stars: [] };
+        c.orders++;
+        if (r.status === "paid") c.spentKobo += Number(r.total_kobo);
+        if (r.rating != null) c.stars.push(Number(r.rating));
+        byContact.set(id, c);
+      }
+      return [...byContact.values()]
+        .map(({ stars, ...c }) => ({ ...c, rating: stars.length ? Math.round((stars.reduce((a, b) => a + b, 0) / stars.length) * 10) / 10 : null }))
+        .sort((a, b) => b.spentKobo - a.spentKobo || b.orders - a.orders);
     },
     async ratings(since) {
       const { data, error } = await db

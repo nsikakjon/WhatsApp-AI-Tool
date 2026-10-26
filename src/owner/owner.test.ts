@@ -9,6 +9,7 @@ import { readProductForm } from "./sections/prices.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
+import { customersCsv } from "./sections/customers.js";
 import type { AppUser, BusinessData, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
@@ -344,6 +345,14 @@ describe("verify your business", () => {
 });
 
 describe("helpers", () => {
+  it("writes the customer list as a spreadsheet that formulas can't hijack", () => {
+    const csv = customersCsv([
+      { contactId: "c1", name: "=HYPERLINK(1)", waId: "2348012345678", orders: 3, spentKobo: 1_250_050, lastOrderAt: new Date("2026-10-20T10:00:00Z"), rating: 4.5 },
+    ]);
+    expect(csv).toContain("Name,WhatsApp,Orders,Paid,Last order,Rating");
+    expect(csv).toContain("'=HYPERLINK(1),'+2348012345678,3,12500.50,2026-10-20,4.5");
+  });
+
   it("turns deliveries on the road into the live riders view, with minutes since each rider was seen", () => {
     const now = new Date("2026-10-26T12:00:00Z");
     const view = liveJson(

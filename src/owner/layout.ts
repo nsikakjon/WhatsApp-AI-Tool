@@ -52,6 +52,7 @@ export const NAV: NavItem[] = [
   { href: "/app/inbox", label: "Inbox", icon: "inbox", tab: true },
   { href: "/app/orders", label: "Orders", icon: "orders", tab: true },
   { href: "/app/prices", label: "Price list", icon: "prices", tab: true },
+  { href: "/app/customers", label: "Customers", icon: "users" },
   { href: "/app/delivery", label: "Riders & delivery", icon: "delivery" },
   { href: "/app/test", label: "Test your bot", icon: "test" },
   { href: "/app/posters", label: "QR posters", icon: "posters" },
@@ -402,6 +403,7 @@ td details>summary{white-space:nowrap}
 /* Long page titles wrap onto a second line on phones instead of being cut off. */
 @media(max-width:600px){h1{font-size:1.55rem}.titles h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
 .hours td{padding:6px 8px}.hours input[type=time]{padding:8px 10px;min-width:104px}
+.who{display:flex;gap:10px;align-items:center}.avatar.sm{width:32px;height:32px;font-size:.72rem}
 /* The live riders view. */
 .livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden}
 .livelist{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
