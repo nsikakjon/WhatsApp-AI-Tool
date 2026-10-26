@@ -202,7 +202,7 @@ code{background:var(--surface3);padding:1px 7px;border-radius:6px;font-size:.88e
 .topactions{display:flex;align-items:center;gap:10px}
 .iconbtn{display:grid;place-items:center;width:40px;height:40px;border-radius:var(--r2);border:1px solid var(--line2);color:var(--text);background:var(--surface)}
 .avatar{display:grid;place-items:center;flex:none;width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--lime),#7fd400);color:var(--limeink);font:700 .85rem/1 var(--accent)}
-main{padding:24px 16px 112px;max-width:1240px}
+main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240px}
 @media(min-width:960px){
   .shell{display:grid;grid-template-columns:256px 1fr;background:linear-gradient(90deg,rgba(15,16,16,.7) 255px,var(--line) 255px,var(--line) 256px,transparent 256px)}
   .side{display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:22px 14px;}
@@ -392,6 +392,18 @@ details.faq{border-bottom:1px solid var(--line);padding:14px 2px}details.faq sum
 .authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h2{font-size:1rem}
 .authcard form button{width:100%;margin-top:6px;padding:13px}
 .authfoot{color:var(--dim);font-size:.8rem;margin-top:18px}.authfoot a{color:var(--muted)}
+/* Spacing between blocks: every block gets air above the next one, so buttons, cards and notes never touch. */
+.toolbar{margin-bottom:20px}
+form+p,form+.muted,.actions+p,.scroll+p,.scroll+.muted,.card+p,.cards+p,table+p,.flash+.scroll,.flash+.card{margin-top:16px}
+.scroll+.scroll,.scroll+.card,.card+.scroll,.livelist{margin-top:12px}
+td details>summary{white-space:nowrap}
+/* Long page titles wrap onto a second line on phones instead of being cut off. */
+@media(max-width:600px){h1{font-size:1.55rem}.titles h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
+/* The live riders view. */
+.livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden}
+.livelist{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.live .livehead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.leaflet-tooltip{font:600 .78rem/1.2 var(--body)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
 

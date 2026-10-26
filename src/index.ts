@@ -29,7 +29,8 @@ import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js"
 import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
-import { createDispatch } from "./products/quote/delivery/index.js";
+import { createDispatch, type Dispatch, type DispatchOptions } from "./products/quote/delivery/index.js";
+import { createShipbubble } from "./products/quote/delivery/shipbubble.js";
 import { createSupabaseDeliveryStore } from "./products/quote/delivery/store.js";
 import { createTrackingLinks } from "./products/quote/delivery/tracking.js";
 import {
@@ -87,7 +88,7 @@ import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks } from "./core/payments/paystack.js";
 import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
-import { createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
+import { createAzureSpeaker, createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
 import type { OwnerAppDeps } from "./owner/index.js";
 import {
   createSupabaseBusinessData,
@@ -126,6 +127,35 @@ const planCheckout = (businessId: string) =>
 // Pay links on invoices (QUOTE_PAY_LINKS), for a business with a Paystack
 // subaccount: the money goes to its own bank account.
 // yarnOga's fee comes from the plan (transaction_fee, migration 0048); no plan or no row, no fee.
+// Shipbubble couriers for addresses outside a business's zones (SHIPBUBBLE_API_KEY).
+// Naira only, and only with online payments, so yarnOga always collects the
+// courier fee before its wallet pays the courier.
+const couriers = config.shipbubble ? createShipbubble(config.shipbubble) : undefined;
+function courierFor(
+  businessId: string,
+  businessName: string,
+  orderPrefix: string,
+  b: { on: boolean; ownerWaId?: string | null; pickup?: string | null; currency?: Currency },
+): DispatchOptions["courier"] {
+  if (!couriers || !b.on || !config.paystack || (b.currency ?? "NGN") !== "NGN" || !b.ownerWaId || !b.pickup) return undefined;
+  const ownerWaId = b.ownerWaId;
+  return {
+    service: couriers,
+    from: { name: businessName, phone: ownerWaId, address: b.pickup.replace(/\s*\n\s*/g, ", ") },
+    async payLink(order, feeKobo) {
+      const link = await payments!.createLink({
+        product: "quote",
+        waId: ownerWaId,
+        amountKobo: feeKobo,
+        purpose: { kind: "courier", businessId, orderNumber: order.orderNumber },
+        title: `Courier for ${businessName} order ${orderPrefix}-${order.orderNumber}`,
+      });
+      if (!link.url) throw new Error("No payment link was made");
+      return link.url;
+    },
+  };
+}
+
 // CFA franc businesses are paid through Flutterwave, to their Flutterwave subaccount.
 const payLinkFor = (
   businessId: string,
@@ -133,6 +163,7 @@ const payLinkFor = (
   orderPrefix: string,
   accounts: { paystack?: string | null; flutterwave?: string | null; currency?: Currency },
   features?: PlanFeatures,
+  dispatch?: Dispatch,
 ) => {
   const currency = accounts.currency ?? "NGN";
   const cfa = currency !== "NGN";
@@ -151,6 +182,13 @@ const payLinkFor = (
           : undefined,
         // The cap is a plan feature too (migration 0052); without the row, the default cap applies.
         feeCap: features ? () => features.limit(cfa ? "transaction_fee_cap_cfa" : "transaction_fee_cap_ngn").catch(() => null) : undefined,
+        // A Shipbubble courier's fee goes to yarnOga, which pays the courier from its wallet.
+        courierKobo: dispatch
+          ? async (order) => {
+              const charge = await dispatch.charge(order.id);
+              return charge?.courier ? charge.feeKobo : 0;
+            }
+          : undefined,
       })
     : undefined;
 };
@@ -238,8 +276,12 @@ async function copyAlerts(notes: Notice[], businessId: string, ownerWaId: string
   }
 }
 
-// Voice notes answered with a voice note (GOOGLE_TTS_API_KEY), for businesses that switch it on.
-const speaker = config.tts ? createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices }) : undefined;
+// Voice notes answered with a voice note (Azure, or Google), for businesses that switch it on.
+const speaker = !config.tts
+  ? undefined
+  : config.tts.provider === "azure"
+    ? createAzureSpeaker({ apiKey: config.tts.apiKey, region: config.tts.region!, voices: config.tts.voices })
+    : createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices });
 const withVoice = (bot: Product, enabled: () => boolean, language?: Lang): Product =>
   speaker ? withVoiceReplies(bot, { speaker, enabled, language }) : bot;
 
@@ -275,6 +317,27 @@ async function quoteBotFor(
 if (config.activeProduct === "quote" && config.quote) {
   const orders = createSupabaseOrders(supabase, mainBusinessId);
   const mainFeatures = config.quote.plan ? planFeatures(DEFAULT_BUSINESS_ID, config.quote.plan) : {};
+  const mainDispatch =
+    delivery && trackingLinks
+      ? createDispatch({
+          businessName: config.quote.businessName,
+          orderPrefix: config.quote.orderPrefix,
+          ownerWaId: config.quote.ownerWaId,
+          pickup: config.quote.businessDetails,
+          store: createSupabaseDeliveryStore(supabase, DEFAULT_BUSINESS_ID),
+          orders,
+          links: trackingLinks,
+          template: delivery.template,
+          language: config.quote.language,
+          currency: config.quote.currency,
+          courier: courierFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, {
+            on: config.quote.courierDelivery,
+            ownerWaId: config.quote.ownerWaId,
+            pickup: config.quote.businessDetails,
+            currency: config.quote.currency,
+          }),
+        })
+      : undefined;
   const quoteBot = createQuoteProduct({
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
@@ -284,21 +347,7 @@ if (config.activeProduct === "quote" && config.quote) {
     branding: createSupabaseBranding(supabase, mainBusinessId),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders,
-    delivery:
-      delivery && trackingLinks
-        ? createDispatch({
-            businessName: config.quote.businessName,
-            orderPrefix: config.quote.orderPrefix,
-            ownerWaId: config.quote.ownerWaId,
-            pickup: config.quote.businessDetails,
-            store: createSupabaseDeliveryStore(supabase, DEFAULT_BUSINESS_ID),
-            orders,
-            links: trackingLinks,
-            template: delivery.template,
-            language: config.quote.language,
-            currency: config.quote.currency,
-          })
-        : undefined,
+    delivery: mainDispatch,
     language: config.quote.language,
     currency: config.quote.currency,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
@@ -309,6 +358,7 @@ if (config.activeProduct === "quote" && config.quote) {
       config.quote.orderPrefix,
       { paystack: config.quote.paystackSubaccount, flutterwave: config.quote.flutterwaveSubaccount, currency: config.quote.currency },
       mainFeatures.features,
+      mainDispatch,
     ),
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
@@ -350,6 +400,28 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
   // A branch is billed, and counts AI replies, under its main business.
   const planId = business.branchOf ?? business.id;
   const features = planFeatures(planId);
+  const dispatch =
+    delivery && trackingLinks
+      ? createDispatch({
+          businessName: business.name,
+          orderPrefix: business.orderPrefix,
+          ownerWaId: business.ownerWaId ?? undefined,
+          pickup: business.businessDetails ?? undefined,
+          fromNumberId: business.phoneNumberId ?? undefined,
+          store: createSupabaseDeliveryStore(supabase, business.id),
+          orders,
+          links: trackingLinks,
+          template: delivery.template,
+          language: business.language,
+          currency: business.currency,
+          courier: courierFor(business.id, business.name, business.orderPrefix, {
+            on: business.courierDelivery === true,
+            ownerWaId: business.ownerWaId,
+            pickup: business.businessDetails,
+            currency: business.currency,
+          }),
+        })
+      : undefined;
   return createQuoteProduct({
     businessName: business.name,
     orderPrefix: business.orderPrefix,
@@ -359,22 +431,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     branding: createSupabaseBranding(supabase, business.id),
     catalog: createSupabaseCatalog(supabase, business.id),
     orders,
-    delivery:
-      delivery && trackingLinks
-        ? createDispatch({
-            businessName: business.name,
-            orderPrefix: business.orderPrefix,
-            ownerWaId: business.ownerWaId ?? undefined,
-            pickup: business.businessDetails ?? undefined,
-            fromNumberId: business.phoneNumberId ?? undefined,
-            store: createSupabaseDeliveryStore(supabase, business.id),
-            orders,
-            links: trackingLinks,
-            template: delivery.template,
-            language: business.language,
-            currency: business.currency,
-          })
-        : undefined,
+    delivery: dispatch,
     language: business.language,
     currency: business.currency,
     optOutOfFollowUps: optOutFor(business.id),
@@ -386,6 +443,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       business.orderPrefix,
       { paystack: business.paystackSubaccount, flutterwave: business.flutterwaveSubaccount, currency: business.currency },
       features.features,
+      dispatch,
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
@@ -627,12 +685,22 @@ if (config.quote || quoteBusinesses) {
       : undefined,
   });
   // An order paid by pay link: that business's bot marks it paid, and its messages come from the business's number.
-  paidHandlers.quote = withOrderPayments(planPaid, async (businessId, orderNumber, feeKobo) => {
-    const found = await quoteBotFor(businessId);
-    if (!found) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
-    const notes = await copyAlerts(await found.bot.orderPaid(orderNumber, { how: "online", feeKobo }), businessId, found.ownerWaId);
-    return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
-  });
+  paidHandlers.quote = withOrderPayments(
+    planPaid,
+    async (businessId, orderNumber, feeKobo, courierKobo) => {
+      const found = await quoteBotFor(businessId);
+      if (!found) throw new Error(`Order paid for business ${businessId}, which isn't set up`);
+      const notes = await copyAlerts(await found.bot.orderPaid(orderNumber, { how: "online", feeKobo, courierKobo }), businessId, found.ownerWaId);
+      return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
+    },
+    // The owner paid a courier fee by link ("courier KP-1001"): book the courier.
+    async (businessId, orderNumber) => {
+      const found = await quoteBotFor(businessId);
+      if (!found) throw new Error(`Courier fee paid for business ${businessId}, which isn't set up`);
+      const notes = await copyAlerts(await found.bot.courierPaid(orderNumber), businessId, found.ownerWaId);
+      return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
+    },
+  );
   productNumbers.quote = config.whatsapp.phoneNumberId;
 }
 
@@ -702,6 +770,17 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             language,
             currency,
             voiceReplies: main ? config.quote!.voiceReplies : row!.voiceReplies === true,
+            courier: {
+              available: Boolean(config.shipbubble && config.paystack && delivery && currency === "NGN"),
+              on: main ? config.quote!.courierDelivery : row!.courierDelivery === true,
+              set: main
+                ? undefined
+                : async (on: boolean) => {
+                    // updated_at makes the bot pick the change up straight away.
+                    const { error } = await supabase.from("quote_businesses").update({ courier_delivery: on, updated_at: new Date().toISOString() }).eq("id", id);
+                    if (error) throw new Error(`courier setting failed: ${error.message}`);
+                  },
+            },
             fromEnv: main,
             numberId,
             includeUnnumbered: main,
@@ -709,7 +788,9 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
             prices: createSupabasePrices(supabase, id),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
-            delivery: delivery ? createSupabaseDeliverySetup(supabase, id) : undefined,
+            delivery: delivery
+              ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
+              : undefined,
             data: createSupabaseBusinessData(supabase, {
               businessId: id,
               businessIds: ids,
@@ -891,6 +972,7 @@ const app = createApp({
       // Any business's delivery, looked up by the id in the signed link.
       store: createSupabaseDeliveryStore(supabase),
       template: delivery.template,
+      shipbubbleKey: config.shipbubble?.apiKey,
       // Rider updates from the tracking page go out in the business's language.
       async language(d) {
         if (!d.fromNumberId) return config.quote?.language ?? "en";

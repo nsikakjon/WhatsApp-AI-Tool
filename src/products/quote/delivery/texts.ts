@@ -76,6 +76,19 @@ export interface DeliveryTexts {
   gotLocation(ref: string, link: string): string;
   noLiveLocation(link: string): string;
   status: Record<string, string>;
+
+  // Couriers through Shipbubble
+  courierLine(courier: string): string;
+  courierOffer(where: string, courier: string, eta: string | null, fee: string): string;
+  courierComing(courier: string, label: string, business: string, link: string | null | undefined): string;
+  courierToPay(label: string, courier: string, fee: string): string;
+  courierPayLink(label: string, courier: string, fee: string, url: string): string;
+  courierBooked(label: string, courier: string, phone: string | null | undefined, pickupEta: string | null, pickup: string): string;
+  courierBookFailed(label: string, courier: string, why: string): string;
+  courierNotFound(label: string): string;
+  noCourier(label: string): string;
+  courierAlreadyBooked(label: string, courier: string): string;
+  courierNoPayments: string;
 }
 
 const en: DeliveryTexts = {
@@ -169,6 +182,21 @@ const en: DeliveryTexts = {
   gotLocation: (r, link) => `Got your location for ${r}. For live updates, keep your rider page open: ${link}`,
   noLiveLocation: (link) => `WhatsApp doesn't pass live location on to me. To share where you are, open your rider page and keep it open: ${link}`,
   status: { picked_up: "picked up", delivered: "delivered", failed: "not delivered", cancelled: "cancelled" },
+
+  courierLine: (c) => `Delivery by ${c}`,
+  courierOffer: (w, c, eta, f) => `Delivery to ${w} by ${c}${eta ? ` (${eta.toLowerCase()})` : ""}: ${f}`,
+  courierComing: (c, l, b, link) => `${c} will deliver your order ${l} from ${b}.${link ? ` Follow it here: ${link}` : ""}`,
+  courierToPay: (l, c, f) =>
+    `The customer chose delivery by ${c} (${f}). The courier fee wasn't paid online, so it's with you: reply *courier ${l}* for a link to pay it, and the courier is booked as soon as it's paid.`,
+  courierPayLink: (l, c, f, url) => `Pay the ${c} fee of ${f} for ${l} here, and I'll book the courier as soon as it's paid:\n${url}`,
+  courierBooked: (l, c, phone, eta, pickup) =>
+    `🚚 ${c} is booked for ${l}${phone ? ` (${phone})` : ""}. They'll collect it from ${pickup}${eta ? `, ${eta.toLowerCase()}` : ""}. Please have it packed and labelled ${l}. The customer has a tracking link.`,
+  courierBookFailed: (l, c, why) =>
+    `⚠️ I couldn't book ${c} for ${l}: ${why}. The fee has been paid, so yarnOga support has been told and will sort it out, or send *rider ${l} <name>* to use your own rider.`,
+  courierNotFound: (l) => `I can't find a courier delivery for ${l}.`,
+  noCourier: (l) => `${l} isn't going by courier.`,
+  courierAlreadyBooked: (l, c) => `${c} is already booked for ${l}.`,
+  courierNoPayments: "I can't make a payment link just now. Please contact yarnOga support to book the courier.",
 };
 
 const fr: DeliveryTexts = {
@@ -262,6 +290,21 @@ const fr: DeliveryTexts = {
   gotLocation: (r, link) => `Position reçue pour ${r}. Pour un suivi en direct, gardez votre page livreur ouverte : ${link}`,
   noLiveLocation: (link) => `WhatsApp ne me transmet pas la position en direct. Pour partager où vous êtes, ouvrez votre page livreur et gardez-la ouverte : ${link}`,
   status: { picked_up: "récupérée", delivered: "livrée", failed: "non livrée", cancelled: "annulée" },
+
+  courierLine: (c) => `Livraison par ${c}`,
+  courierOffer: (w, c, eta, f) => `Livraison à ${w} par ${c}${eta ? ` (${eta.toLowerCase()})` : ""} : ${f}`,
+  courierComing: (c, l, b, link) => `${c} va livrer votre commande ${l} de ${b}.${link ? ` Suivez-la ici : ${link}` : ""}`,
+  courierToPay: (l, c, f) =>
+    `Le client a choisi la livraison par ${c} (${f}). Les frais du coursier n'ont pas été payés en ligne, vous les avez donc : répondez *courier ${l}* pour un lien de paiement, et le coursier est réservé dès le paiement.`,
+  courierPayLink: (l, c, f, url) => `Payez les frais de ${c} de ${f} pour ${l} ici, et je réserve le coursier dès le paiement :\n${url}`,
+  courierBooked: (l, c, phone, eta, pickup) =>
+    `🚚 ${c} est réservé pour ${l}${phone ? ` (${phone})` : ""}. Il viendra la chercher à ${pickup}${eta ? `, ${eta.toLowerCase()}` : ""}. Préparez le colis marqué ${l}. Le client a un lien de suivi.`,
+  courierBookFailed: (l, c, why) =>
+    `⚠️ Je n'ai pas pu réserver ${c} pour ${l} : ${why}. Les frais sont payés, l'assistance yarnOga a été prévenue et va régler cela, ou envoyez *rider ${l} <nom>* pour votre propre livreur.`,
+  courierNotFound: (l) => `Je ne trouve pas de livraison par coursier pour ${l}.`,
+  noCourier: (l) => `${l} ne part pas par coursier.`,
+  courierAlreadyBooked: (l, c) => `${c} est déjà réservé pour ${l}.`,
+  courierNoPayments: "Je ne peux pas créer de lien de paiement pour l'instant. Contactez l'assistance yarnOga pour réserver le coursier.",
 };
 
 export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr };

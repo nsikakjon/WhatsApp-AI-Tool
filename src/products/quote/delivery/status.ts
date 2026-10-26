@@ -41,7 +41,7 @@ export async function riderStep(
   if (!delivery) return null;
 
   const fr = opts.lang === "fr";
-  const rider = delivery.riderName ?? (fr ? "Le livreur" : "The rider");
+  const rider = delivery.riderName ?? delivery.courier?.name ?? (fr ? "Le livreur" : "The rider");
   const customer = delivery.customerName ?? showWaId(delivery.customerWaId);
   const ref = delivery.orderRef;
   const business = delivery.businessName;

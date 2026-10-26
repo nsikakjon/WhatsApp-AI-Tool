@@ -93,7 +93,28 @@ export interface RiderRecord {
   waId: string;
 }
 
+/** A delivery with a rider on it right now, and where the rider last was. */
+export interface LiveDelivery {
+  id: string;
+  orderRef: string;
+  status: "assigned" | "picked_up";
+  riderName: string | null;
+  riderWaId: string | null;
+  customerName: string | null;
+  customerWaId: string;
+  address: string | null;
+  /** The drop-off pin, when the customer shared one. */
+  drop: { lat: number; lng: number } | null;
+  /** Where the rider's page last reported them; null until they start sharing. */
+  rider: { lat: number; lng: number; seenAt: Date } | null;
+  assignedAt: Date | null;
+  /** The customer's tracking page, so the owner sees what the customer sees. */
+  trackLink?: string;
+}
+
 export interface DeliverySetupStore {
+  /** Deliveries with a rider assigned or on the way, oldest first. */
+  onTheRoad?(): Promise<LiveDelivery[]>;
   zones(): Promise<ZoneRecord[]>;
   saveZone(id: string | null, zone: Omit<ZoneRecord, "id">): Promise<void>;
   removeZone(id: string): Promise<void>;
@@ -425,8 +446,35 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string): Pr
   };
 }
 
-export function createSupabaseDeliverySetup(db: SupabaseClient, businessId: string): DeliverySetupStore {
+export function createSupabaseDeliverySetup(db: SupabaseClient, businessId: string, trackLink?: (deliveryId: string) => string): DeliverySetupStore {
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
+    async onTheRoad() {
+      const { data, error } = await db
+        .from("quote_deliveries")
+        .select("id, order_ref, status, rider_name, rider_wa_id, customer_name, customer_wa_id, address, lat, lng, rider_lat, rider_lng, rider_seen_at, assigned_at")
+        .eq("business_id", businessId)
+        .in("status", ["assigned", "picked_up"])
+        .order("assigned_at", { ascending: true })
+        .limit(50);
+      return (one(data, error, "deliveries on the road") ?? []).map((d) => {
+        const lat = num(d.lat), lng = num(d.lng), rLat = num(d.rider_lat), rLng = num(d.rider_lng);
+        return {
+          id: d.id as string,
+          orderRef: d.order_ref as string,
+          status: d.status as LiveDelivery["status"],
+          riderName: (d.rider_name as string | null) ?? null,
+          riderWaId: (d.rider_wa_id as string | null) ?? null,
+          customerName: (d.customer_name as string | null) ?? null,
+          customerWaId: d.customer_wa_id as string,
+          address: (d.address as string | null) ?? null,
+          drop: lat !== null && lng !== null ? { lat, lng } : null,
+          rider: rLat !== null && rLng !== null && d.rider_seen_at ? { lat: rLat, lng: rLng, seenAt: new Date(d.rider_seen_at as string) } : null,
+          assignedAt: d.assigned_at ? new Date(d.assigned_at as string) : null,
+          ...(trackLink ? { trackLink: trackLink(d.id as string) } : {}),
+        };
+      });
+    },
     async zones() {
       const { data, error } = await db
         .from("quote_delivery_zones")

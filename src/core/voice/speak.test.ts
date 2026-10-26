@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../whatsapp/types.js";
-import { createGoogleSpeaker, spokenText, withVoiceReplies } from "./speak.js";
+import { createAzureSpeaker, createGoogleSpeaker, spokenText, withVoiceReplies } from "./speak.js";
 
 const voiceNote: IncomingMessage = { waMessageId: "w1", from: "2250712345678", type: "audio", text: "Je voudrais 2 pagnes", timestamp: 0, raw: {} };
 const typed: IncomingMessage = { ...voiceNote, type: "text" };
@@ -39,5 +39,23 @@ describe("voice replies", () => {
     expect(Buffer.from(audio).toString()).toBe("ogg");
     const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body).toMatchObject({ voice: { languageCode: "fr-FR", name: "fr-FR-Neural2-A" }, audioConfig: { audioEncoding: "OGG_OPUS" } });
+  });
+
+  it("asks Azure for an OGG/Opus voice note in the right voice, with the text made safe", async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([7, 8])));
+    const audio = await createAzureSpeaker({ apiKey: "k", region: "westeurope", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Total : 5 000 FCFA <merci> & à bientôt", "fr");
+    expect(audio).toEqual(new Uint8Array([7, 8]));
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://westeurope.tts.speech.microsoft.com/cognitiveservices/v1");
+    expect(init.headers).toMatchObject({ "Ocp-Apim-Subscription-Key": "k", "X-Microsoft-OutputFormat": "ogg-24khz-16bit-mono-opus" });
+    expect(init.body).toContain('<voice name="fr-FR-DeniseNeural">');
+    expect(init.body).toContain("&lt;merci&gt; &amp; à bientôt");
+    await createAzureSpeaker({ apiKey: "k", region: "westeurope", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Hello", "en");
+    expect((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body).toContain('xml:lang="en-NG"');
+  });
+
+  it("reports an Azure failure so the text goes on its own", async () => {
+    const fetch = vi.fn(async () => new Response("bad key", { status: 401 }));
+    await expect(createAzureSpeaker({ apiKey: "k", region: "westeurope", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Bonjour", "fr")).rejects.toThrow("401");
   });
 });

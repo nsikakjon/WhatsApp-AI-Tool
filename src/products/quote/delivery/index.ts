@@ -9,6 +9,7 @@ import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
 import { showWaId } from "../../../core/whatsapp/ids.js";
 import { DELIVERY_TEXTS } from "./texts.js";
+import type { CourierParty, CourierService } from "./shipbubble.js";
 
 // Delivery for the quote and order bot, with the business's own riders.
 //
@@ -26,8 +27,8 @@ import { DELIVERY_TEXTS } from "./texts.js";
 // is why tracking runs through the rider's page (tracking.ts).
 
 export interface TrackingLinks {
-  customer(d: Delivery): string;
-  rider(d: Delivery): string;
+  customer(d: Pick<Delivery, "id">): string;
+  rider(d: Pick<Delivery, "id">): string;
 }
 
 export interface DispatchOptions {
@@ -48,12 +49,25 @@ export interface DispatchOptions {
   currency?: Currency;
   /** Where online payments are refunded, for the owner's note. */
   payProvider?: string;
+  /**
+   * Shipbubble couriers (naira businesses only) for addresses outside the
+   * business's zones. `from` is the shop, where the courier collects.
+   * `payLink` makes a link for the owner to pay the courier fee when the
+   * customer paid them directly; the courier is booked once that's paid.
+   */
+  courier?: {
+    service: CourierService;
+    from: CourierParty;
+    payLink?(order: OrderDetails, feeKobo: number): Promise<string>;
+  };
 }
 
 export interface DeliveryCharge {
   /** e.g. "Delivery (Ikeja)" */
   label: string;
   feeKobo: number;
+  /** A Shipbubble courier's fee, which goes to yarnOga to pay the courier rather than to the business. */
+  courier?: boolean;
 }
 
 export interface Dispatch {
@@ -65,6 +79,11 @@ export interface Dispatch {
   charge(orderId: string): Promise<DeliveryCharge | null>;
   /** What the owner needs to know about delivering an order, and what to send next. */
   ownerNote(order: SavedOrder): Promise<string | null>;
+  /**
+   * The courier fee has reached yarnOga (in a pay link, or paid by the owner):
+   * books the courier and returns who to tell. Booking twice is prevented.
+   */
+  bookCourier(orderNumber: number): Promise<Notice[]>;
 }
 
 const ORDER = String.raw`#?\s*(?:[a-z]+\s*-?\s*)?(\d+)`;
@@ -116,6 +135,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     async charge(orderId) {
       const d = await store.forOrder(orderId);
       if (!d || d.feeKobo === null || d.status === "pickup" || d.status === "cancelled") return null;
+      if (d.courier) return { label: t.courierLine(d.courier.name), feeKobo: d.feeKobo, courier: true };
       return { label: t.deliveryLine(d.zoneName), feeKobo: d.feeKobo };
     },
 
@@ -124,7 +144,35 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       if (!d) return null;
       if (d.status === "pickup") return t.customerCollects;
       if (d.status !== "proposed" && d.status !== "failed") return null;
-      return [t.deliverTo(describe(d)), mapLink(d), "", await sendItOut(ref(order.orderNumber))].join("\n");
+      const label = ref(order.orderNumber);
+      if (d.courier && !d.courier.orderId && d.status === "proposed") {
+        return [t.deliverTo(describe(d)), "", t.courierToPay(label, d.courier.name, money(d.feeKobo ?? 0))].join("\n");
+      }
+      return [t.deliverTo(describe(d)), mapLink(d), "", await sendItOut(label)].join("\n");
+    },
+
+    async bookCourier(orderNumber) {
+      const label = ref(orderNumber);
+      const order = await opts.orders.findOrder(orderNumber);
+      const d = order ? await store.forOrder(order.id) : null;
+      const toOwner = (text: string): Notice[] => (opts.ownerWaId ? [{ to: opts.ownerWaId, text }] : []);
+      if (!order || !d?.courier || !opts.courier) return toOwner(t.courierNotFound(label));
+      if (d.courier.orderId || d.status !== "proposed") return [];
+      let booking;
+      try {
+        booking = await opts.courier.service.book(d.courier);
+      } catch (err) {
+        // The fee is already with yarnOga, so the owner and yarnOga both hear about it (errors reach Jay's alerts).
+        console.error(`Courier booking for ${label} (${opts.businessName}) failed after the fee was paid:`, err);
+        return toOwner(t.courierBookFailed(label, d.courier.name, (err as Error).message));
+      }
+      const courier = { ...d.courier, orderId: booking.orderId, trackingUrl: booking.trackingUrl, phone: booking.courierPhone, name: booking.courierName || d.courier.name };
+      const updated = await store.update(d.id, ["proposed"], { status: "assigned", courier });
+      if (!updated) return [];
+      return [
+        deliveryNotice(updated.customerWaId, t.courierComing(courier.name, label, opts.businessName, courier.trackingUrl), updated, opts.template),
+        ...toOwner(t.courierBooked(label, courier.name, courier.phone, courier.pickupEta, opts.courier.from.address)),
+      ];
     },
   };
 
@@ -185,6 +233,15 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
   ): Promise<Reply | null> {
     const from: Delivery["status"][] = ["asking", "needs_fee", "proposed", "pickup"];
     const itemsKobo = quoteTotal(order.lines);
+    if (!zone && opts.courier) {
+      const offer = await courierOffer(order, d, where);
+      if (offer) {
+        if (!(await store.setQuoteTotal(order.id, itemsKobo + offer.feeKobo))) return null;
+        const updated = await store.update(d.id, from, { ...where, status: "proposed", zoneName: null, feeKobo: offer.feeKobo, courier: offer.courier });
+        if (!updated) return null;
+        return proposal(updated, itemsKobo, c);
+      }
+    }
     if (!zone) {
       const updated = await store.update(d.id, from, { ...where, status: "needs_fee", zoneName: null, feeKobo: null });
       if (!updated || !(await store.setQuoteTotal(order.id, itemsKobo))) return null;
@@ -214,11 +271,41 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     return proposal(updated, itemsKobo, c);
   }
 
+  /** The cheapest Shipbubble courier for this address, or null to fall back to the owner pricing it. */
+  async function courierOffer(
+    order: SavedOrder,
+    d: Delivery,
+    where: { address: string | null; lat: number | null; lng: number | null },
+  ): Promise<{ feeKobo: number; courier: NonNullable<Delivery["courier"]> } | null> {
+    try {
+      const quote = await opts.courier!.service.quote(
+        opts.courier!.from,
+        { name: d.customerName ?? "Customer", phone: d.customerWaId, address: where.address ?? `${where.lat},${where.lng}`, lat: where.lat, lng: where.lng },
+        order.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitKobo: l.unitPriceKobo })),
+      );
+      if (!quote) return null;
+      return {
+        feeKobo: quote.feeKobo,
+        courier: {
+          name: quote.courierName,
+          courierId: quote.courierId,
+          serviceCode: quote.serviceCode,
+          requestToken: quote.requestToken,
+          pickupEta: quote.pickupEta,
+          deliveryEta: quote.deliveryEta,
+        },
+      };
+    } catch (err) {
+      console.error(`Courier price for ${ref(order.orderNumber)} failed; the owner will price it:`, err);
+      return null;
+    }
+  }
+
   function proposal(d: Delivery, itemsKobo: number, c = t): Reply {
     const fee = d.feeKobo ?? 0;
     return {
       text: [
-        c.deliveryTo(describe(d, c), d.zoneName, fee === 0 ? null : money(fee)),
+        d.courier ? c.courierOffer(describe(d, c), d.courier.name, d.courier.deliveryEta, money(fee)) : c.deliveryTo(describe(d, c), d.zoneName, fee === 0 ? null : money(fee)),
         c.items(money(itemsKobo)),
         c.total(money(itemsKobo + fee)),
       ].join("\n"),
@@ -266,6 +353,9 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     const rider = text.match(new RegExp(`^rider ${ORDER} (.+)$`, "i"));
     if (rider) return assign(Number(rider[1]), rider[2]!.trim(), ctx);
 
+    const courier = text.match(new RegExp(`^courier ${ORDER}$`, "i"));
+    if (courier) return courierCommand(Number(courier[1]));
+
     const cancel = text.match(new RegExp(`^cancel delivery ${ORDER}$`, "i"));
     if (cancel) return cancelDelivery(Number(cancel[1]));
 
@@ -284,6 +374,24 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     const d = await store.forOrder(order.id);
     if (!d) return { text: t.noDeliveryDetails(label) };
     return { order, d };
+  }
+
+  /** "courier KP-1001": the customer paid the owner directly, so the owner pays the courier fee by link. */
+  async function courierCommand(orderNumber: number): Promise<Reply> {
+    const found = await lookup(orderNumber);
+    if (!("order" in found)) return found;
+    const { order, d } = found;
+    const label = ref(orderNumber);
+    if (!d.courier || !opts.courier) return { text: t.noCourier(label) };
+    if (d.courier.orderId || d.status !== "proposed") return { text: t.courierAlreadyBooked(label, d.courier.name) };
+    if (!opts.courier.payLink) return { text: t.courierNoPayments };
+    try {
+      const url = await opts.courier.payLink(order, d.feeKobo ?? 0);
+      return { text: t.courierPayLink(label, d.courier.name, money(d.feeKobo ?? 0), url) };
+    } catch (err) {
+      console.error(`Courier fee link for ${label} failed:`, err);
+      return { text: t.courierNoPayments };
+    }
   }
 
   async function setFee(orderNumber: number, whole: number): Promise<Reply> {

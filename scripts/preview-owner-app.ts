@@ -56,7 +56,7 @@ const products: ProductRecord[] = [
   { id: "22222222-2222-2222-2222-000000000003", name: "Mugs", description: null, category: "Gifts", unit: "mug", leadTimeDays: 1, active: true, photoPath: null, options: [{ id: "c", name: "white", minQuantity: 12, stock: 40, tiers: [{ minQuantity: 12, unitPriceKobo: 250_000 }] }] },
 ];
 const biz: AppBusiness = {
-  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, language: "en", currency: "NGN", voiceReplies: false, numberId: "PNID", includeUnnumbered: false,
+  id: BIZ, name: "KahnPrints", orderPrefix: "KP", fromEnv: false, language: "en", currency: "NGN", voiceReplies: false, courier: { available: true, on: true, set: async () => {} }, numberId: "PNID", includeUnnumbered: false,
   features: { planCode: async () => "pro", has: async () => true, limit: async (f) => (f === "ai_credits" ? 7500 : f === "bot_messages" ? 3000 : f === "transaction_fee" ? 250 : null) },
   board: {
     orders: async () => orders,
@@ -66,6 +66,10 @@ const biz: AppBusiness = {
   },
   prices: { products: async () => products, product: async (id) => products.find((p) => p.id === id) ?? null, save: async () => products[0]!.id, remove: async () => {} },
   delivery: {
+    onTheRoad: async () => [
+      { id: "d1", orderRef: "KP-1042", status: "picked_up" as const, riderName: "Musa", riderWaId: "2348055555555", customerName: "Ada Okafor", customerWaId: "2348012345678", address: "12 Admiralty Way, Lekki", drop: { lat: 6.4474, lng: 3.4727 }, rider: { lat: 6.4541, lng: 3.4316, seenAt: new Date(Date.now() - 60_000) }, assignedAt: new Date(Date.now() - 40 * 60_000), trackLink: "https://example.com/track/x" },
+      { id: "d2", orderRef: "KP-1043", status: "assigned" as const, riderName: "Femi", riderWaId: "2348066666666", customerName: "Tunde", customerWaId: "2348023456789", address: "5 Allen Avenue, Ikeja", drop: null, rider: null, assignedAt: new Date(Date.now() - 5 * 60_000) },
+    ],
     zones: async () => [{ id: "z1", name: "Mainland", areas: ["ikeja", "yaba", "surulere"], feeKobo: 250_000 }, { id: "z2", name: "Island", areas: ["lekki", "vi", "ikoyi", "ajah"], feeKobo: 400_000 }],
     saveZone: async () => {}, removeZone: async () => {},
     riders: async () => [{ id: "r1", name: "Musa", waId: "2348055555555" }, { id: "r2", name: "Femi", waId: "2348066666666" }],

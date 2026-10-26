@@ -8,6 +8,7 @@ import { createOwnerApp } from "./index.js";
 import { readProductForm } from "./sections/prices.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
+import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
 import type { AppUser, BusinessData, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
@@ -343,6 +344,23 @@ describe("verify your business", () => {
 });
 
 describe("helpers", () => {
+  it("turns deliveries on the road into the live riders view, with minutes since each rider was seen", () => {
+    const now = new Date("2026-10-26T12:00:00Z");
+    const view = liveJson(
+      [
+        {
+          id: "d1", orderRef: "KP-1042", status: "picked_up", riderName: "Musa", riderWaId: "2348055555555", customerName: null, customerWaId: "2348012345678",
+          address: "Lekki", drop: { lat: 6.44, lng: 3.47 }, rider: { lat: 6.45, lng: 3.43, seenAt: new Date(now.getTime() - 3 * 60_000) }, assignedAt: null, trackLink: "https://x/track/t",
+        },
+        { id: "d2", orderRef: "KP-1043", status: "assigned", riderName: "Femi", riderWaId: null, customerName: "Tunde", customerWaId: "2348023456789", address: null, drop: null, rider: null, assignedAt: null },
+      ],
+      now,
+    );
+    expect(view[0]).toMatchObject({ ref: "KP-1042", at: { lat: 6.45, lng: 3.43, minutes: 3 }, track: "https://x/track/t", customer: "+2348012345678" });
+    expect(view[1]).toMatchObject({ ref: "KP-1043", at: null, track: null, customer: "Tunde" });
+    expect(STALE_MINUTES).toBe(30);
+  });
+
   it("reads WhatsApp numbers typed the Nigerian way", () => {
     expect(normaliseWaId("0801 234 5678")).toBe("2348012345678");
     expect(normaliseWaId("+234 801 234 5678")).toBe("2348012345678");

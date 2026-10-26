@@ -42,6 +42,22 @@ export interface Delivery {
   riderLat: number | null;
   riderLng: number | null;
   riderSeenAt: Date | null;
+  /** A Shipbubble courier offered or booked for it (migration 0053); null for the business's own riders. */
+  courier: CourierInfo | null;
+}
+
+/** The courier side of a delivery: the price offered, and once paid for, the booking. */
+export interface CourierInfo {
+  name: string;
+  courierId: string;
+  serviceCode: string;
+  requestToken: string;
+  pickupEta: string | null;
+  deliveryEta: string | null;
+  /** Set once booked: Shipbubble's order id, the courier's tracking page and phone. */
+  orderId?: string;
+  trackingUrl?: string | null;
+  phone?: string | null;
 }
 
 /** What is copied in when a delivery starts. */
@@ -58,6 +74,7 @@ export interface DeliveryChange {
   zoneName?: string | null;
   feeKobo?: number | null;
   rider?: Rider;
+  courier?: CourierInfo | null;
 }
 
 export interface DeliveryStore {
@@ -84,6 +101,8 @@ export interface DeliveryStore {
   /** Puts the delivery fee into a quote's total while it is still a quote. False if it isn't any more. */
   setQuoteTotal(orderId: string, totalKobo: number): Promise<boolean>;
   setRiderPosition(id: string, lat: number, lng: number, at: Date): Promise<void>;
+  /** Any business's delivery booked with this Shipbubble order, for its webhook. */
+  byCourierOrder?(orderId: string): Promise<Delivery | null>;
 }
 
 type DeliveryRow = {
@@ -107,10 +126,11 @@ type DeliveryRow = {
   rider_lat: number | null;
   rider_lng: number | null;
   rider_seen_at: string | null;
+  courier?: CourierInfo | null;
 };
 
-const COLUMNS =
-  "id, order_id, order_ref, business_name, from_number_id, owner_wa_id, customer_wa_id, customer_name, status, address, lat, lng, zone_name, fee_kobo, rider_id, rider_name, rider_wa_id, rider_lat, rider_lng, rider_seen_at";
+// Every column, so courier (migration 0053) is read once it exists and simply missing before.
+const COLUMNS = "*";
 
 function toDelivery(row: DeliveryRow): Delivery {
   return {
@@ -134,6 +154,7 @@ function toDelivery(row: DeliveryRow): Delivery {
     riderLat: row.rider_lat,
     riderLng: row.rider_lng,
     riderSeenAt: row.rider_seen_at ? new Date(row.rider_seen_at) : null,
+    courier: row.courier ?? null,
   };
 }
 
@@ -267,6 +288,10 @@ export function createSupabaseDeliveryStore(db: SupabaseClient, businessId = DEF
       if (change.lng !== undefined) row.lng = change.lng;
       if (change.zoneName !== undefined) row.zone_name = change.zoneName;
       if (change.feeKobo !== undefined) row.fee_kobo = change.feeKobo;
+      if (change.courier !== undefined) {
+        row.courier = change.courier;
+        row.courier_order_id = change.courier?.orderId ?? null;
+      }
       if (change.rider) {
         row.rider_id = change.rider.id;
         row.rider_name = change.rider.name;
@@ -292,6 +317,8 @@ export function createSupabaseDeliveryStore(db: SupabaseClient, businessId = DEF
       if (error) throw new Error(`setQuoteTotal failed: ${error.message}`);
       return (data ?? []).length > 0;
     },
+
+    byCourierOrder: (orderId) => one(db.from("quote_deliveries").select(COLUMNS).eq("courier_order_id", orderId).maybeSingle(), "courier delivery lookup"),
 
     async setRiderPosition(id, lat, lng, at) {
       const { error } = await db

@@ -32,9 +32,28 @@ describe("loadConfig", () => {
       language: "en",
       currency: "NGN",
       voiceReplies: false,
+      courierDelivery: false,
     });
     expect(loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_LANGUAGE: "FR", QUOTE_CURRENCY: "xof" }).quote).toMatchObject({ language: "fr", currency: "XOF" });
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_CURRENCY: "USD" })).toThrow("QUOTE_CURRENCY");
+  });
+
+  it("switches Shipbubble couriers on with a real API key", () => {
+    expect(loadConfig(base).shipbubble).toBeUndefined();
+    expect(loadConfig({ ...base, SHIPBUBBLE_API_KEY: "sb_sandbox_abc", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" }).shipbubble).toEqual({
+      apiKey: "sb_sandbox_abc",
+      contactEmail: "p@example.com",
+      categoryId: undefined,
+      itemKg: 0.5,
+    });
+    expect(() => loadConfig({ ...base, SHIPBUBBLE_API_KEY: "pk_abc", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" })).toThrow("SHIPBUBBLE_API_KEY");
+  });
+
+  it("uses Azure for voice replies when its key and region are set, else Google", () => {
+    expect(loadConfig(base).tts).toBeUndefined();
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g" }).tts).toMatchObject({ provider: "google", apiKey: "g" });
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g", AZURE_SPEECH_KEY: "a", AZURE_SPEECH_REGION: "West Europe" }).tts).toMatchObject({ provider: "azure", apiKey: "a", region: "westeurope" });
+    expect(() => loadConfig({ ...base, AZURE_SPEECH_KEY: "a" })).toThrow("AZURE_SPEECH_REGION");
   });
 
   it("switches Flutterwave on with its secret key and hash", () => {

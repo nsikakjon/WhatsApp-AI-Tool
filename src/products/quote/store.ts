@@ -43,6 +43,8 @@ export interface QuoteBusiness {
   currency?: Currency;
   /** Answer a customer's voice note with a voice note (migration 0051). */
   voiceReplies?: boolean;
+  /** Offer Shipbubble couriers for addresses outside its zones (migration 0053). */
+  courierDelivery?: boolean;
   updatedAt: Date;
 }
 
@@ -124,6 +126,7 @@ type BusinessRow = {
   language?: string | null;
   currency?: string | null;
   voice_replies?: boolean | null;
+  courier_delivery?: boolean | null;
   updated_at: string;
 };
 
@@ -148,6 +151,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     language: isLang(row.language) ? row.language : "en",
     currency: isCurrency(row.currency) ? row.currency : "NGN",
     voiceReplies: row.voice_replies === true,
+    courierDelivery: row.courier_delivery === true,
     updatedAt: new Date(row.updated_at),
   };
 }
