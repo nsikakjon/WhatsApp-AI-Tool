@@ -317,6 +317,16 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   }
+  if (reply.audio && deps.whatsapp.sendAudio) {
+    // A voice note is extra: if it can't go, the text has already been sent.
+    try {
+      const sent = await deps.whatsapp.sendAudio(to, reply.audio, fromNumber);
+      await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "audio", body: "[voice note]", raw: sent.raw, businessNumberId: fromNumber });
+      log.info(`Sent a voice note to ${mask(to)}`);
+    } catch (err) {
+      log.error(`Couldn't send the voice note to ${mask(to)}:`, err);
+    }
+  }
   for (const image of reply.images ?? []) {
     await sendImageAndRecord(deps, to, image, fromNumber);
     log.info(`Sent a picture to ${mask(to)}`);

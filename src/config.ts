@@ -271,6 +271,8 @@ export interface Config {
    * CFA franc payments (Mobile Money and cards) through Flutterwave. Only set
    * when FLUTTERWAVE_SECRET_KEY is.
    */
+  /** Text-to-speech for voice replies (Google Cloud). Only set when GOOGLE_TTS_API_KEY is. */
+  tts?: { apiKey: string; voices: { fr?: string; en?: string } };
   flutterwave?: {
     secretKey: string;
     /** The secret hash set in Flutterwave > Settings > Webhooks; it proves a webhook came from Flutterwave. */
@@ -506,6 +508,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     paystack: paystackSettings(env),
     flutterwave: flutterwaveSettings(env),
+    tts: env.GOOGLE_TTS_API_KEY?.trim()
+      ? {
+          apiKey: env.GOOGLE_TTS_API_KEY.trim(),
+          voices: { fr: env.GOOGLE_TTS_VOICE_FR?.trim() || undefined, en: env.GOOGLE_TTS_VOICE_EN?.trim() || undefined },
+        }
+      : undefined,
   };
 }
 

@@ -87,6 +87,7 @@ import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks } from "./core/payments/paystack.js";
 import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
+import { createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
 import type { OwnerAppDeps } from "./owner/index.js";
 import {
   createSupabaseBusinessData,
@@ -237,6 +238,11 @@ async function copyAlerts(notes: Notice[], businessId: string, ownerWaId: string
   }
 }
 
+// Voice notes answered with a voice note (GOOGLE_TTS_API_KEY), for businesses that switch it on.
+const speaker = config.tts ? createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices }) : undefined;
+const withVoice = (bot: Product, enabled: () => boolean, language?: Lang): Product =>
+  speaker ? withVoiceReplies(bot, { speaker, enabled, language }) : bot;
+
 let product: Product = echoProduct;
 let mainQuoteBot: QuoteProduct | undefined;
 
@@ -328,8 +334,10 @@ if (config.activeProduct === "quote" && config.quote) {
     }),
   });
   mainQuoteBot = quoteBot;
+  const mainLanguage = config.quote.language;
+  const mainVoice = config.quote.voiceReplies;
   product = addBroadcasts(
-    withAlerts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.ownerWaId),
+    withAlerts(withVoice(quoteBot, () => mainVoice, mainLanguage), DEFAULT_BUSINESS_ID, config.quote.ownerWaId),
     DEFAULT_BUSINESS_ID,
     config.quote.businessName,
     config.quote.ownerWaId,
@@ -402,7 +410,7 @@ if (quoteBusinesses) {
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) =>
       addBroadcasts(
-        withAlerts(businessBot(business, quoteBusinesses), business.id, business.ownerWaId),
+        withAlerts(withVoice(businessBot(business, quoteBusinesses), () => business.voiceReplies === true, business.language), business.id, business.ownerWaId),
         business.id,
         business.name,
         business.ownerWaId ?? undefined,
