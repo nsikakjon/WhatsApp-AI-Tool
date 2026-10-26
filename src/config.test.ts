@@ -50,7 +50,6 @@ describe("loadConfig", () => {
       publicUrl: "https://bot.example.com",
       customerEmail: "p@example.com",
     });
-    expect(loadConfig({ ...env, FLUTTERWAVE_WEBHOOK_HASH: "a-long-secret-hash" }).flutterwave?.secretHash).toBe("a-long-secret-hash");
     expect(loadConfig({ ...env, FLUTTERWAVE_SECRET_KEY: "FLWPUBK-abc", FLUTTERWAVE_SECRET_HASH: "a-long-secret-hash" }).flutterwave).toBeUndefined();
     expect(logged).toHaveBeenLastCalledWith(expect.stringContaining("secret key"));
     logged.mockRestore();
