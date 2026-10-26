@@ -192,7 +192,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     }
     const to = now();
     const from = new Date(to.getTime() - 365 * 86_400_000);
-    const csv = ordersCsv(await biz.data.exportRows(from, to));
+    const csv = ordersCsv(await biz.data.exportRows(from, to), biz.currency);
     return c.body(csv, 200, { "Content-Type": "text/csv; charset=utf-8" });
   });
 

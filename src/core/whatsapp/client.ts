@@ -42,6 +42,12 @@ export interface WhatsAppClient {
    * back as an ordinary location message.
    */
   sendLocationRequest(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a voice note (OGG with the Opus codec, which WhatsApp plays as a
+   * voice message): uploads it, then sends it. Optional, so test fakes and
+   * older wrappers without it still work.
+   */
+  sendAudio?(to: string, audio: OutgoingAudio, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
   downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
 }
@@ -51,6 +57,12 @@ export interface OutgoingImage {
   /** image/jpeg or image/png (the only picture types WhatsApp accepts). */
   mimeType: string;
   caption?: string;
+}
+
+export interface OutgoingAudio {
+  data: Uint8Array;
+  /** audio/ogg (Opus) for a voice note. */
+  mimeType: string;
 }
 
 export interface OutgoingList {
@@ -119,12 +131,12 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     return { waMessageId: data.messages?.[0]?.id ?? "", raw: data as unknown };
   }
 
-  async function uploadImage(fromNumberId: string | undefined, image: OutgoingImage): Promise<string> {
+  async function uploadImage(fromNumberId: string | undefined, image: { data: Uint8Array; mimeType: string }): Promise<string> {
     const form = new FormData();
     form.append("messaging_product", "whatsapp");
     form.append("type", image.mimeType);
-    const ext = image.mimeType === "image/png" ? "png" : "jpg";
-    form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `image.${ext}`);
+    const ext = image.mimeType === "image/png" ? "png" : image.mimeType.startsWith("audio/") ? "ogg" : "jpg";
+    form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `file.${ext}`);
     const res = await doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, {
       method: "POST",
       headers: auth,
@@ -132,7 +144,7 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     });
     const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
     if (!res.ok || !data.id) {
-      throw new Error(`WhatsApp image upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+      throw new Error(`WhatsApp upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
     }
     return data.id;
   }
@@ -149,6 +161,11 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
         type: "image",
         image: image.caption ? { id: mediaId, caption: image.caption } : { id: mediaId },
       });
+    },
+
+    async sendAudio(to, audio, fromNumberId) {
+      const mediaId = await uploadImage(fromNumberId, audio);
+      return send(fromNumberId, { to, type: "audio", audio: { id: mediaId } });
     },
 
     async sendTemplate(to, template, fromNumberId) {

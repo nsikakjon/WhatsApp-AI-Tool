@@ -1,3 +1,4 @@
+import type { Lang } from "../../../core/i18n.js";
 import type { Notice } from "../../../core/product.js";
 import type { Delivery, DeliveryStatus, DeliveryStore } from "./store.js";
 import { showWaId } from "../../../core/whatsapp/ids.js";
@@ -34,23 +35,38 @@ export async function riderStep(
   store: DeliveryStore,
   d: Delivery,
   step: RiderStep,
-  opts: { trackingLink: string; template?: TemplateName },
+  opts: { trackingLink: string; template?: TemplateName; lang?: Lang },
 ): Promise<{ delivery: Delivery; notices: Notice[] } | null> {
   const delivery = await store.update(d.id, FROM[step], { status: step });
   if (!delivery) return null;
 
-  const rider = delivery.riderName ?? "The rider";
+  const fr = opts.lang === "fr";
+  const rider = delivery.riderName ?? (fr ? "Le livreur" : "The rider");
   const customer = delivery.customerName ?? showWaId(delivery.customerWaId);
-  const forCustomer = {
-    picked_up: `${rider} has picked up your order ${delivery.orderRef} and is on the way. Follow it here: ${opts.trackingLink}`,
-    delivered: `Your order ${delivery.orderRef} has been delivered. Thank you for choosing ${delivery.businessName}!`,
-    failed: `${rider} couldn't complete the delivery of ${delivery.orderRef}. ${delivery.businessName} will contact you to arrange another time.`,
-  }[step];
-  const forOwner = {
-    picked_up: `${rider} picked up ${delivery.orderRef}.`,
-    delivered: `✅ ${delivery.orderRef} delivered to ${customer} by ${rider}.`,
-    failed: `${rider} couldn't deliver ${delivery.orderRef} to ${customer} (+${delivery.customerWaId}). Send *rider ${delivery.orderRef} <name>* to try again, or *cancel delivery ${delivery.orderRef}*.`,
-  }[step];
+  const ref = delivery.orderRef;
+  const business = delivery.businessName;
+  const forCustomer = fr
+    ? {
+        picked_up: `${rider} a récupéré votre commande ${ref} et est en route. Suivez-la ici : ${opts.trackingLink}`,
+        delivered: `Votre commande ${ref} a été livrée. Merci d'avoir choisi ${business} !`,
+        failed: `${rider} n'a pas pu livrer ${ref}. ${business} va vous contacter pour convenir d'un autre moment.`,
+      }[step]
+    : {
+        picked_up: `${rider} has picked up your order ${ref} and is on the way. Follow it here: ${opts.trackingLink}`,
+        delivered: `Your order ${ref} has been delivered. Thank you for choosing ${business}!`,
+        failed: `${rider} couldn't complete the delivery of ${ref}. ${business} will contact you to arrange another time.`,
+      }[step];
+  const forOwner = fr
+    ? {
+        picked_up: `${rider} a récupéré ${ref}.`,
+        delivered: `✅ ${ref} livrée à ${customer} par ${rider}.`,
+        failed: `${rider} n'a pas pu livrer ${ref} à ${customer} (+${delivery.customerWaId}). Envoyez *rider ${ref} <nom>* pour réessayer, ou *cancel delivery ${ref}*.`,
+      }[step]
+    : {
+        picked_up: `${rider} picked up ${ref}.`,
+        delivered: `✅ ${ref} delivered to ${customer} by ${rider}.`,
+        failed: `${rider} couldn't deliver ${ref} to ${customer} (+${delivery.customerWaId}). Send *rider ${ref} <name>* to try again, or *cancel delivery ${ref}*.`,
+      }[step];
 
   const notices = [deliveryNotice(delivery.customerWaId, forCustomer, delivery, opts.template)];
   if (delivery.ownerWaId) notices.push(deliveryNotice(delivery.ownerWaId, forOwner, delivery, opts.template));

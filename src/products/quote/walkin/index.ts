@@ -1,3 +1,4 @@
+import { guessLanguage } from "../../../core/i18n.js";
 import { randomInt } from "node:crypto";
 import type { Reply } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
@@ -69,7 +70,9 @@ export interface WalkInOptions {
 }
 
 const CHECK_IN = /^(?:(?:i'?m|we'?re|i am|we are)\s+(?:here|at the (?:event|venue|party|bar|restaurant|shop|counter))|check(?:ing)?[\s-]?in)[.!]?$/i;
+const CHECK_IN_FR = /^(?:je suis|nous sommes|on est)\s+(?:là|la|ici|arrivée?s?|sur place|au (?:bar|restaurant|comptoir|magasin))[.!]?$/i;
 const TABLE = /^(?:(?:i'?m|we'?re|i am|we are)\s+(?:at|on)\s+|at\s+)?(table|tbl|seat|booth|spot|section|zone)\s*(?:no\.?|number)?\s*#?\s*([a-z0-9][a-z0-9-]{0,7})[.!]?$/i;
+const TABLE_FR = /^(?:(?:je suis|nous sommes|on est)\s+)?(?:à la\s+|a la\s+)?(table|place|zone)\s*(?:n[°o]\.?|numéro)?\s*#?\s*([a-z0-9][a-z0-9-]{0,7})[.!]?$/i;
 
 export function createWalkIn(opts: WalkInOptions): WalkIn {
   const now = () => (opts.now ? opts.now() : new Date());
@@ -196,15 +199,23 @@ export function createWalkIn(opts: WalkInOptions): WalkIn {
 
     async customerMessage(msg, contactId) {
       const text = (msg.text ?? "").trim();
+      if (CHECK_IN_FR.test(text)) {
+        await opts.store.setSpot(contactId, ON_SITE);
+        return { text: "Bienvenue ! Commandez ici et récupérez votre commande quand elle est prête. Que désirez-vous ? Envoyez *menu* pour tout voir." };
+      }
       if (CHECK_IN.test(text)) {
         await opts.store.setSpot(contactId, ON_SITE);
         return { text: "Welcome! Order here and collect it when it's ready. What would you like? Send *menu* to see everything." };
       }
-      const match = text.match(TABLE);
+      // "Table 7" alone reads the same in both languages: answer in English unless there's French in it.
+      const english = text.match(TABLE);
+      const fr = english ? guessLanguage(text) === "fr" : TABLE_FR.test(text);
+      const match = english ?? text.match(TABLE_FR);
       if (!match) return null;
       const kind = match[1]!.toLowerCase() === "tbl" ? "Table" : capitalise(match[1]!);
       const label = `${kind} ${match[2]!.toUpperCase()}`;
       await opts.store.setSpot(contactId, label);
+      if (fr) return { text: `Merci, vous êtes à : ${label}. Que désirez-vous ? Envoyez *menu* pour tout voir.` };
       return { text: `Thanks, you're at ${label}. What would you like? Send *menu* to see everything.` };
     },
 

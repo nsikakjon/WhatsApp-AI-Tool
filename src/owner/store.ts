@@ -1,3 +1,5 @@
+import type { Lang } from "../core/i18n.js";
+import type { Currency } from "../core/money.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertKobo } from "../core/money.js";
 import { productSlug } from "../products/quote/pricelist.js";
@@ -142,6 +144,8 @@ export interface BusinessInfo {
 export interface BusinessData {
   info(): Promise<BusinessInfo | null>;
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
+  /** The bot's language, the currency prices are in, and voice replies (migration 0051). */
+  saveLanguage(settings: { language: Lang; currency: Currency; voiceReplies: boolean }): Promise<void>;
   /** A new key for the Google Sheets link; the old link stops working. */
   newSheetKey(): Promise<string>;
   banks(): Promise<BankAccount[]>;
@@ -515,6 +519,14 @@ export function createSupabaseBusinessData(
         })
         .eq("id", id);
       if (error) throw new Error(`save business info failed: ${error.message}`);
+    },
+    async saveLanguage(settings) {
+      const { error } = await db
+        .from("quote_businesses")
+        // updated_at makes the bot pick the change up straight away.
+        .update({ language: settings.language, currency: settings.currency, voice_replies: settings.voiceReplies, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw new Error(`save language failed: ${error.message}`);
     },
     async newSheetKey() {
       const key = crypto.randomUUID().replace(/-/g, "");

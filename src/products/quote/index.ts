@@ -1,4 +1,7 @@
-import { formatNaira } from "../../core/money.js";
+import { guessLanguage, type Lang } from "../../core/i18n.js";
+import { formatMoney, type Currency } from "../../core/money.js";
+import { QUOTE_TEXTS, type QuoteTexts } from "./texts.js";
+import { CREDIT_LINE } from "./plan.js";
 import type { Notice, Product, ProductContext, Reply } from "../../core/product.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
@@ -104,6 +107,12 @@ export interface QuoteProductOptions {
   payLink?: (order: SavedOrder, waId: string) => Promise<string>;
   /** Walk-in orders for restaurants, bars and events (walkin/). Without it, every order is delivered or arranged by the team. */
   walkIn?: WalkIn;
+  /** The language of the business's fixed messages (default English). Customers who write in the other language get theirs. */
+  language?: Lang;
+  /** What the price list is in (default naira). Amounts are always whole hundredths: kobo or centimes. */
+  currency?: Currency;
+  /** Who takes pay-link payments, named in the owner's "paid online" message (default Paystack). */
+  payProvider?: string;
   log?: Pick<Console, "error">;
 }
 
@@ -123,10 +132,21 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   const ref = (o: SavedOrder) => `${opts.orderPrefix}-${o.orderNumber}`;
   const draw = opts.renderDocument ?? renderDocument;
   const simpleAi = opts.simpleAi ?? createKeywordUnderstander();
+  const businessLang: Lang = opts.language ?? "en";
+  // Messages to the owner, and to customers outside a chat (receipts after an online payment), use the business's language.
+  const own = QUOTE_TEXTS[businessLang];
+  const money = (minor: number) => formatMoney(minor, opts.currency ?? "NGN");
+  const credit = async (t: QuoteTexts) => {
+    const line = opts.plan ? await opts.plan.credit() : null;
+    return line === CREDIT_LINE ? t.poweredBy() : line;
+  };
 
   return {
     name: "quote",
     async handle(msg, ctx): Promise<Reply> {
+      // The customer's language for this reply: a quick guess first, then the AI's answer below.
+      let lang: Lang = guessLanguage(msg.text) ?? businessLang;
+      let t = QUOTE_TEXTS[lang];
       if (opts.ownerWaId && msg.from === opts.ownerWaId) {
         const ownerReply = await ownerCommand(msg, ctx);
         if (ownerReply) return ownerReply;
@@ -144,33 +164,30 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
       // Voice notes arrive here with `text` already filled in by the core.
       if (msg.type === "audio" && opts.features && !(await opts.features.has("voice_notes"))) {
-        return { text: "Sorry, I can't take voice notes on this line. Please type what you need (for example: 100 A5 flyers)." };
+        return { text: t.voiceNotOnLine() };
       }
       if (!msg.text) {
         return {
-          text:
-            msg.type === "audio"
-              ? "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?"
-              : "Please send your request as a message or voice note (for example: 100 A5 flyers).",
+          text: msg.type === "audio" ? t.voiceUnclear() : t.sendRequest(),
         };
       }
 
       if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
         await opts.optOutOfFollowUps(ctx.contactId);
-        return { text: "Okay, I won't send you any more quote reminders. Message me any time you need a quote." };
+        return { text: t.stopReminders() };
       }
 
       const variants = await opts.catalog.activeVariants();
       if (variants.length === 0) {
-        return { text: `Thanks for messaging ${opts.businessName}! Our price list isn't online yet, so someone from the team will get back to you.` };
+        return { text: t.noPriceList(opts.businessName) };
       }
-      const welcome = await welcomeReply(msg, variants, walkIn);
+      const welcome = await welcomeReply(msg, variants, walkIn, lang);
       if (welcome) return welcome;
 
       // A tap on "See more" under the product cards: no need for the AI.
       const page = msg.text.trim().match(CARDS_PAGE);
       if (page && opts.catalogue) {
-        const cards = await opts.catalogue.cards(variants, Number(page[1]));
+        const cards = await opts.catalogue.cards(variants, Number(page[1]), undefined, lang);
         if (cards) return cards;
       }
 
@@ -180,6 +197,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         text: msg.text,
         history: ctx.history,
         catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
+        language: lang,
       };
       let understanding;
       let simple = !credit.useAi;
@@ -188,30 +206,36 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       } catch (err) {
         log.error("Quote bot could not understand message:", err);
         // With plan features on, an AI outage falls back to the menu too.
-        if (simple || !opts.credits) return { text: "Sorry, I didn't catch that. Could you tell me what you'd like and how many?" };
+        if (simple || !opts.credits) return { text: t.didntCatch() };
         simple = true;
         understanding = await simpleAi.understand(input);
+      }
+
+      // The AI says which language the customer wrote in; fixed messages follow it.
+      if (understanding.language) {
+        lang = understanding.language;
+        t = QUOTE_TEXTS[lang];
       }
 
       let reply: Reply;
       switch (understanding.intent) {
         case "quote":
-          reply = walkIn.paused ? closedReply() : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from);
+          reply = walkIn.paused ? closedReply(t) : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t);
           break;
         case "confirm":
-          reply = walkIn.paused ? closedReply() : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn);
+          reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang);
           break;
         case "cancel":
-          reply = await cancel(ctx.contactId);
+          reply = await cancel(ctx.contactId, t);
           break;
         case "catalogue":
-          reply = (opts.catalogue && (await opts.catalogue.cards(variants, 1, understanding.show))) || {
-            text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants),
+          reply = (opts.catalogue && (await opts.catalogue.cards(variants, 1, understanding.show, lang))) || {
+            text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t),
           };
           break;
         default:
           // The simple replies are written in code, not by the AI, so they can list items freely.
-          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants) };
+          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t) };
       }
       const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
       for (const notice of [credit.ownerNotice, messagesNotice]) {
@@ -228,44 +252,44 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const who = order.customerName ?? showWaId(order.customerWaId);
       if (order.status === "paid" || order.status === "cancelled" || !(await opts.orders.markPaid(order.id))) {
         if (via.how !== "online") return [];
-        return toOwner(
-          `⚠️ ${who} paid ${label} online (${formatNaira(order.totalKobo)}), but it was already ${order.status === "cancelled" ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
-        );
+        return toOwner(own.paidTwice(who, label, money(order.totalKobo), order.status === "cancelled"));
       }
       const pickup = await walkInPaid(order);
       const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
-      const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup);
+      const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup, own);
       const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
+      const total = money(order.totalKobo);
       const how =
         via.how === "counter"
-          ? `💰 ${label} was paid at the counter (${formatNaira(order.totalKobo)}). I've sent ${who} their receipt.`
+          ? own.paidCounter(label, total, who)
           : via.how === "app"
-            ? `💰 ${label} was marked paid in the app (${formatNaira(order.totalKobo)}). I've sent ${who} their receipt.`
-            : `💰 ${label} paid online (${formatNaira(order.totalKobo)}) by ${who}. I've sent them their receipt, and Paystack pays the money into your bank account` +
-            (via.feeKobo > 0 ? `, less the yarnOga fee (${formatNaira(via.feeKobo)}) and Paystack's fee.` : ".");
+            ? own.paidApp(label, total, who)
+            : own.paidOnline(label, total, who, via.feeKobo > 0 ? money(via.feeKobo) : null, opts.payProvider ?? "Paystack");
       return [
-        receiptNote(order, label, receipt, pickup),
-        ...toOwner(how + (pickup ? `\n\nIt's on your pickup ${pickup.stations.length > 1 ? "screens" : "screen"}: ${pickup.stations.join(", ")}.` : "") + (note ? `\n\n${note}` : "")),
+        receiptNote(order, label, receipt, pickup, own),
+        ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (note ? `\n\n${note}` : "")),
       ];
     },
   };
 
-  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode): Promise<Reply | null> {
+  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang): Promise<Reply | null> {
     const text = msg.text!.trim();
-    if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants) };
+    const t = QUOTE_TEXTS[lang];
+    if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants, t) };
     if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
       return {
-        text: `I've let the ${opts.businessName} team know. Someone will reply to you here shortly.`,
-        notify: [{ to: opts.ownerWaId, text: `${msg.contactName ?? "A customer"} (${showWaId(msg.from)}) would like to talk to someone. Please reply to them on WhatsApp.` }],
+        text: t.teamNotified(opts.businessName),
+        notify: [{ to: opts.ownerWaId, text: own.talkRequest(msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }],
       };
     }
     const ask = welcomeAsk(text);
     if (!ask) return null;
     if (ask === "catalogue" && opts.catalogue) {
-      const cards = await opts.catalogue.cards(variants, 1);
+      const cards = await opts.catalogue.cards(variants, 1, undefined, lang);
       if (cards) return cards;
     }
     const reply = customerWelcome({
+      lang,
       businessName: opts.businessName,
       customerName: msg.contactName,
       items: variants,
@@ -276,30 +300,30 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       team: !!opts.ownerWaId,
     });
     if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
-      reply.buttons.body += "\n\nYou're the owner: send *menu* for your commands.";
+      reply.buttons.body += `\n\n${own.ownerHint()}`;
     }
     return reply;
   }
 
-  function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null, pickup: Pickup | null): Notice {
-    const thanks = `Payment received for order ${label} (${formatNaira(order.totalKobo)}). Thank you for choosing ${opts.businessName}!`;
+  function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null, pickup: Pickup | null, t: QuoteTexts): Notice {
+    const thanks = t.paymentThanks(label, money(order.totalKobo), opts.businessName);
     if (pickup) {
-      const where = pickup.table ? `We'll bring it to ${pickup.table}.` : "We'll message you when it's ready to collect.";
+      const where = pickup.table ? t.pickupAtTable(pickup.table) : t.pickupWhenReady();
       return {
         to: order.customerWaId,
-        text: `${thanks} ${where} ${receipt ? "Show the QR code on this receipt when you collect" : `Show this message when you collect. Your code is ${pickup.code}`}.`,
+        text: `${thanks} ${where} ${receipt ? t.pickupShowQr() : t.pickupShowCode(pickup.code)}`,
         ...(receipt ? { images: [receipt] } : {}),
       };
     }
     return {
       to: order.customerWaId,
-      text: `${thanks}${receipt ? " Here's your receipt:" : ""}`,
+      text: `${thanks}${receipt ? ` ${t.hereIsReceipt()}` : ""}`,
       ...(receipt ? { images: [receipt] } : {}),
     };
   }
 
-  function closedReply(): Reply {
-    return { text: `Sorry, ${opts.businessName} isn't taking new orders right now. Please ask a member of staff.` };
+  function closedReply(t: QuoteTexts): Reply {
+    return { text: t.closed(opts.businessName) };
   }
 
   /** Walk-in mode, read each time so "walk-in on" takes effect at once. Off if it can't be read. */
@@ -355,6 +379,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     contactId: string,
     name: string | undefined,
     waId: string,
+    t: QuoteTexts,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
@@ -368,54 +393,61 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const result = quoteLine(variant, item.quantity);
       if (result.ok) lines.push(result.line);
       else if (result.reason === "below_minimum")
-        problems.push(`${variant.name}: the minimum order is ${result.minQuantity}.`);
+        problems.push(t.minimum(variant.name, result.minQuantity));
       else manual.push(`${item.quantity} x ${variant.name}`);
     }
 
     if (opts.catalogue && lines.length > 0) {
-      const short = await opts.catalogue.shortages(lines);
+      const short = await opts.catalogue.shortages(lines, t === QUOTE_TEXTS.fr ? "fr" : "en");
       problems.push(...short.values());
       lines = lines.filter((l) => !short.has(l.variantId));
     }
 
     // Hand items without a set price to the owner instead of guessing.
-    const manualNote = manual.length > 0 ? `The team will send you a price for: ${manual.join(", ")}.` : null;
+    const manualNote = manual.length > 0 ? t.teamWillPrice(manual.join(", ")) : null;
     const notify =
       manual.length > 0 && opts.ownerWaId
         ? [
             {
               to: opts.ownerWaId,
-              text: [`Quote request from ${name ?? "a customer"} (+${waId}), please reply to them with a price:`, ...manual.map((m) => `• ${m}`)].join("\n"),
+              text: [own.manualQuote(name ?? own.aCustomer(), `+${waId}`), ...manual.map((m) => `• ${m}`)].join("\n"),
             },
           ]
         : undefined;
 
     if (lines.length === 0) {
-      const text = [...problems, ...(manualNote ? [`Thanks! ${manualNote}`] : [])].join("\n") || defaultHelp(variants);
+      const text = [...problems, ...(manualNote ? [t.thanks(manualNote)] : [])].join("\n") || defaultHelp(variants, t);
       return notify ? { text, notify } : { text };
     }
 
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
-    const credit = opts.plan ? await opts.plan.credit() : null;
+    const creditLine = await credit(t);
     const text = [
-      `Here's your quote (${ref(order)}):`,
+      t.quoteHeader(ref(order)),
       "",
-      ...lines.map((l) => `• ${l.quantity} x ${l.name} @ ${formatNaira(l.unitPriceKobo)} = ${formatNaira(l.totalKobo)}`),
+      ...lines.map((l) => `• ${l.quantity} x ${l.name} @ ${money(l.unitPriceKobo)} = ${money(l.totalKobo)}`),
       "",
-      `*Total: ${formatNaira(order.totalKobo)}*`,
+      t.quoteTotal(money(order.totalKobo)),
       ...(problems.length > 0 ? ["", ...problems] : []),
       ...(manualNote ? ["", manualNote] : []),
       "",
-      "Reply YES to place this order, or tell me what to change.",
-      ...(credit ? ["", credit] : []),
+      t.replyYes(),
+      ...(creditLine ? ["", creditLine] : []),
     ].join("\n");
     const photos = opts.catalogue ? await opts.catalogue.photos(lines) : [];
     return { text, ...(photos.length ? { images: photos } : {}), ...(notify ? { notify } : {}) };
   }
 
-  async function confirm(contactId: string, name: string | undefined, waId: string, walkIn: WalkInMode): Promise<Reply> {
+  async function confirm(
+    contactId: string,
+    name: string | undefined,
+    waId: string,
+    walkIn: WalkInMode,
+    t: QuoteTexts,
+    lang: Lang,
+  ): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
-    const noQuote = { text: "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one." };
+    const noQuote = { text: t.noQuoteWaiting() };
     if (!order) return noQuote;
 
     // Over the plan's monthly limit: the quote stays open and the owner takes
@@ -423,18 +455,18 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const check = opts.plan ? await opts.plan.checkOrder() : ({ allowed: true, warning: null } as const);
     if (!check.allowed) {
       return {
-        text: `Thank you! The ${opts.businessName} team will contact you shortly to complete order ${ref(order)} (total ${formatNaira(order.totalKobo)}).`,
+        text: t.overLimitCustomer(opts.businessName, ref(order), money(order.totalKobo)),
         ...(opts.ownerWaId
           ? {
               notify: [
                 {
                   to: opts.ownerWaId,
                   text: [
-                    `${name ?? "A customer"} (+${waId}) wants to order ${ref(order)}:`,
-                    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
-                    `Total: ${formatNaira(order.totalKobo)}`,
+                    own.wantsToOrder(name ?? own.aCustomer(), `+${waId}`, ref(order)),
+                    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
+                    own.total(money(order.totalKobo)),
                     "",
-                    `You've used all ${check.limit} orders on your ${check.planName} plan this month, so I haven't confirmed it or sent an invoice. Please reply to them yourself. Send *paid ${ref(order)}* once they've paid, or *plan* to see how to upgrade.`,
+                    own.overLimitOwner(check.limit, check.planName, ref(order)),
                   ].join("\n"),
                 },
               ],
@@ -445,7 +477,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
     const dispatch = !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
     if (dispatch) {
-      const ask = await dispatch.beforeConfirm(order, { waId, name });
+      const ask = await dispatch.beforeConfirm(order, { waId, name }, lang);
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
@@ -460,46 +492,43 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
-    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery);
+    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery, null, t, lang);
     const payUrl = await payLinkFor(order, waId);
-    const payLine = payUrl ? `Pay online by card, bank transfer or USSD: ${payUrl}` : null;
+    const payLine = payUrl ? t.payLine(payUrl, opts.currency ?? "NGN") : null;
     if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
     const next = spot
       ? payUrl
-        ? "Pay with the link, then show the QR code on your receipt when you collect."
-        : `Please pay at the counter and give them your order number, ${ref(order)}.`
+        ? t.nextWalkInLink()
+        : t.nextWalkInCounter(ref(order))
       : dispatch
       ? delivery
-        ? "We'll send you a link to follow your delivery once a rider is on the way."
-        : `The ${opts.businessName} team will let you know when it's ready.`
-      : `The ${opts.businessName} team will contact you shortly about delivery.`;
+        ? t.nextDeliveryLink()
+        : t.nextReady(opts.businessName)
+      : t.nextContactDelivery(opts.businessName);
+    const total = money(order.totalKobo);
     const reply: Reply = {
       text: invoice
-        ? `Thank you! Order ${ref(order)} is confirmed. Here's your invoice for ${formatNaira(order.totalKobo)}. ${next}`
+        ? t.confirmedInvoice(ref(order), total, next)
         : payLine || spot
-          ? `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). ${next}${payLine ? `\n\n${payLine}` : ""}`
-          : `Thank you! Order ${ref(order)} is confirmed (total ${formatNaira(order.totalKobo)}). The ${opts.businessName} team will contact you shortly about payment${dispatch ? "" : " and delivery"}.`,
+          ? `${t.confirmedTotal(ref(order), total, next)}${payLine ? `\n\n${payLine}` : ""}`
+          : t.confirmedContact(ref(order), total, opts.businessName, !dispatch),
       ...(invoice ? { images: [invoice] } : {}),
     };
-    const credit = opts.plan ? await opts.plan.credit() : null;
-    if (credit) reply.text += `\n\n${credit}`;
+    const creditLine = await credit(t);
+    if (creditLine) reply.text += `\n\n${creditLine}`;
     if (opts.ownerWaId) {
       const note = dispatch ? await dispatch.ownerNote(order) : null;
       reply.notify = [
         {
           to: opts.ownerWaId,
           text: [
-            `New ${spot ? "walk-in " : ""}order ${ref(order)} from ${name ?? "a customer"} (+${waId})${spot?.table ? ` at ${spot.table}` : ""}:`,
-            ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${formatNaira(l.totalKobo)}`),
-            ...(delivery ? [`• ${delivery.label} = ${formatNaira(delivery.feeKobo)}`] : []),
-            `Total: ${formatNaira(order.totalKobo)}`,
+            own.newOrder(!!spot, ref(order), name ?? own.aCustomer(), `+${waId}`, spot?.table ?? null),
+            ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
+            ...(delivery ? [`• ${delivery.label} = ${money(delivery.feeKobo)}`] : []),
+            own.total(money(order.totalKobo)),
             ...(note ? ["", note] : []),
             "",
-            spot
-              ? `It goes to your pickup screens once it's paid${payUrl ? " online" : `. If they pay at the counter, tap *Paid at counter* on the screen or reply *paid ${ref(order)}*`}.`
-              : payUrl
-                ? `They've been sent a link to pay online. I'll tell you when it's paid and send them a receipt. If they pay you another way, reply *paid ${ref(order)}*.`
-                : `When they've paid, reply *paid ${ref(order)}* and I'll send them a receipt.`,
+            spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
             ...(check.warning ? ["", check.warning] : []),
           ].join("\n"),
         },
@@ -524,6 +553,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
     delivery: DeliveryCharge | null,
     pickup: Pickup | null = null,
+    t: QuoteTexts = own,
+    lang: Lang = businessLang,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
@@ -542,8 +573,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
         ...(pickup ? { pickup } : {}),
+        lang,
+        currency: opts.currency ?? "NGN",
       });
-      const label = kind === "invoice" ? "Invoice" : "Receipt";
+      const label = kind === "invoice" ? t.invoice() : t.receipt();
       return { data, mimeType: "image/jpeg", caption: `${label} ${opts.orderPrefix}-${order.orderNumber}` };
     } catch (err) {
       log.error(`Could not draw the ${kind} for order ${order.orderNumber}:`, err);
@@ -564,21 +597,15 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const caption = (msg.caption ?? "").trim();
     if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
       if (!/^logo$/i.test(caption)) {
-        return opts.branding
-          ? {
-              text:
-                "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." +
-                (opts.catalogue ? " For a product photo, use the caption *photo* and the product's name, e.g. *photo T-shirts*." : ""),
-            }
-          : null;
+        return opts.branding ? { text: own.logoHint(!!opts.catalogue) } : null;
       }
-      if (!opts.branding) return { text: "Logos can't be saved yet on this setup. Please let yarnOga support know." };
+      if (!opts.branding) return { text: own.logoCantSave() };
       const file = await ctx.downloadMedia(msg.mediaId);
       if (!/^image\/(jpeg|png|webp)$/.test(file.mimeType)) {
-        return { text: "Please send the logo as a picture (PNG or JPEG). A PNG sent as a document keeps a see-through background." };
+        return { text: own.logoFormat() };
       }
       await opts.branding.saveLogo(new Uint8Array(await file.data.arrayBuffer()), file.mimeType);
-      return { text: "Logo saved ✅ It'll be on every invoice and receipt from now on." };
+      return { text: own.logoSaved() };
     }
 
     const text = (msg.text ?? "").trim();
@@ -590,10 +617,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (opts.referral && /^(my )?(referral|refer|invite)( code)?$/i.test(text)) return { text: await opts.referral() };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);
     if (opts.plan?.upgrade && upgrade) return { text: await opts.plan.upgrade(upgrade[1]!, msg.from) };
-    if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
+    if (/^(logo|invoice|receipt|paid)$/i.test(text)) return { text: own.ownerHelp(opts.orderPrefix) };
     if (welcomeAsk(text) === "help" || /^menu$/i.test(text)) {
       return {
         text: ownerMenu({
+          lang: businessLang,
           orderPrefix: opts.orderPrefix,
           ordersLink: !!opts.ordersLink,
           invoices: await documentsIncluded(),
@@ -613,35 +641,35 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const number = Number(command[2]);
     const label = `${opts.orderPrefix}-${number}`;
     const order = await opts.orders.findOrder(number);
-    if (!order) return { text: `I can't find order ${label}. Please check the number.` };
+    if (!order) return { text: own.cantFind(label) };
     const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
 
     if (action !== "paid" && !(await documentsIncluded())) {
-      return { text: "Invoice and receipt pictures aren't on your plan. Send *plan* to see your options." };
+      return { text: own.noDocuments() };
     }
 
     if (action === "invoice") {
       const invoice = await documentImage("invoice", order, delivery);
-      return invoice ? { text: `Invoice for ${label} (${formatNaira(order.totalKobo)}):`, images: [invoice] } : { text: DRAW_FAILED };
+      return invoice ? { text: own.invoiceFor(label, money(order.totalKobo)), images: [invoice] } : { text: own.drawFailed() };
     }
 
     if (action === "receipt") {
-      if (order.status !== "paid") return { text: `${label} isn't marked paid yet. Send *paid ${label}* once the customer has paid.` };
+      if (order.status !== "paid") return { text: own.notPaidYet(label) };
       const receipt = await documentImage("receipt", order, delivery, await walkInPickup(order));
-      return receipt ? { text: `Receipt for ${label}:`, images: [receipt] } : { text: DRAW_FAILED };
+      return receipt ? { text: own.receiptFor(label), images: [receipt] } : { text: own.drawFailed() };
     }
 
     // paid
-    if (order.status === "cancelled") return { text: `${label} was cancelled, so I can't mark it paid.` };
+    if (order.status === "cancelled") return { text: own.cancelledCantPay(label) };
     if (order.status === "paid") {
       const receipt = await documentImage("receipt", order, delivery, await walkInPickup(order));
       return {
-        text: `${label} was already marked paid${order.paidAt ? ` on ${formatDocDate(order.paidAt)}` : ""}. Here's the receipt again:`,
+        text: own.alreadyPaid(label, order.paidAt ? formatDocDate(order.paidAt, businessLang) : null),
         ...(receipt ? { images: [receipt] } : {}),
       };
     }
     if (!(await opts.orders.markPaid(order.id))) {
-      return { text: `${label} has just been updated by another message. Send *receipt ${label}* to see where it stands.` };
+      return { text: own.justUpdated(label) };
     }
     const pickup = await walkInPaid(order);
     const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup);
@@ -650,11 +678,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     return {
       text:
         (receipt
-          ? `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`
-          : `✅ ${label} marked paid (${formatNaira(order.totalKobo)}). I've told ${who}${(await documentsIncluded()) ? ", but couldn't draw the receipt" : ""}.`) +
+          ? own.markedPaidSent(label, money(order.totalKobo), who)
+          : own.markedPaidTold(label, money(order.totalKobo), who, await documentsIncluded())) +
         (note ? `\n\n${note}` : ""),
       ...(receipt ? { images: [receipt] } : {}),
-      notify: [receiptNote(order, label, receipt, pickup)],
+      notify: [receiptNote(order, label, receipt, pickup, own)],
     };
   }
 
@@ -669,39 +697,29 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
   async function ordersReply(link: string): Promise<string> {
     if (opts.features && !(await opts.features.has("order_board")) && !(await opts.features.has("sales_dashboard"))) {
-      return "The order board and sales dashboard come with Pro and above. Send *plan* to see how to upgrade.";
+      return own.boardNotOnPlan();
     }
-    return `Your orders and sales: ${link}\n\nKeep this link to yourself: anyone who has it can see your orders.`;
+    return own.boardLink(link);
   }
 
-  async function cancel(contactId: string): Promise<Reply> {
+  async function cancel(contactId: string, t: QuoteTexts): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
-    if (!order) return { text: "No problem. Let me know if you need anything else." };
+    if (!order) return { text: t.noProblem() };
     await opts.orders.setStatus(order.id, "cancelled");
-    return { text: `No problem, I've cancelled quote ${ref(order)}. Message me any time you need a new one.` };
+    return { text: t.cancelledQuote(ref(order)) };
   }
 }
 
-const DRAW_FAILED = "Sorry, I couldn't draw that just now. Please try again in a minute.";
-
-function ownerHelp(prefix: string): string {
-  return [
-    "Invoices and receipts:",
-    "• Send your logo as a picture with the caption *logo* to put it on every invoice and receipt.",
-    `• *paid ${prefix}-1001* marks an order paid and sends the customer a receipt.`,
-    `• *invoice ${prefix}-1001* or *receipt ${prefix}-1001* sends you a copy.`,
-    "Customers get their invoice automatically when they confirm an order.",
-  ].join("\n");
-}
-
-function defaultHelp(variants: Variant[]): string {
+function defaultHelp(variants: Variant[], t: QuoteTexts): string {
   const names = [...new Set(variants.map((v) => v.name.split(":")[0]!.trim()))];
-  return `I can give you a quote for: ${names.join(", ")}. Tell me what you need and how many.`;
+  return t.defaultHelp(names.join(", "));
 }
 
-// Anything that looks like money. The AI is told never to mention prices; this
-// is the safety net that keeps a model-made amount from reaching a customer.
-const MONEY = /₦|naira|\bngn\b|kobo|\bN\s?\d|\d\s*k\b|\bprice (is|of)\b|\bcosts?\b|\btotal\b|\d{1,3}(,\d{3})+/i;
+// Anything that looks like money, in English or French. The AI is told never
+// to mention prices; this is the safety net that keeps a model-made amount
+// from reaching a customer.
+const MONEY =
+  /₦|naira|\bngn\b|kobo|\bN\s?\d|\d\s*k\b|\bprice (is|of)\b|\bcosts?\b|\btotal\b|\d{1,3}(,\d{3})+|fcfa|\bcfa\b|\bxof\b|\bxaf\b|francs?\b|\d\s*f\b|\bprix (est|de)\b|co[uû]te|\d{1,3}([ .\u00a0\u202f]\d{3})+/i;
 
 export function safeMessage(message: string | null): string | null {
   if (!message || !message.trim()) return null;

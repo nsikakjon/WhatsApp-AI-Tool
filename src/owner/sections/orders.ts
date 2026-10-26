@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
+import { formatMoney } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { columnOf, type BoardOrder, type Column, type Stage } from "../../products/quote/board.js";
 import type { SectionContext } from "../index.js";
@@ -25,6 +25,7 @@ const UUID = /^[0-9a-f-]{36}$/;
 export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
   app.get("/orders", async (c) => {
     const biz = c.get("biz");
+    const money = (minor: number) => formatMoney(minor, biz.currency);
     if (biz.features && !(await biz.features.has("order_board"))) {
       return ctx.render(c, "Orders", "/app/orders", `<p>The order board comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
@@ -52,14 +53,14 @@ export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
         col !== "delivered" && col !== "out_for_delivery" ? button(o, "move", "Delivered", `<input type="hidden" name="stage" value="delivered">`) : "",
       ].join("");
       return `<li class="order"><div class="top"><b>${esc(ref)}</b><span class="tag">${esc(when(o.movedAt, at))}</span></div>
-<p class="value" style="font-size:1.15rem;margin:2px 0">${formatNaira(o.totalKobo)}</p>
+<p class="value" style="font-size:1.15rem;margin:2px 0">${money(o.totalKobo)}</p>
 <p class="who"><span class="avatar">${esc(initials(who(o)))}</span>${esc(who(o))}</p><p class="muted small" style="margin:0">${esc(o.items)}</p>
 ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
     };
     const columns = COLUMNS.map((x) => {
       const list = byColumn.get(x.id)!;
       const total = list.reduce((s, o) => s + o.totalKobo, 0);
-      return `<section class="column"><h3><span><i class="dot ${x.dot}"></i>${x.title}</span><span class="count">${list.length}</span></h3><p class="muted small">${formatNaira(total)}</p><ul>${
+      return `<section class="column"><h3><span><i class="dot ${x.dot}"></i>${x.title}</span><span class="count">${list.length}</span></h3><p class="muted small">${money(total)}</p><ul>${
         list.map((o) => card(o, x.id)).join("") || `<li class="muted small">Nothing here</li>`
       }</ul></section>`;
     }).join("");

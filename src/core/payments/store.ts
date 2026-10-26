@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isCurrency, type Currency } from "../money.js";
 
 // The payments table (migration 0032): one row per checkout link sent.
 
@@ -12,7 +13,12 @@ export interface Payment {
   status: "pending" | "paid";
   /** The promo or referral code used on it, if any (migration 0041). */
   promoCode?: string | null;
+  /** NGN through Paystack unless set (migration 0052): CFA francs go through Flutterwave. */
+  currency?: Currency;
+  provider?: PaymentProvider;
 }
+
+export type PaymentProvider = "paystack" | "flutterwave";
 
 export type NewPayment = Omit<Payment, "id" | "status" | "promoCode">;
 
@@ -34,7 +40,7 @@ export interface PaymentStore {
    * Marks a pending payment paid. True only for the one call that flips it,
    * so a webhook that arrives twice can't activate anything twice.
    */
-  markPaid(id: string, paystackId: string): Promise<boolean>;
+  markPaid(id: string, providerId: string, provider?: PaymentProvider): Promise<boolean>;
   /** Undoes markPaid when the product couldn't act on it, so a retry can try again. */
   markPending(id: string): Promise<void>;
 }
@@ -48,6 +54,8 @@ interface Row {
   amount_kobo: number | string;
   status: "pending" | "paid";
   promo_code?: string | null;
+  currency?: string | null;
+  provider?: string | null;
 }
 
 const COLUMNS = "id, reference, product, wa_id, purpose, amount_kobo, status";
@@ -62,6 +70,8 @@ function toPayment(r: Row): Payment {
     amountKobo: Number(r.amount_kobo),
     status: r.status,
     promoCode: r.promo_code ?? null,
+    currency: isCurrency(r.currency) ? r.currency : "NGN",
+    provider: r.provider === "flutterwave" ? "flutterwave" : "paystack",
   };
 }
 
@@ -70,7 +80,15 @@ export function createSupabasePaymentStore(db: SupabaseClient): PaymentStore {
     async create(p) {
       const { data, error } = await db
         .from("payments")
-        .insert({ reference: p.reference, product: p.product, wa_id: p.waId, purpose: p.purpose, amount_kobo: p.amountKobo })
+        .insert({
+          reference: p.reference,
+          product: p.product,
+          wa_id: p.waId,
+          purpose: p.purpose,
+          amount_kobo: p.amountKobo,
+          // Only CFA payments name these, so naira payments work before migration 0052 is run.
+          ...(p.provider === "flutterwave" ? { currency: p.currency, provider: p.provider } : {}),
+        })
         .select(COLUMNS)
         .single();
       if (error) throw new Error(`create payment failed: ${error.message}`);
@@ -88,6 +106,10 @@ export function createSupabasePaymentStore(db: SupabaseClient): PaymentStore {
         p_code: code,
       });
       if (error) throw new Error(`create_promo_payment failed: ${error.message}`);
+      if (p.provider === "flutterwave") {
+        const { error: e } = await db.from("payments").update({ currency: p.currency, provider: p.provider }).eq("reference", p.reference);
+        if (e) throw new Error(`payment currency failed: ${e.message}`);
+      }
       const row = (data as Array<{ result: PromoCheck["result"]; code: string; percent_off: number | null; amount_off_kobo: number | string | null; max_uses: number | null }>)[0]!;
       return row.result === "applied"
         ? { result: "applied", code: row.code, percentOff: row.percent_off!, amountOffKobo: Number(row.amount_off_kobo) }
@@ -101,10 +123,11 @@ export function createSupabasePaymentStore(db: SupabaseClient): PaymentStore {
       return data ? toPayment(data as Row) : null;
     },
 
-    async markPaid(id, paystackId) {
+    async markPaid(id, providerId, provider = "paystack") {
+      const column = provider === "flutterwave" ? "flutterwave_id" : "paystack_id";
       const { data, error } = await db
         .from("payments")
-        .update({ status: "paid", paystack_id: paystackId, paid_at: new Date().toISOString() })
+        .update({ status: "paid", [column]: providerId, paid_at: new Date().toISOString() })
         .eq("id", id)
         .eq("status", "pending")
         .select("id");

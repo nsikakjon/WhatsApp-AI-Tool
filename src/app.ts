@@ -59,7 +59,7 @@ export function createApp(
   // The staff inbox web page, only when INBOX_PASSWORD is set.
   if (inbox) app.route("/inbox", createInbox(inbox));
 
-  // Paystack's webhook and the page payers return to, only when PAYSTACK_SECRET_KEY is set.
+  // Paystack's and Flutterwave's webhooks and the page payers return to, only when PAYSTACK_SECRET_KEY or FLUTTERWAVE_SECRET_KEY is set.
   if (payments) app.route("/", createPaymentRoutes(payments));
 
   // The quote bot's owner setup screen; switched off unless QUOTE_SETUP_PASSWORD is set.

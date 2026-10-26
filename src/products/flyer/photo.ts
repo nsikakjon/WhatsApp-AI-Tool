@@ -26,15 +26,15 @@ const ASPECT = 4 / 5;
 export type PhotoEdit = "brighter" | "darker" | "warmer" | "mono" | "plain" | "closer" | "rotate" | "original";
 
 /** The edits as admins see them, in the order offered. `word` is what they type. */
-export const PHOTO_EDITS: Array<{ edit: PhotoEdit; word: string; title: string; description: string }> = [
-  { edit: "brighter", word: "brighter", title: "Brighter", description: "Lift a dark or shadowy face" },
-  { edit: "darker", word: "darker", title: "Darker", description: "Tone down a washed-out or too-bright photo" },
-  { edit: "warmer", word: "warmer", title: "Warmer", description: "Fix a cold, bluish or greenish look" },
-  { edit: "plain", word: "plain background", title: "Plain background", description: "Swap a busy background for a clean studio look" },
-  { edit: "closer", word: "closer", title: "Closer to the face", description: "Zoom in on the face" },
-  { edit: "mono", word: "black and white", title: "Black and white", description: "Classic black and white" },
-  { edit: "rotate", word: "rotate", title: "Rotate", description: "Turn a sideways photo the right way up" },
-  { edit: "original", word: "original", title: "Original photo", description: "Undo all changes, as you sent it" },
+export const PHOTO_EDITS: Array<{ edit: PhotoEdit; word: string; title: string; description: string; wordFr: string; titleFr: string; descriptionFr: string }> = [
+  { edit: "brighter", word: "brighter", title: "Brighter", description: "Lift a dark or shadowy face", wordFr: "plus clair", titleFr: "Plus clair", descriptionFr: "Éclaircir un visage sombre" },
+  { edit: "darker", word: "darker", title: "Darker", description: "Tone down a washed-out or too-bright photo", wordFr: "plus sombre", titleFr: "Plus sombre", descriptionFr: "Adoucir une photo trop claire" },
+  { edit: "warmer", word: "warmer", title: "Warmer", description: "Fix a cold, bluish or greenish look", wordFr: "plus chaud", titleFr: "Plus chaud", descriptionFr: "Corriger un teint bleuté ou verdâtre" },
+  { edit: "plain", word: "plain background", title: "Plain background", description: "Swap a busy background for a clean studio look", wordFr: "fond uni", titleFr: "Fond uni", descriptionFr: "Remplacer un fond chargé par un fond studio" },
+  { edit: "closer", word: "closer", title: "Closer to the face", description: "Zoom in on the face", wordFr: "plus près", titleFr: "Plus près du visage", descriptionFr: "Zoomer sur le visage" },
+  { edit: "mono", word: "black and white", title: "Black and white", description: "Classic black and white", wordFr: "noir et blanc", titleFr: "Noir et blanc", descriptionFr: "Noir et blanc classique" },
+  { edit: "rotate", word: "rotate", title: "Rotate", description: "Turn a sideways photo the right way up", wordFr: "pivoter", titleFr: "Pivoter", descriptionFr: "Redresser une photo de travers" },
+  { edit: "original", word: "original", title: "Original photo", description: "Undo all changes, as you sent it", wordFr: "originale", titleFr: "Photo originale", descriptionFr: "Annuler les retouches" },
 ];
 
 /** "brighter", "b&w", "remove background"... -> the edit, or null. */
@@ -48,6 +48,15 @@ export function findPhotoEdit(word: string): PhotoEdit | null {
   if (/^(closer|zoom in|zoom|crop face|face)$/.test(w)) return "closer";
   if (/^(rotate|turn)$/.test(w)) return "rotate";
   if (/^(original|undo|reset photo)$/.test(w)) return "original";
+  // French
+  if (/^(plus clair|éclaircir|eclaircir|plus lumineux)$/.test(w)) return "brighter";
+  if (/^(plus sombre|assombrir|moins clair)$/.test(w)) return "darker";
+  if (/^(plus chaud|réchauffer|rechauffer)$/.test(w)) return "warmer";
+  if (/^(noir et blanc|n&b)$/.test(w)) return "mono";
+  if (/^(fond uni|fond blanc|sans fond|enlever le fond)$/.test(w)) return "plain";
+  if (/^(plus près|plus pres|zoomer|visage)$/.test(w)) return "closer";
+  if (/^(pivoter|tourner)$/.test(w)) return "rotate";
+  if (/^(originale?|annuler les retouches)$/.test(w)) return "original";
   return null;
 }
 

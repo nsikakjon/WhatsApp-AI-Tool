@@ -1,3 +1,4 @@
+import { guessLanguage } from "../i18n.js";
 import { Hono } from "hono";
 import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
@@ -37,6 +38,8 @@ export interface WebhookDeps {
 
 export const FALLBACK_TEXT =
   "Sorry, something went wrong on our side and I couldn't finish answering. Please send your message again in a minute. If it keeps happening, the team has been alerted and will get back to you.";
+export const FALLBACK_TEXT_FR =
+  "Désolé, un problème est survenu de notre côté et je n'ai pas pu terminer ma réponse. Merci de renvoyer votre message dans une minute. Si cela continue, l'équipe a été prévenue et vous recontactera.";
 
 export function createWhatsAppWebhook(webhookDeps: WebhookDeps) {
   const log = webhookDeps.log ?? console;
@@ -163,7 +166,7 @@ async function handleMessage(
     const delay = deps.retryDelaysMs?.[0] ?? 1000;
     if (!isTransient(err)) {
       log.error(`The ${product.name} bot failed on message ${msg.waMessageId}:`, err);
-      await sendFallback(deps, msg.from, contactId, fromNumber, log);
+      await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
       return;
     }
     log.warn(`The ${product.name} bot failed on message ${msg.waMessageId}, trying again: ${String(err)}`);
@@ -172,7 +175,7 @@ async function handleMessage(
       reply = await product.handle(msg, ctx);
     } catch (again) {
       log.error(`The ${product.name} bot failed twice on message ${msg.waMessageId}:`, again);
-      await sendFallback(deps, msg.from, contactId, fromNumber, log);
+      await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
       return;
     }
   }
@@ -183,7 +186,7 @@ async function handleMessage(
     // Part of the reply may have gone out; the customer still needs to know
     // the rest didn't. (Each WhatsApp call was already tried again.)
     log.error(`Failed to send the reply to message ${msg.waMessageId}:`, err);
-    await sendFallback(deps, msg.from, contactId, fromNumber, log);
+    await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
   }
 }
 
@@ -193,9 +196,12 @@ async function sendFallback(
   contactId: string,
   fromNumber: string | undefined,
   log: Pick<Console, "info" | "warn" | "error">,
+  said?: string,
 ) {
+  // In French when the customer wrote in French.
+  const text = deps.fallbackText ?? (guessLanguage(said) === "fr" ? FALLBACK_TEXT_FR : FALLBACK_TEXT);
   try {
-    await sendReply(deps, to, contactId, { text: deps.fallbackText ?? FALLBACK_TEXT }, fromNumber, log);
+    await sendReply(deps, to, contactId, { text }, fromNumber, log);
   } catch (err) {
     log.error(`Could not send the fallback reply to ${mask(to)} either:`, err);
   }
@@ -310,6 +316,16 @@ async function sendReply(
       raw: sent.raw,
       businessNumberId: fromNumber,
     });
+  }
+  if (reply.audio && deps.whatsapp.sendAudio) {
+    // A voice note is extra: if it can't go, the text has already been sent.
+    try {
+      const sent = await deps.whatsapp.sendAudio(to, reply.audio, fromNumber);
+      await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "audio", body: "[voice note]", raw: sent.raw, businessNumberId: fromNumber });
+      log.info(`Sent a voice note to ${mask(to)}`);
+    } catch (err) {
+      log.error(`Couldn't send the voice note to ${mask(to)}:`, err);
+    }
   }
   for (const image of reply.images ?? []) {
     await sendImageAndRecord(deps, to, image, fromNumber);

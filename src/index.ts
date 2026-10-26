@@ -1,3 +1,5 @@
+import type { Lang } from "./core/i18n.js";
+import type { Currency } from "./core/money.js";
 import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
@@ -84,6 +86,8 @@ import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.j
 import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks } from "./core/payments/paystack.js";
+import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
+import { createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
 import type { OwnerAppDeps } from "./owner/index.js";
 import {
   createSupabaseBusinessData,
@@ -122,25 +126,34 @@ const planCheckout = (businessId: string) =>
 // Pay links on invoices (QUOTE_PAY_LINKS), for a business with a Paystack
 // subaccount: the money goes to its own bank account.
 // yarnOga's fee comes from the plan (transaction_fee, migration 0048); no plan or no row, no fee.
+// CFA franc businesses are paid through Flutterwave, to their Flutterwave subaccount.
 const payLinkFor = (
   businessId: string,
   businessName: string,
   orderPrefix: string,
-  subaccount: string | null | undefined,
+  accounts: { paystack?: string | null; flutterwave?: string | null; currency?: Currency },
   features?: PlanFeatures,
-) =>
-  config.quotePayLinks && config.paystack && subaccount
+) => {
+  const currency = accounts.currency ?? "NGN";
+  const cfa = currency !== "NGN";
+  const subaccount = cfa ? accounts.flutterwave : accounts.paystack;
+  const provider = cfa ? config.flutterwave : config.paystack;
+  return config.quotePayLinks && provider && subaccount
     ? orderPayLinks({
         links: { createLink: (req) => payments!.createLink(req) },
         businessId,
         businessName,
         orderPrefix,
         subaccount,
+        currency,
         feeBasisPoints: features
           ? async () => ((await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0)
           : undefined,
+        // The cap is a plan feature too (migration 0052); without the row, the default cap applies.
+        feeCap: features ? () => features.limit(cfa ? "transaction_fee_cap_cfa" : "transaction_fee_cap_ngn").catch(() => null) : undefined,
       })
     : undefined;
+};
 // Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
 const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
 
@@ -187,8 +200,8 @@ const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
   features ? createMessageAllowance({ features, store: createSupabaseSentStore(supabase, numberIds) }) : undefined;
 
 // Product photos and stock (QUOTE_CATALOGUE), on the business's own price list.
-const catalogueFor = (businessId: string, features?: PlanFeatures) =>
-  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features }) : undefined;
+const catalogueFor = (businessId: string, features?: PlanFeatures, currency?: Currency) =>
+  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features, currency }) : undefined;
 
 // Walk-in orders, pickup screens and receipt QR codes (QUOTE_WALK_IN).
 const walkInConfig = config.activeProduct === "quote" ? config.quoteWalkIn : undefined;
@@ -225,13 +238,18 @@ async function copyAlerts(notes: Notice[], businessId: string, ownerWaId: string
   }
 }
 
+// Voice notes answered with a voice note (GOOGLE_TTS_API_KEY), for businesses that switch it on.
+const speaker = config.tts ? createGoogleSpeaker({ apiKey: config.tts.apiKey, voices: config.tts.voices }) : undefined;
+const withVoice = (bot: Product, enabled: () => boolean, language?: Lang): Product =>
+  speaker ? withVoiceReplies(bot, { speaker, enabled, language }) : bot;
+
 let product: Product = echoProduct;
 let mainQuoteBot: QuoteProduct | undefined;
 
 /** A business's quote bot and the number it answers on (null = main number), for work that starts outside a chat. */
 async function quoteBotFor(
   businessId: string,
-): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string; ownerWaId: string | null } | null> {
+): Promise<{ bot: QuoteProduct; fromNumberId: string | null; name: string; orderPrefix: string; ownerWaId: string | null; language: Lang } | null> {
   if (businessId === DEFAULT_BUSINESS_ID && mainQuoteBot && config.quote) {
     return {
       bot: mainQuoteBot,
@@ -239,6 +257,7 @@ async function quoteBotFor(
       name: config.quote.businessName,
       orderPrefix: config.quote.orderPrefix,
       ownerWaId: config.quote.ownerWaId ?? null,
+      language: config.quote.language,
     };
   }
   if (!quoteBusinesses) return null;
@@ -250,6 +269,7 @@ async function quoteBotFor(
     name: business.name,
     orderPrefix: business.orderPrefix,
     ownerWaId: business.ownerWaId,
+    language: business.language ?? "en",
   };
 }
 if (config.activeProduct === "quote" && config.quote) {
@@ -275,17 +295,22 @@ if (config.activeProduct === "quote" && config.quote) {
             orders,
             links: trackingLinks,
             template: delivery.template,
+            language: config.quote.language,
+            currency: config.quote.currency,
           })
         : undefined,
+    language: config.quote.language,
+    currency: config.quote.currency,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
       DEFAULT_BUSINESS_ID,
       config.quote.businessName,
       config.quote.orderPrefix,
-      config.quote.paystackSubaccount,
+      { paystack: config.quote.paystackSubaccount, flutterwave: config.quote.flutterwaveSubaccount, currency: config.quote.currency },
       mainFeatures.features,
     ),
+    payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
     plan: config.quote.plan
       ? createPlanGate({
@@ -298,17 +323,21 @@ if (config.activeProduct === "quote" && config.quote) {
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...mainFeatures,
     botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
-    catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features),
+    catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features, config.quote.currency),
     ai: createClaudeUnderstander({
       apiKey: config.quote.anthropicApiKey,
       model: config.quote.model,
       businessName: config.quote.businessName,
       description: config.quote.businessDescription,
+      language: config.quote.language,
+      currency: config.quote.currency,
     }),
   });
   mainQuoteBot = quoteBot;
+  const mainLanguage = config.quote.language;
+  const mainVoice = config.quote.voiceReplies;
   product = addBroadcasts(
-    withAlerts(quoteBot, DEFAULT_BUSINESS_ID, config.quote.ownerWaId),
+    withAlerts(withVoice(quoteBot, () => mainVoice, mainLanguage), DEFAULT_BUSINESS_ID, config.quote.ownerWaId),
     DEFAULT_BUSINESS_ID,
     config.quote.businessName,
     config.quote.ownerWaId,
@@ -342,22 +371,35 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
             orders,
             links: trackingLinks,
             template: delivery.template,
+            language: business.language,
+            currency: business.currency,
           })
         : undefined,
+    language: business.language,
+    currency: business.currency,
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
-    payLink: payLinkFor(business.id, business.name, business.orderPrefix, business.paystackSubaccount, features.features),
+    payLink: payLinkFor(
+      business.id,
+      business.name,
+      business.orderPrefix,
+      { paystack: business.paystackSubaccount, flutterwave: business.flutterwaveSubaccount, currency: business.currency },
+      features.features,
+    ),
+    payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
-    catalogue: catalogueFor(business.id, features.features),
+    catalogue: catalogueFor(business.id, features.features, business.currency),
     ai: createClaudeUnderstander({
       apiKey: multi.anthropicApiKey,
       model: multi.model,
       businessName: business.name,
       description: business.description ?? undefined,
+      language: business.language,
+      currency: business.currency,
     }),
   });
 }
@@ -368,7 +410,7 @@ if (quoteBusinesses) {
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
     build: (business) =>
       addBroadcasts(
-        withAlerts(businessBot(business, quoteBusinesses), business.id, business.ownerWaId),
+        withAlerts(withVoice(businessBot(business, quoteBusinesses), () => business.voiceReplies === true, business.language), business.id, business.ownerWaId),
         business.id,
         business.name,
         business.ownerWaId ?? undefined,
@@ -399,11 +441,15 @@ if (chatSignup && quoteBusinesses) {
         catalog: createSupabaseCatalog(supabase, business.id),
         branding: readOnlyBranding(createSupabaseBranding(supabase, business.id)),
         orders: memoryOrderStore(),
+        language: business.language,
+        currency: business.currency,
         ai: createClaudeUnderstander({
           apiKey: quoteBusinesses.anthropicApiKey,
           model: quoteBusinesses.model,
           businessName: business.name,
           description: business.description ?? undefined,
+          language: business.language,
+          currency: business.currency,
         }),
       });
     },
@@ -535,12 +581,15 @@ runEvery(5 * 60 * 1000, async () => {
 const paidHandlers: Record<string, PaidHandler> = {};
 const productNumbers: Record<string, string> = {};
 const paystackConfig = config.paystack;
-const payments = paystackConfig
+const flutterwaveConfig = config.flutterwave;
+const paymentSite = paystackConfig ?? flutterwaveConfig;
+const payments = paymentSite
   ? createPayments({
-      paystack: createPaystackClient(paystackConfig),
+      paystack: paystackConfig ? createPaystackClient(paystackConfig) : undefined,
+      flutterwave: flutterwaveConfig ? createFlutterwaveClient(flutterwaveConfig) : undefined,
       store: createSupabasePaymentStore(supabase),
-      callbackUrl: `${paystackConfig.publicUrl}/payments/done`,
-      customerEmail: paystackConfig.customerEmail,
+      callbackUrl: `${paymentSite.publicUrl}/payments/done`,
+      customerEmail: paymentSite.customerEmail,
       onPaid: paidHandlers,
       send: (product, note) => sendNotice({ store, whatsapp }, note, note.fromNumberId ?? productNumbers[product]),
     })
@@ -644,10 +693,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const features = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan).features : undefined) : planFeatures(row!.branchOf ?? id).features;
           const branding = createSupabaseBranding(supabase, id);
           const sentNumbers = main ? [numberId, ""] : [numberId];
+          const language = main ? config.quote!.language : (row!.language ?? "en");
+          const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
           return {
             id,
             name,
             orderPrefix,
+            language,
+            currency,
+            voiceReplies: main ? config.quote!.voiceReplies : row!.voiceReplies === true,
             fromEnv: main,
             numberId,
             includeUnnumbered: main,
@@ -693,11 +747,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                 catalog: createSupabaseCatalog(supabase, main ? mainBusinessId : id),
                 branding: readOnlyBranding(branding),
                 orders: memoryOrderStore(),
+                language,
+                currency,
                 ai: createClaudeUnderstander({
                   apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
                   model: main ? config.quote!.model : quoteBusinesses!.model,
                   businessName: name,
                   description: (main ? config.quote!.businessDescription : row!.description) ?? undefined,
+                  language,
+                  currency,
                 }),
               }),
             async botMessages() {
@@ -707,9 +765,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               return { sent, limit };
             },
             payLinks: {
-              on: Boolean(config.quotePayLinks && config.paystack && (main ? config.quote!.paystackSubaccount : row!.paystackSubaccount)),
+              on: Boolean(
+                config.quotePayLinks &&
+                  (currency === "NGN"
+                    ? config.paystack && (main ? config.quote!.paystackSubaccount : row!.paystackSubaccount)
+                    : config.flutterwave && (main ? config.quote!.flutterwaveSubaccount : row!.flutterwaveSubaccount)),
+              ),
               feeBasisPoints: async () =>
                 features && (await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0,
+              feeCap: async () => (features ? features.limit(currency === "NGN" ? "transaction_fee_cap_ngn" : "transaction_fee_cap_cfa") : null),
             },
           };
         },
@@ -800,7 +864,7 @@ const app = createApp({
       whatsapp,
       numbers,
     }
-  : undefined, payments && paystackConfig ? { payments, secretKey: paystackConfig.secretKey } : undefined, config.quoteSetup
+  : undefined, payments ? { payments, secretKey: paystackConfig?.secretKey, flutterwaveHash: flutterwaveConfig?.secretHash } : undefined, config.quoteSetup
   ? {
       password: config.quoteSetup.password,
       businesses: createSupabaseBusinesses(supabase),
@@ -827,6 +891,11 @@ const app = createApp({
       // Any business's delivery, looked up by the id in the signed link.
       store: createSupabaseDeliveryStore(supabase),
       template: delivery.template,
+      // Rider updates from the tracking page go out in the business's language.
+      async language(d) {
+        if (!d.fromNumberId) return config.quote?.language ?? "en";
+        return (await createSupabaseBusinesses(supabase).findByPhoneNumberId(d.fromNumberId))?.language ?? "en";
+      },
       send: async (notices, fromNumberId) => {
         for (const note of notices) {
           try {
@@ -874,6 +943,7 @@ const app = createApp({
           orderPrefix: found.orderPrefix,
           store: createSupabaseWalkInStore(supabase, id),
           fromNumberId: found.fromNumberId,
+          language: found.language,
           paidAtCounter: (orderNumber) => found.bot.orderPaid(orderNumber, { how: "counter" }),
         };
       },
@@ -936,7 +1006,7 @@ if (flyerBot && flyerConfig) {
         const image = { data: d.flyer, mimeType: "image/jpeg" };
         if (await canMessageFreely(store, d.to)) {
           await sendImageAndRecord(deps, d.to, { ...image, caption: d.wish }, from);
-          await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName), from);
+          await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName, d.lang), from);
         } else if (template) {
           await sendTemplateAndRecord(
             deps,
@@ -1015,6 +1085,8 @@ if (followUps && followUpConfig) {
         orderPrefix: config.quote.orderPrefix,
         hours: followUpConfig.hours,
         phoneNumberId: config.whatsapp.phoneNumberId,
+        language: config.quote.language,
+        currency: config.quote.currency,
       });
     }
     if (quoteBusinesses) {
@@ -1027,6 +1099,8 @@ if (followUps && followUpConfig) {
           orderPrefix: b.orderPrefix,
           hours: hours.get(b.id) ?? followUpConfig.hours,
           phoneNumberId: b.phoneNumberId,
+          language: b.language,
+          currency: b.currency,
         });
       }
     }
@@ -1054,6 +1128,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
   );
 });

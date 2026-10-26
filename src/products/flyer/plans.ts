@@ -28,6 +28,8 @@ export interface Plan {
   credit: boolean;
   /** One-line summary for the plans list. */
   summary: string;
+  /** The summary for French-speaking groups. */
+  summaryFr: string;
 }
 
 export const PLANS: Plan[] = [
@@ -43,6 +45,7 @@ export const PLANS: Plan[] = [
     ownBackground: false,
     credit: true,
     summary: "up to 10 members, 2 designs, 1 admin",
+    summaryFr: "jusqu'à 10 membres, 2 modèles, 1 administrateur",
   },
   {
     id: "standard",
@@ -56,6 +59,7 @@ export const PLANS: Plan[] = [
     ownBackground: false,
     credit: true,
     summary: "up to 50 members, all designs and colours, spreadsheet import, event flyers, 2 admins",
+    summaryFr: "jusqu'à 50 membres, tous les modèles et couleurs, import de tableur, flyers d'événement, 2 administrateurs",
   },
   {
     id: "premium",
@@ -69,6 +73,7 @@ export const PLANS: Plan[] = [
     ownBackground: true,
     credit: false,
     summary: "up to 500 members, everything in Standard, your own background, no \"Made with\" line, 5 admins",
+    summaryFr: "jusqu'à 500 membres, tout Standard, votre propre fond, sans la mention « Fait avec », 5 administrateurs",
   },
   {
     id: "deluxe",
@@ -82,6 +87,7 @@ export const PLANS: Plan[] = [
     ownBackground: true,
     credit: false,
     summary: "unlimited members and admins, everything in Premium, several groups or chapters",
+    summaryFr: "membres et administrateurs illimités, tout Premium, plusieurs groupes ou sections",
   },
   {
     id: "organisation",
@@ -95,6 +101,7 @@ export const PLANS: Plan[] = [
     ownBackground: true,
     credit: false,
     summary: "everything in Deluxe, for large associations with many groups or chapters, set up for you",
+    summaryFr: "tout Deluxe, pour les grandes associations avec de nombreux groupes ou sections, installé pour vous",
   },
 ];
 

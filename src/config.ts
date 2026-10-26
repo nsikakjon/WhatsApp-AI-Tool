@@ -1,3 +1,5 @@
+import { isLang, type Lang } from "./core/i18n.js";
+import { isCurrency, type Currency } from "./core/money.js";
 // Reads settings from environment variables (.env locally, Variables on Railway).
 // Fails fast at startup if anything required is missing, so a misconfigured
 // deploy crashes loudly instead of silently ignoring messages.
@@ -74,6 +76,14 @@ export interface Config {
     plan?: string;
     /** Its Paystack subaccount (ACCT_...), where pay links on its invoices pay out. */
     paystackSubaccount?: string;
+    /** Its Flutterwave subaccount (RS_...), where CFA franc pay links pay out. */
+    flutterwaveSubaccount?: string;
+    /** "en" or "fr": owner messages and invoices, and customers whose language isn't clear. */
+    language: Lang;
+    /** "NGN" (naira), "XOF" or "XAF" (CFA francs). */
+    currency: Currency;
+    /** Answer voice notes with a voice note (needs TTS set up). */
+    voiceReplies: boolean;
   };
   /**
    * More businesses on the quote bot, each on its own WhatsApp number, set up
@@ -257,6 +267,19 @@ export interface Config {
     /** Paystack needs an email on every payment; WhatsApp doesn't give us one. */
     customerEmail: string;
   };
+  /**
+   * CFA franc payments (Mobile Money and cards) through Flutterwave. Only set
+   * when FLUTTERWAVE_SECRET_KEY is.
+   */
+  /** Text-to-speech for voice replies (Google Cloud). Only set when GOOGLE_TTS_API_KEY is. */
+  tts?: { apiKey: string; voices: { fr?: string; en?: string } };
+  flutterwave?: {
+    secretKey: string;
+    /** The secret hash set in Flutterwave > Settings > Webhooks; it proves a webhook came from Flutterwave. */
+    secretHash: string;
+    publicUrl: string;
+    customerEmail: string;
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -345,6 +368,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             paymentDetails: multiline(env.QUOTE_PAYMENT_DETAILS),
             plan: env.QUOTE_PLAN?.trim().toLowerCase() || undefined,
             paystackSubaccount: subaccount(env.QUOTE_PAYSTACK_SUBACCOUNT),
+            flutterwaveSubaccount: flutterwaveSubaccount(env.QUOTE_FLUTTERWAVE_SUBACCOUNT),
+            language: oneOf(env.QUOTE_LANGUAGE?.trim().toLowerCase() || "en", isLang, "QUOTE_LANGUAGE", "en or fr"),
+            currency: oneOf(env.QUOTE_CURRENCY?.trim().toUpperCase() || "NGN", isCurrency, "QUOTE_CURRENCY", "NGN, XOF or XAF"),
+            voiceReplies: /^(true|yes|on|1)$/i.test(env.QUOTE_VOICE_REPLIES ?? ""),
           }
         : undefined,
     quoteBusinesses: /^(true|yes|on|1)$/i.test(env.QUOTE_MULTI_BUSINESS ?? "")
@@ -480,6 +507,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
     paystack: paystackSettings(env),
+    flutterwave: flutterwaveSettings(env),
+    tts: env.GOOGLE_TTS_API_KEY?.trim()
+      ? {
+          apiKey: env.GOOGLE_TTS_API_KEY.trim(),
+          voices: { fr: env.GOOGLE_TTS_VOICE_FR?.trim() || undefined, en: env.GOOGLE_TTS_VOICE_EN?.trim() || undefined },
+        }
+      : undefined,
   };
 }
 
@@ -512,6 +546,13 @@ function subaccount(value: string | undefined): string | undefined {
   return code;
 }
 
+function flutterwaveSubaccount(value: string | undefined): string | undefined {
+  const code = value?.trim();
+  if (!code) return undefined;
+  if (!/^RS_[A-Za-z0-9]+$/.test(code)) throw new Error("QUOTE_FLUTTERWAVE_SUBACCOUNT must be a Flutterwave subaccount ID, e.g. RS_A1B2C3D4E5F6");
+  return code;
+}
+
 function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   const secretKey = env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return undefined;
@@ -521,6 +562,23 @@ function paystackSettings(env: NodeJS.ProcessEnv): Config["paystack"] {
   const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
   if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
   return { secretKey, publicUrl, customerEmail: required(env, "PAYSTACK_CUSTOMER_EMAIL") };
+}
+
+function flutterwaveSettings(env: NodeJS.ProcessEnv): Config["flutterwave"] {
+  const secretKey = env.FLUTTERWAVE_SECRET_KEY?.trim();
+  if (!secretKey) return undefined;
+  if (!/^FLWSECK(_TEST)?-/.test(secretKey)) {
+    throw new Error("FLUTTERWAVE_SECRET_KEY must be the secret key (starts with FLWSECK- or FLWSECK_TEST-), not the public or encryption key");
+  }
+  const secretHash = env.FLUTTERWAVE_SECRET_HASH?.trim();
+  if (!secretHash || secretHash.length < 16) {
+    throw new Error("FLUTTERWAVE_SECRET_HASH must be set, at least 16 characters, and match the secret hash in Flutterwave > Settings > Webhooks");
+  }
+  const publicUrl = required(env, "PUBLIC_URL").replace(/\/+$/, "");
+  if (!publicUrl.startsWith("https://")) throw new Error(`PUBLIC_URL must start with https:// (got "${publicUrl}")`);
+  const customerEmail = env.FLUTTERWAVE_CUSTOMER_EMAIL?.trim() || env.PAYSTACK_CUSTOMER_EMAIL?.trim();
+  if (!customerEmail) throw new Error("Missing required environment variable: FLUTTERWAVE_CUSTOMER_EMAIL (or PAYSTACK_CUSTOMER_EMAIL) (see .env.example)");
+  return { secretKey, secretHash, publicUrl, customerEmail };
 }
 
 function alertSettings(env: NodeJS.ProcessEnv): Config["alerts"] {
@@ -561,4 +619,9 @@ function agentNumbers(list: string): string[] {
   const numbers = list.split(",").map((n) => n.replace(/\D/g, "")).filter(Boolean);
   if (!numbers.length) throw new Error("LEADS_AGENT_WA_IDS must list at least one WhatsApp number");
   return numbers;
+}
+
+function oneOf<T extends string>(value: string, ok: (v: unknown) => v is T, name: string, allowed: string): T {
+  if (!ok(value)) throw new Error(`${name} must be ${allowed} (got "${value}")`);
+  return value;
 }

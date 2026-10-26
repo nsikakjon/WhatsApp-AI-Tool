@@ -48,6 +48,7 @@ function memoryStore(plan = "organisation") {
         plan,
         planUntil: null,
         trialFlyersLeft: null,
+        language: "en",
       };
       groups.push(group);
       await store.addAdmin(group.id, adminWaId);
@@ -1021,5 +1022,28 @@ describe("helpers", () => {
     expect(forwardTip(["Ada"], "Class of 2010")).toBe(
       "🎂 Today is Ada's birthday! Forward the flyer to Class of 2010, then type @ and pick the name to tag them.",
     );
+  });
+});
+
+describe("flyer bot: French", () => {
+  it("greets a French speaker in French and makes their group French", async () => {
+    const { bot, groups } = setup({ openSignup: true });
+    const hello = await bot.handle(msg(ADMIN, { text: "Bonjour" }), ctx);
+    expect(hello?.text).toContain("Comment s'appelle-t-il");
+    const created = await bot.handle(msg(ADMIN, { text: "Promo 2010 Lycée Classique" }), ctx);
+    expect(created?.text).toContain("Étape 1 sur 3");
+    expect(groups[0]?.language).toBe("fr");
+  });
+
+  it("takes French commands and answers in French, with French dates", async () => {
+    const { bot, render } = await withGroup();
+    expect((await bot.handle(msg(OWNER, { text: "français" }), ctx))?.text).toContain("en français");
+    const added = await bot.handle(photo(OWNER, "ajouter Awa Diallo, 1er mars"), ctx);
+    expect(added?.text).toContain("Awa Diallo est enregistré(e) 🎂 1er mars");
+    expect(added?.list?.button).toBe("Retoucher");
+    expect(render.birthday).toHaveBeenLastCalledWith(expect.objectContaining({ lang: "fr", dateLabel: "1er mars" }));
+    expect((await bot.handle(msg(OWNER, { text: "membres" }), ctx))?.text).toContain("• Awa Diallo : 1er mars");
+    expect((await bot.handle(msg(OWNER, { text: "supprimer Awa" }), ctx))?.text).toContain("a été retiré(e)");
+    expect((await bot.handle(msg(OWNER, { text: "english" }), ctx))?.text).toContain("in English");
   });
 });

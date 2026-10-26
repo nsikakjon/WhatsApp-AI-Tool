@@ -1,11 +1,13 @@
 import type { Hono } from "hono";
-import { formatNaira } from "../../core/money.js";
+import { isLang } from "../../core/i18n.js";
+import { formatMoney, formatNaira, isCurrency, type Currency } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { hashPassword, normaliseWaId, passwordProblem } from "../auth.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
 import { isPhoto } from "./prices.js";
+import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
 
 // Settings (owners only): business details and logo, bank accounts (with
 // what each payment costs in fees), alert numbers, the team, and the
@@ -20,9 +22,9 @@ export function paystackFeeKobo(amountKobo: number): number {
   return Math.min(percent + flat, 200_000);
 }
 
-/** yarnOga's fee on a pay-link payment, in kobo, from the plan's rate in hundredths of a percent. */
-export function yarnogaFeeKobo(amountKobo: number, basisPoints: number): number {
-  return Math.floor((amountKobo * basisPoints) / 10_000);
+/** yarnOga's fee on a pay-link payment, from the plan's rate in hundredths of a percent, at most the cap. */
+export function yarnogaFeeKobo(amountKobo: number, basisPoints: number, capKobo: number | null = DEFAULT_FEE_CAP.NGN, currency: Currency = "NGN"): number {
+  return transactionFeeKobo(amountKobo, basisPoints, capKobo, currency);
 }
 
 export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
@@ -46,15 +48,31 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
       : "";
 
     const fee = biz.payLinks?.on ? await biz.payLinks.feeBasisPoints().catch(() => 0) : 0;
+    const cap = (biz.payLinks?.feeCap ? await biz.payLinks.feeCap().catch(() => null) : null) ?? DEFAULT_FEE_CAP[biz.currency];
+    const percent = (fee / 100).toLocaleString("en-NG");
     const example = 1_000_000; // ₦10,000
     const exPaystack = paystackFeeKobo(example);
-    const exOurs = yarnogaFeeKobo(example, fee);
-    const feeNote = `<div class="card"><h3>About transaction fees</h3>
+    const exOurs = yarnogaFeeKobo(example, fee, cap);
+    const cfaExample = 5_000_000; // 50 000 FCFA
+    const cfaOurs = yarnogaFeeKobo(cfaExample, fee, cap, biz.currency);
+    const money = (minor: number) => formatMoney(minor, biz.currency);
+    const feeNote = biz.currency !== "NGN"
+      ? `<div class="card"><h3>About transaction fees</h3>
+<ul>
+<li><b>Mobile Money or bank transfer straight to you</b> (the details on your invoice): <b>no fees</b> from yarnOga. Your operator may charge its usual fees.</li>
+${
+  biz.payLinks?.on
+    ? `<li><b>Mobile Money (MTN MoMo, Orange Money, Moov, Wave) or card through the pay link</b> on your invoices: Flutterwave takes its processing fee for your country and operator${fee ? `, and yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
+${fee ? `<li>Example: on a ${money(cfaExample)} order, yarnOga keeps ${money(cfaOurs)} (${percent}% would be more, so the cap applies). You receive the rest, less Flutterwave's fee, in your Mobile Money or bank account.</li>` : ""}`
+    : `<li><b>Mobile Money pay links</b> aren't on for your business yet. When they are, Flutterwave charges its processing fee and yarnOga's fee is ${fee ? `${percent}%, capped at ${money(cap)} a payment` : "shown here before anything is charged"}. Ask support to switch them on.</li>`
+}
+</ul><p class="muted small">Fees are taken from each payment, never charged separately.</p></div>`
+      : `<div class="card"><h3>About transaction fees</h3>
 <ul>
 <li><b>Bank transfer straight to your account</b> (the details on your invoice): <b>no fees</b> from yarnOga or Paystack. Your bank may charge its usual fees.</li>
 ${
   biz.payLinks?.on
-    ? `<li><b>Card, transfer or USSD through the pay link</b> on your invoices: Paystack's fee is 1.5% + ₦100 (no ₦100 on payments under ₦2,500, and never more than ₦2,000 a payment)${fee ? `, and yarnOga's fee is ${(fee / 100).toLocaleString("en-NG")}%` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
+    ? `<li><b>Card, transfer or USSD through the pay link</b> on your invoices: Paystack's fee is 1.5% + ₦100 (no ₦100 on payments under ₦2,500, and never more than ₦2,000 a payment)${fee ? `, and yarnOga's fee is ${percent}%, never more than ${formatNaira(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
 <li>Example: on a ${formatNaira(example)} order paid by pay link, Paystack keeps ${formatNaira(exPaystack)}${fee ? `, yarnOga keeps ${formatNaira(exOurs)}` : ""}, and <b>you receive ${formatNaira(example - exPaystack - exOurs)}</b>, paid into your account by Paystack (usually the next working day).</li>`
     : `<li><b>Online payments (card, transfer, USSD by pay link)</b> aren't on for your business yet. When they are, Paystack charges 1.5% + ₦100 a payment (no ₦100 under ₦2,500, at most ₦2,000) and yarnOga's fee is shown here before anything is charged. Ask support to switch them on.</li>`
 }
@@ -97,6 +115,16 @@ ${
 <label>Owner's number <span class="muted">(gets new-order alerts and owner commands)</span><input name="owner" inputmode="tel" value="${v(info?.ownerWaId ? showWaId(info.ownerWaId) : "")}"${biz.fromEnv ? " disabled" : ""}></label></div>
 <label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/app/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
 <div class="actions"><button>Save details</button></div></form>
+
+<h2 id="language">Language and currency</h2>
+<form method="post" action="/app/settings/language" class="card">
+<div class="row"><label>Bot language <span class="muted">(your messages and invoices; customers who write in French or English always get replies in their own language)</span>
+<select name="language"${biz.fromEnv ? " disabled" : ""}>${option("en", "English", biz.language)}${option("fr", "Français (French)", biz.language)}</select></label>
+<label>Currency <span class="muted">(your prices are in this currency)</span>
+<select name="currency"${biz.fromEnv ? " disabled" : ""}>${option("NGN", "Naira (₦)", biz.currency)}${option("XOF", "CFA franc, West Africa (FCFA)", biz.currency)}${option("XAF", "CFA franc, Central Africa (FCFA)", biz.currency)}</select></label></div>
+<label class="check"><input type="checkbox" name="voice" value="on"${biz.voiceReplies ? " checked" : ""}${biz.fromEnv ? " disabled" : ""}> Answer voice notes with a voice note as well as text</label>
+<p class="muted small">Changing the currency doesn't convert your prices: check your price list and delivery fees afterwards.${biz.fromEnv ? " On the main number these are set by yarnOga; ask support to change them." : ""}</p>
+<div class="actions"><button${biz.fromEnv ? " disabled" : ""}>Save</button></div></form>
 
 <h2 id="banks">Bank accounts</h2>
 <p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (On the main number, invoices still show the details set by yarnOga until support updates them.)" : ""}</p>
@@ -172,6 +200,18 @@ ${feeNote}
       await biz.saveLogo(data, type);
     }
     return done(c, "saved", "#business");
+  });
+
+  app.post("/settings/language", async (c) => {
+    const biz = c.get("biz");
+    if (biz.fromEnv) return done(c, "bad", "#language");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const language = field(form, "language", 4);
+    const currency = field(form, "currency", 4);
+    if (!isLang(language) || !isCurrency(currency)) return done(c, "bad", "#language");
+    await biz.data.saveLanguage({ language, currency, voiceReplies: field(form, "voice", 4) === "on" });
+    ctx.log.info(`Owner app: ${biz.name} set language ${language}, currency ${currency}`);
+    return done(c, "saved", "#language");
   });
 
   app.post("/settings/banks", async (c) => {
@@ -262,4 +302,8 @@ ${feeNote}
     if (fresh) await ctx.relogin(c, fresh);
     return done(c, "logout_all");
   });
+}
+
+function option(value: string, label: string, current: string): string {
+  return `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`;
 }

@@ -892,3 +892,60 @@ describe("quote product with walk-in orders", () => {
     expect(await product.orderPaid(1001, { how: "counter" })).toEqual([]);
   });
 });
+
+describe("French and CFA francs", () => {
+  const cfa: Variant[] = [
+    { id: "v-pagne", name: "Pagne: 6 yards", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_250_000 }] },
+  ];
+  function frenchBot(answer: Understanding) {
+    const mem = memoryOrders();
+    const seen: Array<Parameters<Understander["understand"]>[0]> = [];
+    const docs = fakeDocuments();
+    const product = createQuoteProduct({
+      businessName: "Chez Awa",
+      orderPrefix: "CA",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => cfa },
+      orders: mem.store,
+      ai: {
+        async understand(input) {
+          seen.push(input);
+          return answer;
+        },
+      },
+      branding: memoryBranding().branding,
+      renderDocument: docs.render,
+      language: "fr",
+      currency: "XOF",
+      log: { error() {} },
+    });
+    return { product, seen, drawn: docs.drawn, ...mem };
+  }
+
+  it("quotes a French customer in French, priced in FCFA from the price list", async () => {
+    const { product, seen, orders } = frenchBot({ intent: "quote", items: [{ variantId: "v-pagne", quantity: 2 }], message: null, language: "fr" });
+    const reply = await product.handle(text("Je voudrais 2 pagnes s'il vous plaît"), ctx);
+    expect(reply?.text).toContain("Voici votre devis (CA-1001)");
+    expect(reply?.text).toMatch(/25\s000\sFCFA/);
+    expect(reply?.text).toContain("Répondez OUI");
+    expect(orders[0]?.totalKobo).toBe(2_500_000);
+    expect(seen[0]?.language).toBe("fr");
+  });
+
+  it("answers an English customer of a French business in English", async () => {
+    const { product } = frenchBot({ intent: "quote", items: [{ variantId: "v-pagne", quantity: 1 }], message: null, language: "en" });
+    const reply = await product.handle(text("Hello, I need 1 pagne please"), ctx);
+    expect(reply?.text).toContain("Here's your quote (CA-1001)");
+    expect(reply?.text).toMatch(/12\s500\sFCFA/);
+  });
+
+  it("greets in French and keeps a model-written price out of the reply", async () => {
+    const hi = frenchBot({ intent: "other", items: [], message: "Bonjour !", language: "fr" });
+    const reply = await hi.product.handle(text("Bonjour"), ctx);
+    expect(reply?.buttons?.body ?? reply?.text).toContain("Bienvenue chez Chez Awa");
+
+    const sneaky = frenchBot({ intent: "other", items: [], message: "Le pagne coûte 5 000 FCFA.", language: "fr" });
+    const answer = await sneaky.product.handle(text("C'est combien le pagne ?"), ctx);
+    expect(answer?.text ?? "").not.toContain("5 000");
+  });
+});

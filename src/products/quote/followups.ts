@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatNaira } from "../../core/money.js";
+import type { Lang } from "../../core/i18n.js";
+import { formatMoney, type Currency } from "../../core/money.js";
 import { DEFAULT_BUSINESS_ID } from "./store.js";
 
 // Quote follow-ups ("abandoned cart" for quotes). When a customer got a quote
@@ -63,6 +64,9 @@ export interface FollowUpTarget {
   hours: number;
   /** Which of our WhatsApp numbers to send from. Leave out for the main number. */
   phoneNumberId?: string;
+  /** The business's language and currency (English and naira when unset). */
+  language?: Lang;
+  currency?: Currency;
 }
 
 export interface FollowUpDeps {
@@ -104,8 +108,18 @@ export function lagosHour(at: Date): number {
 /** The ordinary-message reminder, used inside the 24-hour window. */
 export function followUpText(target: FollowUpTarget, quote: DueQuote): string {
   const name = quote.customerName?.trim() ? ` ${quote.customerName.trim()}` : "";
+  const total = formatMoney(quote.totalKobo, target.currency);
+  const label = `${target.orderPrefix}-${quote.orderNumber}`;
+  if (target.language === "fr") {
+    return [
+      `Bonjour${name}, je reviens vers vous pour votre devis ${label} de ${target.businessName} (total ${total}).`,
+      "",
+      "Répondez OUI pour passer la commande, ou dites-moi ce que vous souhaitez changer.",
+      "Répondez STOP si vous ne voulez plus de rappels.",
+    ].join("\n");
+  }
   return [
-    `Hi${name}, just checking in on your quote ${target.orderPrefix}-${quote.orderNumber} from ${target.businessName} (total ${formatNaira(quote.totalKobo)}).`,
+    `Hi${name}, just checking in on your quote ${label} from ${target.businessName} (total ${total}).`,
     "",
     "Reply YES to place the order, or tell me what you'd like to change.",
     "Reply STOP if you'd rather not get reminders.",
@@ -115,10 +129,10 @@ export function followUpText(target: FollowUpTarget, quote: DueQuote): string {
 /** Values for the template's {{1}} name, {{2}} business, {{3}} quote number and {{4}} total. */
 export function followUpTemplateParams(target: FollowUpTarget, quote: DueQuote): string[] {
   return [
-    quote.customerName?.trim() || "there",
+    quote.customerName?.trim() || (target.language === "fr" ? "à vous" : "there"),
     target.businessName,
     `${target.orderPrefix}-${quote.orderNumber}`,
-    formatNaira(quote.totalKobo),
+    formatMoney(quote.totalKobo, target.currency),
   ];
 }
 
@@ -186,7 +200,7 @@ export async function sendDueFollowUps(target: FollowUpTarget, deps: FollowUpDep
 
 /** True for a message asking us to stop sending reminders. */
 export function isStopRequest(text: string | undefined): boolean {
-  return /^\s*(stop|unsubscribe|stop reminders?|no more reminders?)\s*[.!]*\s*$/i.test(text ?? "");
+  return /^\s*(stop|unsubscribe|stop reminders?|no more reminders?|arr[êe]te[rz]?|plus de rappels?|stop rappels?)\s*[.!]*\s*$/i.test(text ?? "");
 }
 
 export function createSupabaseFollowUps(db: SupabaseClient): FollowUpStore {
