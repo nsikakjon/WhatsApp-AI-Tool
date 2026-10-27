@@ -418,7 +418,7 @@ details.faq{border-bottom:1px solid var(--line);padding:14px 2px}details.faq sum
 .auth{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;
   background:radial-gradient(600px 400px at 50% 0%,rgba(198,255,31,.12),transparent 70%)}
 .authcard{width:100%;max-width:420px;padding:32px 26px;border-radius:26px;background:var(--glass),var(--surface);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
-.authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h2{font-size:1rem}
+.authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h1+p{text-align:center}.authcard h2{font-size:1rem}
 .authcard form button{width:100%;margin-top:6px;padding:13px}
 .authfoot{color:var(--dim);font-size:.8rem;margin-top:18px}.authfoot a{color:var(--muted)}
 /* Spacing between blocks: every block gets air above the next one, so buttons, cards and notes never touch. */

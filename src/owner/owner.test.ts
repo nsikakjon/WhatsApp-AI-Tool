@@ -221,7 +221,7 @@ describe("owner app login", () => {
     const owner = await s.users.store.ensureOwner(BIZ, OWNER);
     await s.users.store.saveToken(owner.id, hashToken("abc"), new Date(Date.now() + 60_000));
     // Opening the link only shows a button, so link previews can't use it up.
-    expect(await (await s.app.request("/l/abc")).text()).toContain("Open my app");
+    expect(await (await s.app.request("/l/abc")).text()).toContain("Show my sales");
     const first = await s.app.request(`https://${HOST}/l/abc`, post({}));
     expect(first.headers.get("location")).toBe("/app");
     const dash = await get(s, "/", cookieOf(first));
