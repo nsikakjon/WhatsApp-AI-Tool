@@ -62,7 +62,7 @@ every 10 minutes, three tries a run. It is active once it's on the `main` branch
 
 1. GitHub > the repository > **Settings > Secrets and variables > Actions**.
 2. **Variables** tab > **New repository variable**: `HEALTH_URL` =
-   `https://whatsapp-ai-tool-production.up.railway.app/health/full`.
+   `https://app.yarnoga.com/health/full`.
 3. For a WhatsApp message (optional), **Secrets** tab, add `ALERT_WA_ID`,
    `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` (the same values as on
    Railway) and `ALERT_TEMPLATE_NAME` (the template from step 2 above).

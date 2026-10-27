@@ -45,8 +45,8 @@ Do this with the **test** keys first. Nothing real is charged in test mode.
    email or document; Railway is the only place they go.
    - `PAYSTACK_SECRET_KEY`: Paystack dashboard > Settings > API Keys &
      Webhooks > **Test Secret Key** (starts `sk_test_`).
-   - `PUBLIC_URL`: this server's address, e.g.
-     `https://your-app.up.railway.app` (Railway > Settings > Networking).
+   - `PUBLIC_URL`: this server's address, `https://app.yarnoga.com` (see
+     docs/CUSTOM_DOMAIN.md).
    - `PAYSTACK_CUSTOMER_EMAIL`: an inbox you read, e.g.
      `payments@yarnoga.com`. Paystack requires an email for every payment and
      WhatsApp doesn't give us the customer's, so receipts go here. Each
