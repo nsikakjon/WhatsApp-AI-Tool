@@ -139,6 +139,7 @@ migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
 2. [docs/DEPLOY_RAILWAY.md](docs/DEPLOY_RAILWAY.md): set up Supabase and deploy to Railway.
 3. [docs/META_SETUP.md](docs/META_SETUP.md): steps 5 to 8 (connect the webhook and test).
+4. [docs/CUSTOM_DOMAIN.md](docs/CUSTOM_DOMAIN.md): give the server the address app.yarnoga.com.
 
 ## How the code is organised
 
