@@ -151,7 +151,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     c.html(
       bare(
         "Open your app",
-        `<h1>See what you've sold today</h1><p class="muted">Orders, money in and who still owes you, all in one place.</p><form method="post" action="/app/l/${esc(c.req.param("token"))}"><button>Open my app</button></form>
+        `<h1>See what you've sold today</h1><p class="muted">Orders, money in and delivered orders, all in one place.</p><form method="post" action="/app/l/${esc(c.req.param("token"))}"><button>Open my app</button></form>
 <p class="muted small">This link works once. If it's expired, send <b>app</b> to your bot again.</p>`,
       ),
     ),
