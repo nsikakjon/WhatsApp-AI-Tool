@@ -1,3 +1,6 @@
+import { RATE, STARS } from "./ratings.js";
+import type { OutgoingButtons } from "../../core/whatsapp/client.js";
+import { aboutForAi, nextOpenText, openState, type BusinessAbout } from "./about.js";
 import { guessLanguage, type Lang } from "../../core/i18n.js";
 import { formatMoney, type Currency } from "../../core/money.js";
 import { QUOTE_TEXTS, type QuoteTexts } from "./texts.js";
@@ -75,6 +78,10 @@ export interface QuoteProductOptions {
   branding?: BrandingStore;
   /** Address or phone printed under the business name on invoices and receipts. */
   businessDetails?: string;
+  /** Saves a customer's rating for their own order (migration 0054). False when it isn't theirs or was rated already. */
+  saveRating?(orderNumber: number, customerWaId: string, stars: number): Promise<boolean>;
+  /** What the owner wrote about the business and its opening hours (migration 0054), read fresh every minute. */
+  about?: () => Promise<BusinessAbout | null>;
   /** Bank details printed on invoices, e.g. "GTBank 0123456789, Example Ltd". */
   paymentDetails?: string;
   /** Delivery addresses, fees and riders. Without it, the team arranges delivery themselves. */
@@ -126,9 +133,19 @@ export interface QuoteProduct extends Product {
   orderPaid(orderNumber: number, via?: PaidVia): Promise<Notice[]>;
   /** The owner paid an order's courier fee by link: books the courier. */
   courierPaid(orderNumber: number): Promise<Notice[]>;
+  /**
+   * Reminder 1 or 2 for a confirmed order that isn't paid yet, with a fresh
+   * pay link (or the bank details). Null when it no longer needs one.
+   */
+  paymentReminder(orderNumber: number, n: 1 | 2): Promise<string | null>;
+  /** "How did we do with your order?" with Great / OK / Not good buttons. */
+  ratingAsk(orderNumber: number): { text: string; buttons: OutgoingButtons };
 }
 
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
+/** The "Order again" button's id, and the words that mean the same. */
+const ORDER_AGAIN_ID = "order again";
+const ORDER_AGAIN = /^(🔁\s*)?(order again|reorder|re-order|same as last time|same again|same order|recommander|même commande|la même chose)[.!]*$/i;
 
 export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   const log = opts.log ?? console;
@@ -175,6 +192,19 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         };
       }
 
+      // A tap on a rating button: saved in code, no AI.
+      const rate = msg.text.trim().match(RATE);
+      if (rate && opts.saveRating && rate[1]!.toUpperCase().startsWith(`${opts.orderPrefix.toUpperCase()}-`)) {
+        const orderNumber = Number(rate[1]!.split("-")[1]);
+        const stars = Number(rate[2]);
+        if (!(await opts.saveRating(orderNumber, msg.from, stars))) return { text: t.ratingAlready };
+        const reply: Reply = { text: t.ratingThanks(stars, opts.businessName) };
+        if (stars <= 1 && opts.ownerWaId) {
+          reply.notify = [{ to: opts.ownerWaId, text: own.ownerLowRating(`${opts.orderPrefix}-${orderNumber}`, msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }];
+        }
+        return reply;
+      }
+
       if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
         await opts.optOutOfFollowUps(ctx.contactId);
         return { text: t.stopReminders() };
@@ -184,7 +214,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (variants.length === 0) {
         return { text: t.noPriceList(opts.businessName) };
       }
-      const welcome = await welcomeReply(msg, variants, walkIn, lang);
+      const welcome = await welcomeReply(msg, variants, walkIn, lang, ctx.contactId);
       if (welcome) return welcome;
 
       // A tap on "See more" under the product cards: no need for the AI.
@@ -201,6 +231,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         history: ctx.history,
         catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity })),
         language: lang,
+        about: aboutForAi(opts.about ? await opts.about() : null),
       };
       let understanding;
       let simple = !credit.useAi;
@@ -227,6 +258,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           break;
         case "confirm":
           reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang);
+          // Out of hours, the customer knows the order waits for opening time.
+          if (!walkIn.on) await addClosedNote(reply, lang);
           break;
         case "cancel":
           reply = await cancel(ctx.contactId, t);
@@ -280,15 +313,53 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     async courierPaid(orderNumber) {
       return opts.delivery ? opts.delivery.bookCourier(orderNumber) : [];
     },
+
+    ratingAsk(orderNumber) {
+      const label = `${opts.orderPrefix}-${orderNumber}`;
+      const b = own.ratingButtons;
+      return {
+        text: "",
+        buttons: {
+          body: own.ratingAsk(opts.businessName, label),
+          buttons: [
+            { id: `rate ${label} ${STARS.great}`, title: b.great },
+            { id: `rate ${label} ${STARS.ok}`, title: b.ok },
+            { id: `rate ${label} ${STARS.bad}`, title: b.bad },
+          ],
+        },
+      };
+    },
+
+    async paymentReminder(orderNumber, n) {
+      const order = await opts.orders.findOrder(orderNumber);
+      if (!order || order.status !== "confirmed") return null;
+      const url = await payLinkFor(order, order.customerWaId);
+      const how = url ? own.payLine(url, opts.currency ?? "NGN") : opts.paymentDetails ? opts.paymentDetails : null;
+      return own.payReminder(n, opts.businessName, ref(order), money(order.totalKobo), how);
+    },
   };
 
-  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang): Promise<Reply | null> {
+  async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang, contactId: string): Promise<Reply | null> {
     const text = msg.text!.trim();
     const t = QUOTE_TEXTS[lang];
+    // "Order again": the last order's items at today's prices, quoted as usual.
+    if (ORDER_AGAIN.test(text) && opts.orders.lastOrder && (await orderAgainOnPlan())) {
+      if (walkIn.paused) return closedReply(t);
+      const last = await opts.orders.lastOrder(contactId);
+      if (!last) return { text: t.noLastOrder };
+      const active = new Set(variants.map((v) => v.id));
+      const items = last.lines.filter((l) => active.has(l.variantId)).map((l) => ({ variantId: l.variantId, quantity: l.quantity }));
+      const gone = last.lines.filter((l) => !active.has(l.variantId)).map((l) => l.name);
+      if (!items.length) return { text: `${t.someGone(gone.join(", "))}\n\n${t.noLastOrder}` };
+      const quote = await makeQuote(items, variants, contactId, msg.contactName, msg.from, t);
+      if (gone.length) quote.text = `${t.someGone(gone.join(", "))}\n\n${quote.text}`;
+      return quote;
+    }
     if (text.toLowerCase() === QUOTE_CHOICE) return { text: defaultHelp(variants, t) };
     if (text.toLowerCase() === TEAM_CHOICE && opts.ownerWaId) {
+      const closed = await closedNote(lang);
       return {
-        text: t.teamNotified(opts.businessName),
+        text: closed ? `${t.teamNotified(opts.businessName)}\n\n${closed}` : t.teamNotified(opts.businessName),
         notify: [{ to: opts.ownerWaId, text: own.talkRequest(msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }],
       };
     }
@@ -309,10 +380,36 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       catalogue: !!opts.catalogue,
       team: !!opts.ownerWaId,
     });
+    // A returning customer can repeat their last order with one tap.
+    if (ask === "greeting" && reply.buttons && opts.orders.lastOrder && reply.buttons.buttons.length < 3 && (await orderAgainOnPlan())) {
+      const last = await opts.orders.lastOrder(contactId).catch(() => null);
+      const active = new Set(variants.map((v) => v.id));
+      const still = last?.lines.filter((l) => active.has(l.variantId)) ?? [];
+      if (still.length) {
+        reply.buttons.body += `\n\n${t.lastTime(still.map((l) => `${l.quantity} x ${l.name}`).join(", "))}`;
+        reply.buttons.buttons.push({ id: ORDER_AGAIN_ID, title: t.orderAgainButton });
+      }
+    }
     if (opts.ownerWaId && msg.from === opts.ownerWaId && reply.buttons) {
       reply.buttons.body += `\n\n${own.ownerHint()}`;
+    } else if (reply.buttons && !walkIn.on) {
+      const closed = await closedNote(lang);
+      if (closed) reply.buttons.body += `\n\n${closed}`;
     }
     return reply;
+  }
+
+  /** "We're closed right now and open again tomorrow at 08:00", or null when open or no hours are set. */
+  async function closedNote(lang: Lang): Promise<string | null> {
+    const about = opts.about ? await opts.about() : null;
+    const state = openState(about?.hours ?? null, new Date());
+    if (!state || state.open) return null;
+    return QUOTE_TEXTS[lang].closedNow(state.next ? nextOpenText(state.next, lang) : null);
+  }
+
+  async function addClosedNote(reply: Reply, lang: Lang): Promise<void> {
+    const closed = await closedNote(lang);
+    if (closed) reply.text = reply.text ? `${reply.text}\n\n${closed}` : closed;
   }
 
   function receiptNote(order: OrderDetails, label: string, receipt: OutgoingImage | null, pickup: Pickup | null, t: QuoteTexts): Notice {
@@ -491,7 +588,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (ask) return ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
-    await opts.catalogue?.confirmed(order.id);
+    const lowStock = (await opts.catalogue?.confirmed(order.id, order.lines)) ?? [];
     let spot: { code: string; table: string | null } | null = null;
     if (walkIn.on) {
       try {
@@ -540,6 +637,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             "",
             spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
             ...(check.warning ? ["", check.warning] : []),
+            ...(lowStock.length ? ["", own.lowStock(lowStock.map((l) => ({ name: l.name, left: l.left })))] : []),
           ].join("\n"),
         },
       ];
@@ -555,6 +653,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
   async function documentsIncluded(): Promise<boolean> {
     return opts.features ? opts.features.has("invoices") : true;
+  }
+
+  // "Order again" comes with Starter and above (plan feature "order_again").
+  async function orderAgainOnPlan(): Promise<boolean> {
+    return opts.features ? opts.features.has("order_again") : true;
   }
 
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */

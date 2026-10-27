@@ -26,7 +26,11 @@ import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
 import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
-import { createSupabaseFollowUps, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
+import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
+import { dailySummary, lagosDate } from "./owner/summary.js";
+import { askForRatings, createSupabaseRatings } from "./products/quote/ratings.js";
+import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
 import { isPauseActive } from "./core/db/store.js";
 import { createClaudeUnderstander } from "./products/quote/understand.js";
 import { createDispatch, type Dispatch, type DispatchOptions } from "./products/quote/delivery/index.js";
@@ -42,7 +46,7 @@ import {
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-signup.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
-import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeatures } from "./products/quote/features.js";
+import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeature, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
@@ -213,6 +217,7 @@ function addBroadcasts(bot: Product, businessId: string, businessName: string, o
 }
 
 // Quote follow-up reminders; with QUOTE_FOLLOW_UPS off nothing reads or writes them.
+const ratings = config.activeProduct === "quote" && config.quoteRatings ? createSupabaseRatings(supabase) : undefined;
 const followUpConfig = config.quoteFollowUps;
 const followUps = followUpConfig ? createSupabaseFollowUps(supabase) : undefined;
 const optOutFor = (businessId: string) =>
@@ -230,6 +235,13 @@ function planFeatures(businessId: string, code?: string) {
   if (!config.quotePlanFeatures) return {};
   const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
   return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+}
+
+// Whether a business's plan includes a feature (always yes with plan features
+// off). Business #1 uses QUOTE_PLAN; a branch goes by its main business's plan.
+async function onPlan(b: { id: string; branchOf?: string | null }, feature: PlanFeature): Promise<boolean> {
+  const { features } = b.id === DEFAULT_BUSINESS_ID ? planFeatures(b.id, config.quote?.plan) : planFeatures(b.branchOf ?? b.id);
+  return features ? features.has(feature) : true;
 }
 
 // Bot messages a number may send a month on its plan, with plan features on.
@@ -350,6 +362,8 @@ if (config.activeProduct === "quote" && config.quote) {
     delivery: mainDispatch,
     language: config.quote.language,
     currency: config.quote.currency,
+    about: cachedAbout(createSupabaseAbout(supabase, DEFAULT_BUSINESS_ID)),
+    saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(DEFAULT_BUSINESS_ID, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
@@ -434,6 +448,8 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     delivery: dispatch,
     language: business.language,
     currency: business.currency,
+    about: cachedAbout(createSupabaseAbout(supabase, business.id)),
+    saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(business.id, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
@@ -830,6 +846,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                 orders: memoryOrderStore(),
                 language,
                 currency,
+                about: createSupabaseAbout(supabase, id),
                 ai: createClaudeUnderstander({
                   apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
                   model: main ? config.quote!.model : quoteBusinesses!.model,
@@ -1150,6 +1167,107 @@ if (broadcastConfig && broadcastStore) {
       },
     }),
   );
+}
+
+// Ratings (QUOTE_RATINGS): one "How did we do?" per paid order, with Great /
+// OK / Not good buttons, a few hours after payment or soon after delivery,
+// inside WhatsApp's free window only. Each business can switch it off.
+if (ratings) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.ratingsOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !b.phoneNumberId))) continue;
+      try {
+        if (!(await onPlan(b, "ratings"))) continue;
+        const found = await quoteBotFor(b.id);
+        if (!found) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        await askForRatings(b.id, {
+          store: ratings,
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
+          optedOut: followUps ? (contactId) => followUps.optedOut(b.id, contactId) : undefined,
+          send: (to, orderNumber) => sendNotice(deps, { to, ...found.bot.ratingAsk(orderNumber) }, found.fromNumberId ?? undefined),
+        });
+      } catch (err) {
+        console.error(`Asking for ratings failed for ${b.name}:`, err);
+      }
+    }
+  });
+}
+
+// Payment reminders (QUOTE_PAY_REMINDERS): at most two per confirmed, unpaid
+// order, inside WhatsApp's free 24-hour window, daytime only. A business can
+// switch them off in the app (Settings > Customers who haven't paid).
+const payReminders = config.activeProduct === "quote" && config.quotePayReminders ? createSupabasePayReminders(supabase) : undefined;
+if (payReminders) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    // Business #1's orders carry its fixed id (migration 0020), with or without more businesses.
+    const rows = await createSupabaseBusinesses(supabase).list();
+    const main = rows.find((b) => b.id === DEFAULT_BUSINESS_ID);
+    const due = main?.payRemindersOn !== false ? [main ?? { id: DEFAULT_BUSINESS_ID }] : [];
+    if (quoteBusinesses) {
+      for (const b of rows) {
+        if (b.id !== DEFAULT_BUSINESS_ID && b.active && b.phoneNumberId && b.payRemindersOn !== false) due.push(b);
+      }
+    }
+    for (const b of due) {
+      const businessId = b.id;
+      try {
+        if (!(await onPlan(b, "pay_reminders"))) continue;
+        const found = await quoteBotFor(businessId);
+        if (!found) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        await sendPayReminders(businessId, {
+          store: payReminders,
+          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
+          optedOut: followUps ? (contactId) => followUps.optedOut(businessId, contactId) : undefined,
+          remind: (orderNumber, n) => found.bot.paymentReminder(orderNumber, n),
+          sendText: (to, text) => sendAndRecord(deps, to, text, found.fromNumberId ?? undefined),
+        });
+      } catch (err) {
+        console.error(`Payment reminders failed for business ${businessId}:`, err);
+      }
+    }
+  });
+}
+
+// The owner's morning summary (OWNER_APP, migration 0054): yesterday's orders,
+// money in, unpaid orders, best seller and low stock, at 8am Lagos time. It
+// only goes while WhatsApp's free window with the owner is open; its "Got it"
+// button keeps that window open for the next day. Owners can switch it off.
+if (ownerAppDeps) {
+  const deps = { store, whatsapp };
+  runEvery(15 * 60 * 1000, async () => {
+    const now = new Date();
+    if (lagosHour(now) !== 8) return;
+    const today = lagosDate(now);
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.dailySummaryOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!b.active || !b.phoneNumberId))) continue;
+      try {
+        const found = await quoteBotFor(b.id);
+        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId))) continue;
+        if (!(await onPlan(b, "daily_summary"))) continue;
+        const biz = await ownerAppDeps.business(b.id);
+        const summary = biz ? await dailySummary(biz, now, ownerAppDeps.publicUrl) : null;
+        if (!summary) continue;
+        // Claimed for today first, so a restart or a second server never sends it twice.
+        const { data, error } = await supabase
+          .from("quote_businesses")
+          .update({ summary_sent_on: today })
+          .eq("id", b.id)
+          .or(`summary_sent_on.is.null,summary_sent_on.lt.${today}`)
+          .select("id");
+        if (error) throw new Error(`summary claim failed: ${error.message}`);
+        if (!data?.length) continue;
+        await sendNotice(deps, { to: found.ownerWaId, text: summary.text, buttons: summary.buttons }, found.fromNumberId ?? undefined);
+      } catch (err) {
+        console.error(`Daily summary for ${b.name} failed:`, err);
+      }
+    }
+  });
 }
 
 // Every 15 minutes, send quote reminders that are due (one per unanswered

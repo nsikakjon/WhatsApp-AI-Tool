@@ -1,3 +1,4 @@
+import { registerCustomers } from "./sections/customers.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -263,6 +264,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerDashboard(app, ctx);
   registerInbox(app, ctx);
   registerOrders(app, ctx);
+  registerCustomers(app, ctx);
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
   registerTools(app, ctx);

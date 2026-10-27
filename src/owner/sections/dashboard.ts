@@ -30,7 +30,7 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
         ctx.log.warn(`Owner app dashboard: ${String(err)}`);
         return fallback;
       });
-    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages] = await Promise.all([
+    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages, rated] = await Promise.all([
       safe<SalesFigures>(biz.board.sales(thisMonth, at), { quotes: 0, orders: 0, paidInKobo: 0 }),
       safe<SalesFigures>(biz.board.sales(lastMonth, thisMonth), { quotes: 0, orders: 0, paidInKobo: 0 }),
       safe<number | null>(biz.board.aiRepliesUsed(lagosMonthKey(at)), null),
@@ -41,6 +41,7 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
       safe<ProductRecord[]>(biz.prices.products(), []),
       safe<BoardOrder[]>(biz.board.orders(new Date(at.getTime() - 60 * DAY)), []),
       safe<{ sent: number; limit: number | null } | null>(biz.botMessages ? biz.botMessages() : Promise.resolve(null), null),
+      safe<{ count: number; average: number | null; bad: number } | null>(biz.data.ratings ? biz.data.ratings(new Date(at.getTime() - 30 * DAY)) : Promise.resolve(null), null),
     ]);
 
     const n = (x: number) => x.toLocaleString("en-NG");
@@ -100,6 +101,7 @@ ${stat("Paid in this month", money(now.paidInKobo), `vs ${money(before.paidInKob
 ${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), icon: "orders" })}
 ${stat("Quotes sent", n(now.quotes), `${conversion}% became orders`, { icon: "export" })}
 ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · ${n(chats.outbound)} out`, { icon: "inbox" })}
+${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} / 5`, `${n(rated.count)} rating${rated.count === 1 ? "" : "s"} in 30 days${rated.bad ? ` · ${n(rated.bad)} not good` : ""}`, { icon: "star" }) : ""}
 </div>
 
 <div class="split" style="margin-top:14px">

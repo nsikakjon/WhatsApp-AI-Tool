@@ -11,6 +11,8 @@ export function esc(text: string | null | undefined): string {
 
 /** Line icons (24x24, drawn with the text colour). */
 const ICONS: Record<string, string> = {
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
   home: '<rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/>',
   inbox: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/><path d="M8.5 11h7M8.5 14h4"/>',
   orders: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/>',
@@ -50,6 +52,7 @@ export const NAV: NavItem[] = [
   { href: "/app/inbox", label: "Inbox", icon: "inbox", tab: true },
   { href: "/app/orders", label: "Orders", icon: "orders", tab: true },
   { href: "/app/prices", label: "Price list", icon: "prices", tab: true },
+  { href: "/app/customers", label: "Customers", icon: "users" },
   { href: "/app/delivery", label: "Riders & delivery", icon: "delivery" },
   { href: "/app/test", label: "Test your bot", icon: "test" },
   { href: "/app/posters", label: "QR posters", icon: "posters" },
@@ -399,6 +402,9 @@ form+p,form+.muted,.actions+p,.scroll+p,.scroll+.muted,.card+p,.cards+p,table+p,
 td details>summary{white-space:nowrap}
 /* Long page titles wrap onto a second line on phones instead of being cut off. */
 @media(max-width:600px){h1{font-size:1.55rem}.titles h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
+.hours{width:100%;table-layout:fixed}.hours th:first-child{width:26%}.hours input[type=time]::-webkit-calendar-picker-indicator{display:none}.hours td{padding:6px 4px}.hours input[type=time]{width:100%;min-width:0;padding:8px 6px}
+.hours .short{display:none}@media(max-width:600px){.hours .long{display:none}.hours .short{display:inline}.hours input[type=time]{font-size:.85rem}}
+.who{display:flex;gap:10px;align-items:center}.avatar.sm{width:32px;height:32px;font-size:.72rem}
 /* The live riders view. */
 .livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden}
 .livelist{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}

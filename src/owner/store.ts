@@ -1,3 +1,4 @@
+import { createSupabaseAbout, type BusinessAbout, type OpeningHours } from "../products/quote/about.js";
 import type { Lang } from "../core/i18n.js";
 import type { Currency } from "../core/money.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -161,10 +162,41 @@ export interface BusinessInfo {
   sheetKey: string | null;
 }
 
+/** The messages the bot sends on the business's behalf. */
+export interface CareSettings {
+  payReminders: boolean;
+  ratings: boolean;
+  dailySummary: boolean;
+}
+
+/** One customer as the Customers page shows them. */
+export interface CustomerSummary {
+  contactId: string;
+  name: string | null;
+  waId: string;
+  /** Confirmed or paid orders. */
+  orders: number;
+  /** Money from paid orders, in hundredths. */
+  spentKobo: number;
+  lastOrderAt: Date;
+  /** Their average rating out of 5, when they've given any. */
+  rating: number | null;
+}
+
 /** Everything else for one business (and, for counts, its branches). */
 export interface BusinessData {
+  /** Everyone who has confirmed an order in the last year, biggest spenders first. */
+  customers?(): Promise<CustomerSummary[]>;
   info(): Promise<BusinessInfo | null>;
   saveInfo(info: Omit<BusinessInfo, "sheetKey" | "orderPrefix" | "paymentDetails">): Promise<void>;
+  /** Customers' ratings given since then (migration 0054): how many, the average out of 5, and how many said "not good". */
+  ratings?(since: Date): Promise<{ count: number; average: number | null; bad: number }>;
+  /** Which messages the bot sends for the business (migration 0054); all on unless switched off. */
+  care?(): Promise<CareSettings>;
+  saveCare?(settings: CareSettings): Promise<void>;
+  /** What the owner wrote about the business and its opening hours (migration 0054). */
+  about?(): Promise<BusinessAbout | null>;
+  saveAbout?(text: string | null, hours: OpeningHours | null): Promise<void>;
   /** The bot's language, the currency prices are in, and voice replies (migration 0051). */
   saveLanguage(settings: { language: Lang; currency: Currency; voiceReplies: boolean }): Promise<void>;
   /** A new key for the Google Sheets link; the old link stops working. */
@@ -568,6 +600,23 @@ export function createSupabaseBusinessData(
         .eq("id", id);
       if (error) throw new Error(`save business info failed: ${error.message}`);
     },
+    async care() {
+      const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
+      const r = one(data, error, "care settings") as Record<string, unknown> | null;
+      return { payReminders: r?.pay_reminders_on !== false, ratings: r?.ratings_on !== false, dailySummary: r?.daily_summary_on !== false };
+    },
+    async saveCare(c) {
+      const { error } = await db
+        .from("quote_businesses")
+        .update({ pay_reminders_on: c.payReminders, ratings_on: c.ratings, daily_summary_on: c.dailySummary })
+        .eq("id", id);
+      if (error) throw new Error(`save care settings failed: ${error.message}`);
+    },
+    about: createSupabaseAbout(db, id),
+    async saveAbout(text, hours) {
+      const { error } = await db.from("quote_businesses").update({ about: text, opening_hours: hours, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw new Error(`save about failed: ${error.message}`);
+    },
     async saveLanguage(settings) {
       const { error } = await db
         .from("quote_businesses")
@@ -660,6 +709,43 @@ export function createSupabaseBusinessData(
         totals.set(t.name, t);
       }
       return [...totals.values()].sort((a, b) => b.totalKobo - a.totalKobo).slice(0, limit);
+    },
+    async customers() {
+      const since = new Date(Date.now() - 365 * 86_400_000).toISOString();
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("contact_id, status, total_kobo, confirmed_at, rating, contacts(wa_id, name)")
+        .in("business_id", opts.businessIds)
+        .in("status", ["confirmed", "paid"])
+        .gte("confirmed_at", since)
+        .order("confirmed_at", { ascending: false })
+        .limit(10_000);
+      const byContact = new Map<string, CustomerSummary & { stars: number[] }>();
+      for (const r of one(data, error, "customers") ?? []) {
+        const contact = (Array.isArray(r.contacts) ? r.contacts[0] : r.contacts) as { wa_id?: string; name?: string | null } | null;
+        if (!contact?.wa_id || !r.confirmed_at) continue;
+        const id = r.contact_id as string;
+        const c = byContact.get(id) ?? { contactId: id, name: contact.name ?? null, waId: contact.wa_id, orders: 0, spentKobo: 0, lastOrderAt: new Date(r.confirmed_at as string), rating: null, stars: [] };
+        c.orders++;
+        if (r.status === "paid") c.spentKobo += Number(r.total_kobo);
+        if (r.rating != null) c.stars.push(Number(r.rating));
+        byContact.set(id, c);
+      }
+      return [...byContact.values()]
+        .map(({ stars, ...c }) => ({ ...c, rating: stars.length ? Math.round((stars.reduce((a, b) => a + b, 0) / stars.length) * 10) / 10 : null }))
+        .sort((a, b) => b.spentKobo - a.spentKobo || b.orders - a.orders);
+    },
+    async ratings(since) {
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("rating")
+        .in("business_id", opts.businessIds)
+        .not("rating", "is", null)
+        .gte("rated_at", since.toISOString())
+        .limit(10_000);
+      const stars = (one(data, error, "ratings") ?? []).map((r) => Number(r.rating));
+      const total = stars.reduce((a, b) => a + b, 0);
+      return { count: stars.length, average: stars.length ? Math.round((total / stars.length) * 10) / 10 : null, bad: stars.filter((x) => x <= 1).length };
     },
     async chatCounts(since) {
       const base = () => numbers(db.from("messages").select("contact_id", { count: "exact" }).gte("created_at", since.toISOString()));

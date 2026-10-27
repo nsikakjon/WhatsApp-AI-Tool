@@ -226,3 +226,21 @@ describe("sample photos by web address", () => {
     expect(photo).toEqual({ data: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" });
   });
 });
+
+describe("low stock alerts", () => {
+  const line = (variantId: string, quantity: number) => ({ variantId, name: "x", quantity, unitPriceKobo: 1, totalKobo: quantity });
+  it("reports an item once, when an order takes it to the low line or sells it out", async () => {
+    const stock: CatalogueItem[] = [
+      { variantId: "a", name: "Mugs: White", productId: "p", productName: "Mugs", productDescription: null, stock: 4, photoPath: null },
+      { variantId: "b", name: "Caps: Black", productId: "q", productName: "Caps", productDescription: null, stock: 0, photoPath: null },
+      { variantId: "c", name: "Pens: Blue", productId: "r", productName: "Pens", productDescription: null, stock: 3, photoPath: null },
+    ];
+    const catalogue = createCatalogue({ store: memory(stock).store });
+    // Stock shown is what's left after this order: Mugs went 10 -> 4, Caps 2 -> 0, Pens was already low (4 -> 3).
+    expect(await catalogue.confirmed("o1", [line("a", 6), line("b", 2), line("c", 1)])).toEqual([
+      { name: "Mugs: White", left: 4 },
+      { name: "Caps: Black", left: 0 },
+    ]);
+    expect(await catalogue.confirmed("o2")).toEqual([]);
+  });
+});

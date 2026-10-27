@@ -1,3 +1,4 @@
+import { SUMMARY_SEEN } from "./summary.js";
 import type { Notice, Product, ProductContext, Reply } from "../core/product.js";
 import { LINK_MINUTES, newLoginToken } from "./auth.js";
 import type { UserStore } from "./store.js";
@@ -32,6 +33,8 @@ export function withAppLogin(
   return {
     name: bot.name,
     async handle(msg, ctx) {
+      // The "Got it" button under the morning summary: a thank-you, no AI.
+      if (msg.text === SUMMARY_SEEN) return { text: "👍 See you tomorrow morning." };
       if (msg.type === "text" && msg.text && APP_COMMAND.test(msg.text)) {
         try {
           const business = await opts.businessFor(msg.businessNumberId);

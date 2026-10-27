@@ -77,7 +77,17 @@ const biz: AppBusiness = {
   },
   data: {
     info: async () => ({ name: "KahnPrints", description: "a print shop in Ikeja", orderPrefix: "KP", ownerWaId: owner.waId, businessDetails: "12 Allen Avenue, Ikeja\n0801 111 1111", paymentDetails: null, whatsappNumber: "2348099999999", sheetKey: "a".repeat(32) }),
-    saveInfo: async () => {}, saveLanguage: async () => {}, newSheetKey: async () => "b",
+    saveInfo: async () => {}, saveLanguage: async () => {},
+    customers: async () => [
+      { contactId: "c1", name: "Ada Okafor", waId: "2348012345678", orders: 6, spentKobo: 18_500_000, lastOrderAt: new Date(Date.now() - 2 * 86_400_000), rating: 4.7 },
+      { contactId: "c2", name: "Tunde Bakare", waId: "2348023456789", orders: 2, spentKobo: 3_200_000, lastOrderAt: new Date(Date.now() - 9 * 86_400_000), rating: null },
+      { contactId: "c3", name: null, waId: "2348034567890", orders: 1, spentKobo: 0, lastOrderAt: new Date(Date.now() - 30 * 60_000), rating: null },
+    ],
+    ratings: async () => ({ count: 23, average: 4.6, bad: 1 }),
+    about: async () => ({ text: "We're at 12 Allen Avenue, Ikeja, opposite the filling station.", hours: { mon: ["08:00", "18:00"], tue: ["08:00", "18:00"], wed: ["08:00", "18:00"], thu: ["08:00", "18:00"], fri: ["08:00", "18:00"], sat: ["10:00", "16:00"] } }),
+    saveAbout: async () => {},
+    care: async () => ({ payReminders: true, ratings: true, dailySummary: false }),
+    saveCare: async () => {}, newSheetKey: async () => "b",
     banks: async () => [{ id: "44444444-4444-4444-4444-444444444444", bankName: "GTBank", bankCode: "058", accountNumber: "0123456789", accountName: "KAHNPRINTS LTD", isPrimary: true }],
     addBank: async () => {}, removeBank: async () => {}, setPrimaryBank: async () => {},
     alertNumbers: async () => [{ id: "55555555-5555-5555-5555-555555555555", waId: "2348077777777", name: "Shop manager" }],

@@ -15,9 +15,21 @@ export interface QuoteTexts {
   voiceUnclear(): string;
   sendRequest(): string;
   stopReminders(): string;
+  ratingAsk(business: string, ref: string): string;
+  orderAgainButton: string;
+  lastTime(items: string): string;
+  noLastOrder: string;
+  someGone(items: string): string;
+  ratingButtons: { great: string; ok: string; bad: string };
+  ratingThanks(stars: number, business: string): string;
+  ratingAlready: string;
+  ownerLowRating(ref: string, who: string, phone: string): string;
+  lowStock(items: Array<{ name: string; left: number }>): string;
   noPriceList(business: string): string;
   didntCatch(): string;
   teamNotified(business: string): string;
+  /** Added when the business is closed: `when` is like "tomorrow at 08:00". */
+  closedNow(when: string | null): string;
   closed(business: string): string;
   minimum(item: string, min: number): string;
   teamWillPrice(items: string): string;
@@ -28,6 +40,8 @@ export interface QuoteTexts {
   noQuoteWaiting(): string;
   overLimitCustomer(business: string, ref: string, total: string): string;
   payLine(url: string, currency: Currency): string;
+  /** Reminder 1 or 2 for a confirmed order that hasn't been paid; `how` is the pay link line or the bank details. */
+  payReminder(n: 1 | 2, business: string, ref: string, total: string, how: string | null): string;
   nextWalkInLink(): string;
   nextWalkInCounter(ref: string): string;
   nextDeliveryLink(): string;
@@ -90,9 +104,30 @@ const en: QuoteTexts = {
   voiceUnclear: () => "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?",
   sendRequest: () => "Please send your request as a message or voice note (for example: 100 A5 flyers).",
   stopReminders: () => "Okay, I won't send you any more quote reminders. Message me any time you need a quote.",
+  ratingAsk: (b, ref) => `How did we do with your order ${ref}? Your answer helps ${b} serve you better.`,
+  orderAgainButton: "🔁 Order again",
+  lastTime: (items) => `Last time you ordered: ${items}. Tap *Order again* for a fresh quote for the same.`,
+  noLastOrder: "I can't find an earlier order for you. Tell me what you need and I'll send you a quote.",
+  someGone: (items) => `Some of your last order isn't on the price list any more (${items}), so I've left it out.`,
+  ratingButtons: { great: "😀 Great", ok: "🙂 OK", bad: "🙁 Not good" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Thank you! 🙏 We're glad you're happy. If you know someone who'd like ${b}, please share our number with them.`
+      : stars >= 3
+        ? "Thanks for telling us. If there's anything we could do better, just reply here."
+        : `We're sorry it wasn't right. I've told the ${b} team and someone will contact you to put it right.`,
+  ratingAlready: "Thanks, we already have your answer for that order. 🙏",
+  ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) said order ${ref} was *not good*. Please contact them to put it right.`,
+  lowStock: (items) =>
+    [
+      "📦 Running low after this order:",
+      ...items.map((i) => `• ${i.name}: ${i.left === 0 ? "*sold out*" : `${i.left} left`}`),
+      "Send *stock* to see everything, or update it in your app's price list.",
+    ].join("\n"),
   noPriceList: (b) => `Thanks for messaging ${b}! Our price list isn't online yet, so someone from the team will get back to you.`,
   didntCatch: () => "Sorry, I didn't catch that. Could you tell me what you'd like and how many?",
   teamNotified: (b) => `I've let the ${b} team know. Someone will reply to you here shortly.`,
+  closedNow: (when) => `🕗 We're closed right now${when ? ` and open again ${when}` : ""}. You can still order here; the team will take it from there when we open.`,
   closed: (b) => `Sorry, ${b} isn't taking new orders right now. Please ask a member of staff.`,
   minimum: (item, min) => `${item}: the minimum order is ${min}.`,
   teamWillPrice: (items) => `The team will send you a price for: ${items}.`,
@@ -104,6 +139,16 @@ const en: QuoteTexts = {
   overLimitCustomer: (b, ref, total) => `Thank you! The ${b} team will contact you shortly to complete order ${ref} (total ${total}).`,
   payLine: (url, currency) =>
     currency === "NGN" ? `Pay online by card, bank transfer or USSD: ${url}` : `Pay online by Mobile Money (MTN MoMo, Orange Money) or card: ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Hi! A quick reminder from ${b}: your order ${ref} (${total}) is waiting for payment.`
+        : `Hi again from ${b}: we're still holding your order ${ref} (${total}) for you.`,
+      how ?? "",
+      n === 1 ? "Already paid? Thank you, please ignore this." : "This is our last reminder. If you've changed your mind, just reply and let us know.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   nextWalkInLink: () => "Pay with the link, then show the QR code on your receipt when you collect.",
   nextWalkInCounter: (ref) => `Please pay at the counter and give them your order number, ${ref}.`,
   nextDeliveryLink: () => "We'll send you a link to follow your delivery once a rider is on the way.",
@@ -181,9 +226,30 @@ const fr: QuoteTexts = {
   voiceUnclear: () => "Désolé, je n'ai pas compris ce message vocal. Pouvez-vous m'écrire ce qu'il vous faut (par exemple : 100 flyers A5) ?",
   sendRequest: () => "Envoyez votre demande par message ou par message vocal (par exemple : 100 flyers A5).",
   stopReminders: () => "D'accord, je ne vous enverrai plus de rappels de devis. Écrivez-moi quand vous voulez un devis.",
+  ratingAsk: (b, ref) => `Comment s'est passée votre commande ${ref} ? Votre avis aide ${b} à mieux vous servir.`,
+  orderAgainButton: "🔁 Recommander",
+  lastTime: (items) => `Votre dernière commande : ${items}. Touchez *Recommander* pour un nouveau devis identique.`,
+  noLastOrder: "Je ne trouve pas de commande précédente. Dites-moi ce qu'il vous faut et je vous envoie un devis.",
+  someGone: (items) => `Une partie de votre dernière commande n'est plus sur la liste de prix (${items}), je l'ai donc retirée.`,
+  ratingButtons: { great: "😀 Très bien", ok: "🙂 Correct", bad: "🙁 Pas bien" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Merci ! 🙏 Ravis que vous soyez satisfait. Si vous connaissez quelqu'un qui aimerait ${b}, partagez-lui notre numéro.`
+      : stars >= 3
+        ? "Merci de nous l'avoir dit. S'il y a quelque chose à améliorer, répondez simplement ici."
+        : `Désolés que ce n'était pas bien. J'ai prévenu l'équipe de ${b}, quelqu'un va vous contacter pour arranger cela.`,
+  ratingAlready: "Merci, nous avons déjà votre avis pour cette commande. 🙏",
+  ownerLowRating: (ref, who, phone) => `🙁 ${who} (${phone}) a dit que la commande ${ref} n'était *pas bien*. Contactez-le pour arranger cela.`,
+  lowStock: (items) =>
+    [
+      "📦 Stock bas après cette commande :",
+      ...items.map((i) => `• ${i.name} : ${i.left === 0 ? "*épuisé*" : `il en reste ${i.left}`}`),
+      "Envoyez *stock* pour tout voir, ou mettez-le à jour dans la liste de prix de votre appli.",
+    ].join("\n"),
   noPriceList: (b) => `Merci d'avoir écrit à ${b} ! Notre liste de prix n'est pas encore en ligne : quelqu'un de l'équipe va vous répondre.`,
   didntCatch: () => "Désolé, je n'ai pas bien compris. Pouvez-vous me dire ce que vous voulez et en quelle quantité ?",
   teamNotified: (b) => `J'ai prévenu l'équipe de ${b}. Quelqu'un va vous répondre ici très vite.`,
+  closedNow: (when) => `🕗 Nous sommes fermés pour le moment${when ? ` et rouvrons ${when}` : ""}. Vous pouvez quand même commander ici ; l'équipe s'en occupera à l'ouverture.`,
   closed: (b) => `Désolé, ${b} ne prend pas de nouvelles commandes pour le moment. Adressez-vous à un membre du personnel.`,
   minimum: (item, min) => `${item} : la commande minimum est de ${min}.`,
   teamWillPrice: (items) => `L'équipe va vous envoyer un prix pour : ${items}.`,
@@ -197,6 +263,16 @@ const fr: QuoteTexts = {
     currency === "NGN"
       ? `Payez en ligne par carte, virement ou USSD : ${url}`
       : `Payez en ligne par Mobile Money (MTN MoMo, Orange Money) ou par carte : ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Bonjour ! Petit rappel de ${b} : votre commande ${ref} (${total}) attend votre paiement.`
+        : `Rebonjour de la part de ${b} : nous gardons toujours votre commande ${ref} (${total}) pour vous.`,
+      how ?? "",
+      n === 1 ? "Déjà payé ? Merci, ignorez ce message." : "C'est notre dernier rappel. Si vous avez changé d'avis, répondez simplement pour nous le dire.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   nextWalkInLink: () => "Payez avec le lien, puis montrez le QR code de votre reçu au retrait.",
   nextWalkInCounter: (ref) => `Payez à la caisse en donnant votre numéro de commande, ${ref}.`,
   nextDeliveryLink: () => "Nous vous enverrons un lien pour suivre la livraison dès qu'un livreur sera en route.",

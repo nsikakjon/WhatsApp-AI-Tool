@@ -949,3 +949,116 @@ describe("French and CFA francs", () => {
     expect(answer?.text ?? "").not.toContain("5 000");
   });
 });
+
+describe("payment reminders", () => {
+  it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
+    const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });
+    await product.handle(text("200 cards"), ctx);
+    orders[0]!.status = "confirmed";
+    const first = await product.paymentReminder(1001, 1);
+    expect(first).toContain("your order KP-1001 (₦10,000) is waiting for payment");
+    expect(first).toContain("Bank 0000000000");
+    expect(await product.paymentReminder(1001, 2)).toContain("last reminder");
+    orders[0]!.status = "paid";
+    expect(await product.paymentReminder(1001, 2)).toBeNull();
+  });
+});
+
+describe("about and opening hours", () => {
+  it("passes the About section to the AI and says when the shop is closed", async () => {
+    const seen: Array<{ about?: string | null }> = [];
+    const nearlyNever = { mon: ["00:00", "00:01"], tue: ["00:00", "00:01"], wed: ["00:00", "00:01"], thu: ["00:00", "00:01"], fri: ["00:00", "00:01"], sat: ["00:00", "00:01"], sun: ["00:00", "00:01"] } as const;
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (input) => (seen.push(input), { intent: "other", items: [], message: "We're opposite the filling station." }) },
+      about: async () => ({ text: "Opposite the filling station.", hours: { ...nearlyNever } as never }),
+      log: { error() {} },
+    });
+    await product.handle(text("where are you located?"), ctx);
+    expect(seen[0]?.about).toContain("Opposite the filling station.");
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("We're closed right now and open again");
+  });
+});
+
+describe("ratings", () => {
+  it("asks with three buttons, saves a tap without the AI, and tells the owner about a bad one", async () => {
+    const saved: Array<[number, string, number]> = [];
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      saveRating: async (n, waId, stars) => (saved.push([n, waId, stars]), saved.length === 1),
+      log: { error() {} },
+    });
+    const ask = product.ratingAsk(1001);
+    expect(ask.buttons.body).toContain("How did we do with your order KP-1001?");
+    expect(ask.buttons.buttons.map((b) => b.id)).toEqual(["rate KP-1001 5", "rate KP-1001 3", "rate KP-1001 1"]);
+
+    const bad = await product.handle(text("rate KP-1001 1"), ctx);
+    expect(bad?.text).toContain("sorry it wasn't right");
+    expect(bad?.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("*not good*") });
+    expect(saved[0]).toEqual([1001, "2348012345678", 1]);
+    expect((await product.handle(text("rate KP-1001 5"), ctx))?.text).toContain("already have your answer");
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("order again", () => {
+  it("offers the last order on hi, and quotes it again at today's prices", async () => {
+    const mem = memoryOrders();
+    const last = {
+      id: "old", orderNumber: 900, totalKobo: 999,
+      lines: [
+        { variantId: "v-flyer", name: "Flyers: A5, double-sided", quantity: 500, unitPriceKobo: 1, totalKobo: 500 },
+        { variantId: "v-gone", name: "Old stickers", quantity: 10, unitPriceKobo: 1, totalKobo: 10 },
+      ],
+    };
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("Last time you ordered: 500 x Flyers: A5, double-sided");
+    expect(hi?.buttons?.buttons.at(-1)).toEqual({ id: "order again", title: "🔁 Order again" });
+
+    const again = await product.handle(text("order again"), ctx);
+    expect(again?.text).toContain("isn't on the price list any more (Old stickers)");
+    expect(again?.text).toContain("500 x Flyers: A5, double-sided @ ₦100 = ₦50,000");
+    expect(mem.orders.at(-1)?.totalKobo).toBe(5_000_000);
+    expect(seen).toEqual([]);
+  });
+
+  it("is left out on a plan without it (Free)", async () => {
+    const mem = memoryOrders();
+    const last = { id: "old", orderNumber: 900, totalKobo: 1, lines: [{ variantId: "v-flyer", name: "Flyers", quantity: 500, unitPriceKobo: 1, totalKobo: 500 }] };
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      features: { planCode: async () => "free", has: async (f) => f !== "order_again", limit: async () => null },
+      ai: { understand: async () => ({ intent: "other", items: [], message: "How can I help?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.buttons.some((x) => x.id === "order again")).toBe(false);
+    await product.handle(text("order again"), ctx);
+    expect(mem.orders).toEqual([]);
+  });
+});

@@ -45,6 +45,12 @@ export interface QuoteBusiness {
   voiceReplies?: boolean;
   /** Offer Shipbubble couriers for addresses outside its zones (migration 0053). */
   courierDelivery?: boolean;
+  /** Remind customers who confirmed but haven't paid (migration 0054; on unless switched off). */
+  payRemindersOn?: boolean;
+  /** Send the owner a morning summary (migration 0054; on unless switched off). */
+  dailySummaryOn?: boolean;
+  /** Ask customers to rate finished orders (migration 0054; on unless switched off). */
+  ratingsOn?: boolean;
   updatedAt: Date;
 }
 
@@ -73,6 +79,8 @@ export interface OrderStore {
   createQuote(contactId: string, lines: QuoteLine[], totalKobo: number): Promise<SavedOrder>;
   /** The customer's most recent quote that is still waiting for a yes or no. */
   latestOpenQuote(contactId: string): Promise<SavedOrder | null>;
+  /** The customer's most recent confirmed or paid order, for "order again". */
+  lastOrder?(contactId: string): Promise<SavedOrder | null>;
   /**
    * Moves a quote to 'confirmed' or 'cancelled'. Returns false if it was no
    * longer 'quoted' (e.g. already confirmed), so a repeated YES does nothing.
@@ -127,6 +135,9 @@ type BusinessRow = {
   currency?: string | null;
   voice_replies?: boolean | null;
   courier_delivery?: boolean | null;
+  pay_reminders_on?: boolean | null;
+  daily_summary_on?: boolean | null;
+  ratings_on?: boolean | null;
   updated_at: string;
 };
 
@@ -152,6 +163,9 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     currency: isCurrency(row.currency) ? row.currency : "NGN",
     voiceReplies: row.voice_replies === true,
     courierDelivery: row.courier_delivery === true,
+    payRemindersOn: row.pay_reminders_on !== false,
+    dailySummaryOn: row.daily_summary_on !== false,
+    ratingsOn: row.ratings_on !== false,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -290,6 +304,21 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
         .limit(1)
         .maybeSingle();
       if (error) throw new Error(`latestOpenQuote failed: ${error.message}`);
+      return data ? toSavedOrder(data as unknown as OrderRow) : null;
+    },
+
+    async lastOrder(contactId) {
+      const { data, error } = await mine(
+        db
+          .from("quote_orders")
+          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+      )
+        .eq("contact_id", contactId)
+        .in("status", ["confirmed", "paid"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(`lastOrder failed: ${error.message}`);
       return data ? toSavedOrder(data as unknown as OrderRow) : null;
     },
 
