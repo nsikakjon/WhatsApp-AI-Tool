@@ -126,7 +126,8 @@ type DeliveryRow = {
   rider_lat: number | null;
   rider_lng: number | null;
   rider_seen_at: string | null;
-  courier?: CourierInfo | null;
+  // Until migration 0056 the column is 0030's text 'own_rider'.
+  courier?: CourierInfo | string | null;
 };
 
 // Every column, so courier (migration 0053) is read once it exists and simply missing before.
@@ -154,7 +155,7 @@ function toDelivery(row: DeliveryRow): Delivery {
     riderLat: row.rider_lat,
     riderLng: row.rider_lng,
     riderSeenAt: row.rider_seen_at ? new Date(row.rider_seen_at) : null,
-    courier: row.courier ?? null,
+    courier: typeof row.courier === "object" ? row.courier ?? null : null,
   };
 }
 
