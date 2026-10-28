@@ -37,6 +37,23 @@ export function icon(name: string, size = 20): string {
   return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
 }
 
+// The yarnOga mark (assets/brand/yarnoga-icon.svg). Each copy on a page gets its own
+// gradient ids, since a hidden copy's gradients don't paint the visible one.
+function mark(id: string, size: number): string {
+  return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 512 512" aria-hidden="true"><defs>
+<linearGradient id="${id}a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1ff9e"/><stop offset=".45" stop-color="#c6ff1f"/><stop offset="1" stop-color="#86d100"/></linearGradient>
+<linearGradient id="${id}b" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a9f000"/><stop offset="1" stop-color="#3f9a00"/></linearGradient>
+<filter id="${id}s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".45"/></filter></defs>
+<g class="bubble"><path class="tail" d="M185.6 368.4 92 440l17.3-172.8Z" fill="url(#${id}b)" stroke="url(#${id}b)" stroke-width="30" stroke-linejoin="round"/>
+<path d="M397 287.3a150 150 0 0 1-282 0" fill="none" stroke="url(#${id}b)" stroke-width="72" stroke-linecap="round"/>
+<path class="ring" pathLength="1" d="M126.1 311a150 150 0 1 1 257.1 4.5" fill="none" stroke="url(#${id}a)" stroke-width="72" stroke-linecap="round" filter="url(#${id}s)"/></g>
+<path class="y" pathLength="1" d="m208 184 48 54 48-54m-48 54v58" fill="none" stroke="#f3f4ef" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function logo(id: string, cls: string): string {
+  return `<a class="${cls}" href="/app" aria-label="yarnOga">${mark(id, 40)}<b>yarn<span>Oga</span></b></a>`;
+}
+
 export interface NavItem {
   href: string;
   label: string;
@@ -102,13 +119,13 @@ export function page(s: Shell, body: string): string {
     s.title,
     `<div class="shell">
 <aside class="side" aria-label="Menu">
-  <a class="brand" href="/app"><img src="/app/brand/logo-96.png" alt="yarnOga" width="150" height="32"></a>
+  ${logo("ms", "brand")}
   <nav class="nav">${main}<p class="navhead">More</p>${rest}</nav>
   <div class="me"><span class="avatar">${esc(initials(s.businessName))}</span><div><b>${esc(s.businessName)}</b><span>${esc(s.userName)} · ${role}</span></div></div>
   ${switcher}${logout}
 </aside>
 <div class="content">
-  <header class="topbar"><a class="topmark" href="/app"><img src="/app/brand/mark-64.png" alt="yarnOga" width="34" height="34"></a><div class="titles"><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
+  <header class="topbar"><a class="topmark" href="/app" aria-label="yarnOga">${mark("mt", 36)}</a><div class="titles"><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
     <div class="topactions"><a class="iconbtn" href="/app/help" aria-label="Help">${icon("help")}</a><span class="avatar" title="${esc(s.userName)} · ${role}">${esc(initials(s.userName))}</span></div></header>
   <main>${flash}${body}</main>
 </div>
@@ -124,7 +141,7 @@ export function page(s: Shell, body: string): string {
 export function adminPage(title: string, crumb: string, body: string): string {
   return doc(
     title,
-    `<div class="content"><header class="topbar"><a class="topmark" style="display:block" href="/compliance"><img src="/app/brand/mark-64.png" alt="yarnOga" width="34" height="34"></a><div class="titles"><p class="crumb">${esc(crumb)}</p><h1>${esc(title)}</h1></div></header>
+    `<div class="content"><header class="topbar"><a class="topmark" style="display:block" href="/compliance" aria-label="yarnOga">${mark("mt", 36)}</a><div class="titles"><p class="crumb">${esc(crumb)}</p><h1>${esc(title)}</h1></div></header>
 <main style="margin:0 auto">${body}</main></div>`,
   );
 }
@@ -133,7 +150,7 @@ export function adminPage(title: string, crumb: string, body: string): string {
 export function bare(title: string, body: string): string {
   return doc(
     title,
-    `<div class="auth"><div class="authcard"><a class="brand big" href="/app"><img src="/app/brand/logo-96.png" alt="yarnOga" width="187" height="40"></a>${body}</div>
+    `<div class="auth"><div class="authcard">${logo("mb", "brand big")}${body}</div>
 <p class="authfoot">Your WhatsApp sales assistant · <a href="https://yarnoga.com">yarnoga.com</a></p></div>`,
   );
 }
@@ -213,9 +230,18 @@ main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240p
   main{padding:32px 40px 72px}
   .tabs{display:none!important}
 }
-.brand{display:flex;align-items:center;padding:4px 10px 20px}.brand img{display:block;height:32px;width:auto}
-.brand.big{justify-content:center;padding:0 0 24px}.brand.big img{height:40px}
-.topmark{display:block;flex:none}.topmark img{display:block;filter:drop-shadow(0 0 12px rgba(198,255,31,.25))}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 20px;color:var(--text);text-decoration:none;font:700 1.6rem/1 var(--accent);letter-spacing:-.03em}
+.brand b{font-weight:inherit}.brand span{color:var(--lime)}.brand .mark{width:34px;height:34px}
+.brand.big{justify-content:center;padding:0 0 24px;font-size:2rem}.brand.big .mark{width:44px;height:44px}
+.topmark{display:block;flex:none}.mark{display:block;overflow:visible}.topmark .mark{filter:drop-shadow(0 0 12px rgba(198,255,31,.25))}
+/* The mark draws itself in: the bubble pops up, the ring sweeps round, then the Y writes itself. On the login and link pages it also nods now and then. */
+.mark .bubble{transform-origin:30% 80%;animation:markpop .5s cubic-bezier(.3,1.6,.5,1) both}
+.mark .ring{stroke-dasharray:1;animation:markdraw .7s .1s ease-out both}
+.mark .y{stroke-dasharray:1;animation:markdraw .35s .55s ease-out both}
+.brand.big .mark .y{transform-origin:256px 238px;animation:markdraw .35s .55s ease-out both,marknod 5s 2s ease-in-out infinite}
+@keyframes markpop{from{transform:scale(.6);opacity:0}}
+@keyframes markdraw{from{stroke-dashoffset:1}}
+@keyframes marknod{0%,12%,100%{transform:none}4%{transform:rotate(-10deg)}8%{transform:rotate(7deg)}}
 .titles{flex:1;min-width:0}.titles h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(min-width:960px){.topmark{display:none}}
 .nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto}
@@ -392,13 +418,14 @@ details.faq{border-bottom:1px solid var(--line);padding:14px 2px}details.faq sum
 .auth{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;
   background:radial-gradient(600px 400px at 50% 0%,rgba(198,255,31,.12),transparent 70%)}
 .authcard{width:100%;max-width:420px;padding:32px 26px;border-radius:26px;background:var(--glass),var(--surface);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
-.authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h2{font-size:1rem}
+.authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h1+p{text-align:center}.authcard h2{font-size:1rem}
 .authcard form button{width:100%;margin-top:6px;padding:13px}
 .authfoot{color:var(--dim);font-size:.8rem;margin-top:18px}.authfoot a{color:var(--muted)}
 /* Spacing between blocks: every block gets air above the next one, so buttons, cards and notes never touch. */
 .toolbar{margin-bottom:20px}
 form+p,form+.muted,.actions+p,.scroll+p,.scroll+.muted,.card+p,.cards+p,table+p,.flash+.scroll,.flash+.card{margin-top:16px}
 .scroll+.scroll,.scroll+.card,.card+.scroll,.livelist{margin-top:12px}
+.board+p,.cards+p{margin:20px 12px 0}
 td details>summary{white-space:nowrap}
 /* Long page titles wrap onto a second line on phones instead of being cut off. */
 @media(max-width:600px){h1{font-size:1.55rem}.titles h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
@@ -410,7 +437,7 @@ td details>summary{white-space:nowrap}
 .livelist{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
 .live .livehead{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .leaflet-tooltip{font:600 .78rem/1.2 var(--body)}
-@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 `;
 
 /** Reads a form field as trimmed text, at most `max` characters. */
