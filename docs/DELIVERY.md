@@ -101,9 +101,8 @@ Once approved, set `QUOTE_DELIVERY_TEMPLATE_NAME=order_update` on Railway.
 
 ## Courier companies
 
-The delivery record has a `courier` column (today always `own_rider`) so a
-courier company can be added later without changing the tables. As of October
-2026:
+Couriers through Shipbubble are in docs/COURIERS.md. Other options checked in
+October 2026:
 
 - **Gokada** (Lagos only) offers a developer account at business.gokada.ng
   with test and live keys. This is the most likely first courier to add.

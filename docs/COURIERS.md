@@ -23,11 +23,11 @@ yarnOga's Shipbubble wallet pays each courier. It only ever does so after the fe
 
 ## What Jay needs to do
 
-1. **Run the migration.** In Supabase, open SQL Editor > New query, paste `supabase/migrations/0053_couriers.sql`, and click Run.
+1. **Run the migrations.** In Supabase, open SQL Editor > New query, paste `supabase/migrations/0053_couriers.sql`, and click Run. Then do the same with `0056_courier_column_fix.sql`.
 2. **Create a Shipbubble account** at shipbubble.com, then:
    1. Copy the **API key** from its dashboard (Settings > API keys). Use the sandbox key (sb_sandbox_...) to try it out first.
    2. Fund the **wallet** for live use.
-   3. Set the **webhook URL** to `https://<your Railway address>/webhooks/shipbubble`.
+   3. Set the **webhook URL** to `https://app.yarnoga.com/webhooks/shipbubble`.
 3. **On Railway**, add `SHIPBUBBLE_API_KEY` with that key. Never paste it anywhere else.
    - Optional: `SHIPBUBBLE_CONTACT_EMAIL`, which is the email Shipbubble gets for senders and receivers. When it's empty, the Paystack one is used.
    - Paystack and delivery (`QUOTE_DELIVERY`) must already be on.
