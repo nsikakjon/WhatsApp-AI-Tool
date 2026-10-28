@@ -202,7 +202,7 @@ const CSS = `
   --r:14px;--r2:10px;--r3:6px;
   --glass:linear-gradient(180deg,rgba(243,241,230,.035),rgba(243,241,230,.01));
 }
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+*{box-sizing:border-box;scrollbar-width:thin}html{-webkit-text-size-adjust:100%;color-scheme:dark;scrollbar-color:rgba(243,241,230,.22) transparent}
 body{margin:0;font:16px/1.55 var(--body);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
   background-image:radial-gradient(900px 500px at 85% -10%,rgba(198,255,31,.07),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(198,255,31,.04),transparent 60%);background-attachment:fixed}
 a{color:var(--lime);text-underline-offset:3px}
