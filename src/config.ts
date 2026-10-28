@@ -530,7 +530,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 function publicUrl(value: string): string {
   const url = value.trim().replace(/\/+$/, "");
   if (!/^https:\/\/[^/\s]+$/.test(url)) {
-    throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://example.up.railway.app (got "${value}")`);
+    throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://app.yarnoga.com (got "${value}")`);
   }
   return url;
 }

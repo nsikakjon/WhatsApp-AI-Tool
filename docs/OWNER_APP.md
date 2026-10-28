@@ -41,16 +41,10 @@ kobo); the AI never sets a price. Money is typed in naira and saved in kobo.
 2. **Railway** > your service > Variables:
    - `OWNER_APP=true`
    - `PUBLIC_URL` (you have it already if payments or delivery are on)
-   - `OWNER_APP_URL=https://app.yarnoga.com` (after step 3; until then leave
-     it empty and the links use the Railway address)
    - optionally `SUPPORT_WA_ID` (yarnOga's support WhatsApp number)
-3. **app.yarnoga.com**:
-   - Railway > your service > Settings > Networking > **Custom Domain** >
-     type `app.yarnoga.com`. Railway shows a CNAME value.
-   - Hostinger > Domains > yarnoga.com > **DNS / Nameservers** > add a
-     **CNAME** record: name `app`, target the value Railway showed.
-   - Wait for Railway to show the domain as active (minutes to a few hours).
-     `https://app.yarnoga.com` then opens the app.
+3. **app.yarnoga.com**: follow docs/CUSTOM_DOMAIN.md, which ends with
+   `PUBLIC_URL=https://app.yarnoga.com`. The app's links then use that address.
+   Until then they use the Railway address, which works just as well.
 4. From the owner's WhatsApp, send **app** to the bot and tap the link.
 
 ## Things that come from elsewhere

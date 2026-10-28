@@ -4,7 +4,7 @@
 # the repository owner that the "Uptime" run failed.
 #
 # Set in GitHub > repository > Settings > Secrets and variables > Actions:
-#   Variables: HEALTH_URL (e.g. https://whatsapp-ai-tool-production.up.railway.app/health/full)
+#   Variables: HEALTH_URL (e.g. https://app.yarnoga.com/health/full)
 #   Secrets (optional, for the WhatsApp message):
 #     ALERT_WA_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
 #     ALERT_TEMPLATE_NAME (an approved template with one value), ALERT_TEMPLATE_LANGUAGE

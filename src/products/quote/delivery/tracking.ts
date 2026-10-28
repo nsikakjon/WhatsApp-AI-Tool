@@ -20,7 +20,7 @@ import { courierStep, isValidShipbubbleSignature } from "./shipbubble.js";
 export interface TrackingDeps {
   /** Signs the links, so nobody can guess another order's page. */
   secret: string;
-  /** Our server's public address, e.g. https://example.up.railway.app */
+  /** Our server's public address, e.g. https://app.yarnoga.com */
   publicUrl: string;
   store: DeliveryStore;
   /** Sends notices from the number the business uses. A failed send is logged, not thrown. */

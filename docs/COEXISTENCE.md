@@ -84,8 +84,8 @@ Done in October 2026 for the Kahn Prints portfolio. See
 
 1. In your bot app: **Add product** > **Facebook Login for Business**.
 2. **Facebook Login for Business** > **Settings**: under **Allowed domains
-   for the JavaScript SDK**, add your Railway address (for example
-   `https://your-app.up.railway.app`).
+   for the JavaScript SDK**, add the bot's address, `https://app.yarnoga.com`
+   (and the Railway address too, so `/signup` works on either).
 3. **Facebook Login for Business** > **Configurations** > **Create
    configuration**. Name it "WhatsApp sign-up", choose the login variation
    **WhatsApp Embedded Signup**, and pick the permissions
