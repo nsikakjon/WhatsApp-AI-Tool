@@ -6,7 +6,7 @@ This guide covers the bots for French-speaking Africa. Each section says what th
 
 **Bots that speak French**
 - Every fixed message the quote bot sends exists in English and French. That covers quotes, invoices, receipts, delivery, reminders, walk-in orders and the "something went wrong" reply.
-- Customers always get the language they write in. A customer who writes in French gets French; one who writes in English or Pidgin gets English.
+- Customers always get the language they write in: French, English or Nigerian Pidgin (see docs/PIDGIN.md).
 - Each business has a main language. It's used for the owner's messages, for invoices, and when a customer's language isn't clear (a bare "ok" or a number).
 - The AI is told to reply in the customer's language. It still never sees or writes prices.
 
