@@ -149,6 +149,7 @@ Other commands:
 | `remove Ada Okafor`   | removes Ada                                  |
 | photo captioned `photo Ada Okafor` | adds or changes Ada's photo     |
 | `brighter`, `rotate` and the other photo words below | touch up the last photo added |
+| `change amadi to Amadi` | fixes words on the last flyer and makes it again (see below) |
 | `groups`, `switch …`  | lists your groups, changes group             |
 | `help`                | the full list                                |
 
@@ -253,6 +254,19 @@ type the word, optionally with a name (`rotate Ada`):
 Edits build on each other (brighter twice is brighter still). `rotate` and
 `original` start again from the photo as sent. Photos added before this
 change have no kept original, so `original` says they're already as sent.
+
+**Fixing words.** Admins type `change` (or `edit`, `fix`), the words as they
+are, `to` and the new words. The bot looks on the flyer it just made first,
+then at every member and the group name, and sends the flyer again:
+
+- `change amadi nnadozie to Amadi Nnadozie` or `change Bakare to Bakare-Ojo`: a member's name
+- `change name to Ada Okafor`, `change date to 30 October`, `change Ada's birthday to 3 May`
+- `change 2010 to 2011` or `change group name to Unilag Class of 2011`: the group name, on every flyer
+- `change 4pm to 5pm`: the words on the last event flyer (remembered until a restart)
+
+Names typed all in lowercase are capitalised when saved (`amadi nnadozie`
+becomes `Amadi Nnadozie`); names with any capitals are kept as typed. In French:
+`changer la date en 30 octobre`.
 
 Designs are shown six to a page so the list stays easy to browse however many
 there are. Each design keeps its number on every page, so `design 14` always

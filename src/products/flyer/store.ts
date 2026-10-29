@@ -57,6 +57,8 @@ export interface FlyerStore {
   saveBackground(groupId: string, picture: Picture | null): Promise<void>;
   /** Changes the group's design and/or accent colour (null clears the colour). */
   setStyle(groupId: string, style: { theme?: string; accent?: string | null; language?: Lang }): Promise<void>;
+  /** Changes the group name printed on its flyers. */
+  renameGroup(groupId: string, name: string): Promise<void>;
   /**
    * Adds a member, or updates their birthday (and photo, if one is given) if
    * the name is already in the group. Returns whether they were new.
@@ -69,6 +71,8 @@ export interface FlyerStore {
     photo: Picture | null,
     original?: Picture,
   ): Promise<Member & { isNew: boolean }>;
+  /** Corrects a member's name, keeping their birthday and photo. */
+  renameMember(memberId: string, name: string): Promise<void>;
   removeMember(memberId: string): Promise<void>;
   members(groupId: string): Promise<Member[]>;
   /** Members with one of these birthdays, in active groups, with each group and its admins. */
@@ -255,6 +259,11 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       if (error) throw new Error(`setStyle failed: ${error.message}`);
     },
 
+    async renameGroup(groupId, name) {
+      const { error } = await db.from("flyer_groups").update({ name }).eq("id", groupId);
+      if (error) throw new Error(`renameGroup failed: ${error.message}`);
+    },
+
     async saveMember(groupId, name, birthday, photo, original) {
       let path: string | null = null;
       if (photo) {
@@ -274,6 +283,11 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       // A new photo replaces the old one, which is then deleted.
       if (existing?.photoPath && path) await db.storage.from(BUCKET).remove(photoFiles(existing.photoPath));
       return { ...toMember(data as MemberRow), isNew: !existing };
+    },
+
+    async renameMember(memberId, name) {
+      const { error } = await db.from("flyer_members").update({ name }).eq("id", memberId);
+      if (error) throw new Error(`renameMember failed: ${error.message}`);
     },
 
     async removeMember(memberId) {
