@@ -53,7 +53,7 @@ export async function dailySummary(biz: AppBusiness, now: Date, appUrl?: string)
     ...(rated?.count ? [`• Ratings: ${rated.average!.toFixed(1)} / 5 from ${rated.count}${rated.bad ? ` (${rated.bad} not good)` : ""}`] : []),
     ...(unpaid.length ? ["", `💰 Waiting for payment: ${unpaid.length} order${unpaid.length === 1 ? "" : "s"}, ${money(owed)}`] : []),
     ...(low.length ? ["", "📦 Running low:", ...low.slice(0, 6).map((l) => `• ${l}`), ...(low.length > 6 ? [`• and ${low.length - 6} more`] : [])] : []),
-    ...(appUrl ? ["", `More in your app: ${appUrl}/app`] : []),
+    ...(appUrl ? ["", `More in your app: ${appUrl}/home`] : []),
   ];
   return {
     text: lines.join("\n"),

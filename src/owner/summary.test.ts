@@ -26,7 +26,7 @@ describe("morning summary", () => {
     expect(s.text).toContain("• Best seller: Flyers: A5 (500)");
     expect(s.text).toContain("Waiting for payment: 1 order, ₦10,000");
     expect(s.text).toContain("• Mugs: 3 left");
-    expect(s.text).toContain("https://app.yarnoga.com/app");
+    expect(s.text).toContain("https://app.yarnoga.com/home");
     expect(s.buttons.buttons[0]).toEqual({ id: SUMMARY_SEEN, title: "Got it ✅" });
   });
 

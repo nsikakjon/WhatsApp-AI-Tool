@@ -105,7 +105,7 @@ A password-protected page at `/dashboard` with live numbers for every product
 
 ## Owners' and staff app (app.yarnoga.com)
 
-A web app at `/app` where each business on the quote bot sees its dashboard,
+A web app at `/home` (old `/app` links redirect there) where each business on the quote bot sees its dashboard,
 inbox, order board, price list (with photos and minimum quantities), riders
 and delivery zones, a bot test, QR posters, exports (CSV, Google Sheets, PDF),
 bank accounts, alert numbers and team. Owners and staff log in by sending
@@ -146,7 +146,7 @@ migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 ```
 src/
   index.ts               starts the server with real settings
-  app.ts                 web routes: /health, /webhooks/whatsapp, /inbox and /app
+  app.ts                 web routes: /health, /webhooks/whatsapp, /inbox and /home
   owner/                 the owners' and staff app (app.yarnoga.com)
     index.ts             login, sessions and the pages' routes
     sections/            dashboard, inbox, orders, price list, delivery, tools, settings

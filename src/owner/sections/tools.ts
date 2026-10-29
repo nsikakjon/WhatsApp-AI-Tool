@@ -54,12 +54,12 @@ export function registerTools(app: Hono<Env>, ctx: SectionContext) {
     return ctx.render(
       c,
       "Test your bot",
-      "/app/test",
+      "/home/test",
       `<p>Ask what a customer would ask and see exactly what your bot replies, using your real price list. Nothing is sent on WhatsApp and no order is saved.</p>
 ${error ? `<p class="flash bad">${esc(error)}</p>` : ""}
-<form method="post" action="/app/test"><label for="q">Customer's message</label><textarea id="q" name="q" maxlength="${MAX_QUESTION}" required>${esc(question)}</textarea>
+<form method="post" action="/home/test"><label for="q">Customer's message</label><textarea id="q" name="q" maxlength="${MAX_QUESTION}" required>${esc(question)}</textarea>
 <div class="actions"><button${biz.testBot ? "" : " disabled"}>Ask</button></div></form>
-<p class="muted small">Try: ${SUGGESTIONS.map((s) => `<a href="/app/test?q=${encodeURIComponent(s)}">${esc(s)}</a>`).join(" · ")}</p>
+<p class="muted small">Try: ${SUGGESTIONS.map((s) => `<a href="/home/test?q=${encodeURIComponent(s)}">${esc(s)}</a>`).join(" · ")}</p>
 ${result}
 <p class="muted small">${left} test questions left today. Each is a new pretend customer, so it doesn't remember earlier questions.</p>`,
     );
@@ -108,19 +108,19 @@ ${result}
       return ctx.render(
         c,
         "QR posters",
-        "/app/posters",
-        `<p>Posters need the WhatsApp number your customers message. ${c.get("user").role === "owner" ? `<a href="/app/settings">Add it in Settings</a>` : "Ask the owner to add it in Settings"}, then come back.</p>`,
+        "/home/posters",
+        `<p>Posters need the WhatsApp number your customers message. ${c.get("user").role === "owner" ? `<a href="/home/settings">Add it in Settings</a>` : "Ask the owner to add it in Settings"}, then come back.</p>`,
       );
     }
     const qs = (o: Orientation, ext: string) =>
-      `/app/posters/poster.${ext}?o=${o}&lang=${p.lang}&colour=${encodeURIComponent(p.colour.slice(1))}${p.tagline ? `&tagline=${encodeURIComponent(p.tagline)}` : ""}`;
+      `/home/posters/poster.${ext}?o=${o}&lang=${p.lang}&colour=${encodeURIComponent(p.colour.slice(1))}${p.tagline ? `&tagline=${encodeURIComponent(p.tagline)}` : ""}`;
     const preview = (o: Orientation) => `<div class="card"><h3>${o === "portrait" ? "Portrait (A4 upright)" : "Landscape (A4 sideways)"}</h3>
 <img src="${qs(o, "png")}" alt="${o} poster preview" style="width:100%;border-radius:8px;background:#fff" loading="lazy">
 <div class="actions"><a class="button small" href="${qs(o, "pdf")}" download>Download PDF to print</a><a class="button ghost small" href="${qs(o, "png")}" download>Download picture</a></div></div>`;
     return ctx.render(
       c,
       "QR posters",
-      "/app/posters",
+      "/home/posters",
       `<p>Put these at your counter, door or window. Customers scan the code with their phone camera and a WhatsApp chat with your bot opens, with a greeting already typed.</p>
 <form method="get" class="card"><div class="row">
 <label>Language<select name="lang"><option value="en"${p.lang === "en" ? " selected" : ""}>English</option><option value="fr"${p.lang === "fr" ? " selected" : ""}>Français</option></select></label>
@@ -157,14 +157,14 @@ ${result}
     const lagos = new Date(at.getTime() + 3_600_000).toISOString();
     const thisMonth = lagos.slice(0, 7);
     const firstOfMonth = `${thisMonth}-01`;
-    const sheetUrl = info?.sheetKey ? `${ctx.deps.publicUrl}/app/sheet/${biz.id}/${info.sheetKey}.csv` : null;
+    const sheetUrl = info?.sheetKey ? `${ctx.deps.publicUrl}/home/sheet/${biz.id}/${info.sheetKey}.csv` : null;
     return ctx.render(
       c,
       "Export orders and sales",
-      "/app/export",
+      "/home/export",
       `<h2>Spreadsheet (CSV)</h2>
 <p>Every quote and order between two dates: order number, status, dates, customer, items and total. Opens in Excel, Google Sheets or Numbers.</p>
-<form method="get" action="/app/export/orders.csv" class="card"><div class="row">
+<form method="get" action="/home/export/orders.csv" class="card"><div class="row">
 <label>From<input type="date" name="from" value="${firstOfMonth}" required></label><label>To (including)<input type="date" name="to" value="${lagos.slice(0, 10)}" required></label></div>
 <div class="actions"><button>Download CSV</button></div></form>
 <h2>Google Sheets, always up to date</h2>
@@ -173,12 +173,12 @@ ${
     ? `<p>Paste this into cell A1 of a Google Sheet. The sheet then fills itself with your last 12 months of orders and refreshes about every hour.</p>
 <p class="card" style="word-break:break-all"><code>=IMPORTDATA("${esc(sheetUrl)}")</code></p>
 <p class="muted small">Anyone with this link can see your orders, so only paste it into sheets you control. If it gets out, make a new link: the old one stops working.</p>
-<form method="post" action="/app/export/new-sheet-link"><button class="ghost small">Make a new link</button></form>`
+<form method="post" action="/home/export/new-sheet-link"><button class="ghost small">Make a new link</button></form>`
     : `<p class="muted">This needs migration 0049. Ask yarnOga support.</p>`
 }
 <h2>PDF sales report</h2>
 <p>A printable report for one month: quotes, orders, money paid in and still owed, and every order.</p>
-<form method="get" action="/app/export/report.pdf" class="card"><label>Month<input type="month" name="month" value="${thisMonth}" required></label>
+<form method="get" action="/home/export/report.pdf" class="card"><label>Month<input type="month" name="month" value="${thisMonth}" required></label>
 <div class="actions"><button>Download PDF</button></div></form>`,
     );
   });
@@ -186,7 +186,7 @@ ${
   app.get("/export/orders.csv", async (c) => {
     const from = lagosMidnight(c.req.query("from") ?? "");
     const toDay = lagosMidnight(c.req.query("to") ?? "");
-    if (!from || !toDay || toDay < from) return c.redirect("/app/export?msg=bad", 303);
+    if (!from || !toDay || toDay < from) return c.redirect("/home/export?msg=bad", 303);
     const to = new Date(toDay.getTime() + 86_400_000);
     const rows = await c.get("biz").data.exportRows(from, to);
     const name = `orders-${c.req.query("from")}-to-${c.req.query("to")}.csv`;
@@ -196,7 +196,7 @@ ${
   app.get("/export/report.pdf", async (c) => {
     const month = c.req.query("month") ?? "";
     const range = lagosMonth(month);
-    if (!range) return c.redirect("/app/export?msg=bad", 303);
+    if (!range) return c.redirect("/home/export?msg=bad", 303);
     const biz = c.get("biz");
     const rows = await biz.data.exportRows(range[0], range[1]);
     const label = new Date(range[0].getTime() + 3_600_000).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -206,7 +206,7 @@ ${
 
   app.post("/export/new-sheet-link", async (c) => {
     await c.get("biz").data.newSheetKey();
-    return c.redirect("/app/export?msg=new_link", 303);
+    return c.redirect("/home/export?msg=new_link", 303);
   });
 }
 

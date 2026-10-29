@@ -31,7 +31,7 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
     const biz = c.get("biz");
     const money = (minor: number) => formatMoney(minor, biz.currency);
     if (biz.features && !(await biz.features.has("customers_page"))) {
-      return ctx.render(c, "Customers", "/app/customers", `<p>The customer list comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
+      return ctx.render(c, "Customers", "/home/customers", `<p>The customer list comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
     let list: CustomerSummary[];
@@ -39,7 +39,7 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
       list = biz.data.customers ? await biz.data.customers() : [];
     } catch (err) {
       ctx.log.error("Owner app customers:", err);
-      return ctx.render(c, "Customers", "/app/customers", `<p class="flash bad">The customer list couldn't load just now. If this is new, yarnOga support may need to finish an update (migration 0054).</p>`);
+      return ctx.render(c, "Customers", "/home/customers", `<p class="flash bad">The customer list couldn't load just now. If this is new, yarnOga support may need to finish an update (migration 0054).</p>`);
     }
     const shown = q ? list.filter((x) => (x.name ?? "").toLowerCase().includes(q) || x.waId.includes(q.replace(/\D/g, "") || "~")) : list;
     const total = list.reduce((s, x) => s + x.spentKobo, 0);
@@ -51,20 +51,20 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
       .map(
         (x) => `<tr><td><div class="who"><span class="avatar sm">${esc(x.name ? initials(x.name) : "?")}</span><div><b>${esc(x.name ?? "No name")}</b><br><span class="muted small">${esc(showWaId(x.waId))}</span></div></div></td>
 <td>${x.orders}</td><td>${money(x.spentKobo)}</td><td>${esc(when(x.lastOrderAt, now))}</td><td>${x.rating === null ? `<span class="muted">–</span>` : `${x.rating.toFixed(1)} ★`}</td>
-<td><a class="small" href="/app/inbox/${esc(x.contactId)}">Chat</a></td></tr>`,
+<td><a class="small" href="/home/inbox/${esc(x.contactId)}">Chat</a></td></tr>`,
       )
       .join("");
     return ctx.render(
       c,
       "Customers",
-      "/app/customers",
+      "/home/customers",
       `<div class="grid">
 ${stat("Customers this year", list.length.toLocaleString("en-NG"), "who confirmed an order", { icon: "users" })}
 ${stat("Came back for more", repeat.toLocaleString("en-NG"), `${list.length ? Math.round((repeat * 100) / list.length) : 0}% ordered more than once`, { icon: "orders" })}
 ${stat("Paid in by them", money(total), "in the last 12 months", { icon: "prices", glow: true })}
 </div>
 <div class="toolbar" style="margin-top:20px"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search by name or number" aria-label="Search customers"><button class="ghost">Search</button></form>
-${owner && list.length ? `<a class="button ghost" href="/app/customers.csv">Download spreadsheet</a>` : ""}</div>
+${owner && list.length ? `<a class="button ghost" href="/home/customers.csv">Download spreadsheet</a>` : ""}</div>
 <div class="scroll"><table><tr><th>Customer</th><th>Orders</th><th>Paid</th><th>Last order</th><th>Rating</th><th></th></tr>${rows || `<tr><td colspan="6" class="muted">${q ? "No customer matches that." : "No orders yet this year. Customers show here once they confirm an order."}</td></tr>`}</table></div>
 ${shown.length > 300 ? `<p class="muted small">Showing the top 300. Search to find someone else.</p>` : ""}`,
     );
@@ -74,7 +74,7 @@ ${shown.length > 300 ? `<p class="muted small">Showing the top 300. Search to fi
     const denied = await ctx.ownerOnly(c);
     if (denied) return denied;
     const biz = c.get("biz");
-    if (biz.features && !(await biz.features.has("customers_page"))) return c.redirect("/app/customers");
+    if (biz.features && !(await biz.features.has("customers_page"))) return c.redirect("/home/customers");
     const list = biz.data.customers ? await biz.data.customers() : [];
     return c.body(customersCsv(list), 200, {
       "Content-Type": "text/csv; charset=utf-8",

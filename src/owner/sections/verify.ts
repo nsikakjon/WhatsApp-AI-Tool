@@ -49,7 +49,7 @@ export function registerVerify(app: Hono<Env>, ctx: SectionContext) {
   app.use("/verify", async (c, next) => (await ctx.ownerOnly(c)) ?? next());
   app.use("/verify/*", async (c, next) => (await ctx.ownerOnly(c)) ?? next());
 
-  const off = (c: AppContext) => ctx.render(c, "Verify your business", "/app/verify", `<p>Business verification isn't switched on yet. Please ask yarnOga support.</p>`);
+  const off = (c: AppContext) => ctx.render(c, "Verify your business", "/home/verify", `<p>Business verification isn't switched on yet. Please ask yarnOga support.</p>`);
 
   app.get("/verify", async (c) => {
     const kyb = ctx.deps.verification;
@@ -81,19 +81,19 @@ export function registerVerify(app: Hono<Env>, ctx: SectionContext) {
         const mine = docs.filter((d) => d.kind === kind);
         const files = mine
           .map(
-            (d) => `<li><a href="/app/verify/doc/${d.id}" target="_blank" rel="noopener">${esc(d.fileName)}</a> <span class="muted small">${Math.max(1, Math.round(d.size / 1024))} KB</span>
-${open ? `<form method="post" action="/app/verify/doc/${d.id}/remove" style="display:inline"><button class="danger small">Remove</button></form>` : ""}</li>`,
+            (d) => `<li><a href="/home/verify/doc/${d.id}" target="_blank" rel="noopener">${esc(d.fileName)}</a> <span class="muted small">${Math.max(1, Math.round(d.size / 1024))} KB</span>
+${open ? `<form method="post" action="/home/verify/doc/${d.id}/remove" style="display:inline"><button class="danger small">Remove</button></form>` : ""}</li>`,
           )
           .join("");
         return `<div class="docrow"><div class="dochead"><b>${esc(DOC_KINDS[kind])}</b>${required.includes(kind) ? '<span class="tag amber">Required</span>' : '<span class="tag">Optional</span>'}${mine.length ? '<span class="tag lime">Uploaded</span>' : ""}</div>
 ${files ? `<ul class="files">${files}</ul>` : ""}
-${open ? `<form method="post" action="/app/verify/doc" enctype="multipart/form-data" class="upload"><input type="hidden" name="kind" value="${kind}"><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required aria-label="${esc(DOC_KINDS[kind])}"><button class="ghost small">${icon("upload", 16)}Upload</button></form>` : ""}</div>`;
+${open ? `<form method="post" action="/home/verify/doc" enctype="multipart/form-data" class="upload"><input type="hidden" name="kind" value="${kind}"><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required aria-label="${esc(DOC_KINDS[kind])}"><button class="ghost small">${icon("upload", 16)}Upload</button></form>` : ""}</div>`;
       })
       .join("");
 
     const body = `${banner}
 <h2>1. Your business</h2>
-<form method="post" action="/app/verify/details" class="card">
+<form method="post" action="/home/verify/details" class="card">
 <p class="label" style="margin-bottom:8px">What kind of business is it?</p><div class="choices">${typeOptions}</div>
 <label>Registered business name <span class="muted">(exactly as on your certificate)</span><input name="name" maxlength="120" value="${val(v.registeredName)}"${dis}></label>
 <div class="row"><label>RC or BN number <span class="muted">(not needed if not registered)</span><input name="rc" maxlength="20" value="${val(v.rcNumber)}" placeholder="e.g. RC 1234567"${dis}></label>
@@ -113,9 +113,9 @@ ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
         ? `<p class="muted" style="margin:0">Sent ${v.submittedAt ? esc(v.submittedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Lagos" })) : ""}. ${statusTag(v.status)}</p>`
         : missing.length
           ? `<p class="muted" style="margin:0 0 12px">Still needed: ${esc(missing.join(", "))}.</p><button disabled>Send for review</button>`
-          : `<p class="muted" style="margin:0 0 12px">Everything's here. By sending, you confirm these documents are genuine and belong to this business.</p><form method="post" action="/app/verify/submit"><button>${icon("shield", 18)}Send for review</button></form>`
+          : `<p class="muted" style="margin:0 0 12px">Everything's here. By sending, you confirm these documents are genuine and belong to this business.</p><form method="post" action="/home/verify/submit"><button>${icon("shield", 18)}Send for review</button></form>`
     }</div>`;
-    return ctx.render(c, "Verify your business", "/app/verify", body);
+    return ctx.render(c, "Verify your business", "/home/verify", body);
   });
 
   async function guard(c: AppContext) {
@@ -127,13 +127,13 @@ ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
 
   app.post("/verify/details", async (c) => {
     const kyb = await guard(c);
-    if (!kyb) return c.redirect("/app/verify", 303);
+    if (!kyb) return c.redirect("/home/verify", 303);
     const form = await c.req.parseBody();
     const type = TYPES.find((t) => t.id === form.type)?.id ?? null;
     const rcText = field(form, "rc", 20);
     const rc = rcText ? cleanRcNumber(rcText) : null;
     const email = field(form, "email", 120);
-    if ((rcText && !rc) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return c.redirect("/app/verify?msg=bad", 303);
+    if ((rcText && !rc) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return c.redirect("/home/verify?msg=bad", 303);
     await kyb.store.saveDetails(c.get("biz").id, {
       entityType: type,
       registeredName: field(form, "name", 120) || null,
@@ -143,28 +143,28 @@ ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
       directorName: field(form, "director", 120) || null,
       contactEmail: email || null,
     });
-    return c.redirect("/app/verify?msg=saved", 303);
+    return c.redirect("/home/verify?msg=saved", 303);
   });
 
   app.post("/verify/doc", async (c) => {
     const kyb = await guard(c);
-    if (!kyb) return c.redirect("/app/verify", 303);
+    if (!kyb) return c.redirect("/home/verify", 303);
     const form = await c.req.parseBody();
     const kind = KINDS.find((k) => k === form.kind);
     const file = form.file;
-    if (!kind || !(file instanceof File) || file.size === 0 || file.size > MAX_DOC) return c.redirect("/app/verify?msg=bad", 303);
+    if (!kind || !(file instanceof File) || file.size === 0 || file.size > MAX_DOC) return c.redirect("/home/verify?msg=bad", 303);
     const data = new Uint8Array(await file.arrayBuffer());
     const mimeType = documentType(data);
-    if (!mimeType) return c.redirect("/app/verify?msg=bad", 303);
+    if (!mimeType) return c.redirect("/home/verify?msg=bad", 303);
     const name = (file.name || "document").replace(/[^\w .()-]/g, "_").slice(0, 100);
     await kyb.store.addDoc(c.get("biz").id, kind, { name, mimeType, data });
-    return c.redirect("/app/verify?msg=added", 303);
+    return c.redirect("/home/verify?msg=added", 303);
   });
 
   app.post("/verify/doc/:id/remove", async (c) => {
     const kyb = await guard(c);
     if (kyb && UUID.test(c.req.param("id"))) await kyb.store.removeDoc(c.get("biz").id, c.req.param("id"));
-    return c.redirect("/app/verify?msg=removed", 303);
+    return c.redirect("/home/verify?msg=removed", 303);
   });
 
   app.get("/verify/doc/:id", async (c) => {
@@ -179,13 +179,13 @@ ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
 
   app.post("/verify/submit", async (c) => {
     const kyb = ctx.deps.verification;
-    if (!kyb) return c.redirect("/app/verify", 303);
+    if (!kyb) return c.redirect("/home/verify", 303);
     const biz = c.get("biz");
     const [v, docs] = await Promise.all([kyb.store.get(biz.id), kyb.store.docs(biz.id)]);
     if (missingForSubmit(v, docs).length || !(await kyb.store.submit(biz.id, `owner ${c.get("user").waId}`))) {
-      return c.redirect("/app/verify?msg=bad", 303);
+      return c.redirect("/home/verify?msg=bad", 303);
     }
     await kyb.onSubmitted?.(biz.id, biz.name).catch((err) => ctx.log.error("Couldn't tell yarnOga about a verification:", err));
-    return c.redirect("/app/verify?msg=sent_review", 303);
+    return c.redirect("/home/verify?msg=sent_review", 303);
   });
 }

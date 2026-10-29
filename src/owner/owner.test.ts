@@ -212,7 +212,7 @@ describe("owner app login", () => {
     const s = setup();
     const res = await s.app.request("/");
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/app/login");
+    expect(res.headers.get("location")).toBe("/home/login");
     expect(await (await s.app.request("/login")).text()).toContain("Send <b>app</b>");
   });
 
@@ -223,7 +223,7 @@ describe("owner app login", () => {
     // Opening the link only shows a button, so link previews can't use it up.
     expect(await (await s.app.request("/l/abc")).text()).toContain("Open my app");
     const first = await s.app.request(`https://${HOST}/l/abc`, post({}));
-    expect(first.headers.get("location")).toBe("/app");
+    expect(first.headers.get("location")).toBe("/home");
     const dash = await get(s, "/", cookieOf(first));
     expect(await dash.text()).toContain("Paid in this month");
     expect((await s.app.request(`https://${HOST}/l/abc`, post({}))).status).toBe(410);
@@ -274,7 +274,7 @@ describe("owner app pages", () => {
     const s = setup();
     const cookie = await login(s, OWNER);
     const res = await s.app.request(`https://${HOST}/orders/paid`, post({ order: order.id, number: "1002" }, cookie));
-    expect(res.headers.get("location")).toBe("/app/orders?msg=paid");
+    expect(res.headers.get("location")).toBe("/home/orders?msg=paid");
     expect(s.markPaid).toHaveBeenCalledWith(1002);
   });
 
@@ -285,7 +285,7 @@ describe("owner app pages", () => {
       `https://${HOST}/prices/new`,
       post({ name: "Flyers", description: "Glossy", o0_name: "A5", o0_min: "50", o0_f0: "", o0_p0: "₦1,500", o0_f1: "500", o0_p1: "1200.50" }, cookie),
     );
-    expect(res.headers.get("location")).toBe("/app/prices?msg=saved");
+    expect(res.headers.get("location")).toBe("/home/prices?msg=saved");
     expect(s.prices.all[0]!.options[0]).toMatchObject({
       name: "A5",
       minQuantity: 50,
@@ -317,7 +317,7 @@ describe("verify your business", () => {
     expect(s.kyb.rows.get(BIZ)).toMatchObject({ entityType: "business_name", rcNumber: "3456789" });
 
     // Sending too early is refused.
-    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/app/verify?msg=bad");
+    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/home/verify?msg=bad");
 
     const upload = (kind: string, bytes: Uint8Array, name: string) => {
       const fd = new FormData();
@@ -326,11 +326,11 @@ describe("verify your business", () => {
       return s.app.request(`https://${HOST}/verify/doc`, { method: "POST", body: fd, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
     };
     const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
-    expect((await upload("certificate", new TextEncoder().encode("<script>"), "x.pdf")).headers.get("location")).toBe("/app/verify?msg=bad");
+    expect((await upload("certificate", new TextEncoder().encode("<script>"), "x.pdf")).headers.get("location")).toBe("/home/verify?msg=bad");
     for (const kind of ["certificate", "id", "address"]) await upload(kind, pdf, `${kind}.pdf`);
     expect(s.kyb.docs).toHaveLength(3);
 
-    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/app/verify?msg=sent_review");
+    expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/home/verify?msg=sent_review");
     expect(s.onSubmitted).toHaveBeenCalledWith(BIZ, "Kahn");
     // Once sent, details can't be changed.
     await s.app.request(`https://${HOST}/verify/details`, post({ type: "company", name: "Other" }, cookie));
@@ -421,8 +421,8 @@ describe("WhatsApp side", () => {
     const users = memoryUsers();
     users.add(BIZ, STAFF, "staff", "Bola");
     const wrapped = withAppLogin(bot, { users: users.store, publicUrl: "https://app.example.com", businessFor: async () => ({ id: BIZ, ownerWaId: OWNER }) });
-    expect((await wrapped.handle(msg(OWNER, "app"), ctx))!.text).toContain("https://app.example.com/app/l/");
-    expect((await wrapped.handle(msg(STAFF, "login"), ctx))!.text).toContain("/app/l/");
+    expect((await wrapped.handle(msg(OWNER, "app"), ctx))!.text).toContain("https://app.example.com/home/l/");
+    expect((await wrapped.handle(msg(STAFF, "login"), ctx))!.text).toContain("/home/l/");
     expect((await wrapped.handle(msg("2348000000000", "app"), ctx))!.text).toBe("bot");
   });
 

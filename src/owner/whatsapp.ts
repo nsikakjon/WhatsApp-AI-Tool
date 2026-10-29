@@ -49,7 +49,7 @@ export function withAppLogin(
               await opts.users.saveToken(user.id, hash, new Date(now.getTime() + LINK_MINUTES * 60_000));
               return {
                 text: [
-                  `Here's your yarnOga app: ${opts.publicUrl}/app/l/${token}`,
+                  `Here's your yarnOga app: ${opts.publicUrl}/home/l/${token}`,
                   "",
                   `The link works once, for ${LINK_MINUTES} minutes. Don't forward it: whoever opens it is logged in as you.`,
                   "To log in without WhatsApp next time, set a password in the app under Settings.",

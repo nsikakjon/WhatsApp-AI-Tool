@@ -87,13 +87,13 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const kyb = user.role === "owner" && ctx.deps.verification ? await ctx.deps.verification.store.get(biz.id).catch(() => null) : null;
     const verifyBanner =
       kyb && kyb.status !== "approved" && kyb.status !== "submitted"
-        ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? "A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes." : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/app/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
+        ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? "A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes." : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/home/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
         : "";
 
     const body = `${verifyBanner}
 <section class="hero">
   <div><h2>${greeting}${user.name ? `, ${esc(user.name)}` : ""} 👋</h2><p>${esc(dateText)} · your bot has talked to ${n(chats.customers)} customers this month.</p></div>
-  <div class="quick"><a class="button" href="/app/prices/new">${icon("plus", 18)}Add product</a><a class="button ghost" href="/app/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/app/posters">${icon("posters", 18)}QR poster</a></div>
+  <div class="quick"><a class="button" href="/home/prices/new">${icon("plus", 18)}Add product</a><a class="button ghost" href="/home/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/home/posters">${icon("posters", 18)}QR poster</a></div>
 </section>
 
 <div class="grid">
@@ -106,7 +106,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
 
 <div class="split" style="margin-top:14px">
   <section class="card">
-    <div class="cardhead"><div><h3>Orders</h3><p class="muted small" style="margin:0">Last 14 days · ${n(twoWeeks)} orders</p></div><a href="/app/orders">Order board ${icon("arrow", 16)}</a></div>
+    <div class="cardhead"><div><h3>Orders</h3><p class="muted small" style="margin:0">Last 14 days · ${n(twoWeeks)} orders</p></div><a href="/home/orders">Order board ${icon("arrow", 16)}</a></div>
     <div class="chart" role="img" aria-label="Orders per day for the last 14 days">${chart}</div>
   </section>
   <section class="card">
@@ -121,16 +121,16 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
 
 <div class="split even" style="margin-top:14px">
   <section class="card">
-    <div class="cardhead"><h3>Needs you</h3><a href="/app/orders">Open orders ${icon("arrow", 16)}</a></div>
+    <div class="cardhead"><h3>Needs you</h3><a href="/home/orders">Open orders ${icon("arrow", 16)}</a></div>
     <div class="tiles">
-      <a class="tile" href="/app/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${money(owed)} owed` : "All paid up"}</span></a>
-      <a class="tile" href="/app/orders"><span><i class="dot lime"></i>To make</span><b>${toMake.length}</b><span>paid or in production</span></a>
-      <a class="tile" href="/app/delivery"><span><i class="dot blue"></i>On the road</span><b>${onRoad.length}</b><span>out for delivery</span></a>
-      <a class="tile" href="/app/prices"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
+      <a class="tile" href="/home/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${money(owed)} owed` : "All paid up"}</span></a>
+      <a class="tile" href="/home/orders"><span><i class="dot lime"></i>To make</span><b>${toMake.length}</b><span>paid or in production</span></a>
+      <a class="tile" href="/home/delivery"><span><i class="dot blue"></i>On the road</span><b>${onRoad.length}</b><span>out for delivery</span></a>
+      <a class="tile" href="/home/prices"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
     </div>
   </section>
   <section class="card">
-    <div class="cardhead"><h3>Best sellers this month</h3><a href="/app/prices">Price list ${icon("arrow", 16)}</a></div>
+    <div class="cardhead"><h3>Best sellers this month</h3><a href="/home/prices">Price list ${icon("arrow", 16)}</a></div>
     ${
       top.length
         ? `<ul class="rank">${top
@@ -138,17 +138,17 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
               (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${money(t.totalKobo)}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p></li>`,
             )
             .join("")}</ul>`
-        : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/app/posters">make one</a>.</p>`
+        : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/home/posters">make one</a>.</p>`
     }
   </section>
 </div>
 
 <p class="muted small" style="margin-top:14px">"Paid in" counts orders marked paid, including delivery fees. Numbers include any branches.</p>`;
-    return ctx.render(c, "Dashboard", "/app", body);
+    return ctx.render(c, "Dashboard", "/home", body);
   });
 
   app.get("/status", async (c) => {
-    if (!ctx.deps.health) return ctx.render(c, "Status", "/app/status", `<p>Status checks aren't switched on.</p>`);
+    if (!ctx.deps.health) return ctx.render(c, "Status", "/home/status", `<p>Status checks aren't switched on.</p>`);
     const r = await ctx.deps.health();
     const labels = ctx.deps.healthLabels ?? {};
     const rows = Object.entries(r.checks)
@@ -160,7 +160,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
     return ctx.render(
       c,
       "Status",
-      "/app/status",
+      "/home/status",
       `<p class="flash ${r.ok ? "good" : "bad"}">${r.ok ? "Everything is working." : "Something isn't working. yarnOga has been alerted and is on it."}</p>
 <div class="scroll"><table><tr><th>Part</th><th>State</th><th>Detail</th></tr>${rows}</table></div>
 <p class="muted small">Checked ${esc(r.checkedAt.replace("T", " ").slice(0, 16))} UTC. These are checked every 5 minutes; yarnOga gets an alert by WhatsApp and email if one stops working.</p>`,
@@ -190,7 +190,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
     return ctx.render(
       c,
       "Help and how it works",
-      "/app/help",
+      "/home/help",
       `<h2>How it works</h2>
 <ol class="steps">
 <li><b>Customers message your WhatsApp number</b>, typed or as a voice note: "500 A5 flyers, both sides".</li>
@@ -202,10 +202,10 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
 </ol>
 <h2>Getting started checklist</h2>
 <ol>
-<li><a href="/app/prices">Add your price list</a>, with photos and minimum quantities.</li>
-<li><a href="/app/settings">Add your bank account and alert numbers</a>.</li>
-<li><a href="/app/test">Test your bot</a> with the questions customers ask.</li>
-<li><a href="/app/posters">Print your QR poster</a> for the shop.</li>
+<li><a href="/home/prices">Add your price list</a>, with photos and minimum quantities.</li>
+<li><a href="/home/settings">Add your bank account and alert numbers</a>.</li>
+<li><a href="/home/test">Test your bot</a> with the questions customers ask.</li>
+<li><a href="/home/posters">Print your QR poster</a> for the shop.</li>
 </ol>
 <h2>Commands you can send the bot on WhatsApp</h2>
 <div class="scroll"><table>${commands.map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td>${esc(v)}</td></tr>`).join("")}</table></div>
@@ -213,7 +213,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
 ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}
 <h2>Get support</h2>
 <p>We usually reply within a few hours, 8am to 8pm.</p>
-<div class="actions">${wa}<a class="button ghost" href="mailto:${esc(s.email)}">Email ${esc(s.email)}</a><a class="button ghost" href="/app/status">Is everything working?</a></div>`,
+<div class="actions">${wa}<a class="button ghost" href="mailto:${esc(s.email)}">Email ${esc(s.email)}</a><a class="button ghost" href="/home/status">Is everything working?</a></div>`,
     );
   });
 }

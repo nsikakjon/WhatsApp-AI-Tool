@@ -22,7 +22,7 @@ import type { AppContext, Env, OwnerAppDeps } from "./types.js";
 export type { OwnerAppDeps, AppBusiness, BankDirectory } from "./types.js";
 export { field } from "./layout.js";
 
-// The owners' and staff web app at /app (app.yarnoga.com). Each person logs
+// The owners' and staff web app at /home (app.yarnoga.com). Each person logs
 // in (see auth.ts) and sees only their own business. Owners see everything;
 // staff see everything except Settings and Export (money, bank accounts,
 // alert numbers and the team).
@@ -74,7 +74,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     return c.html(
       bare(
         "Something went wrong",
-        `<h1>Something went wrong</h1><p>The page couldn't load just now. We've been alerted. Please try again in a minute.</p><p><a href="/app">Back to the app</a></p>`,
+        `<h1>Something went wrong</h1><p>The page couldn't load just now. We've been alerted. Please try again in a minute.</p><p><a href="/home">Back to the app</a></p>`,
       ),
       500,
     );
@@ -83,7 +83,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   async function startSession(c: AppContext, user: AppUser) {
     const expires = now().getTime() + SESSION_DAYS * 86_400_000;
     await setSignedCookie(c, COOKIE, sessionValue({ userId: user.id, expires, epoch: user.sessionEpoch }), secret, {
-      path: "/app",
+      path: "/home",
       httpOnly: true,
       secure: secure(c),
       sameSite: "Lax",
@@ -105,7 +105,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     bare(
       "Log in",
       `<h1>Log in</h1>${error ? `<p class="flash bad">${esc(error)}</p>` : ""}
-<form method="post" action="/app/login">
+<form method="post" action="/home/login">
 <label for="wa">Your WhatsApp number</label><input id="wa" name="wa" inputmode="tel" autocomplete="username" required value="${esc(waId)}" placeholder="0801 234 5678">
 <label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required>
 <div class="actions"><button>Log in</button></div></form>
@@ -142,7 +142,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     guard.succeeded(ip);
     guard.succeeded(`wa:${waId}`);
     await startSession(c, user);
-    return c.redirect("/app", 303);
+    return c.redirect("/home", 303);
   });
 
   // The link from WhatsApp. Opening it only shows a button: link previews and
@@ -151,7 +151,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     c.html(
       bare(
         "Open your app",
-        `<h1>See what you've sold today</h1><p class="muted">Orders, money in and delivered orders, all in one place.</p><form method="post" action="/app/l/${esc(c.req.param("token"))}"><button>Open my app</button></form>
+        `<h1>See what you've sold today</h1><p class="muted">Orders, money in and delivered orders, all in one place.</p><form method="post" action="/home/l/${esc(c.req.param("token"))}"><button>Open my app</button></form>
 <p class="muted small">This link works once. If it's expired, send <b>app</b> to your bot again.</p>`,
       ),
     ),
@@ -165,17 +165,17 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     if (!user || !user.active) {
       await guard.failed(ip);
       return c.html(
-        bare("Link expired", `<h1>This link has expired</h1><p>Each link works once, for 15 minutes. Send <b>app</b> to your bot on WhatsApp for a new one.</p><p><a href="/app/login">Log in with a password</a></p>`),
+        bare("Link expired", `<h1>This link has expired</h1><p>Each link works once, for 15 minutes. Send <b>app</b> to your bot on WhatsApp for a new one.</p><p><a href="/home/login">Log in with a password</a></p>`),
         410,
       );
     }
     await startSession(c, user);
-    return c.redirect("/app", 303);
+    return c.redirect("/home", 303);
   });
 
   app.post("/logout", (c) => {
-    deleteCookie(c, COOKIE, { path: "/app" });
-    return c.redirect("/app/login", 303);
+    deleteCookie(c, COOKIE, { path: "/home" });
+    return c.redirect("/home/login", 303);
   });
 
   // The Google Sheets link: a private address the sheet reads with
@@ -203,7 +203,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     const session = readSession(await getSignedCookie(c, secret, COOKIE), now().getTime());
     const user = session ? await deps.users.get(session.userId) : null;
     if (!session || !user || !user.active || user.sessionEpoch !== session.epoch) {
-      if (c.req.method === "GET") return c.redirect("/app/login", 303);
+      if (c.req.method === "GET") return c.redirect("/home/login", 303);
       return c.text("Please log in again.", 401);
     }
     const biz = await deps.business(user.businessId);
@@ -226,7 +226,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     const me = c.get("user");
     const row = target ? (await deps.users.byWaId(me.waId)).find((u) => u.id === target) : undefined;
     if (row) await startSession(c, row);
-    return c.redirect("/app", 303);
+    return c.redirect("/home", 303);
   });
 
   const ctx: SectionContext = {
@@ -257,7 +257,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     ownerOnly(c: AppContext) {
       return c.get("user").role === "owner"
         ? null
-        : ctx.render(c, "Owners only", "", `<p>Only the business owner can open this page.</p><p><a href="/app">Back to the dashboard</a></p>`);
+        : ctx.render(c, "Owners only", "", `<p>Only the business owner can open this page.</p><p><a href="/home">Back to the dashboard</a></p>`);
     },
   };
 

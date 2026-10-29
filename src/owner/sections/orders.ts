@@ -27,7 +27,7 @@ export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
     const biz = c.get("biz");
     const money = (minor: number) => formatMoney(minor, biz.currency);
     if (biz.features && !(await biz.features.has("order_board"))) {
-      return ctx.render(c, "Orders", "/app/orders", `<p>The order board comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
+      return ctx.render(c, "Orders", "/home/orders", `<p>The order board comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
     const at = ctx.now();
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
@@ -43,7 +43,7 @@ export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
       byColumn.get(col)!.push(o);
     }
     const button = (o: BoardOrder, action: string, label: string, extra = "") =>
-      `<form method="post" action="/app/orders/${action}"><input type="hidden" name="order" value="${o.id}"><input type="hidden" name="number" value="${o.orderNumber}">${extra}<button class="small${action === "paid" ? "" : " ghost"}">${label}</button></form>`;
+      `<form method="post" action="/home/orders/${action}"><input type="hidden" name="order" value="${o.id}"><input type="hidden" name="number" value="${o.orderNumber}">${extra}<button class="small${action === "paid" ? "" : " ghost"}">${label}</button></form>`;
     const who = (o: BoardOrder) => o.customerName ?? showWaId(o.customerWaId);
     const card = (o: BoardOrder, col: Column) => {
       const ref = `${biz.orderPrefix}-${o.orderNumber}`;
@@ -67,10 +67,10 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
     return ctx.render(
       c,
       "Orders",
-      "/app/orders",
+      "/home/orders",
       `<form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Find an order, customer or item" aria-label="Search orders"><button class="ghost">Search</button></form>
 <div class="board">${columns}</div>
-<p class="muted small">Orders from the last 60 days. Delivered orders stay for 7 days. "Out for delivery" and "Delivered" also follow your riders when delivery is on. Need them all? <a href="/app/export">Export</a>.</p>`,
+<p class="muted small">Orders from the last 60 days. Delivered orders stay for 7 days. "Out for delivery" and "Delivered" also follow your riders when delivery is on. Need them all? <a href="/home/export">Export</a>.</p>`,
     );
   });
 
@@ -78,18 +78,18 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
     const form = await c.req.parseBody();
     const stage: Stage | null = form.stage === "in_production" || form.stage === "delivered" ? form.stage : null;
     const order = typeof form.order === "string" && UUID.test(form.order) ? form.order : null;
-    if (!stage || !order) return c.redirect("/app/orders?msg=bad", 303);
+    if (!stage || !order) return c.redirect("/home/orders?msg=bad", 303);
     await c.get("biz").board.setStage(order, stage);
-    return c.redirect("/app/orders?msg=moved", 303);
+    return c.redirect("/home/orders?msg=moved", 303);
   });
 
   app.post("/orders/paid", async (c) => {
     const biz = c.get("biz");
     const form = await c.req.parseBody();
     const number = Number(form.number);
-    if (!biz.markPaid || !Number.isInteger(number) || number <= 0) return c.redirect("/app/orders?msg=bad", 303);
+    if (!biz.markPaid || !Number.isInteger(number) || number <= 0) return c.redirect("/home/orders?msg=bad", 303);
     const ok = await biz.markPaid(number);
     ctx.log.info(`Owner app: ${biz.orderPrefix}-${number} marked paid by ${c.get("user").role}`);
-    return c.redirect(`/app/orders?msg=${ok ? "paid" : "not_paid"}`, 303);
+    return c.redirect(`/home/orders?msg=${ok ? "paid" : "not_paid"}`, 303);
   });
 }
