@@ -145,7 +145,7 @@ async function handleMessage(
   const ctx = {
     contactId,
     history,
-    downloadMedia: (mediaId: string) => deps.whatsapp.downloadMedia(mediaId),
+    downloadMedia: (mediaId: string) => deps.whatsapp.downloadMedia(mediaId, fromNumber),
     sendLater: async (later: Reply) => {
       try {
         await sendReply(deps, msg.from, contactId, later, fromNumber, log);
@@ -386,7 +386,7 @@ async function transcribeVoiceNote(
   log: Pick<Console, "info" | "warn" | "error">,
 ): Promise<IncomingMessage> {
   try {
-    const audio = await deps.whatsapp.downloadMedia(msg.mediaId!);
+    const audio = await deps.whatsapp.downloadMedia(msg.mediaId!, msg.businessNumberId);
     const text = await deps.transcriber!.transcribe(audio.data, audio.mimeType);
     if (!text) return msg;
     await deps.store.setInboundText(msg.waMessageId, text);

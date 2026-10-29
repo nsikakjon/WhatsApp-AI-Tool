@@ -31,6 +31,39 @@ describe("WhatsApp client", () => {
     expect(captured?.url).toBe("https://graph.facebook.com/v23.0/OTHER_PNID/messages");
   });
 
+  it("sends from a connected business's number with that business's own key", async () => {
+    const used: Array<{ url: string; auth: string }> = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization!;
+      used.push({ url, auth });
+      if (auth === "Bearer WITHDRAWN") return new Response(JSON.stringify({ error: { message: "Session expired" } }), { status: 401 });
+      if (url.endsWith("/MEDIA1")) return new Response(JSON.stringify({ url: "https://lookaside.example/file", mime_type: "image/jpeg" }));
+      if (url.startsWith("https://lookaside")) return new Response("jpeg");
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.sent" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const keys: Record<string, string> = { CLIENT: "CLIENT_KEY", OLD: "WITHDRAWN" };
+    const client = createWhatsAppClient({
+      accessToken: "OURS",
+      phoneNumberId: "PNID",
+      graphApiVersion: "v23.0",
+      tokenFor: async (id) => keys[id],
+      fetch: fakeFetch,
+    });
+
+    await client.sendText("2348012345678", "Hi", "CLIENT");
+    await client.sendText("2348012345678", "Hi", "ANOTHER_OF_OURS");
+    await client.sendText("2348012345678", "Hi");
+    expect(used.map((u) => u.auth)).toEqual(["Bearer CLIENT_KEY", "Bearer OURS", "Bearer OURS"]);
+
+    used.length = 0;
+    await client.sendText("2348012345678", "Hi", "OLD");
+    expect(used.map((u) => u.auth)).toEqual(["Bearer WITHDRAWN", "Bearer OURS"]);
+
+    used.length = 0;
+    await client.downloadMedia("MEDIA1", "CLIENT");
+    expect(used.map((u) => u.auth)).toEqual(["Bearer CLIENT_KEY", "Bearer CLIENT_KEY"]);
+  });
+
   it("addresses a customer with a hidden number by their user ID", async () => {
     let sentBody: Record<string, unknown> = {};
     const fakeFetch = (async (_url: string, init: RequestInit) => {

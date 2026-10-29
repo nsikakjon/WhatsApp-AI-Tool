@@ -17,6 +17,11 @@ catalogue, groups) and the bot works alongside it.
 - Other customers' chats carry on with the bot as normal.
 - To change the 60 minutes, set `OWNER_REPLY_PAUSE_MINUTES` on Railway
   (for example `30`). `0` switches the pause off.
+- A number connected on the sign-up page sends with the key that business
+  gave us when it connected (kept in `whatsapp_connections`), so it works
+  even when the number belongs to the business's own Meta account. Our own
+  numbers keep using `WHATSAPP_ACCESS_TOKEN`. If Meta stops accepting a
+  business's key (for example they removed yarnOga), the bot tries ours.
 
 The code is ready, but it only switches on once Meta starts sending us copies
 of the messages you send from the app. That needs the steps below.
