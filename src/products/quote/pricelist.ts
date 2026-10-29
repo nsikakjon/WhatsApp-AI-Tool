@@ -19,6 +19,8 @@ export interface PriceListItem {
   minQuantity: number;
   /** Price per piece from each quantity up. Empty means the team prices it case by case. */
   tiers: PriceTier[];
+  /** The owner's other columns, e.g. "Colour: red, blue; Delivery: 2 days", for the bot to answer questions with. */
+  details?: string;
 }
 
 export interface PriceListProblem {
@@ -28,6 +30,9 @@ export interface PriceListProblem {
 }
 
 export const MAX_PRICE_ROWS = 2000;
+/** Heading of the column extra columns are written back to, and read from as they are. */
+const DETAILS_HEADING = "More details";
+const MAX_DETAILS = 300;
 /** Example price lists for owners to fill in: a CSV on the website and a Google Sheet to copy. */
 export const TEMPLATE_CSV_URL = "https://yarnoga.com/price-list-template.csv";
 export const TEMPLATE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1PXjrvzUcuafzZ4SuN0QkCRES98mv2w_gtvqp6y-XBpU/copy";
@@ -76,8 +81,15 @@ export function readPriceList(table: string[][]): { items: PriceListItem[]; prob
     return { items: [], problems: [{ line: 1, message: `The list has more than ${MAX_PRICE_ROWS} rows. Please split it up.` }] };
   }
 
-  const headings = table[0]!.map(columnFor);
+  // The first column for each of the five is used; every other column is a
+  // detail about the item (colours, sizes in stock, delivery time, ...),
+  // except extra price columns: prices only ever come from the Price column.
+  const titles = table[0]!.map((h) => h.replace(/\s+/g, " ").trim());
+  const headings = titles.map((h) => (h.toLowerCase() === DETAILS_HEADING.toLowerCase() ? null : columnFor(h)));
   const at = (col: Column) => headings.indexOf(col);
+  const extras = titles.flatMap((title, i) =>
+    title && (headings[i] === null || (headings[i] !== "price" && headings.indexOf(headings[i]!) !== i)) ? [{ title, i, asIs: title.toLowerCase() === DETAILS_HEADING.toLowerCase() }] : [],
+  );
   if (at("product") < 0 || at("price") < 0) {
     return {
       items: [],
@@ -113,10 +125,17 @@ export function readPriceList(table: string[][]): { items: PriceListItem[]; prob
       return void problems.push({ line, message: `"${priceText}" isn't a price. Write it in naira, e.g. 1500 or 1,500.50.` });
     }
 
+    const details = extras
+      .map((e) => [e, (row[e.i] ?? "").replace(/\s+/g, " ").trim()] as const)
+      .filter(([, value]) => value)
+      .map(([e, value]) => (e.asIs ? value : `${e.title}: ${value}`))
+      .join("; ")
+      .slice(0, MAX_DETAILS);
+
     const key = `${product.toLowerCase()}\u0000${option.toLowerCase()}`;
     let item = items.get(key);
     if (!item) {
-      item = { product, option, minQuantity, tiers: [], line, blankPrice: false };
+      item = { product, option, minQuantity, tiers: [], line, blankPrice: false, ...(details ? { details } : {}) };
       items.set(key, item);
     } else if (item.minQuantity !== minQuantity) {
       return void problems.push({
@@ -162,10 +181,28 @@ export function productSlug(name: string): string {
 export function priceListCsv(items: PriceListItem[]): string {
   const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const naira = (kobo: number) => formatNaira(kobo).replace(/[₦,]/g, "");
-  const rows = [["Product", "Option", "Minimum order", "From quantity", "Price (naira)"]];
+  const withDetails = items.some((i) => i.details);
+  const rows = [["Product", "Option", "Minimum order", "From quantity", "Price (naira)", ...(withDetails ? [DETAILS_HEADING] : [])]];
   for (const item of items) {
-    if (!item.tiers.length) rows.push([item.product, item.option, String(item.minQuantity), "", ""]);
-    for (const t of item.tiers) rows.push([item.product, item.option, String(item.minQuantity), String(t.minQuantity), naira(t.unitPriceKobo)]);
+    const details = withDetails ? [item.details ?? ""] : [];
+    if (!item.tiers.length) rows.push([item.product, item.option, String(item.minQuantity), "", "", ...details]);
+    item.tiers.forEach((t, n) =>
+      rows.push([item.product, item.option, String(item.minQuantity), String(t.minQuantity), naira(t.unitPriceKobo), ...(n === 0 ? details : withDetails ? [""] : [])]),
+    );
   }
   return rows.map((r) => r.map(quote).join(",")).join("\n") + "\n";
+}
+
+/** What saving `next` over `current` would do: items added, items with new prices, minimums or details, and items taken off. */
+export function compareLists(current: PriceListItem[], next: PriceListItem[]) {
+  const key = (i: PriceListItem) => `${i.product.toLowerCase()}\u0000${i.option.toLowerCase()}`;
+  const same = (a: PriceListItem, b: PriceListItem) =>
+    a.minQuantity === b.minQuantity && JSON.stringify(a.tiers) === JSON.stringify(b.tiers) && (a.details ?? "") === (b.details ?? "");
+  const before = new Map(current.map((i) => [key(i), i]));
+  const after = new Set(next.map(key));
+  return {
+    added: next.filter((i) => !before.has(key(i))).length,
+    changed: next.filter((i) => before.has(key(i)) && !same(before.get(key(i))!, i)).length,
+    removed: current.filter((i) => !after.has(key(i))),
+  };
 }

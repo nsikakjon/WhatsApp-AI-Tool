@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Product, ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
-import { AI_PER_PERSON_PER_DAY, SIGNUPS_PER_DAY, orderPrefix, withChatSignup, type Signup, type SignupStore } from "./chat-signup.js";
+import { AI_PER_PERSON_PER_DAY, SIGNUPS_PER_DAY, orderPrefix, withChatSignup, type ChatSignupOptions, type Signup, type SignupStore } from "./chat-signup.js";
 import type { PriceListDraft, PriceListDrafter } from "./drafter.js";
 import type { PriceListItem } from "./pricelist.js";
 
@@ -102,7 +102,7 @@ function ctx(history = 1, media?: { data: Blob; mimeType: string }): ProductCont
   };
 }
 
-function setUp(draft = CUPCAKES, extra: { tryBot?: (id: string, owner: string) => Promise<Product | null>; fetchSheet?: (link: string) => Promise<string> } = {}) {
+function setUp(draft = CUPCAKES, extra: Partial<ChatSignupOptions> = {}) {
   const mem = memoryStore();
   const setup = memorySetup();
   const ai = drafter(draft);
@@ -239,6 +239,20 @@ describe("chat sign-up on the quotes number", () => {
     expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);
     expect(ai.calls).toHaveLength(0);
     expect(reply.text).toContain("• Mugs: ₦2,500 each");
+  });
+
+  it("keeps a signed-up list in step with the Google Sheet it came from", async () => {
+    const remembered: Array<[string, string | null]> = [];
+    const sheets = {
+      remember: async (id: string, url: string | null) => void remembered.push([id, url]),
+      ownerCommand: async (_id: string, m: IncomingMessage) => (m.text === "refresh" ? { text: "Sheet checked." } : null),
+    };
+    const { say } = setUp(CUPCAKES, { sheets, fetchSheet: async () => "Product,Price\nMugs,2500\n" });
+    await signUpToPrices(say);
+    await say("https://docs.google.com/spreadsheets/d/abc123/edit");
+    expect((await say("yes")).text).toMatch(/check your Google Sheet every day/);
+    expect(remembered).toEqual([["biz-1", "https://docs.google.com/spreadsheets/d/abc123/edit"]]);
+    expect((await say("refresh")).text).toBe("Sheet checked.");
   });
 
   it("explains a Google Sheet that isn't shared", async () => {

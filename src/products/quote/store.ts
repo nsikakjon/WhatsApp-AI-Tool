@@ -216,7 +216,8 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
       let query = db
         .from("quote_variants")
         .select(
-          "id, name, min_quantity, quote_products!inner(name, active), quote_price_tiers(min_quantity, unit_price_kobo)",
+          // Every variant column, so details is read once migration 0040 is run.
+          "*, quote_products!inner(name, active), quote_price_tiers(min_quantity, unit_price_kobo)",
         )
         .eq("active", true)
         .eq("quote_products.active", true);
@@ -232,6 +233,7 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
           name: `${product.name}: ${row.name as string}`,
           minQuantity: row.min_quantity as number,
           tiers: tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
+          ...(row.details ? { details: row.details as string } : {}),
         };
       });
     },
@@ -440,7 +442,7 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
     async priceList(businessId) {
       const { data, error } = await db
         .from("quote_products")
-        .select("name, created_at, quote_variants(name, min_quantity, active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))")
+        .select("name, created_at, quote_variants(*, quote_price_tiers(min_quantity, unit_price_kobo))")
         .eq("business_id", businessId)
         .eq("active", true)
         .order("created_at");
@@ -452,6 +454,7 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
           min_quantity: number;
           active: boolean;
           created_at: string;
+          details?: string | null;
           quote_price_tiers: Array<{ min_quantity: number; unit_price_kobo: number | string }>;
         }>;
       };
@@ -466,6 +469,7 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
             tiers: v.quote_price_tiers
               .map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) }))
               .sort((a, b) => a.minQuantity - b.minQuantity),
+            ...(v.details ? { details: v.details } : {}),
           })),
       );
     },
@@ -478,6 +482,7 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
           product: i.product,
           option: i.option,
           minQuantity: i.minQuantity,
+          details: i.details ?? null,
           tiers: i.tiers.map((t) => ({ minQuantity: t.minQuantity, unitPriceKobo: assertKobo(t.unitPriceKobo, "price") })),
         })),
       });

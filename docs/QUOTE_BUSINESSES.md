@@ -154,6 +154,34 @@ To switch it on: run migrations `0039_quote_chat_signup.sql` and
 number's Phone number ID. The setup screen stays the place for big
 spreadsheets, bulk edits and switching businesses on.
 
+## Prices kept in step with a Google Sheet
+
+With `QUOTE_PRICE_SHEETS=true` (and migration 0040), a price list saved from a
+Google Sheet link (in the sign-up chat or on the setup screen) remembers that
+link. Once a day the server reads the sheet again. If anything changed, the
+owner gets a WhatsApp message, and nothing changes for customers until they
+say so. The owner can send:
+
+- **refresh** to check the sheet now and see what changed,
+- **update prices** to use the changes,
+- a Google Sheet link to start following that sheet,
+- **stop sync** to stop.
+
+Owners send these on their own number, or on the quotes number if theirs
+isn't connected yet. The setup screen shows which sheet a business follows,
+with a button to stop. Saving a list any other way stops following the sheet,
+since the two no longer match.
+
+The daily message is an ordinary WhatsApp message, so it only arrives if the
+owner has messaged the bot in the last 24 hours. "refresh" always works.
+
+### Extra columns
+
+Owners can add their own columns (Colour, Sizes, Delivery time, ...). Each
+item keeps them as details, and the bot uses them to answer customers'
+questions. Only the first Price column sets prices: other price columns are
+ignored, so a detail can never become a price.
+
 ## Good to know
 
 - Order numbers count up across all businesses (MC-1007 may follow KP-1006),

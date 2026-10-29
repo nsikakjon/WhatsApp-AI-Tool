@@ -9,6 +9,7 @@ import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
+import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
 import { orderPayLinks, withOrderPayments } from "./products/quote/paylinks.js";
@@ -44,7 +45,9 @@ import {
   createSupabasePlanStore,
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
-import { createSupabaseSignups, withChatSignup } from "./products/quote/chat-signup.js";
+import { createSupabaseSignups, preview, withChatSignup } from "./products/quote/chat-signup.js";
+import { checkDueSheets, createSheetSync, createSupabaseSheets } from "./products/quote/sheet-sync.js";
+import { fetchSheet } from "./core/sheets.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeature, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
@@ -272,6 +275,10 @@ async function numbersAllowed(mainId: string): Promise<number | null> {
   return (await features.has("branches")) ? features.limit("branches") : 1;
 }
 
+// Price lists kept in step with owners' Google Sheets (QUOTE_PRICE_SHEETS).
+const sheetStore = config.quotePriceSheets ? createSupabaseSheets(supabase) : undefined;
+const sheetSync = sheetStore && createSheetSync({ store: sheetStore, setup: createSupabaseSetup(supabase), fetchSheet: (link) => fetchSheet(link), preview });
+const sheetsFor = (businessId: string) => sheetSync && { ownerCommand: (msg: IncomingMessage) => sheetSync.ownerCommand(businessId, msg) };
 // The owners' and staff app (OWNER_APP, migration 0049). Its extra alert
 // numbers get a copy of every alert the bot sends the owner.
 const ownerApp = config.activeProduct === "quote" ? config.ownerApp : undefined;
@@ -381,6 +388,7 @@ if (config.activeProduct === "quote" && config.quote) {
     ),
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
+    sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
           code: config.quote.plan,
@@ -458,6 +466,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
     discounts: discountsFor(business.id),
+    sheets: sheetsFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
     payLink: payLinkFor(
       business.id,
@@ -508,6 +517,7 @@ if (chatSignup && quoteBusinesses) {
     setup: createSupabaseSetup(supabase),
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
+    sheets: sheetSync,
     // The owner's own bot with test orders kept in memory; its order alerts go to the owner.
     tryBot: async (businessId, ownerWaId) => {
       const business = await businesses.get(businessId);
@@ -986,6 +996,7 @@ const app = createApp({
         : undefined,
       draftsPerDay: config.quoteSetup.aiDraft?.perDay,
       branches: config.quoteBranches ? { limit: numbersAllowed } : undefined,
+      sheets: sheetSync && sheetStore ? { url: async (id) => (await sheetStore.sheet(id)).url, remember: sheetSync.remember } : undefined,
       payLinks: config.quotePayLinks && Boolean(config.paystack),
     }
   : undefined, delivery
@@ -1063,6 +1074,19 @@ const app = createApp({
       },
     }
   : undefined, { health, ownerApp: ownerAppDeps, compliance: complianceDeps });
+
+// Every hour, read the Google Sheets not read in the last day and tell owners about changes.
+if (sheetSync && sheetStore) {
+  runEvery(60 * 60 * 1000, () =>
+    checkDueSheets({
+      sync: sheetSync,
+      store: sheetStore,
+      now: new Date(),
+      fallbackNumberId: chatSignup?.phoneNumberId,
+      notify: (to, text, from) => sendNotice({ store, whatsapp }, { to, text }, from),
+    }),
+  );
+}
 
 // Every 5 minutes, send any daily site reports that are due.
 if (siteReporter && siteConfig) {
@@ -1334,6 +1358,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"})`,
   );
 });

@@ -13,6 +13,7 @@ import {
   type PriceListDrafter,
 } from "./drafter.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
+import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
 
@@ -46,6 +47,8 @@ export interface Signup {
   trying: boolean;
   aiDay: string | null;
   aiUsed: number;
+  /** The Google Sheet the draft came from, kept in step once saved (sheet-sync.ts). */
+  sheetUrl?: string | null;
 }
 
 export interface SignupStore {
@@ -69,6 +72,8 @@ export interface ChatSignupOptions {
   drafter: PriceListDrafter;
   /** The owner's own bot for "try", with test orders kept in memory. */
   tryBot?: (businessId: string, ownerWaId: string) => Promise<Product | null>;
+  /** Keeps saved price lists in step with the owner's Google Sheet. Off when not given. */
+  sheets?: Pick<SheetSync, "remember" | "ownerCommand">;
   /** Gets a WhatsApp message for each new sign-up (the yarnOga team). */
   alertWaId?: string;
   now?: () => Date;
@@ -127,6 +132,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
 
       if (!signup || signup.step === "done") {
         if (signup?.businessId) {
+          const sheetReply = opts.sheets ? await opts.sheets.ownerCommand(signup.businessId, msg) : null;
+          if (sheetReply) return sheetReply;
           if (SIGN_UP.test(text)) return { text: `You've already signed up as *${signup.businessName}*.\n\n${AFTER}` };
           if (TRY.test(text)) return startTrying(signup, msg);
           if (PRICES.test(text)) {
@@ -199,10 +206,10 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   async function pricesStep(signup: Signup, msg: IncomingMessage, ctx: ProductContext, text: string): Promise<Reply> {
     if (YES.test(text) && signup.draftCsv) return confirm(signup, msg.from);
 
-    const sheetLink = text.match(/https:\/\/docs\.google\.com\/spreadsheets\/\S+/)?.[0];
+    const sheetLink = text.match(SHEET_LINK)?.[0];
     if (sheetLink && sheetCsvUrl(sheetLink)) {
       try {
-        return await showDraft(msg.from, await fetchSheet(sheetLink), []);
+        return await showDraft(msg.from, await fetchSheet(sheetLink), [], sheetLink);
       } catch (err) {
         return { text: `I couldn't open that Google Sheet: ${err instanceof Error ? err.message : String(err)}.` };
       }
@@ -257,12 +264,12 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return showDraft(msg.from, csv, flags);
   }
 
-  async function showDraft(waId: string, csv: string, flags: string[]): Promise<Reply> {
+  async function showDraft(waId: string, csv: string, flags: string[], sheetUrl: string | null = null): Promise<Reply> {
     const { items, problems } = readPriceList(parseCsv(csv));
     if (!items.length && !problems.length) {
       return { text: "I didn't find any products or prices in that. Please add more detail, or send a clearer photo." };
     }
-    await opts.store.save(waId, { draftCsv: csv });
+    await opts.store.save(waId, { draftCsv: csv, ...(opts.sheets ? { sheetUrl } : {}) });
     if (problems.length) {
       const list = problems.slice(0, 5).map((p) => `• ${p.message}`).join("\n");
       return { text: `A few things need fixing before I can save this:\n${list}\n\nTell me the corrections, or send the list again.` };
@@ -283,6 +290,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
 
     if (signup.businessId) {
       await opts.setup.replacePriceList(signup.businessId, items);
+      if (opts.sheets) await opts.sheets.remember(signup.businessId, signup.sheetUrl ?? null);
       await opts.store.save(waId, { step: "done", draftCsv: null });
       return { text: `Saved. ${signup.businessName}'s bot quotes from the new prices from now on.\n\n${AFTER}` };
     }
@@ -305,10 +313,12 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     });
     await opts.store.save(waId, { businessId });
     await opts.setup.replacePriceList(businessId, items);
+    if (opts.sheets && signup.sheetUrl) await opts.sheets.remember(businessId, signup.sheetUrl);
     await opts.store.save(waId, { step: "done", draftCsv: null, signedUpAt: now() });
     return {
       text: [
         `Done! *${signup.businessName}* is set up on the yarnOga Free plan.`,
+        ...(opts.sheets && signup.sheetUrl ? ["", "I'll check your Google Sheet every day and tell you when your prices change there."] : []),
         "",
         AFTER,
         "",
@@ -426,6 +436,7 @@ type SignupRow = {
   trying: boolean;
   ai_day: string | null;
   ai_used: number;
+  sheet_url?: string | null;
 };
 
 export function createSupabaseSignups(db: SupabaseClient): SignupStore {
@@ -446,6 +457,7 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
         trying: r.trying,
         aiDay: r.ai_day,
         aiUsed: r.ai_used,
+        sheetUrl: r.sheet_url ?? null,
       };
     },
     async save(waId, c) {
@@ -461,6 +473,7 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
         ...(c.trying !== undefined ? { trying: c.trying } : {}),
         ...(c.aiDay !== undefined ? { ai_day: c.aiDay } : {}),
         ...(c.aiUsed !== undefined ? { ai_used: c.aiUsed } : {}),
+        ...(c.sheetUrl !== undefined ? { sheet_url: c.sheetUrl } : {}),
         ...(c.signedUpAt !== undefined ? { signed_up_at: c.signedUpAt.toISOString() } : {}),
       };
       const { error } = await db.from("quote_signups").upsert(row, { onConflict: "wa_id" });

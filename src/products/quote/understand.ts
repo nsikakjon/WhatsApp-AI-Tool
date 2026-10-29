@@ -26,6 +26,7 @@ export interface CatalogEntry {
   id: string;
   name: string;
   minQuantity: number;
+  details?: string;
 }
 
 export interface Understander {
@@ -58,13 +59,15 @@ export function buildSystemPrompt(
   description?: string,
   opts: { currency?: Currency; language?: Lang; about?: string | null } = {},
 ): string {
-  const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})`).join("\n");
+  const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})${c.details ? `. Details: ${c.details}` : ""}`).join("\n");
   const where = !opts.currency || opts.currency === "NGN" ? "Nigeria" : "French-speaking Africa";
   const usual = opts.language === "fr" ? "French" : "English";
   return `You work the WhatsApp line for ${businessName}, ${description?.trim() || "a business"} in ${where}. Customers message to get price quotes and place orders. Code you can't see works out every price from the business's price list, so your job is only to understand the customer.
 
 The business sells exactly these items:
 ${list}
+
+Use an item's details to answer questions about it (colours, sizes, delivery and so on), but never promise anything the details don't say.
 
 ${opts.about ? `About the business, written by the owner:
 <about>

@@ -15,7 +15,7 @@ import {
   type PriceListDrafter,
 } from "./drafter.js";
 import { PAYSTACK_SUBACCOUNT } from "./paylinks.js";
-import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
+import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, compareLists, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
 import {
   DEFAULT_BUSINESS_ID,
   NumberTakenError,
@@ -52,6 +52,8 @@ export interface QuoteSetupDeps {
    * all, itself included (null = no cap).
    */
   branches?: { limit(mainId: string): Promise<number | null> };
+  /** Google Sheet sync (QUOTE_PRICE_SHEETS): a list saved from a sheet link keeps that link. */
+  sheets?: { url(businessId: string): Promise<string | null>; remember(businessId: string, url: string | null): Promise<void> };
   /** Pay links on invoices (QUOTE_PAY_LINKS, migration 0045): each business's Paystack subaccount is set here. */
   payLinks?: boolean;
   log?: Pick<Console, "error">;
@@ -152,6 +154,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
     const business = await found(c.req.param("id"));
     if (!business) return c.notFound();
     const items = await deps.setup.priceList(business.id);
+    const sheetUrl = deps.sheets ? await deps.sheets.url(business.id) : null;
     const intro = c.req.query("new")
       ? `<p class="ok">${esc(business.name)} is set up. Now add its price list.</p>`
       : c.req.query("saved")
@@ -162,6 +165,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
         `${business.name}: price list`,
         `${intro}${items.length ? priceTable(items) : `<p class="muted">No price list yet.</p>`}
 ${items.length ? `<p><a href="/quote-setup/b/${business.id}/prices.csv">Download it as a spreadsheet (CSV)</a> to edit and upload again.</p>` : ""}
+${sheetUrl ? sheetNote(business.id, sheetUrl) : ""}
 ${deps.drafter ? draftForm(business.id, "") : ""}
 ${uploadForm(business.id, "")}`,
       ),
@@ -240,6 +244,13 @@ ${uploadForm(business.id, csv)}`,
     },
   );
 
+  app.post("/b/:id/prices/sheet/stop", async (c) => {
+    const business = await found(c.req.param("id"));
+    if (!business || !deps.sheets) return c.notFound();
+    await deps.sheets.remember(business.id, null);
+    return c.redirect(`/quote-setup/b/${business.id}/prices`, 303);
+  });
+
   app.get("/b/:id/prices.csv", async (c) => {
     const business = await found(c.req.param("id"));
     if (!business) return c.notFound();
@@ -281,6 +292,7 @@ ${changeSummary(current, items)}
 ${priceTable(items)}
 <form method="post" action="/quote-setup/b/${business.id}/prices/save">
 <textarea name="csv" hidden>${esc(priceListCsv(items))}</textarea>
+${deps.sheets && field(form, "sheet").trim() && !(form.file instanceof File && form.file.size > 0) ? `<input type="hidden" name="sheet" value="${esc(field(form, "sheet").trim())}">` : ""}
 <p><button type="submit">Save this price list</button> <a href="/quote-setup/b/${business.id}/prices">Cancel</a></p>
 </form>`,
       ),
@@ -291,11 +303,14 @@ ${priceTable(items)}
   app.post("/b/:id/prices/save", async (c) => {
     const business = await found(c.req.param("id"));
     if (!business) return c.notFound();
-    const { items, problems } = readPriceList(parseCsv(field(await c.req.parseBody(), "csv")));
+    const body = await c.req.parseBody();
+    const { items, problems } = readPriceList(parseCsv(field(body, "csv")));
     if (problems.length || !items.length) {
       return c.html(page(`${business.name}: price list`, `${problemList(problems)}${uploadForm(business.id, "")}`), 400);
     }
     await deps.setup.replacePriceList(business.id, items);
+    // A list from anywhere but a Google Sheet no longer follows the sheet.
+    if (deps.sheets) await deps.sheets.remember(business.id, field(body, "sheet").trim() || null);
     return c.redirect(`/quote-setup/b/${business.id}/prices?saved=1`, 303);
   });
 
@@ -476,6 +491,10 @@ function mainBusinessNote(b: QuoteBusiness): string {
 <p><a class="button" href="/quote-setup/b/${b.id}/prices">Price list</a> <a href="/quote-setup">Back</a></p>`;
 }
 
+function sheetNote(businessId: string, url: string): string {
+  return `<form method="post" action="/quote-setup/b/${businessId}/prices/sheet/stop" class="notice">Kept in step with <a href="${esc(url)}" target="_blank" rel="noopener">this Google Sheet</a>: it's checked every day, and the owner is told on WhatsApp to send <b>update prices</b> when it changes. <button type="submit">Stop checking</button></form>`;
+}
+
 function draftForm(businessId: string, describe: string): string {
   return `<h2>Let AI draft it</h2>
 <p>Describe what you sell with your prices, or add photos or screenshots of your price list. The AI writes it out as rows for you to check and correct. Nothing is saved until you check the list and press Save.</p>
@@ -515,15 +534,8 @@ function problemList(problems: PriceListProblem[]): string {
 
 /** "3 new, 1 changed, 2 removed", so the owner sees what saving will do. */
 function changeSummary(current: PriceListItem[], next: PriceListItem[]): string {
-  const key = (i: PriceListItem) => `${i.product.toLowerCase()}\u0000${i.option.toLowerCase()}`;
-  const same = (a: PriceListItem, b: PriceListItem) =>
-    a.minQuantity === b.minQuantity && JSON.stringify(a.tiers) === JSON.stringify(b.tiers);
-  const before = new Map(current.map((i) => [key(i), i]));
-  const after = new Set(next.map(key));
-  const added = next.filter((i) => !before.has(key(i))).length;
-  const changed = next.filter((i) => before.has(key(i)) && !same(before.get(key(i))!, i)).length;
-  const removed = current.filter((i) => !after.has(key(i)));
-  const parts = [`${added} new`, `${changed} with new prices or minimums`, `${removed.length} taken off`];
+  const { added, changed, removed } = compareLists(current, next);
+  const parts = [`${added} new`, `${changed} with new prices or details`, `${removed.length} taken off`];
   return `<p class="notice">${next.length} items: ${parts.join(", ")}.${
     removed.length ? ` Taken off: ${removed.slice(0, 10).map((i) => esc(`${i.product} (${i.option})`)).join(", ")}${removed.length > 10 ? ", ..." : ""}.` : ""
   }</p>`;

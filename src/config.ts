@@ -135,6 +135,11 @@ export interface Config {
    * Sign-up by WhatsApp chat on the yarnOga quotes number (migration 0039).
    * Only set when QUOTE_SIGNUP_PHONE_NUMBER_ID is, and needs QUOTE_MULTI_BUSINESS.
    */
+  /**
+   * Price lists kept in step with the owner's Google Sheet, checked daily
+   * (migration 0040). Off unless QUOTE_PRICE_SHEETS is true.
+   */
+  quotePriceSheets: boolean;
   quoteChatSignup?: {
     phoneNumberId: string;
     /** Gets a WhatsApp message for each new sign-up. */
@@ -404,6 +409,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
     quoteDiscountCodes: /^(true|yes|on|1)$/i.test(env.QUOTE_DISCOUNT_CODES ?? ""),
+    quotePriceSheets: /^(true|yes|on|1)$/i.test(env.QUOTE_PRICE_SHEETS ?? ""),
     quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()
       ? {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
