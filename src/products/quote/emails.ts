@@ -207,8 +207,8 @@ export function quoteEmails(appUrl: string, facts: (businessId: string) => Promi
               `${f.business} has ${f.orders} order${f.orders === 1 ? "" : "s"} so far. Here are three ways yarnOga gets the money in faster.`,
               {
                 list: [
-                  "*Mark paid.* When a customer pays, tap Mark paid on the order in your app. The receipt goes to them on WhatsApp straight away.",
-                  "*Pay links.* Add your bank account in Settings and ask us to switch on pay links. Customers get a Paystack link with the invoice and pay by card, transfer or USSD. The money goes to your account and the order is marked paid on its own.",
+                  "*Mark paid.* When a customer pays, tap Mark paid on the order in your app. The receipt goes to them on WhatsApp straight away. If they send a transfer screenshot, it comes to you with a Confirm button.",
+                  "*Pay links.* Add your bank account in Settings and ask us to switch on pay links. Customers get a Paystack link with the invoice and pay by card, transfer or USSD. The money goes to your account and the order is marked paid on its own. yarnOga keeps 2.5% of each pay-link payment, never more than ₦2,000; transfers straight to your bank carry no fee.",
                   "*Payment reminders.* If an invoice isn't paid, the bot reminds the customer for you, twice at most, politely.",
                 ],
               },
