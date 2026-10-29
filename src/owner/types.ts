@@ -83,6 +83,11 @@ export interface OwnerAppDeps {
   };
   /** The owner's email for receipts and, if they tick the box, setup tips (EMAILS_ENABLED, migration 0057). */
   emails?: import("../core/email/settings.js").EmailSettings;
+  /** The business's public shop page (QUOTE_SHOP, products/quote/shop.ts), shown on the posters page. */
+  shop?: {
+    link(businessId: string, name: string): Promise<string>;
+    rename(businessId: string, wanted: string): Promise<{ ok: true; link: string } | { ok: false; reason: "format" | "taken" }>;
+  };
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */
   botTestsPerDay?: number;
   now?: () => Date;

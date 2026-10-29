@@ -268,23 +268,43 @@ export function createCatalogue(opts: {
   }
 }
 
-/** "White, one-colour print: ₦5,000 each, ₦4,200 each from 50 (min. 10)", priced the way a quote would be. */
+export interface PriceFacts {
+  /** The price of one at the smallest quantity sold. */
+  unitKobo: number;
+  /** The cheaper price for buying in bulk, when there is one. */
+  bulk: { unitKobo: number; from: number } | null;
+  minQuantity: number;
+}
+
+/** A variant's price at its minimum and at its biggest tier, priced the way a quote would be. Null when it has no price. */
+export function priceFacts(variant: Variant): PriceFacts | null {
+  const first = quoteLine(variant, variant.minQuantity);
+  if (!first.ok) return null;
+  const top = Math.max(...variant.tiers.map((t) => t.minQuantity));
+  const bulk = top > variant.minQuantity ? quoteLine(variant, top) : null;
+  return {
+    unitKobo: first.line.unitPriceKobo,
+    bulk: bulk?.ok && bulk.line.unitPriceKobo < first.line.unitPriceKobo ? { unitKobo: bulk.line.unitPriceKobo, from: top } : null,
+    minQuantity: variant.minQuantity,
+  };
+}
+
+/** "₦5,000 each, ₦4,200 each from 50 (min. 10)" */
+export function priceText(p: PriceFacts, money: (minor: number) => string, lang: Lang): string {
+  const fr = lang === "fr";
+  return [
+    `${money(p.unitKobo)} ${fr ? "l'unité" : "each"}`,
+    p.bulk ? (fr ? `, ${money(p.bulk.unitKobo)} l'unité à partir de ${p.bulk.from}` : `, ${money(p.bulk.unitKobo)} each from ${p.bulk.from}`) : "",
+    p.minQuantity > 1 ? ` (min. ${p.minQuantity})` : "",
+  ].join("");
+}
+
+/** "White, one-colour print: ₦5,000 each, ₦4,200 each from 50 (min. 10)" */
 function priceLine(option: string, variant: Variant | undefined, money: (minor: number) => string, lang: Lang): string {
   const fr = lang === "fr";
   const label = option ? `${option[0]!.toUpperCase()}${option.slice(1)}${fr ? " : " : ": "}` : "";
-  const first = variant && quoteLine(variant, variant.minQuantity);
-  if (!variant || !first?.ok) return `• ${label}${fr ? "prix sur demande" : "price on request"}`;
-  const top = Math.max(...variant.tiers.map((t) => t.minQuantity));
-  const bulk = top > variant.minQuantity ? quoteLine(variant, top) : null;
-  return [
-    `• ${label}${money(first.line.unitPriceKobo)} ${fr ? "l'unité" : "each"}`,
-    bulk?.ok && bulk.line.unitPriceKobo < first.line.unitPriceKobo
-      ? fr
-        ? `, ${money(bulk.line.unitPriceKobo)} l'unité à partir de ${top}`
-        : `, ${money(bulk.line.unitPriceKobo)} each from ${top}`
-      : "",
-    variant.minQuantity > 1 ? ` (min. ${variant.minQuantity})` : "",
-  ].join("");
+  const facts = variant && priceFacts(variant);
+  return `• ${label}${facts ? priceText(facts, money, lang) : fr ? "prix sur demande" : "price on request"}`;
 }
 
 const FILES_BUCKET = "quote-files";

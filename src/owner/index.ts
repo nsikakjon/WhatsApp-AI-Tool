@@ -48,6 +48,9 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   send: { ok: false, text: "Sending failed. Please try again." },
   owner_only: { ok: false, text: "Only the owner can do that." },
   sent_review: { ok: true, text: "Sent. We'll review your business in 1 to 2 working days and message you on WhatsApp." },
+  shop_renamed: { ok: true, text: "Shop link changed. The old one no longer works." },
+  shop_taken: { ok: false, text: "Another business already has that shop name. Try a different one." },
+  shop_name: { ok: false, text: "Use 3 to 40 lowercase letters, numbers or dashes, e.g. mama-put." },
 };
 
 export function createOwnerApp(deps: OwnerAppDeps) {

@@ -54,6 +54,7 @@ import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./pro
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
+import { createShopLinks, createSupabaseShopProducts, createSupabaseSlugs, type ShopBusiness } from "./products/quote/shop.js";
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
@@ -278,6 +279,38 @@ const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
 const catalogueFor = (businessId: string, features?: PlanFeatures, currency?: Currency) =>
   config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features, currency }) : undefined;
 
+// Each business's public shop page (QUOTE_SHOP): "shop" sends the owner its link.
+const shopConfig = config.activeProduct === "quote" ? config.quoteShop : undefined;
+const shopSlugs = shopConfig && createSupabaseSlugs(supabase);
+const shopLinks = shopConfig && shopSlugs && createShopLinks({ publicUrl: shopConfig.publicUrl, slugs: shopSlugs });
+async function shopNumber(businessId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("quote_businesses").select("whatsapp_number").eq("id", businessId).maybeSingle();
+  if (error) throw new Error(`shop number failed: ${error.message}`);
+  return (data?.whatsapp_number as string | null) ?? null;
+}
+const shopFor = (businessId: string, name: string, lang: Lang = "en") =>
+  shopLinks && {
+    ownerCommand: (msg: IncomingMessage) =>
+      shopLinks.ownerCommand({ id: businessId, name, lang, hasNumber: async () => Boolean(await shopNumber(businessId)) }, msg),
+  };
+async function shopBusiness(id: string): Promise<ShopBusiness | null> {
+  const main = id === DEFAULT_BUSINESS_ID && config.quote;
+  const business = main ? null : quoteBusinesses ? await createSupabaseBusinesses(supabase).get(id) : null;
+  if (!main && !business) return null;
+  const catalogue = createSupabaseCatalogue(supabase, id);
+  return {
+    id,
+    name: main ? main.businessName : business!.name,
+    whatsappNumber: await shopNumber(id),
+    currency: (main ? main.currency : business!.currency) ?? "NGN",
+    lang: (main ? main.language : business!.language) ?? "en",
+    photos: async () => config.quoteCatalogue && (await onPlan({ id, branchOf: business?.branchOf }, "catalogue")),
+    products: createSupabaseShopProducts(supabase, id),
+    photo: (path) => catalogue.photo(path),
+    logo: () => createSupabaseBranding(supabase, id).logo(),
+  };
+}
+
 // Walk-in orders, pickup screens and receipt QR codes (QUOTE_WALK_IN).
 const walkInConfig = config.activeProduct === "quote" ? config.quoteWalkIn : undefined;
 const walkInLinks = walkInConfig && createWalkInLinks(config.whatsapp.appSecret, walkInConfig.publicUrl);
@@ -395,6 +428,7 @@ if (config.activeProduct === "quote" && config.quote) {
     saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(DEFAULT_BUSINESS_ID, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(DEFAULT_BUSINESS_ID),
     ordersLink: ordersLinkFor(DEFAULT_BUSINESS_ID),
+    shop: shopFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.language),
     discounts: discountsFor(DEFAULT_BUSINESS_ID),
     payLink: payLinkFor(
       DEFAULT_BUSINESS_ID,
@@ -483,6 +517,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     saveRating: ratings ? (orderNumber, waId, stars) => ratings.save(business.id, orderNumber, waId, stars) : undefined,
     optOutOfFollowUps: optOutFor(business.id),
     ordersLink: ordersLinkFor(business.id),
+    shop: shopFor(business.id, business.name, business.language),
     discounts: discountsFor(business.id),
     sheets: sheetsFor(business.id),
     referral: referrals ? () => referralReply(referrals, planId, business.name) : undefined,
@@ -814,6 +849,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         health: () => runChecks(health),
         healthLabels: health.labels,
         emails: emailSettings,
+        shop: shopLinks || undefined,
         verification: {
           store: verifications,
           // Jay hears about each business that sends its details.
@@ -1138,6 +1174,7 @@ const app = createApp({
   ownerApp: ownerAppDeps,
   compliance: complianceDeps,
   emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
+  shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
 });
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.
@@ -1464,6 +1501,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });
