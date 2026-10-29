@@ -39,6 +39,8 @@ export function lagosMonth(text: string): [Date, Date] | null {
 }
 
 export function registerTools(app: Hono<Env>, ctx: SectionContext) {
+  for (const path of ["/test", "/posters", "/posters/*"]) app.use(path, async (c, next) => (await ctx.need(c, "tools")) ?? next());
+
   // ---- Test your bot ----
   const tests = new Map<string, { day: string; count: number }>();
   const perDay = ctx.deps.botTestsPerDay ?? 60;

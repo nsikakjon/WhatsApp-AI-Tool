@@ -12,6 +12,7 @@ import { when } from "./inbox.js";
 // many orders, how much they've paid, when they last ordered and their
 // rating. Biggest spenders first, so the owner knows who to look after (and
 // who to send a broadcast to). Owners can download the list as a spreadsheet.
+// Cashiers see the list without what each customer has paid.
 
 export function customersCsv(list: CustomerSummary[]): string {
   const rows = [["Name", "WhatsApp", "Orders", "Paid", "Last order", "Rating"].join(",")];
@@ -28,6 +29,8 @@ export function customersCsv(list: CustomerSummary[]): string {
 
 export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
   app.get("/customers", async (c) => {
+    const denied = await ctx.need(c, "customers");
+    if (denied) return denied;
     const biz = c.get("biz");
     const money = (minor: number) => formatMoney(minor, biz.currency);
     if (biz.features && !(await biz.features.has("customers_page"))) {
@@ -46,11 +49,12 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
     const repeat = list.filter((x) => x.orders > 1).length;
     const now = ctx.now();
     const owner = c.get("user").role === "owner";
+    const seesMoney = ctx.can(c, "money");
     const rows = shown
       .slice(0, 300)
       .map(
         (x) => `<tr><td><div class="who"><span class="avatar sm">${esc(x.name ? initials(x.name) : "?")}</span><div><b>${esc(x.name ?? "No name")}</b><br><span class="muted small">${esc(showWaId(x.waId))}</span></div></div></td>
-<td>${x.orders}</td><td>${money(x.spentKobo)}</td><td>${esc(when(x.lastOrderAt, now))}</td><td>${x.rating === null ? `<span class="muted">–</span>` : `${x.rating.toFixed(1)} ★`}</td>
+<td>${x.orders}</td>${seesMoney ? `<td>${money(x.spentKobo)}</td>` : ""}<td>${esc(when(x.lastOrderAt, now))}</td><td>${x.rating === null ? `<span class="muted">–</span>` : `${x.rating.toFixed(1)} ★`}</td>
 <td><a class="small" href="/home/inbox/${esc(x.contactId)}">Chat</a></td></tr>`,
       )
       .join("");
@@ -61,11 +65,11 @@ export function registerCustomers(app: Hono<Env>, ctx: SectionContext) {
       `<div class="grid">
 ${stat("Customers this year", list.length.toLocaleString("en-NG"), "who confirmed an order", { icon: "users" })}
 ${stat("Came back for more", repeat.toLocaleString("en-NG"), `${list.length ? Math.round((repeat * 100) / list.length) : 0}% ordered more than once`, { icon: "orders" })}
-${stat("Paid in by them", money(total), "in the last 12 months", { icon: "prices", glow: true })}
+${seesMoney ? stat("Paid in by them", money(total), "in the last 12 months", { icon: "prices", glow: true }) : ""}
 </div>
 <div class="toolbar" style="margin-top:20px"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search by name or number" aria-label="Search customers"><button class="ghost">Search</button></form>
 ${owner && list.length ? `<a class="button ghost" href="/home/customers.csv">Download spreadsheet</a>` : ""}</div>
-<div class="scroll"><table><tr><th>Customer</th><th>Orders</th><th>Paid</th><th>Last order</th><th>Rating</th><th></th></tr>${rows || `<tr><td colspan="6" class="muted">${q ? "No customer matches that." : "No orders yet this year. Customers show here once they confirm an order."}</td></tr>`}</table></div>
+<div class="scroll"><table><tr><th>Customer</th><th>Orders</th>${seesMoney ? "<th>Paid</th>" : ""}<th>Last order</th><th>Rating</th><th></th></tr>${rows || `<tr><td colspan="${seesMoney ? 6 : 5}" class="muted">${q ? "No customer matches that." : "No orders yet this year. Customers show here once they confirm an order."}</td></tr>`}</table></div>
 ${shown.length > 300 ? `<p class="muted small">Showing the top 300. Search to find someone else.</p>` : ""}`,
     );
   });

@@ -96,6 +96,12 @@ export function isPhoto(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
 }
 
 export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
+  // Cashiers can read the list; changing it is for owners and managers.
+  const guard = async (c: AppContext, next: () => Promise<void>) =>
+    (await ctx.need(c, c.req.method === "GET" ? "see_prices" : "edit_prices")) ?? next();
+  app.use("/prices", guard);
+  app.use("/prices/*", guard);
+
   app.get("/prices", async (c) => {
     const biz = c.get("biz");
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
@@ -119,14 +125,15 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
       "Price list",
       "/home/prices",
       `<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
-<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a></div>
-<div class="cards">${cards || `<p class="muted">No products yet. <a href="/home/prices/new">Add your first one</a>.</p>`}</div>
+${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a>` : ""}</div>
+<div class="cards">${cards || `<p class="muted">No products yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices/new">Add your first one</a>.` : ""}</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
     );
   });
 
   const formPage = (c: AppContext, product: ProductRecord | null, input: ProductInput | null, problems: string[], extra: number) => {
     const biz = c.get("biz");
+    const readOnly = !ctx.can(c, "edit_prices");
     const p = input ?? product;
     const options = p?.options ?? [];
     const slots = Math.min(MAX_OPTIONS, Math.max(options.length + extra, 1));
@@ -158,7 +165,7 @@ ${product?.photoPath ? `<img class="thumb" src="/home/prices/${product.id}/photo
       product ? product.name : "Add a product",
       "/home/prices",
       `${problems.length ? `<div class="flash bad"><p><b>Please fix:</b></p><ul>${problems.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
-<form method="post" action="${action}" enctype="multipart/form-data">
+<form method="post" action="${action}" enctype="multipart/form-data"><fieldset${readOnly ? " disabled" : ""} style="border:0;padding:0;margin:0;min-width:0">
 <label for="n">Product name</label><input id="n" name="name" required maxlength="80" value="${v(p?.name)}" placeholder="e.g. Flyers">
 <label for="d">Description <span class="muted">(what it is, sizes, materials; helps customers and the AI)</span></label><textarea id="d" name="description" maxlength="600">${v(p?.description)}</textarea>
 <div class="row"><label>Category <span class="muted">(optional)</span><input name="category" maxlength="40" value="${v(p?.category)}" placeholder="e.g. Printing"></label>
@@ -166,17 +173,17 @@ ${product?.photoPath ? `<img class="thumb" src="/home/prices/${product.id}/photo
 <label>Production time <span class="muted">(days)</span><input name="lead" inputmode="numeric" value="${v(p?.leadTimeDays)}" placeholder="e.g. 2"></label></div>
 ${photo}
 <h2>Options and prices</h2>${optionRows}
-<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>
-<p class="muted small">Leave an option's prices empty if your team prices it case by case: the bot then tells the customer someone will confirm the price.</p>
-</form>
-${product ? `<form method="post" action="/home/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
+${readOnly ? `<div class="actions"><a class="button ghost" href="/home/prices">Back to the price list</a></div>` : `<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>
+<p class="muted small">Leave an option's prices empty if your team prices it case by case: the bot then tells the customer someone will confirm the price.</p>`}
+</fieldset></form>
+${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
       problems.length ? 400 : 200,
     );
   };
 
   const extraSlots = (c: AppContext) => Math.min(MAX_OPTIONS, Math.max(2, Number(c.req.query("more")) || 2));
 
-  app.get("/prices/new", (c) => formPage(c, null, null, [], extraSlots(c) + 1));
+  app.get("/prices/new", async (c) => (await ctx.need(c, "edit_prices")) ?? formPage(c, null, null, [], extraSlots(c) + 1));
 
   app.get("/prices/:id", async (c) => {
     const id = c.req.param("id");

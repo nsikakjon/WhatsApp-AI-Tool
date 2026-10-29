@@ -79,6 +79,8 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const msgPct = botMessages?.limit ? (botMessages.sent * 100) / botMessages.limit : 0;
     const bestTotal = Math.max(1, ...top.map((t) => t.totalKobo));
     const user = c.get("user");
+    // Cashiers and riders see the orders, not the takings.
+    const seesMoney = ctx.can(c, "money");
     const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Africa/Lagos" }).format(at));
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const dateText = at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Lagos" });
@@ -93,12 +95,12 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const body = `${verifyBanner}
 <section class="hero">
   <div><h2>${greeting}${user.name ? `, ${esc(user.name)}` : ""} 👋</h2><p>${esc(dateText)} · your bot has talked to ${n(chats.customers)} customers this month.</p></div>
-  <div class="quick"><a class="button" href="/home/prices/new">${icon("plus", 18)}Add product</a><a class="button ghost" href="/home/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/home/posters">${icon("posters", 18)}QR poster</a></div>
+  <div class="quick">${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add product</a>` : ""}${ctx.can(c, "tools") ? `<a class="button ghost" href="/home/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/home/posters">${icon("posters", 18)}QR poster</a>` : `<a class="button" href="/home/orders">${icon("orders", 18)}Orders</a>`}</div>
 </section>
 
 <div class="grid">
-${stat("Paid in this month", money(now.paidInKobo), `vs ${money(before.paidInKobo)} last month`, { change: pct(now.paidInKobo, before.paidInKobo), glow: true, icon: "prices" })}
-${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), icon: "orders" })}
+${seesMoney ? stat("Paid in this month", money(now.paidInKobo), `vs ${money(before.paidInKobo)} last month`, { change: pct(now.paidInKobo, before.paidInKobo), glow: true, icon: "prices" }) : ""}
+${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), glow: !seesMoney, icon: "orders" })}
 ${stat("Quotes sent", n(now.quotes), `${conversion}% became orders`, { icon: "export" })}
 ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · ${n(chats.outbound)} out`, { icon: "inbox" })}
 ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} / 5`, `${n(rated.count)} rating${rated.count === 1 ? "" : "s"} in 30 days${rated.bad ? ` · ${n(rated.bad)} not good` : ""}`, { icon: "star" }) : ""}
@@ -109,41 +111,41 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
     <div class="cardhead"><div><h3>Orders</h3><p class="muted small" style="margin:0">Last 14 days · ${n(twoWeeks)} orders</p></div><a href="/home/orders">Order board ${icon("arrow", 16)}</a></div>
     <div class="chart" role="img" aria-label="Orders per day for the last 14 days">${chart}</div>
   </section>
-  <section class="card">
+  ${seesMoney ? `<section class="card">
     <div class="cardhead"><h3>Plan usage this month</h3>${aiLimit != null ? `<span class="tag lime">${esc((await biz.features?.planCode().catch(() => null)) ?? "")}</span>` : ""}</div>
     <div class="rings">
       ${ring(aiPct, ai == null ? "–" : n(ai), aiLimit != null ? `of ${n(aiLimit)} AI replies` : "AI replies")}
       ${botMessages ? ring(msgPct, n(botMessages.sent), botMessages.limit != null ? `of ${n(botMessages.limit)} messages` : "bot messages") : ring(conversion, `${conversion}%`, "quotes to orders")}
     </div>
     <p class="muted small" style="margin:14px 0 0">Each customer message the AI reads counts as one AI reply.</p>
-  </section>
+  </section>` : ""}
 </div>
 
 <div class="split even" style="margin-top:14px">
   <section class="card">
     <div class="cardhead"><h3>Needs you</h3><a href="/home/orders">Open orders ${icon("arrow", 16)}</a></div>
     <div class="tiles">
-      <a class="tile" href="/home/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${owed ? `${money(owed)} owed` : "All paid up"}</span></a>
+      <a class="tile" href="/home/orders"><span><i class="dot amber"></i>Waiting for payment</span><b>${waiting.length}</b><span>${!owed ? "All paid up" : seesMoney ? `${money(owed)} owed` : "to collect"}</span></a>
       <a class="tile" href="/home/orders"><span><i class="dot lime"></i>To make</span><b>${toMake.length}</b><span>paid or in production</span></a>
       <a class="tile" href="/home/delivery"><span><i class="dot blue"></i>On the road</span><b>${onRoad.length}</b><span>out for delivery</span></a>
-      <a class="tile" href="/home/prices"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
+      <a class="tile" href="${ctx.can(c, "see_prices") ? "/home/prices" : "/home"}"><span><i class="dot red"></i>Running low</span><b>${low.length}</b><span>${low.length ? esc(low[0]!) : "Stock looks fine"}</span></a>
     </div>
   </section>
   <section class="card">
-    <div class="cardhead"><h3>Best sellers this month</h3><a href="/home/prices">Price list ${icon("arrow", 16)}</a></div>
+    <div class="cardhead"><h3>Best sellers this month</h3>${ctx.can(c, "see_prices") ? `<a href="/home/prices">Price list ${icon("arrow", 16)}</a>` : ""}</div>
     ${
       top.length
         ? `<ul class="rank">${top
             .map(
-              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${money(t.totalKobo)}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p></li>`,
+              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${seesMoney ? money(t.totalKobo) : `${n(t.quantity)} pieces`}</span></div><div class="meter"><span style="width:${Math.round((t.totalKobo * 100) / bestTotal)}%"></span></div>${seesMoney ? `<p class="muted small" style="margin:4px 0 0">${n(t.quantity)} pieces</p>` : ""}</li>`,
             )
             .join("")}</ul>`
-        : `<p class="muted">No orders yet this month. Share your QR poster to get customers chatting: <a href="/home/posters">make one</a>.</p>`
+        : `<p class="muted">No orders yet this month.${ctx.can(c, "tools") ? ` Share your QR poster to get customers chatting: <a href="/home/posters">make one</a>.` : ""}</p>`
     }
   </section>
 </div>
 
-<p class="muted small" style="margin-top:14px">"Paid in" counts orders marked paid, including delivery fees. Numbers include any branches.</p>`;
+<p class="muted small" style="margin-top:14px">${seesMoney ? `"Paid in" counts orders marked paid, including delivery fees. ` : ""}Numbers include any branches.</p>`;
     return ctx.render(c, "Dashboard", "/home", body);
   });
 
@@ -184,7 +186,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
       ["A customer wants to talk to a person", "Open the chat in the Inbox and press Take over. The bot stays quiet in that chat until you press Hand back. Replying from the WhatsApp Business app also pauses the bot for an hour."],
       ["How do customers pay?", "By transfer to the bank account printed on their invoice (Settings > Bank accounts), or by card through a pay link if online payments are on for your business. Mark transfers paid in Orders."],
       ["Why didn't a customer get my reply?", "WhatsApp only delivers ordinary messages within 24 hours of the customer's last message. After that, wait for them to write again."],
-      ["Who can see my app?", "Only people you add under Settings > Team, and you. Staff can't see bank accounts, exports or settings."],
+      ["Who can see my app?", "Only you and the people you add under Settings > Team. Each gets a role: a manager sees everything except Settings, Export and Verify business; a cashier sees chats, orders and customers but not takings or totals; a rider sees only orders and deliveries."],
       ["How do I change prices?", "Price list > open the product > change the price > Save. Customers get the new price straight away."],
     ];
     return ctx.render(

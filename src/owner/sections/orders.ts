@@ -10,7 +10,8 @@ import { when } from "./inbox.js";
 // The order board: every confirmed order of the last 60 days in five columns,
 // New > Paid > In production > Out for delivery > Delivered. From here the
 // owner or staff mark an order paid (the customer gets their receipt), start
-// production, or mark it delivered.
+// production, or mark it delivered. Cashiers and riders see each order's
+// price but not the column totals; riders can't mark orders paid.
 
 const COLUMNS: Array<{ id: Column; title: string; dot: string }> = [
   { id: "new", title: "Awaiting payment", dot: "amber" },
@@ -42,13 +43,15 @@ export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
       if (col === "delivered" && at.getTime() - o.movedAt.getTime() > 7 * DAY) continue;
       byColumn.get(col)!.push(o);
     }
+    const seesMoney = ctx.can(c, "money");
+    const takesPayment = ctx.can(c, "take_payment") && !!biz.markPaid;
     const button = (o: BoardOrder, action: string, label: string, extra = "") =>
       `<form method="post" action="/home/orders/${action}"><input type="hidden" name="order" value="${o.id}"><input type="hidden" name="number" value="${o.orderNumber}">${extra}<button class="small${action === "paid" ? "" : " ghost"}">${label}</button></form>`;
     const who = (o: BoardOrder) => o.customerName ?? showWaId(o.customerWaId);
     const card = (o: BoardOrder, col: Column) => {
       const ref = `${biz.orderPrefix}-${o.orderNumber}`;
       const actions = [
-        col === "new" && biz.markPaid ? button(o, "paid", "Mark paid") : "",
+        col === "new" && takesPayment ? button(o, "paid", "Mark paid") : "",
         col === "new" || col === "paid" ? button(o, "move", "Start production", `<input type="hidden" name="stage" value="in_production">`) : "",
         col !== "delivered" && col !== "out_for_delivery" ? button(o, "move", "Delivered", `<input type="hidden" name="stage" value="delivered">`) : "",
       ].join("");
@@ -60,7 +63,7 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
     const columns = COLUMNS.map((x) => {
       const list = byColumn.get(x.id)!;
       const total = list.reduce((s, o) => s + o.totalKobo, 0);
-      return `<section class="column"><h3><span><i class="dot ${x.dot}"></i>${x.title}</span><span class="count">${list.length}</span></h3><p class="muted small">${money(total)}</p><ul>${
+      return `<section class="column"><h3><span><i class="dot ${x.dot}"></i>${x.title}</span><span class="count">${list.length}</span></h3>${seesMoney ? `<p class="muted small">${money(total)}</p>` : ""}<ul>${
         list.map((o) => card(o, x.id)).join("") || `<li class="muted small">Nothing here</li>`
       }</ul></section>`;
     }).join("");
@@ -70,7 +73,7 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
       "/home/orders",
       `<form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Find an order, customer or item" aria-label="Search orders"><button class="ghost">Search</button></form>
 <div class="board">${columns}</div>
-<p class="muted small">Orders from the last 60 days. Delivered orders stay for 7 days. "Out for delivery" and "Delivered" also follow your riders when delivery is on. Need them all? <a href="/home/export">Export</a>.</p>`,
+<p class="muted small">Orders from the last 60 days. Delivered orders stay for 7 days. "Out for delivery" and "Delivered" also follow your riders when delivery is on.${c.get("user").role === "owner" ? ` Need them all? <a href="/home/export">Export</a>.` : ""}</p>`,
     );
   });
 
@@ -84,6 +87,8 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
   });
 
   app.post("/orders/paid", async (c) => {
+    const denied = await ctx.need(c, "take_payment");
+    if (denied) return denied;
     const biz = c.get("biz");
     const form = await c.req.parseBody();
     const number = Number(form.number);

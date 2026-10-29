@@ -5,11 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertKobo } from "../core/money.js";
 import { productSlug } from "../products/quote/pricelist.js";
 import type { PriceTier } from "../products/quote/pricing.js";
+import { toRole, type Role, type StaffRole } from "./roles.js";
 
 // What the owner app reads and writes (migration 0049, plus the quote bot's
 // own tables). Kept behind interfaces so tests use in-memory versions.
 
-export type Role = "owner" | "staff";
+export type { Role } from "./roles.js";
 
 export interface AppUser {
   id: string;
@@ -30,7 +31,9 @@ export interface UserStore {
   /** The owner's row, made the first time (or switched back on, as owner). */
   ensureOwner(businessId: string, waId: string): Promise<AppUser>;
   team(businessId: string): Promise<AppUser[]>;
-  addStaff(businessId: string, waId: string, name: string): Promise<AppUser>;
+  addStaff(businessId: string, waId: string, name: string, role: StaffRole): Promise<AppUser>;
+  /** Gives a staff member another role (never the owner's row). It counts from their next page. */
+  setRole(businessId: string, userId: string, role: StaffRole): Promise<void>;
   /** Switches a staff member off; their logins stop working at once. */
   removeStaff(businessId: string, userId: string): Promise<void>;
   /** Sets the password on every row for this number and logs out their other logins. */
@@ -229,7 +232,7 @@ type UserRow = {
   business_id: string;
   wa_id: string;
   name: string | null;
-  role: Role;
+  role: string;
   password_hash: string | null;
   session_epoch: number;
   active: boolean;
@@ -241,7 +244,7 @@ const toUser = (r: UserRow): AppUser => ({
   businessId: r.business_id,
   waId: r.wa_id,
   name: r.name,
-  role: r.role,
+  role: toRole(r.role),
   passwordHash: r.password_hash,
   sessionEpoch: r.session_epoch,
   active: r.active,
@@ -283,13 +286,17 @@ export function createSupabaseUsers(db: SupabaseClient): UserStore {
       const { data, error } = await db.from("app_users").select(USER_COLUMNS).eq("business_id", businessId).eq("active", true).order("created_at");
       return (one(data, error, "team") ?? []).map((r) => toUser(r as UserRow));
     },
-    async addStaff(businessId, waId, name) {
+    async addStaff(businessId, waId, name, role) {
       const { data, error } = await db
         .from("app_users")
-        .upsert({ business_id: businessId, wa_id: waId, name, role: "staff", active: true }, { onConflict: "business_id,wa_id" })
+        .upsert({ business_id: businessId, wa_id: waId, name, role, active: true }, { onConflict: "business_id,wa_id" })
         .select(USER_COLUMNS)
         .single();
       return toUser(one(data, error, "addStaff") as UserRow);
+    },
+    async setRole(businessId, userId, role) {
+      const { error } = await db.from("app_users").update({ role }).eq("id", userId).eq("business_id", businessId).neq("role", "owner");
+      if (error) throw new Error(`setRole failed: ${error.message}`);
     },
     async removeStaff(businessId, userId) {
       const { data, error } = await db
@@ -297,7 +304,7 @@ export function createSupabaseUsers(db: SupabaseClient): UserStore {
         .select("id")
         .eq("id", userId)
         .eq("business_id", businessId)
-        .eq("role", "staff")
+        .neq("role", "owner")
         .maybeSingle();
       if (!one(data, error, "removeStaff")) return;
       await bump("id", userId, { active: false });

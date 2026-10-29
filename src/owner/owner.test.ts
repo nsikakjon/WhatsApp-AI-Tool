@@ -14,6 +14,7 @@ import type { AppUser, BusinessData, ExportRow, PriceStore, ProductRecord, UserS
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
 import { memoryVerifications } from "../compliance/memory.js";
+import { can, toRole, type Role } from "./roles.js";
 
 const BIZ = "11111111-1111-1111-1111-111111111111";
 const OWNER = "2348011111111";
@@ -48,12 +49,16 @@ function memoryUsers() {
     async team(businessId) {
       return [...users.values()].filter((u) => u.businessId === businessId && u.active);
     },
-    async addStaff(businessId, waId, name) {
-      return add(businessId, waId, "staff", name);
+    async addStaff(businessId, waId, name, role) {
+      return add(businessId, waId, role, name);
+    },
+    async setRole(businessId, userId, role) {
+      const u = users.get(userId);
+      if (u && u.businessId === businessId && u.role !== "owner") u.role = role;
     },
     async removeStaff(businessId, userId) {
       const u = users.get(userId);
-      if (u && u.businessId === businessId && u.role === "staff") Object.assign(u, { active: false, sessionEpoch: u.sessionEpoch + 1 });
+      if (u && u.businessId === businessId && u.role !== "owner") Object.assign(u, { active: false, sessionEpoch: u.sessionEpoch + 1 });
     },
     async setPassword(waId, hash) {
       for (const u of users.values()) if (u.waId === waId) Object.assign(u, { passwordHash: hash, sessionEpoch: u.sessionEpoch + 1 });
@@ -198,8 +203,8 @@ const post = (form: Record<string, string>, cookie = "") => ({
 const cookieOf = (res: Response) => (res.headers.get("set-cookie") ?? "").split(";")[0]!;
 
 /** Logs in through a WhatsApp link and returns the cookie. */
-async function login(s: ReturnType<typeof setup>, waId: string, role: "owner" | "staff" = "owner") {
-  const user = role === "owner" ? await s.users.store.ensureOwner(BIZ, waId) : await s.users.store.addStaff(BIZ, waId, "Bola");
+async function login(s: ReturnType<typeof setup>, waId: string, role: Role = "owner") {
+  const user = role === "owner" ? await s.users.store.ensureOwner(BIZ, waId) : await s.users.store.addStaff(BIZ, waId, "Bola", role);
   await s.users.store.saveToken(user.id, hashToken("tok-" + waId), new Date(Date.now() + 60_000));
   const res = await s.app.request(`https://${HOST}/l/tok-${waId}`, post({}));
   expect(res.status).toBe(303);
@@ -264,7 +269,7 @@ describe("owner app login", () => {
 describe("owner app pages", () => {
   it("shows staff the inbox and orders but not settings or exports", async () => {
     const s = setup();
-    const cookie = await login(s, STAFF, "staff");
+    const cookie = await login(s, STAFF, "manager");
     expect(await (await get(s, "/orders", cookie)).text()).toContain("KP-1002");
     expect(await (await get(s, "/settings", cookie)).text()).toContain("Only the business owner");
     expect(await (await get(s, "/export", cookie)).text()).toContain("Only the business owner");
@@ -308,6 +313,90 @@ describe("owner app pages", () => {
   });
 });
 
+describe("staff roles", () => {
+  it("lets a manager run the shop and see the takings, but not settings", async () => {
+    const s = setup();
+    const cookie = await login(s, STAFF, "manager");
+    const dash = await (await get(s, "/", cookie)).text();
+    expect(dash).toContain("Paid in this month");
+    expect(dash).toContain("Bola · Manager");
+    expect(await (await get(s, "/prices/new", cookie)).text()).toContain("Product name");
+    expect(await (await get(s, "/settings", cookie)).text()).toContain("Only the business owner");
+  });
+
+  it("shows a cashier orders and chats with each order's price, but no takings or totals", async () => {
+    const s = setup();
+    const cookie = await login(s, STAFF, "cashier");
+    const dash = await (await get(s, "/", cookie)).text();
+    expect(dash).not.toContain("Paid in this month");
+    expect(dash).not.toContain("₦12,500.50"); // the best seller's total
+    expect(dash).not.toContain("Settings");
+    const board = await (await get(s, "/orders", cookie)).text();
+    expect(board).toContain("KP-1002");
+    expect(board).toContain("₦12,500"); // the order's own price
+    expect(board).toContain("Mark paid");
+    expect(board).not.toContain("Export");
+    const res = await s.app.request(`https://${HOST}/orders/paid`, post({ order: order.id, number: "1002" }, cookie));
+    expect(res.headers.get("location")).toBe("/home/orders?msg=paid");
+    expect(await (await get(s, "/inbox", cookie)).text()).not.toContain("Not for your role");
+  });
+
+  it("lets a cashier read the price list but not change it", async () => {
+    const s = setup();
+    const owner = await login(s, OWNER);
+    await s.app.request(`https://${HOST}/prices/new`, post({ name: "Flyers", o0_name: "A5", o0_min: "50", o0_p0: "1500" }, owner));
+    const id = s.prices.all[0]!.id;
+    const cookie = await login(s, STAFF, "cashier");
+    const list = await (await get(s, "/prices", cookie)).text();
+    expect(list).toContain("Flyers");
+    expect(list).not.toContain("Add a product");
+    expect(await (await get(s, `/prices/${id}`, cookie)).text()).toContain("<fieldset disabled");
+    expect(await (await get(s, "/prices/new", cookie)).text()).toContain("Not for your role");
+    const res = await s.app.request(`https://${HOST}/prices/${id}`, post({ name: "Free flyers", o0_name: "A5", o0_min: "50", o0_p0: "1" }, cookie));
+    expect(res.headers.get("location")).toBe("/home?msg=not_allowed");
+    expect(s.prices.all[0]!.name).toBe("Flyers");
+  });
+
+  it("shows a rider the order board and deliveries only", async () => {
+    const s = setup();
+    const cookie = await login(s, STAFF, "rider");
+    const board = await (await get(s, "/orders", cookie)).text();
+    expect(board).toContain("KP-1002");
+    expect(board).not.toContain("Mark paid");
+    expect(board).not.toContain(`href="/home/inbox"`);
+    for (const path of ["/inbox", "/customers", "/prices", "/test", "/posters"]) {
+      expect(await (await get(s, path, cookie)).text()).toContain("Not for your role");
+    }
+    const res = await s.app.request(`https://${HOST}/orders/paid`, post({ order: order.id, number: "1002" }, cookie));
+    expect(res.headers.get("location")).toBe("/home?msg=not_allowed");
+    expect(s.markPaid).not.toHaveBeenCalled();
+  });
+
+  it("lets the owner add staff with a role and change it, and never demotes the owner", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    await s.app.request(`https://${HOST}/settings/team`, post({ name: "Musa", wa: "0803 333 3333", role: "rider" }, cookie));
+    const musa = (await s.users.store.team(BIZ)).find((u) => u.name === "Musa")!;
+    expect(musa.role).toBe("rider");
+    await s.app.request(`https://${HOST}/settings/team/${musa.id}/role`, post({ role: "cashier" }, cookie));
+    expect(musa.role).toBe("cashier");
+    expect((await s.app.request(`https://${HOST}/settings/team`, post({ name: "Me", wa: OWNER, role: "rider" }, cookie))).headers.get("location")).toBe("/home/settings?msg=is_owner#team");
+    expect((await s.app.request(`https://${HOST}/settings/team`, post({ name: "X", wa: "0804 444 4444", role: "owner" }, cookie))).headers.get("location")).toBe("/home/settings?msg=bad#team");
+    const me = (await s.users.store.team(BIZ)).find((u) => u.waId === OWNER)!;
+    await s.app.request(`https://${HOST}/settings/team/${me.id}/role`, post({ role: "rider" }, cookie));
+    expect(me.role).toBe("owner");
+    expect(await (await get(s, "/settings", cookie)).text()).toContain('<option value="cashier" selected>Cashier</option>');
+  });
+
+  it("reads old staff rows as managers, and anything unknown as the least access", () => {
+    expect(toRole("staff")).toBe("manager");
+    expect(toRole("cashier")).toBe("cashier");
+    expect(toRole("boss")).toBe("rider");
+    expect(can("cashier", "money")).toBe(false);
+    expect(can("manager", "money")).toBe(true);
+  });
+});
+
 describe("verify your business", () => {
   it("takes details and real documents, sends once everything is there, then locks", async () => {
     const s = setup();
@@ -339,7 +428,7 @@ describe("verify your business", () => {
 
   it("is for owners only", async () => {
     const s = setup();
-    const cookie = await login(s, STAFF, "staff");
+    const cookie = await login(s, STAFF, "manager");
     expect(await (await get(s, "/verify", cookie)).text()).toContain("Only the business owner");
   });
 });
@@ -419,7 +508,7 @@ describe("WhatsApp side", () => {
 
   it("gives the owner and staff a login link, and anyone else the normal bot", async () => {
     const users = memoryUsers();
-    users.add(BIZ, STAFF, "staff", "Bola");
+    users.add(BIZ, STAFF, "cashier", "Bola");
     const wrapped = withAppLogin(bot, { users: users.store, publicUrl: "https://app.example.com", businessFor: async () => ({ id: BIZ, ownerWaId: OWNER }) });
     expect((await wrapped.handle(msg(OWNER, "app"), ctx))!.text).toContain("https://app.example.com/home/l/");
     expect((await wrapped.handle(msg(STAFF, "login"), ctx))!.text).toContain("/home/l/");

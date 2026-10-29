@@ -16,6 +16,7 @@ import { registerDelivery } from "./sections/delivery.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTools } from "./sections/tools.js";
 import { registerVerify } from "./sections/verify.js";
+import { can, ROLE_LABEL, type Permission } from "./roles.js";
 import type { AppUser } from "./store.js";
 import type { AppContext, Env, OwnerAppDeps } from "./types.js";
 
@@ -24,8 +25,7 @@ export { field } from "./layout.js";
 
 // The owners' and staff web app at /home (app.yarnoga.com). Each person logs
 // in (see auth.ts) and sees only their own business. Owners see everything;
-// staff see everything except Settings and Export (money, bank accounts,
-// alert numbers and the team).
+// what staff see depends on the role the owner gave them (roles.ts).
 
 const COOKIE = "yarnoga_app";
 
@@ -47,6 +47,9 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   window: { ok: false, text: "WhatsApp won't deliver this: the customer last wrote more than a day ago." },
   send: { ok: false, text: "Sending failed. Please try again." },
   owner_only: { ok: false, text: "Only the owner can do that." },
+  not_allowed: { ok: false, text: "Your role doesn't include that. Ask the owner if you need it." },
+  is_owner: { ok: false, text: "That's the owner's number. The owner already sees everything." },
+  roles_update: { ok: false, text: "That couldn't be saved. If roles are new for your business, yarnOga support needs to finish an update (migration 0058)." },
   sent_review: { ok: true, text: "Sent. We'll review your business in 1 to 2 working days and message you on WhatsApp." },
   shop_renamed: { ok: true, text: "Shop link changed. The old one no longer works." },
   shop_taken: { ok: false, text: "Another business already has that shop name. Try a different one." },
@@ -248,7 +251,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             title,
             active,
             businessName: c.get("biz").name,
-            userName: user.name ?? (user.role === "owner" ? "Owner" : "Staff"),
+            userName: user.name ?? ROLE_LABEL[user.role],
             role: user.role,
             others: c.get("others"),
             flash,
@@ -263,6 +266,12 @@ export function createOwnerApp(deps: OwnerAppDeps) {
       return c.get("user").role === "owner"
         ? null
         : ctx.render(c, "Owners only", "", `<p>Only the business owner can open this page.</p><p><a href="/home">Back to the dashboard</a></p>`);
+    },
+    can: (c, permission) => can(c.get("user").role, permission),
+    need(c: AppContext, permission: Permission) {
+      if (can(c.get("user").role, permission)) return null;
+      if (c.req.method !== "GET") return c.redirect("/home?msg=not_allowed", 303);
+      return ctx.render(c, "Not for your role", "", `<p>Your role (${ROLE_LABEL[c.get("user").role]}) doesn't include this page. Ask the owner if you need it.</p><p><a href="/home">Back to the dashboard</a></p>`);
     },
   };
 
@@ -285,6 +294,10 @@ export type SectionContext = {
   log: Pick<Console, "info" | "warn" | "error">;
   render(c: AppContext, title: string, active: string, body: string, status?: 200 | 400 | 404): Response | Promise<Response>;
   ownerOnly(c: AppContext): Response | Promise<Response> | null;
+  /** Whether the person logged in has this permission (roles.ts). */
+  can(c: AppContext, permission: Permission): boolean;
+  /** Null when allowed; otherwise a "not for your role" page (or, for a form, a redirect). */
+  need(c: AppContext, permission: Permission): Response | Promise<Response> | null;
   /** Gives this browser a fresh login (after the person's session epoch changed). */
   relogin(c: AppContext, user: AppUser): Promise<void>;
 };
