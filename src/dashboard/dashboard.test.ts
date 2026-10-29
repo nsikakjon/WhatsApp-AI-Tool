@@ -92,7 +92,7 @@ describe("dashboard page", () => {
     const res = await app.request("/", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain("yarn<b>Oga</b> dashboard");
+    expect(html).toContain("yarn<b>Oga</b> analytics");
     expect(html).toContain("₦12,500");
     expect(html).toContain("₦4,500/mo");
   });

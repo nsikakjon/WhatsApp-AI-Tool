@@ -1,11 +1,12 @@
+import { mark } from "../core/brand.js";
 import { formatNaira } from "../core/money.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import type { SocialAccount } from "./socials.js";
 import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
 import type { WebsiteStats } from "./visits.js";
 
-// The owner's dashboard as one self-contained HTML page (no outside scripts,
-// fonts or images), so it loads fast on a phone and nothing leaks to other sites.
+// The owner's dashboard as one HTML page in the yarnOga look. No scripts and no
+// outside images; only the brand fonts come from Google Fonts.
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
@@ -38,8 +39,9 @@ function shortDay(isoDate: string): string {
   return new Date(`${isoDate}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
-function tile(label: string, value: string, note = ""): string {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
+/** look: "glow" for the headline number, "loss" for money going the wrong way. */
+function tile(label: string, value: string, note = "", look: "" | "glow" | "loss" = ""): string {
+  return `<div class="tile${look ? ` ${look}` : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
     note ? `<div class="note">${esc(note)}</div>` : ""
   }</div>`;
 }
@@ -61,16 +63,16 @@ function sentTable(rows: NumberUse[] | null): string {
   return `<p class="intro">Messages each number sent this month. Meta charges for each one past the first ${num(META_FREE_MESSAGES)} on a number.</p><table class="plans wide"><thead><tr><th>Number</th><th>Sent</th><th>Past the free ${num(META_FREE_MESSAGES)}</th><th>Meta bills</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function section(title: string, intro: string, body: string, id = ""): string {
-  return `<section${id ? ` id="${id}"` : ""}><h2>${esc(title)}</h2><p class="intro">${esc(intro)}</p>${body}</section>`;
+function section(id: string, title: string, intro: string, body: string): string {
+  return `<section id="${id}"><h2>${esc(title)}</h2><p class="intro">${esc(intro)}</p>${body}</section>`;
 }
 
 function dailyChart(
   days: { date: string; count: number }[],
   words = { caption: "Messages received per day", one: "message", many: "messages", column: "Messages" },
 ): string {
-  const width = 600;
-  const height = 160;
+  const width = 900;
+  const height = 170;
   const top = 12;
   const bottom = 22;
   const max = Math.max(1, ...days.map((d) => d.count));
@@ -135,6 +137,7 @@ function websiteSection(w: WebsiteStats | "error" | undefined): string {
     "People opening yarnoga.com, counted by our own counter: no cookies, and search engines and link previews are left out. A visitor is one person on one day.";
   if (w === "error") {
     return section(
+      "website",
       title,
       intro,
       `<p class="problem">Couldn't read the visitor numbers. If 0016_site_visits.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`,
@@ -142,6 +145,7 @@ function websiteSection(w: WebsiteStats | "error" | undefined): string {
   }
   const busiest = Math.max(0, ...w.daily.map((d) => d.visitors));
   return section(
+    "website",
     title,
     intro,
     `<div class="tiles">
@@ -207,10 +211,10 @@ function profitSection(view: ProfitView | undefined): string {
   const problem = view.problem ? `<p class="problem" role="alert">${esc(view.problem)}</p>` : "";
   if (view.pnl === "error") {
     return section(
+      "money",
       title,
       intro,
       `<p class="problem">Couldn't read the profit and loss entries. If 0024_money_lines.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`,
-      "money",
     );
   }
   const p = view.pnl;
@@ -246,10 +250,11 @@ function profitSection(view: ProfitView | undefined): string {
 <button type="submit">Save entry</button>
 </form>`;
   return section(
+    "money",
     title,
     intro,
     `${problem}<div class="tiles">
-${tile(p.netKobo < 0 ? "Loss so far" : "Profit so far", signedNaira(p.netKobo), "income minus costs, all time")}
+${tile(p.netKobo < 0 ? "Loss so far" : "Profit so far", signedNaira(p.netKobo), "income minus costs, all time", p.netKobo < 0 ? "loss" : "glow")}
 ${tile("Income", formatNaira(p.incomeKobo), "all time, entered by you")}
 ${tile("Costs", formatNaira(p.expensesKobo), "all time")}
 ${p.months[0] ? tile(`${monthName(p.months[0].month)} result`, signedNaira(p.months[0].netKobo), "latest month with entries") : ""}
@@ -264,7 +269,6 @@ ${p.months[0] ? tile(`${monthName(p.months[0].month)} result`, signedNaira(p.mon
       p.lines.map(moneyLineRow).join("") || `<tr><td colspan="4">No entries yet</td></tr>`
     }</tbody></table></details>
 ${form}`,
-    "money",
   );
 }
 
@@ -281,6 +285,7 @@ export function renderDashboard(
   const l = s.leads;
 
   const whatsapp = section(
+    "whatsapp",
     "WhatsApp, all numbers",
     "Everyone who has messaged any yarnOga number: flyers, sales assistant, site reporter and lead qualifier together.",
     `<div class="tiles">
@@ -300,6 +305,7 @@ ${tile("Voice notes", num(w.voiceNotes30), "received in the last 30 days")}
     )
     .join("");
   const flyers = section(
+    "flyers",
     "yarnOga Flyers",
     "Groups that use the birthday flyer bot, and the plans they are on.",
     `<div class="tiles">
@@ -317,6 +323,7 @@ ${tile(
   );
 
   const quotes = section(
+    "quotes",
     "Sales assistant (KahnPrints)",
     "Quotes and orders from the print shop's WhatsApp. Sales here are KahnPrints' money, counted from orders marked paid.",
     `<div class="tiles">
@@ -328,6 +335,7 @@ ${tile("Quotes not taken up", num(q.quoted), `${num(q.cancelled)} cancelled`)}
   );
 
   const reporter = section(
+    "reporter",
     "yarnOga Site Reporter",
     "Updates site teams send in, and the daily reports the bot writes from them.",
     `<div class="tiles">
@@ -339,6 +347,7 @@ ${tile("Daily reports sent", num(site.reports30), "last 30 days")}
   );
 
   const leads = section(
+    "leads",
     "Lead qualifier",
     "Enquiries the lead qualifier has chatted with, and how promising they look.",
     `<div class="tiles">
@@ -349,86 +358,165 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
   );
 
   const socials = section(
+    "socials",
     "Socials",
     "Live numbers from each platform, refreshed every 10 minutes. An account that isn't connected shows no numbers: nothing here is guessed.",
     `<div class="socials">${socialAccounts.map(socialCard).join("")}</div>`,
   );
 
+  const glance = `<div class="tiles glance" aria-label="At a glance">
+${tile("People on WhatsApp", num(w.contacts), `${num(w.newContacts7)} new this week`, "glow")}
+${tile("Messages received", num(w.inbound30), "last 30 days")}
+${tile("Flyer groups", num(f.groups), `${num(f.paidGroups)} on a paid plan`)}
+${website && website !== "error" ? tile("Website visitors today", num(website.visitorsToday), `${num(website.views30)} page views in 30 days`) : tile("Sales assistant orders", num(q.paid), "paid, all time")}
+</div>`;
+
+  const jumps: [string, string, boolean][] = [
+    ["money", "Money", Boolean(profit)],
+    ["whatsapp", "WhatsApp", true],
+    ["flyers", "Flyers", true],
+    ["quotes", "Sales assistant", true],
+    ["reporter", "Site reporter", true],
+    ["leads", "Leads", true],
+    ["website", "Website", Boolean(website)],
+    ["socials", "Socials", true],
+  ];
+  const nav = jumps
+    .filter(([, , shown]) => shown)
+    .map(([id, label]) => `<a href="#${id}">${label}</a>`)
+    .join("");
+
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>yarnOga Dashboard</title>
+<meta name="theme-color" content="#0a0d0b">
+<title>yarnOga analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;500;600&family=Schibsted+Grotesk:wght@600&display=swap" rel="stylesheet">
 <style>
-:root { --bg:#f6f7f3; --panel:#ffffff; --line:#e1e3dc; --text:#151614; --muted:#5d6159; --accent:#3d6b00; --accent-soft:#e6f5c9; --bar:#4f8a00; --loss:#b3261e; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#0c0d0d; --panel:#191a1a; --line:#2e302f; --text:#f3f4ef; --muted:#a1a49d; --accent:#c6ff1f; --accent-soft:#2a3310; --bar:#b4ea1a; --loss:#ff8a80; }
+:root {
+  --bg:#0a0d0b; --surface:#0f1411; --surface2:#141b16; --surface3:#1c241f;
+  --line:rgba(243,241,230,.1); --line2:rgba(243,241,230,.18);
+  --text:#f3f1e6; --muted:rgba(243,241,230,.7); --dim:rgba(243,241,230,.54);
+  --lime:#c6ff1f; --limeink:#121400; --limesoft:rgba(198,255,31,.1); --mint:#2ee5a0; --red:#ff8a7a; --redsoft:rgba(255,138,122,.12);
+  --display:"Chakra Petch","Schibsted Grotesk",Arial,sans-serif;
+  --accent:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --glass:linear-gradient(180deg,rgba(243,241,230,.035),rgba(243,241,230,.01));
 }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
-header h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
-header h1 b { color: var(--accent); }
-header p { margin: 4px 0 0; color: var(--muted); }
-.live { display:inline-block; margin-top:10px; padding:3px 10px; border-radius:99px; background:var(--accent-soft); color:var(--text); font-size:13px; }
-section { margin-top: 28px; }
-h2 { font-size: 18px; margin: 0 0 2px; }
-.intro { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
-.tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.tile { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
-.label { color:var(--muted); font-size:13px; }
-.value { font-size:26px; font-weight:650; letter-spacing:-0.02em; margin-top:2px; font-variant-numeric: tabular-nums; }
-.note { color:var(--muted); font-size:12.5px; margin-top:2px; }
-.chart { margin:10px 0 0; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
-.chart figcaption { font-size:13px; color:var(--muted); margin-bottom:6px; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; scroll-padding-top:72px; -webkit-text-size-adjust:100%; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 var(--body); -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(900px 500px at 85% -10%,rgba(198,255,31,.07),transparent 60%); background-attachment:fixed; }
+a { color:var(--lime); text-underline-offset:3px; }
+main, header { max-width:1120px; margin:0 auto; padding:0 16px; }
+header { padding-top:28px; }
+main { padding-bottom:56px; }
+header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.mark { display:block; overflow:visible; flex:none; filter:drop-shadow(0 0 14px rgba(198,255,31,.25)); }
+header .titles { flex:1; min-width:220px; }
+.crumb { margin:0 0 6px; color:var(--mint); font:600 11px/1.4 var(--body); letter-spacing:.12em; text-transform:uppercase; }
+.crumb:before { content:"> "; }
+h1 { margin:0; font:700 1.9rem/1.1 var(--display); letter-spacing:-.02em; }
+h1 b { color:var(--lime); font-weight:inherit; }
+.fresh { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:99px; background:var(--limesoft); color:var(--lime); font-size:13px; font-weight:600; box-shadow:inset 0 0 0 1px rgba(198,255,31,.18); }
+.fresh:before { content:""; width:7px; height:7px; border-radius:50%; background:var(--lime); box-shadow:0 0 8px var(--lime); }
+.jump { position:sticky; top:0; z-index:10; margin-top:20px; background:rgba(10,13,11,.88); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border-block:1px solid var(--line); }
+.jump div { display:flex; gap:6px; overflow-x:auto; max-width:1120px; margin:0 auto; padding:10px 16px; scrollbar-width:none; }
+.jump div::-webkit-scrollbar { display:none; }
+.jump a { flex:none; padding:7px 13px; border-radius:99px; border:1px solid var(--line2); color:var(--muted); text-decoration:none; font:600 13px/1 var(--accent); }
+.jump a:hover { color:var(--text); background:var(--surface2); }
+.glance { margin-top:20px; }
+section { margin-top:40px; }
+h2 { margin:0 0 4px; font:700 1.3rem/1.2 var(--display); letter-spacing:-.01em; }
+h3 { margin:0; font:600 15px/1.3 var(--accent); }
+.intro { margin:0 0 16px; color:var(--muted); font-size:14px; max-width:72ch; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+@media (min-width:700px) { .tiles { grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); } }
+.tile, .chart, .plans, .social, .problem, .entry { background:var(--glass),var(--surface); border:1px solid var(--line); border-radius:14px; }
+.tile { padding:16px; min-width:0; }
+.tile.glow { background:radial-gradient(120% 120% at 100% 0%,rgba(198,255,31,.16),transparent 55%),var(--glass),var(--surface); border-color:rgba(198,255,31,.22); }
+.label { color:var(--muted); font-size:13px; font-weight:500; }
+.value { margin:10px 0 6px; font:700 clamp(1.25rem,5.2vw,1.85rem)/1.1 var(--display); letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+.glow .value { color:var(--lime); }
+.tile.loss { background:radial-gradient(120% 120% at 100% 0%,rgba(255,138,122,.14),transparent 55%),var(--glass),var(--surface); border-color:rgba(255,138,122,.26); }
+.loss .value { color:var(--red); }
+.note { color:var(--dim); font-size:12.5px; }
+.chart { margin:12px 0 0; padding:18px; }
+.chart figcaption { font-size:13px; color:var(--muted); margin-bottom:10px; }
 .chart svg { width:100%; height:auto; display:block; }
-.chart .bar { fill:var(--bar); }
+.chart .bar { fill:var(--lime); }
 .chart .hit { fill:transparent; }
-.chart .day:hover .hit { fill:var(--accent-soft); }
-.chart .base { stroke:var(--line); stroke-width:1; }
-.chart .axis { fill:var(--muted); font-size:11px; }
-details { margin-top:8px; font-size:13px; color:var(--muted); }
-table { border-collapse:collapse; width:100%; max-width:480px; margin-top:8px; font-size:14px; }
-th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); font-variant-numeric: tabular-nums; }
-th { color:var(--muted); font-weight:500; }
-.plans { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin-top:10px; }
-.socials { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:10px; }
-.social { background:var(--panel); border:1px dashed var(--line); border-radius:12px; padding:14px; }
+.chart .day:hover .hit { fill:var(--limesoft); }
+.chart .day:hover .bar { fill:#e4ff8a; }
+.chart .base { stroke:var(--line2); stroke-width:1; }
+.chart .axis { fill:var(--dim); font:11px var(--body); }
+details { margin-top:10px; font-size:13px; color:var(--muted); }
+summary { cursor:pointer; }
+summary:hover { color:var(--text); }
+table { border-collapse:collapse; width:100%; max-width:520px; font-size:14px; }
+th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+tr:last-child td { border-bottom:0; }
+th { color:var(--dim); font:600 11px/1.4 var(--body); letter-spacing:.08em; text-transform:uppercase; }
+.plans { margin-top:12px; overflow:hidden; border-collapse:separate; border-spacing:0; }
+.chart table { margin-top:8px; }
+.chart + .intro { margin-top:20px; }
+.socials { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.social { padding:18px; border-style:dashed; }
 .social.live { border-style:solid; }
-.social .name { font-weight:600; color:var(--text); }
-.social.live .badge { background:var(--accent-soft); color:var(--text); border-color:transparent; }
-.social .stat { display:block; margin-top:6px; font-size:14px; color:var(--muted); }
-.social .stat b { color:var(--text); font-size:20px; font-weight:650; margin-right:2px; font-variant-numeric: tabular-nums; }
-.social .stat i { font-style:normal; font-size:12px; }
-.social .badge { display:inline-block; margin-left:8px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
-.social .note { display:block; margin-top:6px; color:var(--muted); font-size:12.5px; }
-.pair { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:10px; }
+.social .name { font:600 15px/1.3 var(--accent); color:var(--text); text-decoration:none; }
+.social .name:hover { color:var(--lime); }
+.social .badge { display:inline-block; margin-left:8px; padding:2px 9px; border-radius:99px; border:1px solid var(--line2); color:var(--dim); font-size:11.5px; font-weight:600; }
+.social.live .badge { background:var(--limesoft); color:var(--lime); border-color:transparent; }
+.social.error .badge { background:var(--redsoft); color:var(--red); border-color:transparent; }
+.social .stat { display:block; margin-top:8px; font-size:13.5px; color:var(--muted); }
+.social .stat b { color:var(--text); font:700 1.3rem/1.2 var(--display); margin-right:3px; font-variant-numeric:tabular-nums; }
+.social .stat i { font-style:normal; font-size:12px; color:var(--dim); }
+.social .note { display:block; margin-top:8px; }
+.pair { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
 .pair table { max-width:none; }
-.pair td:first-child { word-break: break-all; }
+.pair td:first-child { word-break:break-all; }
 .wide { max-width:none; }
-td.income { color:var(--accent); }
-td.expense { color:var(--loss); }
-.small { display:block; color:var(--muted); font-size:12.5px; }
-.lines { margin-top:10px; }
-.problem + .tiles { margin-top:10px; }
-.lines table { margin-top:6px; }
-button.link { background:none; border:0; padding:0; color:var(--muted); text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; }
-.entry { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:14px; }
-.entry h3 { grid-column: 1 / -1; margin:0; font-size:15px; }
-.entry label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
-.entry .wide { grid-column: span 2; }
-@media (max-width: 480px) { .entry .wide { grid-column: auto; } }
-.entry input, .entry select { font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
-.entry button[type=submit] { grid-column: 1 / -1; justify-self:start; font:inherit; font-weight:600; background:var(--accent); color:var(--bg); border:0; border-radius:8px; padding:10px 18px; cursor:pointer; }
-.problem { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin:0; }
-footer { margin-top:32px; color:var(--muted); font-size:12.5px; }
+td.income { color:var(--lime); }
+td.expense { color:var(--red); }
+.small { display:block; color:var(--dim); font-size:12.5px; }
+.lines { margin-top:12px; }
+.problem + .tiles { margin-top:12px; }
+.lines table { margin-top:8px; }
+button.link { background:none; border:0; padding:0; color:var(--dim); text-decoration:underline; cursor:pointer; font:inherit; font-size:13px; }
+button.link:hover { color:var(--red); }
+.entry { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; padding:20px; margin-top:16px; }
+.entry h3 { grid-column:1 / -1; }
+.entry label { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--muted); }
+.entry .wide { grid-column:span 2; }
+@media (max-width:480px) { .entry .wide { grid-column:auto; } }
+.entry input, .entry select { font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line2); border-radius:10px; padding:10px; min-width:0; }
+.entry input:focus, .entry select:focus { outline:2px solid var(--lime); outline-offset:1px; border-color:transparent; }
+.entry button[type=submit] { grid-column:1 / -1; justify-self:start; font:600 15px/1 var(--accent); background:var(--lime); color:var(--limeink); border:0; border-radius:10px; padding:13px 22px; cursor:pointer; }
+.problem { padding:16px 18px; margin:0; border-color:rgba(255,138,122,.3); color:var(--text); }
+footer { margin-top:48px; padding-top:20px; border-top:1px solid var(--line); color:var(--dim); font-size:12.5px; }
+@media (min-width:960px) {
+  main, header { padding-left:32px; padding-right:32px; }
+  header { padding-top:40px; }
+  main { padding-bottom:72px; }
+  .jump div { padding:12px 32px; }
+  h1 { font-size:2.2rem; }
+  .tile { padding:22px; }
+}
 </style></head>
-<body><main>
+<body>
 <header>
-<h1>yarn<b>Oga</b> dashboard</h1>
-<p>Updated ${esc(lagosTime(s.generatedAt))} (Lagos time). Refresh the page for the latest numbers.</p>
-<span class="live">Product numbers are live from the database</span>
+${mark("m", 48)}
+<div class="titles">
+<p class="crumb">Updated ${esc(lagosTime(s.generatedAt))}, Lagos time</p>
+<h1>yarn<b>Oga</b> analytics</h1>
+</div>
+<span class="fresh">Live from the database</span>
 </header>
+<nav class="jump" aria-label="Sections"><div>${nav}</div></nav>
+<main>
+${glance}
 ${profitSection(profit)}
 ${whatsapp}
 ${flyers}
@@ -437,6 +525,6 @@ ${reporter}
 ${leads}
 ${websiteSection(website)}
 ${socials}
-<footer>"Last 30 days" and "this week" count back from the moment the page loaded.</footer>
+<footer>Refresh the page for the latest numbers. "Last 30 days" and "this week" count back from the moment the page loaded.</footer>
 </main></body></html>`;
 }
