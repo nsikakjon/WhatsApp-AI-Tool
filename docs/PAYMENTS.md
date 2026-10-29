@@ -48,9 +48,12 @@ Do this with the **test** keys first. Nothing real is charged in test mode.
    - `PUBLIC_URL`: this server's address, `https://app.yarnoga.com` (see
      docs/CUSTOM_DOMAIN.md).
    - `PAYSTACK_CUSTOMER_EMAIL`: an inbox you read, e.g.
-     `payments@yarnoga.com`. Paystack requires an email for every payment and
-     WhatsApp doesn't give us the customer's, so receipts go here. Each
-     payment carries the payer's WhatsApp number in the Paystack dashboard.
+     `payments@yarnoga.com`. Paystack requires an email for every payment.
+     When the payer gave us their own email for receipts (chat sign-up,
+     /signup or owner app Settings, with emails switched on), it goes on the
+     payment and Paystack's receipt reaches them. Otherwise this one is used
+     and the receipt comes here. Each payment carries the payer's WhatsApp
+     number in the Paystack dashboard.
 3. **Paystack dashboard** > Settings > API Keys & Webhooks: set **Test Webhook
    URL** to `PUBLIC_URL` followed by `/webhooks/paystack`. Leave the callback
    URL empty; the bot sends its own with every payment.

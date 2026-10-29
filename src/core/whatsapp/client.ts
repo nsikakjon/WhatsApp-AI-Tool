@@ -48,8 +48,11 @@ export interface WhatsAppClient {
    * older wrappers without it still work.
    */
   sendAudio?(to: string, audio: OutgoingAudio, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
-  /** Downloads an attached file (e.g. a voice note) by its WhatsApp media id. */
-  downloadMedia(mediaId: string): Promise<{ data: Blob; mimeType: string }>;
+  /**
+   * Downloads an attached file (e.g. a voice note) by its WhatsApp media id.
+   * `toNumberId` is the number that received it, so its business's key is used.
+   */
+  downloadMedia(mediaId: string, toNumberId?: string): Promise<{ data: Blob; mimeType: string }>;
 }
 
 export interface OutgoingImage {
@@ -102,6 +105,11 @@ export interface WhatsAppClientOptions {
   accessToken: string;
   phoneNumberId: string;
   graphApiVersion: string;
+  /**
+   * The key a business gave us when it connected its own number on /signup.
+   * Numbers without one (ours) use `accessToken`.
+   */
+  tokenFor?: (phoneNumberId: string) => Promise<string | undefined>;
   fetch?: typeof fetch;
 }
 
@@ -110,17 +118,28 @@ const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0,
 export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClient {
   const doFetch = opts.fetch ?? fetch;
   const graph = `https://graph.facebook.com/${opts.graphApiVersion}`;
-  const auth = { Authorization: `Bearer ${opts.accessToken}` };
+  const ourAuth = { Authorization: `Bearer ${opts.accessToken}` };
+
+  /** Makes a request with the number's own key, or ours if it has none or Meta no longer takes it. */
+  async function authorised(numberId: string | undefined, request: (auth: Record<string, string>) => Promise<Response>) {
+    const token = numberId && numberId !== opts.phoneNumberId && opts.tokenFor ? await opts.tokenFor(numberId) : undefined;
+    if (token) {
+      const auth = { Authorization: `Bearer ${token}` };
+      const res = await request(auth);
+      // A key the business has since withdrawn: ours still works for numbers in our own Meta account.
+      if (res.status !== 401) return { res, auth };
+    }
+    return { res: await request(ourAuth), auth: ourAuth };
+  }
 
   async function send(fromNumberId: string | undefined, { to, ...message }: { to: string } & Record<string, unknown>) {
     // A customer with a hidden number is addressed by their user ID, which Meta takes as "recipient".
     const address = isPhoneNumber(to) ? { to } : { recipient: to };
     const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
-    const res = await doFetch(url, {
-      method: "POST",
-      headers: { ...auth, "Content-Type": "application/json" },
-      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...address, ...message }),
-    });
+    const body = JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...address, ...message });
+    const { res } = await authorised(fromNumberId, (auth) =>
+      doFetch(url, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body }),
+    );
     const data = (await res.json().catch(() => ({}))) as {
       messages?: Array<{ id: string }>;
       error?: { message?: string; code?: number };
@@ -137,11 +156,9 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     form.append("type", image.mimeType);
     const ext = image.mimeType === "image/png" ? "png" : image.mimeType.startsWith("audio/") ? "ogg" : "jpg";
     form.append("file", new Blob([new Uint8Array(image.data)], { type: image.mimeType }), `file.${ext}`);
-    const res = await doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, {
-      method: "POST",
-      headers: auth,
-      body: form,
-    });
+    const { res } = await authorised(fromNumberId, (auth) =>
+      doFetch(`${graph}/${fromNumberId || opts.phoneNumberId}/media`, { method: "POST", headers: auth, body: form }),
+    );
     const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
     if (!res.ok || !data.id) {
       throw new Error(`WhatsApp upload failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
@@ -231,9 +248,11 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
       });
     },
 
-    async downloadMedia(mediaId) {
-      // Step 1: ask Meta where the file is. Step 2: fetch it (the link needs the token too).
-      const infoRes = await doFetch(`${graph}/${encodeURIComponent(mediaId)}`, { headers: auth });
+    async downloadMedia(mediaId, toNumberId) {
+      // Step 1: ask Meta where the file is. Step 2: fetch it (the link needs the same key).
+      const { res: infoRes, auth } = await authorised(toNumberId, (a) =>
+        doFetch(`${graph}/${encodeURIComponent(mediaId)}`, { headers: a }),
+      );
       const info = (await infoRes.json().catch(() => ({}))) as { url?: string; mime_type?: string };
       if (!infoRes.ok || !info.url) {
         throw new Error(`WhatsApp media lookup failed (${infoRes.status})`);

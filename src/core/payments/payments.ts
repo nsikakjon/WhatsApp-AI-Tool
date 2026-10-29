@@ -71,8 +71,10 @@ export interface PaymentsOptions {
   store: PaymentStore;
   /** Our thank-you page, where Paystack sends people after paying. */
   callbackUrl: string;
-  /** Paystack needs an email for every payment; WhatsApp doesn't give us one. */
+  /** Paystack needs an email for every payment; this one is used when we don't know the payer's. */
   customerEmail: string;
+  /** The payer's own email, if they gave it to us for receipts, so Paystack's receipt reaches them. */
+  receiptEmailFor?: (waId: string) => Promise<string | undefined>;
   onPaid: Record<string, PaidHandler>;
   send: (product: string, note: OutgoingNote) => Promise<void>;
   log?: Pick<Console, "info" | "warn" | "error">;
@@ -108,6 +110,11 @@ export function createPayments(opts: PaymentsOptions): Payments {
         await opts.store.create(payment);
       }
       const amountKobo = req.amountKobo - (promo?.amountOffKobo ?? 0);
+      const email =
+        (await opts.receiptEmailFor?.(req.waId).catch((err) => {
+          log.warn("Couldn't look up the payer's receipt email:", err);
+          return undefined;
+        })) ?? opts.customerEmail;
       if (req.platformFeeKobo) {
         assertKobo(req.platformFeeKobo);
         if (!req.subaccount || req.platformFeeKobo >= amountKobo) throw new Error("A platform fee needs a subaccount and must be less than the payment");
@@ -117,7 +124,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
           reference,
           amountMinor: amountKobo,
           currency: currency as Exclude<Currency, "NGN">,
-          email: opts.customerEmail,
+          email,
           callbackUrl: opts.callbackUrl,
           description: req.title,
           waId: req.waId,
@@ -129,7 +136,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
       const url = await opts.paystack!.initialize({
         reference,
         amountKobo,
-        email: opts.customerEmail,
+        email,
         callbackUrl: opts.callbackUrl,
         description: req.title,
         waId: req.waId,

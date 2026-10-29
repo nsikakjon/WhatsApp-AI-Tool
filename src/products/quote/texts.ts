@@ -93,6 +93,12 @@ export interface QuoteTexts {
   justUpdated(ref: string): string;
   markedPaidSent(ref: string, total: string, who: string): string;
   markedPaidTold(ref: string, total: string, who: string, couldntDraw: boolean): string;
+  proofPassedOn(ref: string, business: string): string;
+  proofCheck(who: string, ref: string, total: string, file: boolean, caption: string | undefined): string;
+  proofButtons: { confirm: string; notReceived: string };
+  notReceivedTold(ref: string, who: string): string;
+  paidSoNotTold(ref: string): string;
+  notReceived(ref: string, business: string): string;
   drawFailed(): string;
   boardNotOnPlan(): string;
   boardLink(link: string): string;
@@ -208,6 +214,14 @@ const en: QuoteTexts = {
   markedPaidSent: (ref, total, who) =>
     `✅ ${ref} marked paid (${total}). I've sent ${who} this receipt. If they haven't messaged in the last 24 hours WhatsApp may hold it back, so you can forward this copy.`,
   markedPaidTold: (ref, total, who, couldntDraw) => `✅ ${ref} marked paid (${total}). I've told ${who}${couldntDraw ? ", but couldn't draw the receipt" : ""}.`,
+  proofPassedOn: (ref, b) => `Thank you! I've passed this to ${b} to check against order ${ref}. Your receipt comes here as soon as they confirm the money has arrived.`,
+  proofCheck: (who, ref, total, file, caption) =>
+    `${who} sent ${file ? "a file (open it in your chats inbox)" : "this"} as payment for ${ref} (${total}).${caption ? `\n\nTheir note: "${caption}"` : ""}\n\nCheck your bank app that the money has arrived before you confirm. Fake transfer screenshots are common.`,
+  proofButtons: { confirm: "✅ Confirm paid", notReceived: "Not received" },
+  notReceivedTold: (ref, who) => `OK. I've told ${who} the payment for ${ref} hasn't arrived yet.`,
+  paidSoNotTold: (ref) => `${ref} is already marked paid, so I haven't sent the customer anything.`,
+  notReceived: (ref, b) =>
+    `${b} hasn't received the payment for order ${ref} yet. Transfers sometimes take a few minutes. If the money has left your account, please send the transfer receipt again or reply here to talk to them.`,
   drawFailed: () => "Sorry, I couldn't draw that just now. Please try again in a minute.",
   boardNotOnPlan: () => "The order board and sales dashboard come with Pro and above. Send *plan* to see how to upgrade.",
   boardLink: (link) => `Your orders and sales: ${link}\n\nKeep this link to yourself: anyone who has it can see your orders.`,
@@ -215,7 +229,7 @@ const en: QuoteTexts = {
     [
       "Invoices and receipts:",
       "• Send your logo as a picture with the caption *logo* to put it on every invoice and receipt.",
-      `• *paid ${prefix}-1001* marks an order paid and sends the customer a receipt.`,
+      `• *paid ${prefix}-1001* marks an order paid and sends the customer a receipt. When a customer sends a transfer screenshot, you get it with a Confirm button.`,
       `• *invoice ${prefix}-1001* or *receipt ${prefix}-1001* sends you a copy.`,
       "Customers get their invoice automatically when they confirm an order.",
     ].join("\n"),
@@ -332,6 +346,14 @@ const fr: QuoteTexts = {
   markedPaidSent: (ref, total, who) =>
     `✅ ${ref} marquée payée (${total}). J'ai envoyé ce reçu à ${who}. S'il n'a pas écrit depuis 24 heures, WhatsApp peut le retenir : vous pouvez lui transférer cette copie.`,
   markedPaidTold: (ref, total, who, couldntDraw) => `✅ ${ref} marquée payée (${total}). J'ai prévenu ${who}${couldntDraw ? ", mais je n'ai pas pu créer le reçu" : ""}.`,
+  proofPassedOn: (ref, b) => `Merci ! J'ai transmis ceci à ${b} pour vérifier le paiement de la commande ${ref}. Votre reçu arrive ici dès que l'argent est confirmé.`,
+  proofCheck: (who, ref, total, file, caption) =>
+    `${who} a envoyé ${file ? "un fichier (ouvrez-le dans votre boîte de discussions)" : "ceci"} comme paiement de ${ref} (${total}).${caption ? `\n\nSon message : « ${caption} »` : ""}\n\nVérifiez dans votre application bancaire que l'argent est bien arrivé avant de confirmer. Les fausses captures de virement sont courantes.`,
+  proofButtons: { confirm: "✅ Paiement reçu", notReceived: "Pas reçu" },
+  notReceivedTold: (ref, who) => `D'accord. J'ai prévenu ${who} que le paiement de ${ref} n'est pas encore arrivé.`,
+  paidSoNotTold: (ref) => `${ref} est déjà marquée payée, je n'ai donc rien envoyé au client.`,
+  notReceived: (ref, b) =>
+    `${b} n'a pas encore reçu le paiement de la commande ${ref}. Un virement peut prendre quelques minutes. Si l'argent a quitté votre compte, renvoyez la preuve de virement ou répondez ici pour leur parler.`,
   drawFailed: () => "Désolé, je n'ai pas pu créer ce document. Réessayez dans une minute.",
   boardNotOnPlan: () => "Le tableau des commandes et des ventes est inclus à partir de la formule Pro. Envoyez *plan* pour voir comment changer de formule.",
   boardLink: (link) => `Vos commandes et ventes : ${link}\n\nGardez ce lien pour vous : toute personne qui l'a peut voir vos commandes.`,
@@ -339,7 +361,7 @@ const fr: QuoteTexts = {
     [
       "Factures et reçus :",
       "• Envoyez votre logo en image avec la légende *logo* pour le mettre sur toutes vos factures et reçus.",
-      `• *paid ${prefix}-1001* marque une commande payée et envoie le reçu au client.`,
+      `• *paid ${prefix}-1001* marque une commande payée et envoie le reçu au client. Quand un client envoie une capture de virement, vous la recevez avec un bouton pour confirmer.`,
       `• *invoice ${prefix}-1001* ou *receipt ${prefix}-1001* vous en envoie une copie.`,
       "Les clients reçoivent leur facture automatiquement quand ils confirment une commande.",
     ].join("\n"),

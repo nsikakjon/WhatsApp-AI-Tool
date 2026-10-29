@@ -40,7 +40,7 @@ function memoryStore() {
   return { store, rows };
 }
 
-function setup(tx: Partial<PaystackTransaction> = {}, onPaid?: PaidHandler) {
+function setup(tx: Partial<PaystackTransaction> = {}, onPaid?: PaidHandler, receiptEmailFor?: (waId: string) => Promise<string | undefined>) {
   const { store, rows } = memoryStore();
   const paystack = {
     initialize: vi.fn(async (p: { reference: string }) => `https://checkout.paystack.com/${p.reference}`),
@@ -60,6 +60,7 @@ function setup(tx: Partial<PaystackTransaction> = {}, onPaid?: PaidHandler) {
     store,
     callbackUrl: "https://bot.example.com/payments/done",
     customerEmail: "payments@example.com",
+    receiptEmailFor,
     onPaid: { flyer: handler },
     send,
     log: silent,
@@ -78,6 +79,14 @@ describe("payments", () => {
     expect(rows[0]!.reference).toMatch(/^yarnoga-flyer-[0-9a-f-]{36}$/);
     expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 450000, email: "payments@example.com" }));
     expect(link).toEqual({ url: `https://checkout.paystack.com/${rows[0]!.reference}`, amountKobo: 450000, promo: null });
+  });
+
+  it("puts the payer's own email on the payment when they gave us one for receipts", async () => {
+    const emails: Record<string, string> = { "2348011111111": "ada@example.com" };
+    const { payments, paystack } = setup({}, undefined, async (waId) => emails[waId]);
+    await payments.createLink(request);
+    await payments.createLink({ ...request, waId: "2348022222222" });
+    expect(paystack.initialize.mock.calls.map(([p]) => (p as { email: string }).email)).toEqual(["ada@example.com", "payments@example.com"]);
   });
 
   it("charges the discounted amount with a promo code, and makes no link when the code can't be used", async () => {

@@ -91,7 +91,7 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
-import { createSupabaseConnectionStore } from "./signup/store.js";
+import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
@@ -619,7 +619,8 @@ const leadQualifier = leadsConfig
   : undefined;
 
 const store = createSupabaseStore(supabase);
-const whatsapp = createWhatsAppClient(config.whatsapp);
+// Numbers connected on /signup send with their own business's key.
+const whatsapp = createWhatsAppClient({ ...config.whatsapp, tokenFor: createConnectionTokens(supabase) });
 
 // Problems reach Jay: every logged error goes to Sentry and (at most every
 // 30 minutes) to ALERT_WA_ID on WhatsApp and ALERT_EMAIL by email.
@@ -708,6 +709,9 @@ const payments = paymentSite
       store: createSupabasePaymentStore(supabase),
       callbackUrl: `${paymentSite.publicUrl}/payments/done`,
       customerEmail: paymentSite.customerEmail,
+      receiptEmailFor: emailStore
+        ? async (waId) => (await emailStore.byWaId(waId)).find((c) => c.email && c.receiptsAt && !c.unsubscribedAt)?.email ?? undefined
+        : undefined,
       onPaid: paidHandlers,
       send: (product, note) => sendNotice({ store, whatsapp }, note, note.fromNumberId ?? productNumbers[product]),
     })

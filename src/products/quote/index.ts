@@ -190,6 +190,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         if (deliveryReply) return deliveryReply;
       }
 
+      if ((msg.type === "image" || msg.type === "document") && msg.mediaId && opts.ownerWaId && msg.from !== opts.ownerWaId) {
+        const proof = await paymentProof(msg, ctx, t);
+        if (proof) return proof;
+      }
+
       // Voice notes arrive here with `text` already filled in by the core.
       if (msg.type === "audio" && opts.features && !(await opts.features.has("voice_notes"))) {
         return { text: t.voiceNotOnLine() };
@@ -439,6 +444,44 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       to: order.customerWaId,
       text: `${thanks}${receipt ? ` ${t.hereIsReceipt()}` : ""}`,
       ...(receipt ? { images: [receipt] } : {}),
+    };
+  }
+
+  /**
+   * A transfer screenshot or receipt from a customer with an unpaid order:
+   * the owner gets it with buttons that send "paid KP-1001" or
+   * "not paid KP-1001", so confirming is one tap.
+   */
+  async function paymentProof(msg: IncomingMessage, ctx: ProductContext, t: QuoteTexts): Promise<Reply | null> {
+    const last = opts.orders.lastOrder ? await opts.orders.lastOrder(ctx.contactId) : null;
+    const order = last && (await opts.orders.findOrder(last.orderNumber));
+    if (!order || order.status !== "confirmed") return null;
+    const label = ref(order);
+    let image: OutgoingImage | undefined;
+    if (msg.type === "image") {
+      const file = await ctx.downloadMedia(msg.mediaId!);
+      // Only JPEG and PNG can go on top of a message with buttons.
+      if (file.mimeType === "image/jpeg" || file.mimeType === "image/png") {
+        image = { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType };
+      }
+    }
+    const who = msg.contactName ?? showWaId(msg.from);
+    return {
+      text: t.proofPassedOn(label, opts.businessName),
+      notify: [
+        {
+          to: opts.ownerWaId!,
+          text: "",
+          buttons: {
+            ...(image ? { image } : {}),
+            body: own.proofCheck(who, label, money(order.totalKobo), !image, msg.caption?.trim() || undefined),
+            buttons: [
+              { id: `paid ${label}`, title: own.proofButtons.confirm },
+              { id: `not paid ${label}`, title: own.proofButtons.notReceived },
+            ],
+          },
+        },
+      ],
     };
   }
 
@@ -766,6 +809,15 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
         }),
       };
+    }
+    const notPaid = text.match(/^not\s+paid\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
+    if (notPaid) {
+      const order = await opts.orders.findOrder(Number(notPaid[1]));
+      const label = `${opts.orderPrefix}-${notPaid[1]}`;
+      if (!order) return { text: own.cantFind(label) };
+      if (order.status === "paid") return { text: own.paidSoNotTold(label) };
+      const who = order.customerName ?? showWaId(order.customerWaId);
+      return { text: own.notReceivedTold(label, who), notify: [{ to: order.customerWaId, text: own.notReceived(label, opts.businessName) }] };
     }
     const command = text.match(/^(invoice|receipt|paid)\s*#?\s*(?:[a-z]+\s*-?\s*)?(\d+)\.?$/i);
     if (!command) return null;

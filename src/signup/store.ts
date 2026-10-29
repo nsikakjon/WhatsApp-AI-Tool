@@ -33,3 +33,25 @@ export function createSupabaseConnectionStore(db: SupabaseClient): ConnectionSto
     },
   };
 }
+
+/**
+ * Looks up the key a business gave us at sign-up for its number, so the bot
+ * sends from that number with it. Kept for 10 minutes to spare the database.
+ */
+export function createConnectionTokens(db: SupabaseClient, now: () => number = Date.now) {
+  const cache = new Map<string, { token?: string; at: number }>();
+  return async (phoneNumberId: string): Promise<string | undefined> => {
+    const hit = cache.get(phoneNumberId);
+    if (hit && now() - hit.at < 10 * 60_000) return hit.token;
+    const { data, error } = await db
+      .from("whatsapp_connections")
+      .select("business_token")
+      .eq("phone_number_id", phoneNumberId)
+      .maybeSingle();
+    // On a database hiccup, send with our own key rather than not at all.
+    if (error) return hit?.token;
+    const token = (data?.business_token as string | undefined) || undefined;
+    cache.set(phoneNumberId, { token, at: now() });
+    return token;
+  };
+}

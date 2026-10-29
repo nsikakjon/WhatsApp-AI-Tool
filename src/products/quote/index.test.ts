@@ -402,6 +402,47 @@ describe("owner: logo, invoices and receipts", () => {
     expect(s.seen).toHaveLength(1); // only the customer's quote went to the AI
   });
 
+  it("passes a customer's transfer screenshot to the owner, who confirms with one tap", async () => {
+    const s = await confirmedOrder();
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...s.store, lastOrder: async () => s.orders[0]! },
+      ai: { understand: async () => ({ intent: "other", items: [], message: null }) },
+      renderDocument: async () => new Uint8Array([0xff, 0xd8]),
+      log: { error() {} },
+    });
+    const screenshot = {
+      message: { ...text("pic"), type: "image", text: undefined, caption: "sent via opay", mediaId: "media-2" } as IncomingMessage,
+      ctx: { ...ctx, downloadMedia: async () => ({ data: new Blob([new Uint8Array([9, 9])]), mimeType: "image/jpeg" }) },
+    };
+    const reply = await product.handle(screenshot.message, screenshot.ctx);
+    expect(reply?.text).toContain("passed this to KahnPrints to check against order KP-1001");
+    const alert = reply?.notify?.[0];
+    expect(alert?.to).toBe(OWNER);
+    expect(alert?.buttons?.image).toEqual({ data: new Uint8Array([9, 9]), mimeType: "image/jpeg" });
+    expect(alert?.buttons?.body).toContain("Ada sent this as payment for KP-1001 (₦15,000)");
+    expect(alert?.buttons?.body).toContain('"sent via opay"');
+    expect(alert?.buttons?.body).toContain("Fake transfer screenshots are common");
+    expect(alert?.buttons?.buttons.map((b) => b.id)).toEqual(["paid KP-1001", "not paid KP-1001"]);
+
+    // "Not received" tells the customer and leaves the order unpaid.
+    const no = await product.handle(fromOwner("not paid KP-1001"), ctx);
+    expect(no?.text).toBe("OK. I've told Ada the payment for KP-1001 hasn't arrived yet.");
+    expect(no?.notify?.[0]).toMatchObject({ to: "2348012345678", text: expect.stringContaining("hasn't received the payment for order KP-1001 yet") });
+    expect(s.orders[0]?.status).toBe("confirmed");
+
+    // "Confirm paid" is the usual "paid KP-1001": the customer gets the receipt.
+    const yes = await product.handle(fromOwner("paid KP-1001"), ctx);
+    expect(yes?.text).toContain("KP-1001 marked paid");
+    expect((await product.handle(fromOwner("not paid KP-1001"), ctx))?.text).toContain("already marked paid");
+
+    // Once paid, another picture isn't treated as a payment.
+    expect((await product.handle(screenshot.message, screenshot.ctx))?.text).not.toContain("passed this");
+  });
+
   it("understands the order number written different ways", async () => {
     const s = await confirmedOrder();
     for (const cmd of ["invoice KP-1001", "Invoice kp 1001", "invoice #1001", "invoice 1001."]) {
