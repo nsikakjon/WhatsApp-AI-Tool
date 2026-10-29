@@ -14,6 +14,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REPLY = 4096;
 
 export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
+  app.use("/inbox", async (c, next) => (await ctx.need(c, "inbox")) ?? next());
+  app.use("/inbox/*", async (c, next) => (await ctx.need(c, "inbox")) ?? next());
   const off = (c: AppContext) =>
     ctx.render(c, "Inbox", "/home/inbox", `<p>The inbox isn't switched on yet. Please ask yarnOga support to switch it on.</p>`);
 

@@ -182,6 +182,7 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider
   });
 
   app.post("/delivery/courier", async (c) => {
+    if (c.get("user").role !== "owner") return c.redirect("/home/delivery?msg=owner_only", 303);
     const courier = c.get("biz").courier;
     if (!courier?.available || !courier.set) return c.redirect("/home/delivery?msg=bad", 303);
     const form = (await c.req.parseBody()) as Record<string, unknown>;
