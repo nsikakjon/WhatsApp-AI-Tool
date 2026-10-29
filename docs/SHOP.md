@@ -45,7 +45,7 @@ It's on every plan, Free included: it's how customers find the bot.
 
 ## Switching it on
 
-1. Run `supabase/migrations/0058_quote_shop_links.sql` in Supabase (SQL
+1. Run `supabase/migrations/0059_quote_shop_links.sql` in Supabase (SQL
    Editor > New query > paste > Run). It needs 0020 and 0049 to be run first.
 2. On Railway, add `QUOTE_SHOP=true`. `PUBLIC_URL` must already be set (it is,
    for payments).

@@ -9,7 +9,7 @@ import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { priceFacts, priceText } from "./catalogue.js";
 import type { Variant } from "./pricing.js";
 
-// Each business's public shop page (QUOTE_SHOP, migration 0058), for an
+// Each business's public shop page (QUOTE_SHOP, migration 0059), for an
 // Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>.
 //
 // It lists the price list with prices worked out in code from the database,

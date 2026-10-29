@@ -128,7 +128,7 @@ export interface Config {
    * receipts, pickup screens, table numbers. Only set when QUOTE_WALK_IN is true.
    */
   quoteWalkIn?: { publicUrl: string };
-  /** Each quote business's public shop page at /shop/<name> (migration 0058). Only set when QUOTE_SHOP is true. */
+  /** Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true. */
   quoteShop?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
