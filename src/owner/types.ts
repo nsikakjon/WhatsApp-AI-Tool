@@ -81,6 +81,8 @@ export interface OwnerAppDeps {
     /** Tells yarnOga a business has sent its details for review. */
     onSubmitted?(businessId: string, businessName: string): Promise<void>;
   };
+  /** The owner's email for receipts and, if they tick the box, setup tips (EMAILS_ENABLED, migration 0057). */
+  emails?: import("../core/email/settings.js").EmailSettings;
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */
   botTestsPerDay?: number;
   now?: () => Date;

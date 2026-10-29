@@ -41,6 +41,8 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   logout_all: { ok: true, text: "Every other login has been logged out." },
   new_link: { ok: true, text: "New link made. The old one no longer works." },
   bad: { ok: false, text: "Something in the form isn't right. Please check and try again." },
+  email_bad: { ok: false, text: "That email address doesn't look right. Please check it and try again." },
+  email_typo: { ok: false, text: "That email address looks mistyped (for example gamil.com instead of gmail.com). Please check it and save again." },
   not_paid: { ok: false, text: "That order couldn't be marked paid (it may be paid already or cancelled)." },
   window: { ok: false, text: "WhatsApp won't deliver this: the customer last wrote more than a day ago." },
   send: { ok: false, text: "Sending failed. Please try again." },

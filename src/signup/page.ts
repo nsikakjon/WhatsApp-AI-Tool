@@ -8,7 +8,11 @@ export interface SignupPageOptions {
   appId: string;
   configId: string;
   graphApiVersion: string;
+  /** Show the email box after connecting. */
+  askEmail?: boolean;
 }
+
+const TIPS = "Send me setup tips and yarnOga news. One email a week at most. Unsubscribe any time.";
 
 const SITE = "https://yarnoga.com";
 
@@ -89,6 +93,10 @@ export function renderSignupPage(opts: SignupPageOptions): string {
   .done dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 15px; }
   .done dt { color: var(--faint); }
   .done dd { margin: 0; overflow-wrap: anywhere; }
+  .field { display: grid; gap: 6px; font-size: 15px; color: var(--muted); }
+  .field input { font: 16px/1.4 var(--body); padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-2); background: var(--bg); color: var(--text); }
+  .tick { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .tick input { accent-color: var(--neon); width: 18px; height: 18px; margin-top: 2px; flex: none; }
   .pin { font: 700 22px/1 var(--accent); letter-spacing: .2em; color: var(--neon); }
   [hidden] { display: none !important; }
   footer { border-top: 1px solid var(--line); padding-block: 28px 40px; font-size: 14px; color: var(--muted); }
@@ -180,6 +188,13 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       </div>
       <p class="muted">The assistant is switched off for now, so customers get no automatic replies yet. We'll get in touch to add your
       price list and switch it on. Questions? <a href="mailto:support@yarnoga.com">support@yarnoga.com</a></p>
+      <form id="email-box" class="flow tight" hidden>
+        <label class="field">Your email, for receipts and messages about your account
+          <input type="email" id="email" maxlength="200" autocomplete="email" placeholder="you@example.com" required></label>
+        <label class="tick"><input type="checkbox" id="tips"> ${TIPS}</label>
+        <button class="btn" id="email-save">Save my email</button>
+        <p id="email-status" role="status"></p>
+      </form>
     </div>
   </section>
 </main>
@@ -197,6 +212,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
 <script>
   const APP_ID = ${js(opts.appId)};
   const CONFIG_ID = ${js(opts.configId)};
+  const ASK_EMAIL = ${js(Boolean(opts.askEmail))};
   const VERSION = ${js(opts.graphApiVersion)};
   const $ = (id) => document.getElementById(id);
   const button = $("go");
@@ -260,6 +276,22 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       if (body.pin) { $("d-pin").textContent = body.pin; $("pin-box").hidden = false; }
       $("form").hidden = true;
       $("done").hidden = false;
+      if (ASK_EMAIL && body.emailToken) {
+        $("email-box").hidden = false;
+        $("email-box").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          $("email-save").disabled = true;
+          const res = await fetch("/signup/email", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ phone_number_id: body.phoneNumberId, token: body.emailToken, email: $("email").value, tips: $("tips").checked }),
+          }).catch(() => null);
+          const answer = res ? await res.json().catch(() => ({})) : {};
+          $("email-save").disabled = false;
+          $("email-status").textContent = res && res.ok ? "Saved. Thank you." : answer.error || "We couldn't save it. Please try again.";
+          if (res && res.ok) $("email-save").hidden = true;
+        });
+      }
     } catch (err) {
       retry("It didn't finish: " + err.message + " Please try again, or email support@yarnoga.com.");
     }

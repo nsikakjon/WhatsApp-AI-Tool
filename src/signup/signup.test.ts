@@ -4,7 +4,11 @@ import type { Connection } from "./store.js";
 
 const silent = { info() {}, error() {} };
 
-function setup(fail?: "exchange" | "subscribe" | "register" | "details", limits?: { perVisitor: number; total: number }) {
+function setup(
+  fail?: "exchange" | "subscribe" | "register" | "details",
+  limits?: { perVisitor: number; total: number },
+  saveEmail?: (a: { phoneNumberId: string; email: string; tips: boolean }) => Promise<"bad" | "typo" | null>,
+) {
   const saved: Connection[] = [];
   const calls: string[] = [];
   const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -34,6 +38,7 @@ function setup(fail?: "exchange" | "subscribe" | "register" | "details", limits?
       added.push(c.phoneNumberId);
       return true;
     },
+    saveEmail,
     perVisitorDailyLimit: limits?.perVisitor,
     dailyLimit: limits?.total,
     fetch: fakeFetch,
@@ -134,5 +139,21 @@ describe("sign-up page", () => {
     expect((await complete({ ...finished, code: undefined })).status).toBe(400);
     expect((await complete({ ...finished, waba_id: "12/../me" })).status).toBe(400);
     expect(calls).toEqual([]);
+  });
+
+  it("takes the owner's email after connecting, only from whoever connected", async () => {
+    const saved: Array<{ phoneNumberId: string; email: string; tips: boolean }> = [];
+    const { app, complete } = setup(undefined, undefined, async (a) => {
+      saved.push(a);
+      return a.email.includes("gamil") ? "typo" : null;
+    });
+    expect(await (await app.request("/")).text()).toContain("const ASK_EMAIL = true");
+    const body = (await (await complete(finished)).json()) as { emailToken: string };
+    const post = (b: unknown) => app.request("/email", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    const ok = await post({ phone_number_id: finished.phone_number_id, token: body.emailToken, email: "ada@gmail.com", tips: true });
+    expect(ok.status).toBe(200);
+    expect(saved).toEqual([{ phoneNumberId: finished.phone_number_id, email: "ada@gmail.com", tips: true }]);
+    expect((await post({ phone_number_id: finished.phone_number_id, token: body.emailToken, email: "ada@gamil.com", tips: true })).status).toBe(400);
+    expect((await post({ phone_number_id: "999", token: body.emailToken, email: "x@y.com", tips: true })).status).toBe(403);
   });
 });

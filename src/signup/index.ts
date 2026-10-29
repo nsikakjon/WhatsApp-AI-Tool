@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createDailyLimiter } from "../generator/index.js";
 import { exchangeCode, phoneDetails, registerNumber, subscribeApp, type MetaApp } from "./meta.js";
@@ -19,6 +19,11 @@ export interface SignupDeps {
   store: ConnectionStore;
   /** Adds the number to yarnOga as a switched-off business; true if it was new. */
   onConnected?: (connection: Connection) => Promise<boolean>;
+  /**
+   * Saves the email the owner types after connecting, for receipts and, if
+   * ticked, setup tips. "bad" or "typo" when it doesn't look right. Off when not given.
+   */
+  saveEmail?: (a: { phoneNumberId: string; email: string; tips: boolean }) => Promise<"bad" | "typo" | null>;
   /** Finished sign-ups allowed per visitor and in total each day. */
   perVisitorDailyLimit?: number;
   dailyLimit?: number;
@@ -37,7 +42,7 @@ export function createSignup(deps: SignupDeps) {
   app.get("/", (c) => {
     c.header("Cache-Control", "no-store");
     return c.html(
-      renderSignupPage({ appId: deps.app.appId, configId: deps.configId, graphApiVersion: deps.app.graphApiVersion }),
+      renderSignupPage({ appId: deps.app.appId, configId: deps.configId, graphApiVersion: deps.app.graphApiVersion, askEmail: Boolean(deps.saveEmail) }),
     );
   });
 
@@ -88,10 +93,39 @@ export function createSignup(deps: SignupDeps) {
       coexistence,
       pin: pin ?? null,
       added: added ?? false,
+      // Proves the email form that follows comes from whoever just connected this number.
+      ...(deps.saveEmail && added ? { emailToken: emailToken(deps.app.appSecret, phoneNumberId) } : {}),
     });
   });
 
+  app.post("/email", async (c) => {
+    c.header("Cache-Control", "no-store");
+    if (!deps.saveEmail) return c.notFound();
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const phoneNumberId = matching(body.phone_number_id, /^\d{1,32}$/);
+    const token = matching(body.token, /^[\w-]{1,64}$/);
+    const email = typeof body.email === "string" ? body.email.slice(0, 200) : "";
+    if (!phoneNumberId || !token || !sameToken(token, emailToken(deps.app.appSecret, phoneNumberId))) return c.json({ error: "This page has expired. Please add your email in the yarnOga app instead." }, 403);
+    try {
+      const problem = await deps.saveEmail({ phoneNumberId, email, tips: body.tips === true });
+      if (problem === "typo") return c.json({ error: "That email looks mistyped (for example gamil.com instead of gmail.com). Please check it." }, 400);
+      if (problem) return c.json({ error: "That email address doesn't look right. Please check it." }, 400);
+    } catch (err) {
+      log.error("Couldn't save the email from the sign-up page:", err);
+      return c.json({ error: "We couldn't save it just now. Please add your email in the yarnOga app instead." }, 500);
+    }
+    return c.json({ ok: true });
+  });
+
   return app;
+}
+
+function emailToken(secret: string, phoneNumberId: string): string {
+  return createHmac("sha256", secret).update(`signup-email:${phoneNumberId}`).digest("base64url").slice(0, 32);
+}
+
+function sameToken(a: string, b: string): boolean {
+  return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 function matching(value: unknown, pattern: RegExp): string | undefined {

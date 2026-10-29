@@ -174,6 +174,21 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.rows.get(OWNER)).toMatchObject({ step: "done", businessId: "biz-1", draftCsv: null });
   });
 
+  it("ends the sign-up by asking for an email, when emails are on", async () => {
+    const asked: Array<{ waId: string; businessId: string }> = [];
+    const { say } = setUp(CUPCAKES, {
+      askEmail: async (a) => {
+        asked.push(a);
+        return "Want tips by email? Send your email address, or send *skip*.";
+      },
+    });
+    await signUpToPrices(say);
+    await say("Cupcakes N600 each");
+    const done = await say("YES");
+    expect(done.text.endsWith("Want tips by email? Send your email address, or send *skip*.")).toBe(true);
+    expect(asked).toEqual([{ waId: OWNER, businessId: "biz-1" }]);
+  });
+
   it("keeps a referral code for the first upgrade, and asks again when it can't find one", async () => {
     const { say, mem } = setUp();
     await say("sign up");

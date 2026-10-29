@@ -11,8 +11,9 @@ import type { PlanFeature, PlanFeatures } from "../../products/quote/features.js
 import { isPhoto } from "./prices.js";
 import { cleanHours, DAYS, type BusinessAbout, type Day } from "../../products/quote/about.js";
 import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
+import { TIPS_BOX } from "../../core/email/settings.js";
 
-// Settings (owners only): business details and logo, bank accounts (with
+// Settings (owners only): business details and logo, the owner's email, bank accounts (with
 // what each payment costs in fees), alert numbers, the team, and the
 // owner's password.
 
@@ -38,7 +39,7 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
   app.get("/settings", async (c) => {
     const biz = c.get("biz");
     const user = c.get("user");
-    const [info, banks, alerts, team, logo, about, care] = await Promise.all([
+    const [info, banks, alerts, team, logo, about, care, email] = await Promise.all([
       biz.data.info(),
       biz.data.banks().catch(() => []),
       biz.data.alertNumbers().catch(() => []),
@@ -46,6 +47,7 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
       biz.logo().catch(() => null),
       biz.data.about ? biz.data.about().catch(() => null) : Promise.resolve(null),
       biz.data.care ? biz.data.care().catch(() => null) : Promise.resolve(null),
+      ctx.deps.emails ? ctx.deps.emails.get("quote", biz.id, user.waId).catch(() => null) : Promise.resolve(null),
     ]);
     const v = (x: string | null | undefined) => esc(x ?? "");
     const envNote = biz.fromEnv
@@ -120,6 +122,8 @@ ${
 <label>Owner's number <span class="muted">(gets new-order alerts and owner commands)</span><input name="owner" inputmode="tel" value="${v(info?.ownerWaId ? showWaId(info.ownerWaId) : "")}"${biz.fromEnv ? " disabled" : ""}></label></div>
 <label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/home/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
 <div class="actions"><button>Save details</button></div></form>
+
+${email ? emailForm(email) : ""}
 
 ${aboutForm(about)}
 
@@ -209,6 +213,23 @@ ${feeNote}
       await biz.saveLogo(data, type);
     }
     return done(c, "saved", "#business");
+  });
+
+  app.post("/settings/email", async (c) => {
+    if (!ctx.deps.emails) return done(c, "bad");
+    const user = c.get("user");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const problem = await ctx.deps.emails.save({
+      product: "quote",
+      accountId: c.get("biz").id,
+      waId: user.waId,
+      name: user.name,
+      email: field(form, "email", 200),
+      tips: field(form, "tips", 4) === "on",
+      source: "owner app settings",
+    });
+    if (problem) return done(c, `email_${problem}`, "#email");
+    return done(c, "saved", "#email");
   });
 
   app.post("/settings/care", async (c) => {
@@ -340,6 +361,15 @@ ${feeNote}
 
 function option(value: string, label: string, current: string): string {
   return `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`;
+}
+
+/** The owner's own email: receipts and account emails, and setup tips only if ticked. */
+function emailForm(email: { email: string | null; tips: boolean }): string {
+  return `<h2 id="email">Your email</h2>
+<form method="post" action="/home/settings/email" class="card">
+<label>Email address <span class="muted">(for receipts and messages about your account; leave empty to remove it)</span><input type="email" name="email" maxlength="200" autocomplete="email" value="${esc(email.email ?? "")}" placeholder="you@example.com"></label>
+<label class="check"><input type="checkbox" name="tips" value="on"${email.tips ? " checked" : ""}> ${esc(TIPS_BOX)}</label>
+<div class="actions"><button>Save</button></div></form>`;
 }
 
 const DAY_LABELS: Record<Day, string> = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
