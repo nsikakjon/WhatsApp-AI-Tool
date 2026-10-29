@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
+import { mark } from "../../../core/brand.js";
 import type { Notice } from "../../../core/product.js";
 import type { TrackingLinks } from "./index.js";
 import type { Lang } from "../../../core/i18n.js";
@@ -176,33 +177,46 @@ ${opts.map
   ? html`<link rel="stylesheet" href="${LEAFLET_CSS}" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="${LEAFLET_JS}" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>`
   : ""}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;600&family=Schibsted+Grotesk:wght@700&display=swap" rel="stylesheet">
 <style>
-  :root { --green: #128c4a; --bg: #f4f6f5; --card: #fff; --text: #1b1f1d; --muted: #6b7570; --line: #e1e6e3; --red: #b42318; }
+  /* yarnOga's colours and type, as on yarnoga.com and the owner app. */
+  :root { --bg: #0a0d0b; --card: #0f1411; --line: rgba(243,241,230,.12); --text: #f3f1e6; --muted: rgba(243,241,230,.68);
+    --lime: #c6ff1f; --limeink: #121400; --mint: #2ee5a0; --red: #ff8a7a; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
-  header { background: var(--green); color: #fff; padding: 14px 16px; }
-  header h1 { font-size: 18px; margin: 0; }
-  header p { margin: 2px 0 0; opacity: .85; font-size: 14px; }
+  body { margin: 0; font: 16px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text);
+    background-image: radial-gradient(700px 400px at 90% -10%, rgba(198,255,31,.08), transparent 60%); min-height: 100vh; }
+  header { max-width: 560px; margin: 0 auto; padding: 24px 16px 8px; }
+  header h1 { font: 700 1.6rem/1.15 "Chakra Petch", Arial, sans-serif; letter-spacing: -.01em; margin: 0; }
+  .crumb { margin: 0 0 6px; color: var(--mint); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+  .crumb::before { content: "> "; }
   main { max-width: 560px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-  .muted { color: var(--muted); font-size: 14px; }
-  #map { height: 320px; border-radius: 12px; border: 1px solid var(--line); }
-  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  ol.steps li { display: flex; gap: 10px; align-items: center; color: var(--muted); }
-  ol.steps li::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
-  ol.steps li.done { color: var(--text); }
-  ol.steps li.done::before { background: var(--green); border-color: var(--green); }
-  button { font: inherit; font-weight: 600; width: 100%; padding: 14px; border-radius: 10px; border: 0; cursor: pointer; }
-  button.primary { background: var(--green); color: #fff; }
-  button.plain { background: var(--card); color: var(--text); border: 1px solid var(--line); }
-  button.warn { background: var(--card); color: var(--red); border: 1px solid var(--line); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+  .muted { color: var(--muted); font-size: 14px; margin: 0; }
+  button + .muted { margin-top: 12px; }
+  #map { height: 320px; border-radius: 6px; border: 1px solid var(--line); }
+  ol.steps { list-style: none; margin: 0 0 12px; padding: 0; }
+  ol.steps li { position: relative; display: flex; gap: 12px; align-items: center; padding: 6px 0; color: var(--muted); }
+  ol.steps li::before { content: ""; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+  ol.steps li + li::after { content: ""; position: absolute; left: 6px; bottom: calc(50% + 9px); height: 18px; width: 2px; background: var(--line); }
+  ol.steps li.done { color: var(--text); font-weight: 600; }
+  ol.steps li.done::before { background: var(--lime); border-color: var(--lime); box-shadow: 0 0 10px rgba(198,255,31,.35); }
+  ol.steps li.done::after { background: var(--lime); }
+  button { font: 600 1rem/1.2 "Schibsted Grotesk", Arial, sans-serif; width: 100%; padding: 14px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; background: var(--card); color: var(--text); }
+  button.primary { background: var(--lime); color: var(--limeink); border-color: transparent; box-shadow: 3px 3px 0 var(--mint); }
+  button.warn { color: var(--red); }
   button:disabled { opacity: .5; cursor: default; }
   .buttons { display: grid; gap: 8px; }
-  a { color: var(--green); }
+  a { color: var(--lime); text-underline-offset: 3px; }
+  footer { max-width: 560px; margin: 0 auto; padding: 8px 16px 32px; }
+  footer a { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-size: 13px; }
+  footer b { color: var(--text); font: 700 15px/1 "Schibsted Grotesk", Arial, sans-serif; letter-spacing: -.02em; }
+  footer b span { color: var(--lime); }
 </style>
 </head>
 <body>
 ${body}
+<footer><a href="https://yarnoga.com">${raw(mark("ym", 22))}<span>Tracked by <b>yarn<span>Oga</span></b></span></a></footer>
 </body>
 </html>`;
 }
@@ -214,7 +228,7 @@ function notFound() {
 function customerPage(d: Delivery) {
   return page(
     `${d.orderRef} delivery`,
-    html`<header><h1>${d.businessName}</h1><p>Order ${d.orderRef}</p></header>
+    html`<header><p class="crumb">Order ${d.orderRef}</p><h1>${d.businessName}</h1></header>
 <main>
   <div class="card">
     <ol class="steps" id="steps">
@@ -243,10 +257,10 @@ function customerPage(d: Delivery) {
       const data = await res.json();
       const reached = ORDER.indexOf(data.status);
       document.querySelectorAll("#steps li").forEach((li, i) => li.classList.toggle("done", reached >= i));
-      if (map && data.drop && !drop) drop = L.circleMarker([data.drop.lat, data.drop.lng], { radius: 8, color: "#1b1f1d" }).addTo(map).bindTooltip("Delivery point");
+      if (map && data.drop && !drop) drop = L.circleMarker([data.drop.lat, data.drop.lng], { radius: 8, color: "#0a0d0b", fillColor: "#f3f1e6", fillOpacity: 1, weight: 3 }).addTo(map).bindTooltip("Delivery point");
       if (data.rider) {
         const at = [data.rider.lat, data.rider.lng];
-        if (rider) rider.setLatLng(at); else if (map) rider = L.circleMarker(at, { radius: 10, color: "#128c4a", fillOpacity: 0.9 }).addTo(map);
+        if (rider) rider.setLatLng(at); else if (map) rider = L.circleMarker(at, { radius: 10, color: "#0e3b2c", fillColor: "#c6ff1f", fillOpacity: 1, weight: 3 }).addTo(map);
         const mins = Math.round((Date.now() - Date.parse(data.rider.seenAt)) / 60000);
         note.textContent = (data.rider.name || "The rider") + " was here " + (mins < 1 ? "just now" : mins + " min ago") + ".";
         if (map && !framed) { map.fitBounds(L.latLngBounds([at, ...(drop ? [drop.getLatLng()] : [])]).pad(0.3), { maxZoom: 15 }); framed = true; }
@@ -270,7 +284,7 @@ function customerPage(d: Delivery) {
 function riderPage(d: Delivery) {
   return page(
     `${d.orderRef} job`,
-    html`<header><h1>${d.orderRef} for ${d.businessName}</h1><p>${d.riderName ?? "Rider"}</p></header>
+    html`<header><p class="crumb">${d.riderName ?? "Rider"}</p><h1>${d.orderRef} for ${d.businessName}</h1></header>
 <main>
   <div class="card">
     <div><strong>Deliver to:</strong> ${d.address ?? "the pinned location"}</div>
@@ -282,8 +296,8 @@ function riderPage(d: Delivery) {
     <p class="muted" id="sharing">Keep this page open on your screen while you ride. If you lock the phone or switch apps, the customer stops seeing you move.</p>
   </div>
   <div class="buttons">
-    <button class="plain" data-step="picked_up">Picked up</button>
-    <button class="plain" data-step="delivered">Delivered</button>
+    <button data-step="picked_up">Picked up</button>
+    <button data-step="delivered">Delivered</button>
     <button class="warn" data-step="failed">Couldn't deliver</button>
   </div>
   <p class="muted" id="status">Status: ${words(d.status)}</p>
