@@ -1,5 +1,5 @@
 import { mark } from "../core/brand.js";
-import type { Role } from "./store.js";
+import { can, ROLE_LABEL, type Permission, type Role } from "./roles.js";
 
 // The owner app's look: yarnOga black and lime, glassy cards with a soft lime
 // glow, a menu down the side on a laptop and a tab bar at the bottom on a
@@ -48,19 +48,21 @@ export interface NavItem {
   icon: string;
   /** Only owners see it. */
   ownerOnly?: boolean;
+  /** Only roles with this permission see it (roles.ts). */
+  need?: Permission;
   /** Shown in the phone's bottom tab bar (the rest go under "More"). */
   tab?: boolean;
 }
 
 export const NAV: NavItem[] = [
   { href: "/home", label: "Dashboard", icon: "home", tab: true },
-  { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true },
+  { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true, need: "inbox" },
   { href: "/home/orders", label: "Orders", icon: "orders", tab: true },
-  { href: "/home/prices", label: "Price list", icon: "prices", tab: true },
-  { href: "/home/customers", label: "Customers", icon: "users" },
+  { href: "/home/prices", label: "Price list", icon: "prices", tab: true, need: "see_prices" },
+  { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
-  { href: "/home/test", label: "Test your bot", icon: "test" },
-  { href: "/home/posters", label: "QR posters", icon: "posters" },
+  { href: "/home/test", label: "Test your bot", icon: "test", need: "tools" },
+  { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools" },
   { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
   { href: "/home/export", label: "Export", icon: "export", ownerOnly: true },
   { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true },
@@ -87,7 +89,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => !n.ownerOnly || s.role === "owner");
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");
@@ -99,7 +101,7 @@ export function page(s: Shell, body: string): string {
       ].join("")}</select><button class="ghost small">Switch</button></form>`
     : "";
   const flash = s.flash ? `<p class="flash ${s.flash.ok ? "good" : "bad"}" role="status">${esc(s.flash.text)}</p>` : "";
-  const role = s.role === "owner" ? "Owner" : "Staff";
+  const role = ROLE_LABEL[s.role];
   const tabs = items.filter((n) => n.tab);
   const moreActive = !tabs.some((n) => n.href === s.active);
   const logout = `<form method="post" action="/home/logout"><button class="navbtn">${icon("logout")}<span>Log out</span></button></form>`;
@@ -241,6 +243,7 @@ main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240p
 .me{display:flex;align-items:center;gap:10px;padding:12px;margin:10px 0 6px;border-radius:var(--r2);background:var(--surface);border:1px solid var(--line)}
 .me b{display:block;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.me span{color:var(--muted);font-size:.78rem}.me div{min-width:0}
 .switch{display:flex;gap:6px;margin:0 0 6px}.switch select{padding:8px}
+.inline{display:flex;gap:6px;align-items:center}.inline select{padding:8px;width:auto}
 
 /* Phone tab bar */
 .tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:30;display:flex;justify-content:space-around;padding:6px;border-radius:22px;background:rgba(15,20,17,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line2);box-shadow:0 12px 40px rgba(0,0,0,.5)}

@@ -12,6 +12,7 @@ import { isPhoto } from "./prices.js";
 import { cleanHours, DAYS, type BusinessAbout, type Day } from "../../products/quote/about.js";
 import { DEFAULT_FEE_CAP, transactionFeeKobo } from "../../products/quote/paylinks.js";
 import { TIPS_BOX } from "../../core/email/settings.js";
+import { isStaffRole, ROLE_HELP, ROLE_LABEL, STAFF_ROLES, type Role } from "../roles.js";
 
 // Settings (owners only): business details and logo, the owner's email, bank accounts (with
 // what each payment costs in fees), alert numbers, the team, and the
@@ -104,11 +105,14 @@ ${
       ),
     ].join("");
 
+    const roleSelect = (current: Role, label: string) =>
+      `<select name="role" aria-label="${esc(label)}">${STAFF_ROLES.map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}</select>`;
     const teamRows = team
       .map(
-        (m) => `<tr><td>${esc(m.name ?? "")}${m.id === user.id ? ' <span class="tag">you</span>' : ""}</td><td>${esc(showWaId(m.waId))}</td><td>${m.role === "owner" ? "Owner" : "Staff"}</td>
+        (m) => `<tr><td>${esc(m.name ?? "")}${m.id === user.id ? ' <span class="tag">you</span>' : ""}</td><td>${esc(showWaId(m.waId))}</td>
+<td>${m.role === "owner" ? "Owner" : `<form method="post" action="/home/settings/team/${m.id}/role" class="inline">${roleSelect(m.role, `Role for ${m.name ?? showWaId(m.waId)}`)}<button class="ghost small">Change</button></form>`}</td>
 <td class="muted small">${m.lastLoginAt ? esc(m.lastLoginAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })) : "never"}</td>
-<td>${m.role === "staff" ? `<form method="post" action="/home/settings/team/${m.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
+<td>${m.role !== "owner" ? `<form method="post" action="/home/settings/team/${m.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
       )
       .join("");
 
@@ -157,10 +161,12 @@ ${feeNote}
 <div class="actions"><button>Add alert number</button></div></form>
 
 <h2 id="team">Team</h2>
-<p class="muted">Staff log in by sending <b>app</b> to your business number from their own WhatsApp. They can use the inbox, orders, price list, delivery, posters and bot test, but not settings or exports.</p>
+<p class="muted">Staff log in by sending <b>app</b> to your business number from their own WhatsApp. What they see depends on their role:</p>
+<ul class="muted">${STAFF_ROLES.map((r) => `<li><b>${ROLE_LABEL[r]}</b>: ${ROLE_HELP[r]}.</li>`).join("")}</ul>
 <div class="scroll"><table><tr><th>Name</th><th>WhatsApp</th><th>Role</th><th>Last login</th><th></th></tr>${teamRows}</table></div>
 <form method="post" action="/home/settings/team" class="card" style="margin-top:12px"><div class="row">
-<label>Name<input name="name" required maxlength="60"></label><label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label></div>
+<label>Name<input name="name" required maxlength="60"></label><label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label>
+<label>Role${roleSelect("cashier", "Role")}</label></div>
 <div class="actions"><button>Add staff member</button></div></form>
 
 <h2 id="password">Your password</h2>
@@ -324,9 +330,30 @@ ${feeNote}
     const form = await c.req.parseBody();
     const name = field(form, "name", 60);
     const waId = normaliseWaId(field(form, "wa", 30));
-    if (!name || !waId) return done(c, "bad", "#team");
-    await ctx.deps.users.addStaff(c.get("biz").id, waId, name);
+    const role = form.role;
+    if (!name || !waId || !isStaffRole(role)) return done(c, "bad", "#team");
+    const biz = c.get("biz");
+    // Adding the owner's own number again would make them staff.
+    if ((await ctx.deps.users.team(biz.id)).some((m) => m.waId === waId && m.role === "owner")) return done(c, "is_owner", "#team");
+    try {
+      await ctx.deps.users.addStaff(biz.id, waId, name, role);
+    } catch (err) {
+      ctx.log.error("Owner app: couldn't add a team member:", err);
+      return done(c, "roles_update", "#team");
+    }
     return done(c, "added", "#team");
+  });
+
+  app.post("/settings/team/:id/role", async (c) => {
+    const role = (await c.req.parseBody()).role;
+    if (!UUID.test(c.req.param("id")) || !isStaffRole(role)) return done(c, "bad", "#team");
+    try {
+      await ctx.deps.users.setRole(c.get("biz").id, c.req.param("id"), role);
+    } catch (err) {
+      ctx.log.error("Owner app: couldn't change a role:", err);
+      return done(c, "roles_update", "#team");
+    }
+    return done(c, "saved", "#team");
   });
 
   app.post("/settings/team/:id/remove", async (c) => {
