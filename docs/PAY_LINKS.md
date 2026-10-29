@@ -33,8 +33,13 @@ invoice and the owner sends `paid KP-1001`.
 
 - **Through the pay link**: Paystack's page has "Pay with Transfer" (a one-off
   account number). That's confirmed automatically like a card payment.
-- **Straight to the bank details on the invoice**: nothing changes. The owner
-  checks their bank and sends `paid KP-1001`.
+- **Straight to the bank details on the invoice**: the owner checks their bank
+  and sends `paid KP-1001`. If the customer sends their transfer screenshot
+  or bank receipt in the chat, the owner gets it on WhatsApp with two buttons:
+  **Confirm paid** (same as `paid KP-1001`, the customer gets the receipt) and
+  **Not received** (same as `not paid KP-1001`, the customer is told the money
+  hasn't arrived yet). This works with or without pay links. Always check the
+  bank app before confirming: fake transfer screenshots are common.
 
 ## Switching it on
 
