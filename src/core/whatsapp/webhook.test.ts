@@ -6,6 +6,7 @@ import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { BotPause, MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
+import { FALLBACK_TEXT, isTransient, retryingClient } from "./webhook.js";
 import type { IncomingMessage } from "./types.js";
 
 const APP_SECRET = "test-secret";
@@ -18,10 +19,15 @@ function memoryStore() {
   const outbound: string[] = [];
   const inboundText = new Map<string, string>();
   const pauses = new Map<string, BotPause>();
+  const userIds = new Map<string, string>();
   const store: MessageStore = {
-    async upsertContact(waId) {
+    async upsertContact(waId, _name, userId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
+      if (userId && !userIds.has(userId)) userIds.set(userId, waId);
       return contacts.get(waId)!;
+    },
+    async waIdForUser(userId) {
+      return userIds.get(userId) ?? null;
     },
     async recordInbound(_contactId, msg) {
       if (seen.has(msg.waMessageId)) return "duplicate";
@@ -63,7 +69,7 @@ function setup(
   product: Product = echoProduct,
   transcriber?: Transcriber,
   route?: (msg: IncomingMessage) => Product,
-  extra: { ownerReplyPauseMinutes?: number; now?: () => Date } = {},
+  extra: { ownerReplyPauseMinutes?: number; now?: () => Date; retryDelaysMs?: number[] } = {},
 ) {
   const sent: Array<{ to: string; body: string }> = [];
   const sentFrom: Array<string | undefined> = [];
@@ -109,6 +115,7 @@ function setup(
     transcriber,
     route: route ?? (() => product),
     log: silent,
+    retryDelaysMs: [0, 0],
     ...extra,
   });
   return { app, sent, sentFrom, ...mem };
@@ -176,6 +183,39 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello" }]);
     expect(outbound).toEqual(["You said: Hello"]);
     expect(contacts.has("2348012345678")).toBe(true);
+  });
+
+  it("still answers a customer who hides their number behind a WhatsApp username", async () => {
+    const { app, sent, contacts } = setup();
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        contacts: [{ profile: { name: "Ada" }, user_id: "NG.1349120865530274" }],
+        messages: [{ from_user_id: "NG.1349120865530274", id: "wamid.hidden", timestamp: "1", type: "text", text: { body: "Hello" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(sent).toEqual([{ to: "NG.1349120865530274", body: "You said: Hello" }]);
+    expect(contacts.has("NG.1349120865530274")).toBe(true);
+  });
+
+  it("keeps a known customer on their phone number after they hide it", async () => {
+    const { app, sent, contacts } = setup();
+    const message = (extra: Record<string, unknown>, id: string) => {
+      const body = JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{ changes: [{ field: "messages", value: {
+          metadata: { phone_number_id: "PNID" },
+          messages: [{ ...extra, from_user_id: "NG.1349120865530274", id, timestamp: "1", type: "text", text: { body: "Hi" } }],
+        } }] }],
+      });
+      return post(app, body, sign(body));
+    };
+    await message({ from: "2348012345678" }, "wamid.first");
+    await message({}, "wamid.later");
+    expect(sent.map((s) => s.to)).toEqual(["2348012345678", "2348012345678"]);
+    expect([...contacts.keys()]).toEqual(["2348012345678"]);
   });
 
   it("routes by the number that was messaged and replies from that number", async () => {
@@ -406,6 +446,30 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(outbound).toEqual(["Your total", "Confirm?", "Where should we deliver?"]);
   });
 
+  it("sends cards after the text and before any buttons", async () => {
+    const showing: Product = {
+      name: "showing",
+      handle: async () => ({
+        text: "Here's what we sell",
+        cards: [
+          { body: "Mugs", buttons: [{ id: "I'd like Mugs", title: "Order this" }] },
+          { body: "Cupcakes", buttons: [{ id: "I'd like Cupcakes", title: "Order this" }] },
+        ],
+        buttons: { body: "2 of 3", buttons: [{ id: "catalogue page 2", title: "See more" }] },
+      }),
+    };
+    const { app, sent, outbound } = setup(showing);
+    const body = textWebhook("wamid.cards", "catalogue");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual([
+      "Here's what we sell",
+      "[buttons] Mugs | I'd like Mugs",
+      "[buttons] Cupcakes | I'd like Cupcakes",
+      "[buttons] 2 of 3 | catalogue page 2",
+    ]);
+    expect(outbound).toEqual(["Here's what we sell", "Mugs", "Cupcakes", "2 of 3"]);
+  });
+
   it("sends a notice's template to someone who hasn't messaged in the last day", async () => {
     const notifying: Product = {
       name: "notifying",
@@ -606,5 +670,65 @@ describe("owner replies from the WhatsApp Business app (coexistence)", () => {
     const res = await post(app, body, sign(body, "wrong-secret"));
     expect(res.status).toBe(401);
     expect(pauses.size).toBe(0);
+  });
+});
+
+describe("when answering fails", () => {
+  it("tries the bot again after a passing failure, then answers normally", async () => {
+    let calls = 0;
+    const flaky: Product = {
+      name: "flaky",
+      handle: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("Anthropic API overloaded (529)");
+        return { text: "Here is your quote" };
+      },
+    };
+    const { app, sent } = setup(flaky);
+    const body = textWebhook("wamid.flaky", "500 flyers");
+    await post(app, body, sign(body));
+    expect(calls).toBe(2);
+    expect(sent).toEqual([{ to: "2348012345678", body: "Here is your quote" }]);
+  });
+
+  it("sends the customer a fallback reply when the bot keeps failing", async () => {
+    let calls = 0;
+    const broken: Product = { name: "broken", handle: async () => { calls += 1; throw new Error("fetch failed"); } };
+    const { app, sent, outbound } = setup(broken);
+    const body = textWebhook("wamid.broken", "Hi");
+    await post(app, body, sign(body));
+    expect(calls).toBe(2);
+    expect(sent).toEqual([{ to: "2348012345678", body: FALLBACK_TEXT }]);
+    expect(outbound).toEqual([FALLBACK_TEXT]);
+  });
+
+  it("doesn't run the bot twice for a mistake that would fail the same way", async () => {
+    let calls = 0;
+    const buggy: Product = { name: "buggy", handle: async () => { calls += 1; throw new TypeError("x is undefined"); } };
+    const { app, sent } = setup(buggy);
+    const body = textWebhook("wamid.buggy", "Hi");
+    await post(app, body, sign(body));
+    expect(calls).toBe(1);
+    expect(sent.map((s) => s.body)).toEqual([FALLBACK_TEXT]);
+  });
+});
+
+describe("retryingClient", () => {
+  it("tries a WhatsApp call again when WhatsApp is busy, not when the request is wrong", async () => {
+    let tries = 0;
+    const base = {
+      sendText: async () => {
+        tries += 1;
+        if (tries < 3) throw new Error("WhatsApp send failed (503): Service unavailable");
+        return { waMessageId: "ok", raw: {} };
+      },
+    } as unknown as WhatsAppClient;
+    const client = retryingClient(base, [0, 0], silent);
+    expect((await client.sendText("1", "hi")).waMessageId).toBe("ok");
+    expect(tries).toBe(3);
+
+    expect(isTransient(new Error("WhatsApp send failed (400): bad number"))).toBe(false);
+    expect(isTransient(new Error("WhatsApp send failed (429): too many"))).toBe(true);
+    expect(isTransient(Object.assign(new Error("x"), { status: 529 }))).toBe(true);
   });
 });

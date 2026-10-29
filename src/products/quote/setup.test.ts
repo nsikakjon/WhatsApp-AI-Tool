@@ -325,3 +325,22 @@ describe("branches", () => {
     expect(list.at(-1)?.branchOf).toBeUndefined();
   });
 });
+
+describe("pay links", () => {
+  const shop = { name: "Mama Cakes Ikeja", orderPrefix: "MCI", phoneNumberId: "555000222", active: "on" };
+
+  it("saves a business's Paystack subaccount and checks it looks like one", async () => {
+    const { app, list } = memory({ payLinks: true });
+    expect(await (await app.request("/new", { headers: auth })).text()).toContain('name="paystackSubaccount"');
+    expect(await (await post(app, "/new", { ...shop, paystackSubaccount: "0123456789" })).text()).toContain("starts with ACCT_");
+    expect((await post(app, "/new", { ...shop, paystackSubaccount: " ACCT_abc123 " })).status).toBe(303);
+    expect(list.at(-1)?.paystackSubaccount).toBe("ACCT_abc123");
+  });
+
+  it("shows no subaccount field and never writes it while pay links are off", async () => {
+    const { app, list } = memory();
+    expect(await (await app.request("/new", { headers: auth })).text()).not.toContain("paystackSubaccount");
+    await post(app, "/new", { ...shop, paystackSubaccount: "ACCT_abc123" });
+    expect(list.at(-1)?.paystackSubaccount).toBeUndefined();
+  });
+});

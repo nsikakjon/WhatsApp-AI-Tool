@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../../core/money.js";
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
+import { promoAppliedText, promoRefusedText, takePromoCode } from "../../core/payments/promos.js";
 
 // Plans for the quote and order bot (Free, Starter, Pro, Growth, Enterprise).
 //
@@ -15,7 +16,9 @@ import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js"
 // Owners upgrade by sending "upgrade starter" (a month) or "upgrade starter
 // yearly" (a year at the yearly price). They get a Paystack link; once it's
 // paid, planPaid puts the business on the plan until a date (migration 0033).
-// When that date passes, the business drops back to the free plan.
+// When that date passes, the business drops back to the free plan. A promo
+// or referral code goes at the end: "upgrade starter DAYONES". A code given
+// in the sign-up chat is used when none is typed.
 
 export interface QuotePlan {
   code: string;
@@ -45,6 +48,8 @@ export interface PlanStore {
    * whose time has run out reads as "free".
    */
   businessPlanCode?(): Promise<string | null>;
+  /** The promo or referral code the business gave when it signed up (migration 0046), or null. */
+  signupCode?(): Promise<string | null>;
 }
 
 /** Saving a paid upgrade on a business's row. */
@@ -67,8 +72,11 @@ export interface PlanGate {
   credit(): Promise<string | null>;
   /** Whether one more order can be confirmed this month. */
   checkOrder(): Promise<OrderCheck>;
-  /** The owner's "plan" command: current plan, this month's use, and how to upgrade. */
-  summary(): Promise<string>;
+  /**
+   * The owner's "plan" command: current plan, this month's use, and how to upgrade.
+   * `usage` adds lines under the orders count (e.g. bot messages).
+   */
+  summary(usage?: string[]): Promise<string>;
   /** The owner's "upgrade starter [yearly]" command: a payment link, or how to upgrade. */
   upgrade?(request: string, ownerWaId: string): Promise<string>;
 }
@@ -122,6 +130,15 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
     }
   }
 
+  async function savedSignupCode(): Promise<string | null> {
+    try {
+      return (await opts.store.signupCode?.()) ?? null;
+    } catch (err) {
+      log.error("Could not read the business's sign-up code:", err);
+      return null;
+    }
+  }
+
   return {
     async credit() {
       const plan = await current();
@@ -148,7 +165,7 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       return { allowed: true, warning };
     },
 
-    async summary() {
+    async summary(usage = []) {
       const plan = await current();
       if (!plan) return "I couldn't find your plan just now. Please let yarnOga support know.";
       const used = await opts.store.ordersConfirmedSince(lagosMonthStart(now()));
@@ -157,6 +174,7 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         plan.monthlyOrderLimit == null
           ? `Orders this month: ${used} (no limit)`
           : `Orders this month: ${used} of ${plan.monthlyOrderLimit}`,
+        ...usage,
       ];
       const upgrades = (await opts.store.paidPlans()).filter((p) => p.monthlyPriceKobo > plan.monthlyPriceKobo);
       if (upgrades.length > 0) {
@@ -172,7 +190,10 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         }
         if (opts.checkout) {
           const example = upgrades[0]!.name.toLowerCase();
-          lines.push("", `To upgrade, send *upgrade ${example}* to pay for a month, or *upgrade ${example} yearly* for a year.`);
+          lines.push(
+            "",
+            `To upgrade, send *upgrade ${example}* to pay for a month, or *upgrade ${example} yearly* for a year. Got a promo or referral code? Add it at the end.`,
+          );
         }
       }
       const addons = (await opts.store.addons?.()) ?? [];
@@ -187,30 +208,42 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
     },
 
     async upgrade(request, ownerWaId) {
-      const wanted = request.trim().replace(/\s+(yearly|annually|annual|(?:for )?(?:a|one|1) year)$/i, "");
-      const yearly = wanted !== request.trim();
       const plans = await opts.store.paidPlans();
-      const plan = plans.find((p) => p.code.toLowerCase() === wanted.toLowerCase() || p.name.toLowerCase() === wanted.toLowerCase());
-      if (!plan) {
+      const find = (text: string) => {
+        const wanted = text.trim().replace(/\s+(yearly|annually|annual|(?:for )?(?:a|one|1) year)$/i, "");
+        const plan = plans.find((p) => p.code.toLowerCase() === wanted.toLowerCase() || p.name.toLowerCase() === wanted.toLowerCase());
+        return plan ? { plan, yearly: wanted !== text.trim() } : null;
+      };
+      const asked = takePromoCode(request.trim(), (t) => !!find(t));
+      const found = find(asked.text);
+      if (!found) {
         const names = plans.map((p) => `*upgrade ${p.name.toLowerCase()}*`).join(" or ");
         return names ? `Which plan? Send ${names}. Send *plan* to see the prices.` : "There are no plans to upgrade to just now.";
       }
+      const { plan, yearly } = found;
       if (!opts.checkout) return `To move to ${plan.name}, contact yarnOga and we'll switch you over. Online payment isn't switched on yet.`;
 
       const months = yearly ? 12 : 1;
       const amountKobo = yearly ? (plan.monthlyPricePaidYearlyKobo ?? plan.monthlyPriceKobo) * 12 : plan.monthlyPriceKobo;
       const period = yearly ? "1 year" : "1 month";
       try {
-        const link = await opts.checkout.links.createLink({
+        const signupCode = asked.code ? null : await savedSignupCode();
+        const code = asked.code ?? signupCode;
+        const request = {
           product: "quote",
           waId: ownerWaId,
           amountKobo,
           purpose: { businessId: opts.checkout.businessId, plan: plan.code, months },
           title: `yarnOga ${plan.name}, ${period}`,
-        });
+        };
+        let link = await opts.checkout.links.createLink({ ...request, promo: code ? { code, months } : undefined });
+        // The sign-up code only counts once; after that (or once it has ended) the owner pays the full price.
+        if (link.url === null && signupCode) link = await opts.checkout.links.createLink(request);
+        if (link.url === null) return promoRefusedText(link.refused);
         return [
-          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(amountKobo)}):`,
-          link,
+          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(link.amountKobo)}):`,
+          link.url,
+          ...(link.promo ? ["", promoAppliedText(link.promo)] : []),
           "",
           "Your plan switches over as soon as the payment goes through.",
         ].join("\n");
@@ -228,13 +261,28 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
  * payment messages come from the main number; other owners see it on the
  * Paystack page and in their next *plan* reply.
  */
-export function createPlanPaidHandler(opts: { store: PlanPaymentStore; mainBusinessId: string }): PaidHandler {
+export function createPlanPaidHandler(opts: {
+  store: PlanPaymentStore;
+  mainBusinessId: string;
+  /** With QUOTE_REFERRALS on: gives the free month to whoever shared a referral code used on a payment. */
+  rewardReferral?: (code: string) => Promise<unknown>;
+  log?: Pick<Console, "error">;
+}): PaidHandler {
+  const log = opts.log ?? console;
   return async (payment) => {
     const { businessId, plan, months } = payment.purpose as { businessId?: string; plan?: string; months?: number };
     if (!businessId || !plan || !Number.isInteger(months) || months! < 1) {
       throw new Error(`Payment ${payment.reference} is for something we can't find: ${JSON.stringify(payment.purpose)}`);
     }
     const until = await opts.store.extendPlan(businessId, plan, months!);
+    if (opts.rewardReferral && payment.promoCode) {
+      // The payer's plan is already saved, so a failure here mustn't send the payment back to pending.
+      try {
+        await opts.rewardReferral(payment.promoCode);
+      } catch (err) {
+        log.error(`Paid with code ${payment.promoCode}, but couldn't give the referrer their free month:`, err);
+      }
+    }
     if (businessId !== opts.mainBusinessId) return [];
     const date = until.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" });
     return [{ to: payment.waId, text: `✅ Payment of ${formatNaira(payment.amountKobo)} received, thank you. You're on the plan until ${date}.` }];
@@ -306,6 +354,12 @@ export function createSupabasePlanStore(db: SupabaseClient, businessId?: string)
     },
     async businessPlanCode() {
       return businessId ? readBusinessPlanCode(db, businessId) : null;
+    },
+    async signupCode() {
+      if (!businessId) return null;
+      const { data, error } = await db.from("quote_businesses").select("referral_code").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`signupCode failed: ${error.message}`);
+      return (data?.referral_code as string | null | undefined) ?? null;
     },
   };
 }

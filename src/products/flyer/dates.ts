@@ -11,6 +11,13 @@ const MONTHS = [
   "july", "august", "september", "october", "november", "december",
 ];
 
+// French months without accents, as the text is compared once accents are taken off.
+const MONTHS_FR = [
+  "janvier", "fevrier", "mars", "avril", "mai", "juin",
+  "juillet", "aout", "septembre", "octobre", "novembre", "decembre",
+];
+const MONTHS_FR_SHOWN = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
 const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 function monthFromWord(word: string): number | null {
@@ -18,7 +25,10 @@ function monthFromWord(word: string): number | null {
   if (w.length < 3) return null;
   // "mar", "march" and "sept" all count.
   const i = MONTHS.findIndex((m) => m.startsWith(w));
-  return i === -1 ? null : i + 1;
+  if (i !== -1) return i + 1;
+  // French: "fév", "sept", "déc"; "jui" could be juin or juillet, so it needs four letters.
+  const fr = MONTHS_FR.findIndex((m) => m.startsWith(w) && (w.length >= 4 || !m.startsWith("jui")));
+  return fr === -1 ? null : fr + 1;
 }
 
 function valid(month: number, day: number): MonthDay | null {
@@ -33,14 +43,15 @@ function valid(month: number, day: number): MonthDay | null {
  * no clear date.
  */
 export function parseBirthday(text: string): MonthDay | null {
-  const t = text.toLowerCase();
+  // Accents off, so "14 février" and "1er août" read like "14 fevrier" and "1er aout".
+  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
   // 14/03, 14-3, 14.03.1990
   const numeric = t.match(/\b(\d{1,2})[/.-](\d{1,2})(?:[/.-]\d{2,4})?\b/);
   if (numeric) return valid(Number(numeric[2]), Number(numeric[1]));
 
-  // 14 March, 14th of March, 14 Mar 1990
-  const dayFirst = t.match(/\b(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+([a-z]+\.?)/);
+  // 14 March, 14th of March, 14 Mar 1990, 1er mars
+  const dayFirst = t.match(/\b(\d{1,2})(?:st|nd|rd|th|er)?(?:\s+of)?\s+([a-z]+\.?)/);
   if (dayFirst) {
     const month = monthFromWord(dayFirst[2]!);
     if (month) return valid(month, Number(dayFirst[1]));
@@ -56,8 +67,9 @@ export function parseBirthday(text: string): MonthDay | null {
   return null;
 }
 
-/** "14 March" */
-export function formatMonthDay({ month, day }: MonthDay): string {
+/** "14 March", or in French "14 mars" and "1er mars". */
+export function formatMonthDay({ month, day }: MonthDay, lang: "en" | "fr" = "en"): string {
+  if (lang === "fr") return `${day === 1 ? "1er" : day} ${MONTHS_FR_SHOWN[month - 1]!}`;
   const name = MONTHS[month - 1]!;
   return `${day} ${name[0]!.toUpperCase()}${name.slice(1)}`;
 }

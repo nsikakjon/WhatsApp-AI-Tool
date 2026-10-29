@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createPayments, type PaidHandler } from "./payments.js";
+import { createFlutterwaveClient, isValidFlutterwaveHash } from "./flutterwave.js";
 import { createPaystackClient, isValidPaystackSignature, type PaystackTransaction } from "./paystack.js";
 import { createPaymentRoutes } from "./routes.js";
 import type { Payment, PaymentStore } from "./store.js";
@@ -28,6 +29,12 @@ function memoryStore() {
     },
     async markPending(id) {
       rows.find((r) => r.id === id)!.status = "pending";
+    },
+    async createWithPromo(p, code, months) {
+      if (code !== "DAYONES") return { result: "unknown", code, maxUses: null };
+      const amountOffKobo = ((p.amountKobo / months) * 50) / 100;
+      rows.push({ ...p, amountKobo: p.amountKobo - amountOffKobo, promoCode: code, id: `p${rows.length + 1}`, status: "pending" });
+      return { result: "applied", code, percentOff: 50, amountOffKobo };
     },
   };
   return { store, rows };
@@ -70,7 +77,22 @@ describe("payments", () => {
     expect(rows[0]).toMatchObject({ product: "flyer", amountKobo: 450000, status: "pending" });
     expect(rows[0]!.reference).toMatch(/^yarnoga-flyer-[0-9a-f-]{36}$/);
     expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 450000, email: "payments@example.com" }));
-    expect(link).toBe(`https://checkout.paystack.com/${rows[0]!.reference}`);
+    expect(link).toEqual({ url: `https://checkout.paystack.com/${rows[0]!.reference}`, amountKobo: 450000, promo: null });
+  });
+
+  it("charges the discounted amount with a promo code, and makes no link when the code can't be used", async () => {
+    const { payments, paystack, rows } = setup();
+    const link = await payments.createLink({ ...request, amountKobo: 1350000, promo: { code: "DAYONES", months: 3 } });
+    expect(link).toMatchObject({ amountKobo: 1125000, promo: { code: "DAYONES", amountOffKobo: 225000 } });
+    expect(rows[0]).toMatchObject({ amountKobo: 1125000, promoCode: "DAYONES" });
+    expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 1125000 }));
+
+    expect(await payments.createLink({ ...request, promo: { code: "NOPE", months: 1 } })).toEqual({
+      url: null,
+      refused: { result: "unknown", code: "NOPE", maxUses: null },
+    });
+    expect(rows).toHaveLength(1);
+    expect(paystack.initialize).toHaveBeenCalledTimes(1);
   });
 
   it("refuses fractions of a kobo and products with nothing to do once paid", async () => {
@@ -86,7 +108,7 @@ describe("payments", () => {
     expect(await payments.confirm(ref)).toBe("paid");
     expect(await payments.confirm(ref)).toBe("already-paid");
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("flyer", "2348011111111", "Thanks");
+    expect(send).toHaveBeenCalledWith("flyer", { to: "2348011111111", text: "Thanks" });
   });
 
   it("doesn't activate anything paid short, failed or unknown", async () => {
@@ -144,6 +166,42 @@ describe("paystack", () => {
     expect(url).toBe("https://api.paystack.co/transaction/initialize");
     expect(JSON.parse(String(init.body))).toMatchObject({ amount: 450000, currency: "NGN", reference: "yarnoga-flyer-1" });
     expect((init.headers as Record<string, string>).Authorization).toBe(`Bearer ${SECRET}`);
+    expect(JSON.parse(String(init.body))).not.toHaveProperty("subaccount");
+  });
+
+  it("splits a store's payment to its subaccount, which pays Paystack's fee", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ status: true, data: { authorization_url: "https://checkout.paystack.com/abc" } }));
+    const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);
+    await client.initialize({
+      reference: "yarnoga-quote-1",
+      amountKobo: 13200000,
+      email: "payments@example.com",
+      callbackUrl: "https://bot.example.com/payments/done",
+      description: "Order DEMO-1010",
+      waId: "2348011111111",
+      subaccount: "ACCT_abc123",
+    });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ amount: 13200000, subaccount: "ACCT_abc123", bearer: "subaccount" });
+  });
+
+  it("keeps yarnOga's fee on the main account when a split payment carries one", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ status: true, data: { authorization_url: "https://checkout.paystack.com/abc" } }));
+    const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);
+    const checkout = {
+      reference: "yarnoga-quote-2",
+      amountKobo: 1_000_000,
+      email: "payments@example.com",
+      callbackUrl: "https://bot.example.com/payments/done",
+      description: "Order DEMO-1011",
+      waId: "2348011111111",
+      transactionChargeKobo: 25_000,
+    };
+    await client.initialize({ ...checkout, subaccount: "ACCT_abc123" });
+    await client.initialize(checkout);
+    const body = (i: number) => JSON.parse(String((fetchImpl.mock.calls[i] as unknown as [string, RequestInit])[1].body));
+    expect(body(0)).toMatchObject({ subaccount: "ACCT_abc123", bearer: "subaccount", transaction_charge: 25_000 });
+    expect(body(1)).not.toHaveProperty("transaction_charge");
   });
 
   it("reports Paystack's own error message", async () => {
@@ -197,5 +255,91 @@ describe("payment routes", () => {
     expect(await (await app.request(`/payments/done?reference=${ref}`)).text()).toContain("Payment received");
     expect(await (await app.request("/payments/done?reference=<script>")).text()).toContain("wasn't completed");
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Flutterwave (CFA francs)", () => {
+  const HASH = "flw-secret-hash-1234567890";
+
+  function cfaSetup(tx: Partial<{ status: string; amountMinor: number; currency: string }> = {}) {
+    const { store, rows } = memoryStore();
+    const flutterwave = {
+      initialize: vi.fn(async (p: { reference: string }) => `https://checkout.flutterwave.com/pay/${p.reference}`),
+      verify: vi.fn(async (reference: string) => ({
+        id: "88001",
+        reference,
+        status: "success",
+        amountMinor: rows.find((r) => r.reference === reference)?.amountKobo ?? 0,
+        currency: "XOF",
+        ...tx,
+      })),
+    };
+    const handler = vi.fn(async (p: Payment) => [{ to: p.waId, text: "Merci" }]);
+    const payments = createPayments({
+      flutterwave,
+      store,
+      callbackUrl: "https://bot.example.com/payments/done",
+      customerEmail: "payments@example.com",
+      onPaid: { quote: handler },
+      send: vi.fn(async () => {}),
+      log: silent,
+    });
+    return { payments, flutterwave, rows, handler };
+  }
+  const cfa = { product: "quote", waId: "2250712345678", amountKobo: 5_000_000, currency: "XOF" as const, purpose: { kind: "order" }, title: "Chez Awa CA-1001" };
+
+  it("makes CFA links on Flutterwave and confirms them once, checking currency and amount", async () => {
+    const { payments, flutterwave, rows, handler } = cfaSetup();
+    const link = await payments.createLink({ ...cfa, subaccount: "RS_ABC", platformFeeKobo: 80_000 });
+    expect(link.url).toContain("checkout.flutterwave.com");
+    expect(rows[0]).toMatchObject({ currency: "XOF", provider: "flutterwave" });
+    expect(flutterwave.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountMinor: 5_000_000, currency: "XOF", subaccount: "RS_ABC", platformFeeMinor: 80_000 }));
+    expect(await payments.confirm(rows[0]!.reference)).toBe("paid");
+    expect(await payments.confirm(rows[0]!.reference)).toBe("already-paid");
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("won't activate a payment in the wrong currency or for less", async () => {
+    const short = cfaSetup({ amountMinor: 100 });
+    await short.payments.createLink(cfa);
+    expect(await short.payments.confirm(short.rows[0]!.reference)).toBe("not-paid");
+    const naira = cfaSetup({ currency: "NGN" });
+    await naira.payments.createLink(cfa);
+    expect(await naira.payments.confirm(naira.rows[0]!.reference)).toBe("not-paid");
+  });
+
+  it("needs Flutterwave set up for CFA and Paystack for naira", async () => {
+    const { payments } = cfaSetup();
+    await expect(payments.createLink({ ...cfa, currency: undefined })).rejects.toThrow("Paystack");
+  });
+
+  it("rejects webhooks without the secret hash, and confirms the rest with Flutterwave", async () => {
+    const { payments, rows, handler } = cfaSetup();
+    await payments.createLink(cfa);
+    const app = createPaymentRoutes({ payments, flutterwaveHash: HASH, log: silent });
+    const body = JSON.stringify({ event: "charge.completed", data: { tx_ref: rows[0]!.reference, status: "successful" } });
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": "wrong" } })).status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": HASH } })).status).toBe(200);
+    expect((await app.request("/webhooks/flutterwave", { method: "POST", body, headers: { "verif-hash": HASH } })).status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    const page = await (await app.request(`/payments/done?status=successful&tx_ref=${rows[0]!.reference}&transaction_id=88001`)).text();
+    expect(page).toContain("Paiement reçu");
+  });
+
+  it("sends Flutterwave whole francs and reads them back as hundredths", async () => {
+    const fetch = vi.fn(async (url: string) =>
+      url.includes("verify_by_reference")
+        ? Response.json({ status: "success", data: { id: 88001, tx_ref: "yarnoga-quote-x", status: "successful", amount: 50000, currency: "XOF" } })
+        : Response.json({ status: "success", data: { link: "https://checkout.flutterwave.com/pay/x" } }),
+    );
+    const client = createFlutterwaveClient({ secretKey: "FLWSECK_TEST-abc", secretHash: HASH }, fetch as unknown as typeof globalThis.fetch);
+    await client.initialize({ reference: "yarnoga-quote-x", amountMinor: 5_000_000, currency: "XOF", email: "p@example.com", callbackUrl: "https://x/done", description: "Order", waId: "2250712345678", subaccount: "RS_ABC", platformFeeMinor: 80_000 });
+    const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent).toMatchObject({ amount: 50000, currency: "XOF", payment_options: "mobilemoneyfranco,card", subaccounts: [{ id: "RS_ABC", transaction_charge_type: "flat", transaction_charge: 800 }] });
+    expect(await client.verify("yarnoga-quote-x")).toMatchObject({ status: "success", amountMinor: 5_000_000, currency: "XOF" });
+    await expect(client.initialize({ reference: "r", amountMinor: 150, currency: "XOF", email: "e", callbackUrl: "c", description: "d", waId: "1" })).rejects.toThrow("whole francs");
+    expect(isValidFlutterwaveHash(HASH, HASH)).toBe(true);
+    expect(isValidFlutterwaveHash(undefined, HASH)).toBe(false);
   });
 });

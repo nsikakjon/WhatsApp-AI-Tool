@@ -15,18 +15,23 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
     for (const change of entry.changes ?? []) {
       if (change.field !== "messages") continue;
       const value = change.value ?? {};
-      const names = new Map(
-        (value.contacts ?? []).map((c) => [c.wa_id, c.profile?.name] as const),
-      );
+      const names = new Map<string, string | undefined>();
+      for (const c of value.contacts ?? []) {
+        for (const id of [c.wa_id, c.user_id]) if (id) names.set(id, c.profile?.name);
+      }
 
       for (const msg of value.messages ?? []) {
-        if (!msg.id || !msg.from || !msg.type) continue;
+        // A customer who hides their number behind a WhatsApp username comes
+        // with only from_user_id, which we reply to like a phone number.
+        const from = msg.from || msg.from_user_id;
+        if (!msg.id || !from || !msg.type) continue;
         const media = msg.audio ?? msg.image ?? msg.document ?? msg.video;
         result.push({
           waMessageId: msg.id,
-          from: msg.from,
+          from,
+          ...(msg.from_user_id ? { userId: msg.from_user_id } : {}),
           businessNumberId: value.metadata?.phone_number_id,
-          contactName: names.get(msg.from) ?? undefined,
+          contactName: names.get(from) ?? undefined,
           type: msg.type,
           // A tap on a list or button we sent comes back as the choice's id,
           // which products treat like typed text. A tap on a template's quick
@@ -113,7 +118,7 @@ interface WebhookBody {
       field?: string;
       value?: {
         metadata?: { phone_number_id?: string };
-        contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
+        contacts?: Array<{ wa_id?: string; user_id?: string; profile?: { name?: string } }>;
         messages?: Array<WebhookMessage>;
         message_echoes?: Array<WebhookMessage & { to?: string }>;
       };
@@ -124,6 +129,7 @@ interface WebhookBody {
 interface WebhookMessage {
   id?: string;
   from?: string;
+  from_user_id?: string;
   type?: string;
   timestamp?: string;
   text?: { body?: string };

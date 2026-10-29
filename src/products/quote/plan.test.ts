@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PaymentRequest } from "../../core/payments/payments.js";
+import type { CheckoutLink, PaymentRequest } from "../../core/payments/payments.js";
 import {
   CREDIT_LINE,
   createPlanGate,
@@ -134,9 +134,15 @@ function checkout() {
   const value = {
     businessId: "b1",
     links: {
-      createLink: async (req: PaymentRequest) => {
+      createLink: async (req: PaymentRequest): Promise<CheckoutLink> => {
         requests.push(req);
-        return "https://checkout.paystack.com/abc";
+        if (req.promo && req.promo.code !== "DAYONES") return { url: null, refused: { result: "full", code: req.promo.code, maxUses: 10 } };
+        const off = req.promo ? req.amountKobo / req.promo.months / 2 : 0;
+        return {
+          url: "https://checkout.paystack.com/abc",
+          amountKobo: req.amountKobo - off,
+          promo: req.promo ? { code: "DAYONES", percentOff: 50, amountOffKobo: off } : null,
+        };
       },
     },
   };
@@ -160,6 +166,27 @@ describe("plan upgrades", () => {
     expect(text).toContain("(1 year, ₦72,000)");
     expect(c.requests[0]?.amountKobo).toBe(7_200_000);
     expect(c.requests[0]?.purpose).toEqual({ businessId: "b1", plan: "starter", months: 12 });
+  });
+
+  it("takes a promo code typed at the end and shows the discounted price", async () => {
+    const c = checkout();
+    const gate = createPlanGate({ code: "free", store: store(0), checkout: c.value });
+    const text = await gate.upgrade!("starter yearly dayones", "2348000000001");
+    expect(c.requests[0]).toMatchObject({ amountKobo: 7_200_000, promo: { code: "DAYONES", months: 12 } });
+    expect(text).toContain("(1 year, ₦69,000)");
+    expect(text).toContain("50% off your first month, so you save ₦3,000");
+    expect(await gate.upgrade!("starter OTHER1", "2348000000001")).toContain("first 10 subscribers");
+  });
+
+  it("uses the code given at sign-up, and charges the full price once it no longer applies", async () => {
+    const c = checkout();
+    const withDayones = createPlanGate({ code: "free", store: store(0, { signupCode: async () => "DAYONES" }), checkout: c.value });
+    expect(await withDayones.upgrade!("starter", "1")).toContain("50% off your first month");
+
+    const ended = createPlanGate({ code: "free", store: store(0, { signupCode: async () => "OTHER1" }), checkout: c.value });
+    const text = await ended.upgrade!("starter", "1");
+    expect(text).toContain("(1 month, ₦7,500)");
+    expect(c.requests.slice(1).map((r) => r.promo?.code)).toEqual(["OTHER1", undefined]);
   });
 
   it("asks which plan when it doesn't know the name, and never charges for the free plan", async () => {

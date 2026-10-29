@@ -17,6 +17,12 @@ describe("keyword understander", () => {
     expect((await read("cancel it")).intent).toBe("cancel");
   });
 
+  it("reads a request for the catalogue, keeping the menu for when there are no cards", async () => {
+    const asked = await read("Can I see your catalogue?");
+    expect(asked.intent).toBe("catalogue");
+    expect(asked.message).toContain("1. Flyers: A5");
+  });
+
   it("reads menu picks, one per line", async () => {
     expect(await read("1 x 200\n5*3")).toEqual({
       intent: "quote",

@@ -5,6 +5,7 @@ import { formatNaira } from "../../core/money.js";
 import { lagosMonthKey } from "./credits.js";
 import type { PlanFeatures } from "./features.js";
 import { lagosMonthStart } from "./plan.js";
+import { showWaId } from "../../core/whatsapp/ids.js";
 
 // The owner's orders page, behind a private signed link the owner gets by
 // sending "orders" to the bot (QUOTE_ORDER_BOARD, migration 0036). Two parts,
@@ -188,7 +189,7 @@ async function boardSection(b: BoardBusiness, at: Date, token: string): Promise<
     const hint =
       column === "new" ? `<p class="muted">When they pay, send <b>paid ${ref}</b> on WhatsApp.</p>` : "";
     return `<li class="card"><p><b>${ref}</b> · ${formatNaira(o.totalKobo)}</p>
-<p>${esc(o.customerName ?? `+${o.customerWaId}`)}</p><p class="muted">${esc(o.items)}</p>
+<p>${esc(o.customerName ?? showWaId(o.customerWaId))}</p><p class="muted">${esc(o.items)}</p>
 <p class="muted">${ago(o.movedAt, at)}</p>${hint}${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
   };
 

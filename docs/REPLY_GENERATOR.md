@@ -36,7 +36,7 @@ hours. It leaves blanks like `[price]` for the business owner to fill in.
 3. Optional: `REPLY_GENERATOR_VISITOR_LIMIT` (default 5) and
    `REPLY_GENERATOR_DAILY_LIMIT` (default 200).
 4. Wait for Railway to redeploy, then open
-   `https://whatsapp-ai-tool-production.up.railway.app/tools/reply-generator`
+   `https://app.yarnoga.com/tools/reply-generator`
    in a browser. It should show `{"ok":true}`.
 5. Upload the website files (including `reply-generator.html`) to Hostinger.
 

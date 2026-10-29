@@ -1,5 +1,6 @@
+import { isLang, type Lang } from "../../core/i18n.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { assertKobo } from "../../core/money.js";
+import { assertKobo, isCurrency, type Currency } from "../../core/money.js";
 import { productSlug, type PriceListItem } from "./pricelist.js";
 import type { QuoteLine, Variant } from "./pricing.js";
 
@@ -32,6 +33,24 @@ export interface QuoteBusiness {
   active: boolean;
   /** The main business this one is a branch of (migration 0038), or null. A branch follows its main business's plan. */
   branchOf?: string | null;
+  /** Where pay links on its invoices pay out (migration 0045): a Paystack subaccount code, ACCT_... */
+  paystackSubaccount?: string | null;
+  /** Where CFA franc pay links pay out (migration 0052): a Flutterwave subaccount ID, RS_... */
+  flutterwaveSubaccount?: string | null;
+  /** The language its owner messages and invoices use, and customers get when theirs isn't clear (migration 0051). */
+  language?: Lang;
+  /** The currency its prices are in (migration 0051). */
+  currency?: Currency;
+  /** Answer a customer's voice note with a voice note (migration 0051). */
+  voiceReplies?: boolean;
+  /** Offer Shipbubble couriers for addresses outside its zones (migration 0053). */
+  courierDelivery?: boolean;
+  /** Remind customers who confirmed but haven't paid (migration 0054; on unless switched off). */
+  payRemindersOn?: boolean;
+  /** Send the owner a morning summary (migration 0054; on unless switched off). */
+  dailySummaryOn?: boolean;
+  /** Ask customers to rate finished orders (migration 0054; on unless switched off). */
+  ratingsOn?: boolean;
   updatedAt: Date;
 }
 
@@ -53,6 +72,13 @@ export interface SavedOrder {
   orderNumber: number;
   totalKobo: number;
   lines: QuoteLine[];
+  /** A customer discount code on the order (migration 0042) and what it took off the items. */
+  discount?: { code: string; amountKobo: number } | null;
+}
+
+/** What the items come to after any discount code, before delivery. */
+export function itemsAfterDiscount(order: Pick<SavedOrder, "lines" | "discount">): number {
+  return order.lines.reduce((sum, l) => sum + l.totalKobo, 0) - (order.discount?.amountKobo ?? 0);
 }
 
 export interface OrderStore {
@@ -60,6 +86,8 @@ export interface OrderStore {
   createQuote(contactId: string, lines: QuoteLine[], totalKobo: number): Promise<SavedOrder>;
   /** The customer's most recent quote that is still waiting for a yes or no. */
   latestOpenQuote(contactId: string): Promise<SavedOrder | null>;
+  /** The customer's most recent confirmed or paid order, for "order again". */
+  lastOrder?(contactId: string): Promise<SavedOrder | null>;
   /**
    * Moves a quote to 'confirmed' or 'cancelled'. Returns false if it was no
    * longer 'quoted' (e.g. already confirmed), so a repeated YES does nothing.
@@ -108,6 +136,15 @@ type BusinessRow = {
   payment_details: string | null;
   active: boolean;
   branch_of?: string | null;
+  paystack_subaccount?: string | null;
+  flutterwave_subaccount?: string | null;
+  language?: string | null;
+  currency?: string | null;
+  voice_replies?: boolean | null;
+  courier_delivery?: boolean | null;
+  pay_reminders_on?: boolean | null;
+  daily_summary_on?: boolean | null;
+  ratings_on?: boolean | null;
   updated_at: string;
 };
 
@@ -127,6 +164,15 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     paymentDetails: row.payment_details,
     active: row.active,
     branchOf: row.branch_of ?? null,
+    paystackSubaccount: row.paystack_subaccount ?? null,
+    flutterwaveSubaccount: row.flutterwave_subaccount ?? null,
+    language: isLang(row.language) ? row.language : "en",
+    currency: isCurrency(row.currency) ? row.currency : "NGN",
+    voiceReplies: row.voice_replies === true,
+    courierDelivery: row.courier_delivery === true,
+    payRemindersOn: row.pay_reminders_on !== false,
+    dailySummaryOn: row.daily_summary_on !== false,
+    ratingsOn: row.ratings_on !== false,
     updatedAt: new Date(row.updated_at),
   };
 }
@@ -198,6 +244,8 @@ type OrderRow = {
   id: string;
   order_number: number | string;
   total_kobo: number | string;
+  discount_code?: string | null;
+  discount_kobo?: number | string | null;
   quote_order_items: Array<{
     variant_id: string;
     name: string;
@@ -212,6 +260,7 @@ function toSavedOrder(row: OrderRow): SavedOrder {
     id: row.id,
     orderNumber: Number(row.order_number),
     totalKobo: Number(row.total_kobo),
+    discount: row.discount_code ? { code: row.discount_code, amountKobo: Number(row.discount_kobo ?? 0) } : null,
     lines: row.quote_order_items.map((i) => ({
       variantId: i.variant_id,
       name: i.name,
@@ -259,7 +308,8 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
       const { data, error } = await mine(
         db
           .from("quote_orders")
-          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+          // Every column, so the discount (migration 0042) is read when it's there.
+          .select("*, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
       )
         .eq("contact_id", contactId)
         .eq("status", "quoted")
@@ -270,12 +320,27 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
       return data ? toSavedOrder(data as unknown as OrderRow) : null;
     },
 
+    async lastOrder(contactId) {
+      const { data, error } = await mine(
+        db
+          .from("quote_orders")
+          .select("id, order_number, total_kobo, quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)"),
+      )
+        .eq("contact_id", contactId)
+        .in("status", ["confirmed", "paid"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(`lastOrder failed: ${error.message}`);
+      return data ? toSavedOrder(data as unknown as OrderRow) : null;
+    },
+
     async findOrder(orderNumber) {
       const { data, error } = await mine(
         db
           .from("quote_orders")
           .select(
-            "id, order_number, total_kobo, status, created_at, paid_at, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
+            "*, contacts(wa_id, name), quote_order_items(variant_id, name, quantity, unit_price_kobo, total_kobo)",
           ),
       )
         .eq("order_number", orderNumber)
@@ -352,6 +417,8 @@ export function createSupabaseSetup(db: SupabaseClient): SetupStore {
     active: s.active,
     // Only written when the branches setting is on (the column needs migration 0038).
     ...(s.branchOf !== undefined ? { branch_of: s.branchOf } : {}),
+    // Only written when pay links are on (migration 0045).
+    ...(s.paystackSubaccount !== undefined ? { paystack_subaccount: s.paystackSubaccount } : {}),
   });
   const failed = (what: string, error: { code?: string; message: string }) =>
     error.code === "23505" ? new NumberTakenError("number taken") : new Error(`${what} failed: ${error.message}`);

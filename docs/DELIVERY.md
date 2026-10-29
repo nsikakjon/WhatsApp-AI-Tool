@@ -38,9 +38,8 @@ customer's door:
 1. In Supabase, run `supabase/migrations/0030_quote_delivery.sql` (SQL Editor >
    New query > paste > Run). It needs 0020 to have been run first.
 2. Add your zones (below).
-3. On Railway, add `QUOTE_DELIVERY=true` and `PUBLIC_URL` (your Railway
-   address, e.g. `https://whatsapp-ai-tool-production.up.railway.app`, from
-   Settings > Networking).
+3. On Railway, add `QUOTE_DELIVERY=true` and `PUBLIC_URL`
+   (`https://app.yarnoga.com`; see docs/CUSTOM_DOMAIN.md).
 4. Make sure `QUOTE_BUSINESS_DETAILS` holds the pickup address: riders are told
    to collect from there.
 5. From the owner's WhatsApp, add riders: `add rider Musa 0803 123 4567`. Ask
@@ -102,9 +101,8 @@ Once approved, set `QUOTE_DELIVERY_TEMPLATE_NAME=order_update` on Railway.
 
 ## Courier companies
 
-The delivery record has a `courier` column (today always `own_rider`) so a
-courier company can be added later without changing the tables. As of October
-2026:
+Couriers through Shipbubble are in docs/COURIERS.md. Other options checked in
+October 2026:
 
 - **Gokada** (Lagos only) offers a developer account at business.gokada.ng
   with test and live keys. This is the most likely first courier to add.

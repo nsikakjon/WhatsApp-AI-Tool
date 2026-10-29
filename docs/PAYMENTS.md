@@ -9,8 +9,9 @@ Today this is used for flyer plan upgrades (`upgrade standard`,
 upgrades (the business owner sends `upgrade starter` for a month or
 `upgrade starter yearly` for a year; needs migration
 `0033_quote_plan_payments.sql`). A paid quote plan lasts until a date, then the
-business is back on the free plan until it pays again. Any other product can
-use the same code in `src/core/payments`.
+business is back on the free plan until it pays again. Quote invoices can
+also carry a pay link that pays the store's own bank account (docs/PAY_LINKS.md).
+Any other product can use the same code in `src/core/payments`.
 
 Until `PAYSTACK_SECRET_KEY` is set, nothing is charged: `upgrade` messages go to
 the owners, who take payment by hand as before.
@@ -44,8 +45,8 @@ Do this with the **test** keys first. Nothing real is charged in test mode.
    email or document; Railway is the only place they go.
    - `PAYSTACK_SECRET_KEY`: Paystack dashboard > Settings > API Keys &
      Webhooks > **Test Secret Key** (starts `sk_test_`).
-   - `PUBLIC_URL`: this server's address, e.g.
-     `https://your-app.up.railway.app` (Railway > Settings > Networking).
+   - `PUBLIC_URL`: this server's address, `https://app.yarnoga.com` (see
+     docs/CUSTOM_DOMAIN.md).
    - `PAYSTACK_CUSTOMER_EMAIL`: an inbox you read, e.g.
      `payments@yarnoga.com`. Paystack requires an email for every payment and
      WhatsApp doesn't give us the customer's, so receipts go here. Each
@@ -97,3 +98,4 @@ When you're happy with the test:
   `purpose`, and returns the WhatsApp messages to send. It runs once per
   payment; if it throws, the payment goes back to pending so a retry can run
   it again.
+- Promo and referral codes (DAYONES, `QUOTE_REFERRALS`) are in `docs/PROMO_CODES.md`.

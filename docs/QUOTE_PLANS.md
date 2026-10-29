@@ -41,3 +41,31 @@ and gets everything Pro has.
 Edit the row in Supabase > Table Editor: `quote_plans` for prices (kobo:
 ₦7,000 is 700000), `quote_plan_features` for limits (`usage_limit`, empty for
 no cap) and whether a plan has a feature (`included`).
+
+## Bot messages (Meta's fee)
+
+Since 1 October 2026 Meta charges for each message a WhatsApp number sends
+after its first 1,000 a month (about ₦9 to ₦14 each in Nigeria). Meta bills
+whoever owns the number: yarnOga for numbers in our own WhatsApp accounts,
+the business for a number it connected through the sign-up page.
+
+1. In Supabase, run `supabase/migrations/0043_whatsapp_sent_counts.sql`. From
+   then on the database counts every message each number sends, per Lagos
+   month, and fills in the past months too. The dashboard shows the counts.
+2. Nothing else changes until you give a plan an allowance. No plan has one
+   yet. After a month of real counts, add a row to `quote_plan_features` with
+   `feature` = `bot_messages`, `included` = true and `usage_limit` = the number
+   of messages a month, for example:
+
+   ```sql
+   insert into public.quote_plan_features (plan_code, feature, included, usage_limit)
+   values ('starter', 'bot_messages', true, 1500)
+   on conflict (plan_code, feature) do update set usage_limit = excluded.usage_limit;
+   ```
+
+With an allowance set (and `QUOTE_PLAN_FEATURES=true`), the owner gets a
+WhatsApp note at 80% and again at 100%, and their `plan` reply shows
+"Bot messages this month: 812 of 1500". The bot never stops answering
+customers. Numbers the business connected itself are never checked, since
+Meta bills them directly. Each number (a branch included) has its own
+allowance, like Meta's free 1,000.

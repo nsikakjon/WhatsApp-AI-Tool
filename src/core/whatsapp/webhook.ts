@@ -1,8 +1,9 @@
+import { guessLanguage } from "../i18n.js";
 import { Hono } from "hono";
 import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { Product, Reply } from "../product.js";
-import type { WhatsAppClient } from "./client.js";
+import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
 import { extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
@@ -23,13 +24,29 @@ export interface WebhookDeps {
    * minutes (counted from the owner's latest reply). 0 or unset: off.
    */
   ownerReplyPauseMinutes?: number;
+  /**
+   * What a customer is sent when their message can't be answered (the bot
+   * crashed or its reply couldn't be sent). Default: FALLBACK_TEXT.
+   */
+  fallbackText?: string;
+  /** Waits between tries of a WhatsApp call or a reply that failed for a passing reason. Default 1s then 3s. */
+  retryDelaysMs?: number[];
   /** The current time. Tests replace it; the server uses the real clock. */
   now?: () => Date;
   log?: Pick<Console, "info" | "warn" | "error">;
 }
 
-export function createWhatsAppWebhook(deps: WebhookDeps) {
-  const log = deps.log ?? console;
+export const FALLBACK_TEXT =
+  "Sorry, something went wrong on our side and I couldn't finish answering. Please send your message again in a minute. If it keeps happening, the team has been alerted and will get back to you.";
+export const FALLBACK_TEXT_FR =
+  "Désolé, un problème est survenu de notre côté et je n'ai pas pu terminer ma réponse. Merci de renvoyer votre message dans une minute. Si cela continue, l'équipe a été prévenue et vous recontactera.";
+
+export function createWhatsAppWebhook(webhookDeps: WebhookDeps) {
+  const log = webhookDeps.log ?? console;
+  const delays = webhookDeps.retryDelaysMs ?? [1000, 3000];
+  // Every WhatsApp call is tried again when it fails for a passing reason
+  // (WhatsApp busy, a dropped connection), so a hiccup doesn't lose a reply.
+  const deps: WebhookDeps = { ...webhookDeps, whatsapp: retryingClient(webhookDeps.whatsapp, delays, log) };
   const app = new Hono();
 
   // GET: Meta calls this once when you save the webhook URL in the dashboard,
@@ -94,7 +111,13 @@ async function handleMessage(
   msg: IncomingMessage,
   log: Pick<Console, "info" | "warn" | "error">,
 ) {
-  const contactId = await deps.store.upsertContact(msg.from, msg.contactName);
+  // Someone we know by phone number who now hides it behind a username:
+  // carry on under the number we have, so their orders and settings follow them.
+  if (msg.userId && msg.from === msg.userId) {
+    const known = await deps.store.waIdForUser(msg.userId);
+    if (known) msg = { ...msg, from: known };
+  }
+  const contactId = await deps.store.upsertContact(msg.from, msg.contactName, msg.userId);
 
   // Saving the message doubles as the duplicate check: WhatsApp message IDs are
   // unique in the database, so a retried webhook is spotted here.
@@ -119,21 +142,112 @@ async function handleMessage(
   log.info(`Message ${msg.waMessageId} (${msg.type}) from ${mask(msg.from)} -> ${product.name}`);
   // Answer from the same number the person messaged.
   const fromNumber = msg.businessNumberId;
-  const reply = await product.handle(msg, {
+  const ctx = {
     contactId,
     history,
-    downloadMedia: (mediaId) => deps.whatsapp.downloadMedia(mediaId),
-    sendLater: async (later) => {
+    downloadMedia: (mediaId: string) => deps.whatsapp.downloadMedia(mediaId),
+    sendLater: async (later: Reply) => {
       try {
         await sendReply(deps, msg.from, contactId, later, fromNumber, log);
       } catch (err) {
         log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
       }
     },
-    canMessageFreely: (waId) => canMessageFreely(deps.store, waId, now(deps)),
-  });
+    canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, now(deps)),
+  };
+
+  // The bot itself failed (e.g. the AI didn't answer in time): try once more
+  // when the reason looks passing, otherwise tell the customer instead of
+  // leaving them waiting. The error is logged, which alerts Jay.
+  let reply: Reply | null;
+  try {
+    reply = await product.handle(msg, ctx);
+  } catch (err) {
+    const delay = deps.retryDelaysMs?.[0] ?? 1000;
+    if (!isTransient(err)) {
+      log.error(`The ${product.name} bot failed on message ${msg.waMessageId}:`, err);
+      await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
+      return;
+    }
+    log.warn(`The ${product.name} bot failed on message ${msg.waMessageId}, trying again: ${String(err)}`);
+    await sleep(delay);
+    try {
+      reply = await product.handle(msg, ctx);
+    } catch (again) {
+      log.error(`The ${product.name} bot failed twice on message ${msg.waMessageId}:`, again);
+      await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
+      return;
+    }
+  }
   if (!reply) return;
-  await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
+  try {
+    await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
+  } catch (err) {
+    // Part of the reply may have gone out; the customer still needs to know
+    // the rest didn't. (Each WhatsApp call was already tried again.)
+    log.error(`Failed to send the reply to message ${msg.waMessageId}:`, err);
+    await sendFallback(deps, msg.from, contactId, fromNumber, log, msg.text);
+  }
+}
+
+async function sendFallback(
+  deps: WebhookDeps,
+  to: string,
+  contactId: string,
+  fromNumber: string | undefined,
+  log: Pick<Console, "info" | "warn" | "error">,
+  said?: string,
+) {
+  // In French when the customer wrote in French.
+  const text = deps.fallbackText ?? (guessLanguage(said) === "fr" ? FALLBACK_TEXT_FR : FALLBACK_TEXT);
+  try {
+    await sendReply(deps, to, contactId, { text }, fromNumber, log);
+  } catch (err) {
+    log.error(`Could not send the fallback reply to ${mask(to)} either:`, err);
+  }
+}
+
+/**
+ * True for failures that may well work a moment later: WhatsApp or the AI
+ * busy or down for a moment (429, 5xx, "overloaded"), a timeout, or a
+ * dropped connection. Not for mistakes that would fail the same way again.
+ */
+export function isTransient(err: unknown): boolean {
+  const e = err as { status?: number; code?: string; name?: string; message?: string; cause?: unknown } | null;
+  if (!e) return false;
+  if (typeof e.status === "number") return e.status === 408 || e.status === 429 || e.status >= 500;
+  const text = `${e.name ?? ""} ${e.code ?? ""} ${e.message ?? ""}`;
+  if (/\((408|429|5\d\d)\)/.test(text)) return true;
+  if (/overloaded|timeout|timed out|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network/i.test(text)) return true;
+  return e.cause ? isTransient(e.cause) : false;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** The same WhatsApp client, with each call tried again (after `delays`) when it fails for a passing reason. */
+export function retryingClient(client: WhatsAppClient, delays: number[], log: Pick<Console, "warn">): WhatsAppClient {
+  const wrapped = {} as Record<string, unknown>;
+  for (const key of Object.keys(client) as Array<keyof WhatsAppClient>) {
+    const fn = client[key] as unknown as (...args: unknown[]) => Promise<unknown>;
+    if (typeof fn !== "function") {
+      wrapped[key] = fn;
+      continue;
+    }
+    wrapped[key] = async (...args: unknown[]) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await fn.apply(client, args);
+        } catch (err) {
+          if (attempt >= delays.length || !isTransient(err)) throw err;
+          log.warn(`WhatsApp ${String(key)} failed (${String(err)}), trying again`);
+          await sleep(delays[attempt]!);
+        }
+      }
+    };
+  }
+  return wrapped as unknown as WhatsAppClient;
 }
 
 /**
@@ -183,7 +297,7 @@ function now(deps: WebhookDeps): Date {
   return deps.now ? deps.now() : new Date();
 }
 
-/** Sends a product's reply: its text, its pictures, any list or buttons, any location request, then any alerts to other people. */
+/** Sends a product's reply: its text, its pictures, any cards, any list or buttons, any location request, then any alerts to other people. */
 async function sendReply(
   deps: WebhookDeps,
   to: string,
@@ -203,10 +317,31 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   }
+  if (reply.audio && deps.whatsapp.sendAudio) {
+    // A voice note is extra: if it can't go, the text has already been sent.
+    try {
+      const sent = await deps.whatsapp.sendAudio(to, reply.audio, fromNumber);
+      await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "audio", body: "[voice note]", raw: sent.raw, businessNumberId: fromNumber });
+      log.info(`Sent a voice note to ${mask(to)}`);
+    } catch (err) {
+      log.error(`Couldn't send the voice note to ${mask(to)}:`, err);
+    }
+  }
   for (const image of reply.images ?? []) {
     await sendImageAndRecord(deps, to, image, fromNumber);
     log.info(`Sent a picture to ${mask(to)}`);
   }
+  const sendButtons = async (buttons: OutgoingButtons) => {
+    const sent = await deps.whatsapp.sendButtons(to, buttons, fromNumber);
+    await deps.store.recordOutbound(contactId, {
+      waMessageId: sent.waMessageId,
+      type: "interactive",
+      body: buttons.body,
+      raw: sent.raw,
+      businessNumberId: fromNumber,
+    });
+  };
+  for (const card of reply.cards ?? []) await sendButtons(card);
   if (reply.list) {
     const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);
     await deps.store.recordOutbound(contactId, {
@@ -217,16 +352,7 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   }
-  if (reply.buttons) {
-    const sent = await deps.whatsapp.sendButtons(to, reply.buttons, fromNumber);
-    await deps.store.recordOutbound(contactId, {
-      waMessageId: sent.waMessageId,
-      type: "interactive",
-      body: reply.buttons.body,
-      raw: sent.raw,
-      businessNumberId: fromNumber,
-    });
-  }
+  if (reply.buttons) await sendButtons(reply.buttons);
   if (reply.locationRequest) {
     const sent = await deps.whatsapp.sendLocationRequest(to, reply.locationRequest, fromNumber);
     await deps.store.recordOutbound(contactId, {

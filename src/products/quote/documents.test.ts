@@ -1,4 +1,5 @@
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import jsQR from "jsqr";
 import { describe, expect, it } from "vitest";
 import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 
@@ -24,9 +25,25 @@ describe("invoices and receipts", () => {
     expect(isJpeg(await renderDocument({ ...base, kind: "receipt" }))).toBe(true);
   });
 
+  it("draws a discount code as its own line", async () => {
+    const discount = { code: "XMAS", amountKobo: 300_000 };
+    expect(isJpeg(await renderDocument({ ...base, discount, totalKobo: 1_200_000 }))).toBe(true);
+  });
+
   it("draws a delivery fee as its own line", async () => {
     const delivery = { label: "Delivery (Ikeja)", feeKobo: 200_000 };
     expect(isJpeg(await renderDocument({ ...base, delivery, totalKobo: 1_700_000 }))).toBe(true);
+  });
+
+  it("puts a QR code that phones can read on walk-in receipts", async () => {
+    const qrText = "https://bot.example.com/pickup/00000000-0000-0000-0000-000000000002.00000000-0000-0000-0000-00000000a001.abcdefghijklmnopqrstuvwx";
+    const jpeg = await renderDocument({ ...base, kind: "receipt", pickup: { qrText, code: "KP-1001 · 4827", table: "Table 7", stations: ["Bar", "Kitchen"] } });
+    const image = await loadImage(jpeg);
+    const canvas = createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0);
+    const pixels = ctx.getImageData(0, 0, image.width, image.height);
+    expect(jsQR(new Uint8ClampedArray(pixels.data), image.width, image.height)?.data).toBe(qrText);
   });
 
   it("still draws when the logo file is broken", async () => {
