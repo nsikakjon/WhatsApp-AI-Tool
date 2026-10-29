@@ -20,6 +20,7 @@ export interface BusinessAbout {
 const DAY_NAMES: Record<Lang, Record<Day, string>> = {
   en: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
   fr: { sun: "dimanche", mon: "lundi", tue: "mardi", wed: "mercredi", thu: "jeudi", fri: "vendredi", sat: "samedi" },
+  pcm: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
 };
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -83,6 +84,7 @@ function cap(word: string, lang: Lang): string {
 /** When it next opens, in words: "at 08:00 tomorrow", "on Monday at 08:00". */
 export function nextOpenText(next: { day: Day; time: string; today: boolean; tomorrow: boolean }, lang: Lang = "en"): string {
   if (lang === "fr") return next.today ? `aujourd'hui à ${next.time}` : next.tomorrow ? `demain à ${next.time}` : `${DAY_NAMES.fr[next.day]} à ${next.time}`;
+  if (lang === "pcm") return next.today ? `today by ${next.time}` : next.tomorrow ? `tomorrow by ${next.time}` : `on ${DAY_NAMES.pcm[next.day]} by ${next.time}`;
   return next.today ? `today at ${next.time}` : next.tomorrow ? `tomorrow at ${next.time}` : `on ${DAY_NAMES.en[next.day]} at ${next.time}`;
 }
 

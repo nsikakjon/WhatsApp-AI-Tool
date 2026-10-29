@@ -1012,6 +1012,25 @@ describe("French and CFA francs", () => {
   });
 });
 
+describe("Pidgin", () => {
+  it("answers a Pidgin customer in Pidgin, with the price from the price list", async () => {
+    const { product, seen, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null, language: "pcm" });
+    const reply = await product.handle(text("Abeg how much for 200 business card?"), ctx);
+    expect(seen[0]?.language).toBe("pcm");
+    expect(reply?.text).toContain("See your quote (KP-1001)");
+    expect(reply?.text).toContain("₦10,000");
+    expect(reply?.text).toContain("Reply YES make I place this order");
+    expect(orders[0]?.totalKobo).toBe(1_000_000);
+  });
+
+  it("welcomes a Pidgin greeting in Pidgin", async () => {
+    const { product } = setup({ intent: "other", items: [], message: null });
+    const hi = await product.handle(text("how far"), ctx);
+    expect(hi?.buttons?.body).toContain("You don land KahnPrints");
+    expect(hi?.buttons?.buttons.map((b) => b.title)).toEqual(["Get quote", "Talk to person"]);
+  });
+});
+
 describe("payment reminders", () => {
   it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
     const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });

@@ -85,14 +85,10 @@ function wordMatch(line: string, catalog: CatalogEntry[]) {
 
 function menu(catalog: CatalogEntry[], lang: Lang): string {
   const shown = catalog.slice(0, MENU_SIZE);
-  const fr = lang === "fr";
-  return [
-    fr ? "Voici ce que nous proposons :" : "Here's what we offer:",
-    ...shown.map((c, i) => `${i + 1}. ${c.name}`),
-    ...(catalog.length > shown.length ? [fr ? "(et plus : demandez à l'équipe)" : "(and more: ask the team)"] : []),
-    "",
-    fr
-      ? "Répondez avec le numéro de l'article et la quantité, un par ligne. Par exemple : *1 x 100*"
-      : "Reply with the item number and how many, one per line. For example: *1 x 100*",
-  ].join("\n");
+  const words = {
+    en: ["Here's what we offer:", "(and more: ask the team)", "Reply with the item number and how many, one per line. For example: *1 x 100*"],
+    fr: ["Voici ce que nous proposons :", "(et plus : demandez à l'équipe)", "Répondez avec le numéro de l'article et la quantité, un par ligne. Par exemple : *1 x 100*"],
+    pcm: ["See wetin we get:", "(and more: ask the team)", "Reply with the item number and how many, one for each line. Like: *1 x 100*"],
+  }[lang];
+  return [words[0], ...shown.map((c, i) => `${i + 1}. ${c.name}`), ...(catalog.length > shown.length ? [words[1]] : []), "", words[2]].join("\n");
 }

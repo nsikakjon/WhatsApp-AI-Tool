@@ -1,13 +1,15 @@
 import type { Lang } from "../../core/i18n.js";
 import type { Currency } from "../../core/money.js";
 
-// Every fixed message the quote bot sends, in English and French. Messages to
-// a customer follow the customer's language (see index.ts); messages to the
-// owner use the business's language. Amounts arrive already written out
-// (formatMoney), so nothing here works out a price.
+// Every fixed message the quote bot sends, in English and French, and the
+// customer messages in Nigerian Pidgin too. Messages to a customer follow the
+// customer's language (see index.ts); messages to the owner use the
+// business's language. Amounts arrive already written out (formatMoney), so
+// nothing here works out a price.
 //
-// To change a wording, change it in both languages. TypeScript refuses a
-// language that is missing a message.
+// To change a wording, change it in English and French (TypeScript refuses a
+// language that is missing a message), and in Pidgin if a customer sees it.
+// A message missing from Pidgin goes out in English.
 
 export interface QuoteTexts {
   // Customers
@@ -367,4 +369,67 @@ const fr: QuoteTexts = {
     ].join("\n"),
 };
 
-export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr };
+const pcm: QuoteTexts = {
+  ...en,
+  voiceNotOnLine: () => "Sorry, I no fit listen to voice note for this line. Abeg type wetin you need (like: 100 A5 flyers).",
+  voiceUnclear: () => "Sorry, I no hear that voice note well. Abeg you fit type wetin you need (like: 100 A5 flyers)?",
+  sendRequest: () => "Abeg send wetin you need as message or voice note (like: 100 A5 flyers).",
+  stopReminders: () => "No wahala, I no go send you quote reminder again. Message me anytime you need quote.",
+  ratingAsk: (b, ref) => `How we take do your order ${ref}? Wetin you talk go help ${b} serve you better.`,
+  orderAgainButton: "🔁 Order am again",
+  lastTime: (items) => `Last time, you order: ${items}. Tap *Order am again* make I send you fresh quote for the same thing.`,
+  noLastOrder: "I no see any order wey you don do before. Tell me wetin you need, I go send you quote.",
+  someGone: (items) => `Some things for your last order no dey the price list again (${items}), so I comot am.`,
+  ratingButtons: { great: "😀 E sweet me", ok: "🙂 E dey okay", bad: "🙁 E no good" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Thank you well well! 🙏 We happy say e sweet you. If you know person wey go like ${b}, abeg share our number with dem.`
+      : stars >= 3
+        ? "Thank you for telling us. If anything dey wey we fit do better, just reply here."
+        : `Sorry say e no good. I don tell the ${b} team, somebody go call you to fix am.`,
+  ratingAlready: "Thank you, we don already get your answer for that order. 🙏",
+  noPriceList: (b) => `Thank you for messaging ${b}! Our price list never dey online, so somebody from the team go reply you.`,
+  didntCatch: () => "Sorry, I no understand well. Wetin you want, and how many?",
+  teamNotified: (b) => `I don tell the ${b} team. Somebody go reply you here soon.`,
+  closedNow: (when) => `🕗 We don close for now${when ? `, we go open again ${when}` : ""}. You fit still order here; the team go handle am once we open.`,
+  closed: (b) => `Sorry, ${b} no dey take new order now. Abeg ask any of the staff.`,
+  minimum: (item, min) => `${item}: the smallest order na ${min}.`,
+  teamWillPrice: (items) => `The team go send you price for: ${items}.`,
+  thanks: (note) => `Thank you! ${note}`,
+  quoteHeader: (ref) => `See your quote (${ref}):`,
+  replyYes: () => "Reply YES make I place this order, or tell me wetin to change.",
+  noQuoteWaiting: () => "No quote dey wait to confirm. Tell me wetin you want, I go send you one.",
+  overLimitCustomer: (b, ref, total) => `Thank you! The ${b} team go reach you soon to finish order ${ref} (total ${total}).`,
+  payLine: (url, currency) =>
+    currency === "NGN" ? `Pay online with card, bank transfer or USSD: ${url}` : `Pay online with Mobile Money (MTN MoMo, Orange Money) or card: ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Hello! Small reminder from ${b}: your order ${ref} (${total}) still dey wait for payment.`
+        : `Hello again from ${b}: we still dey hold your order ${ref} (${total}) for you.`,
+      how ?? "",
+      n === 1 ? "You don pay already? Thank you, abeg ignore this one." : "This na our last reminder. If you don change your mind, just reply make we know.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  nextWalkInLink: () => "Pay with the link, then show the QR code for your receipt when you come collect.",
+  nextWalkInCounter: (ref) => `Abeg pay for the counter and give dem your order number, ${ref}.`,
+  nextDeliveryLink: () => "Once rider don start to come, we go send you link to follow your delivery.",
+  nextReady: (b) => `The ${b} team go tell you when e ready.`,
+  nextContactDelivery: (b) => `The ${b} team go reach you soon about delivery.`,
+  confirmedInvoice: (ref, total, next) => `Thank you! Order ${ref} don confirm. See your invoice for ${total}. ${next}`,
+  confirmedTotal: (ref, total, next) => `Thank you! Order ${ref} don confirm (total ${total}). ${next}`,
+  confirmedContact: (ref, total, b, withDelivery) =>
+    `Thank you! Order ${ref} don confirm (total ${total}). The ${b} team go reach you soon about payment${withDelivery ? " and delivery" : ""}.`,
+  paymentThanks: (ref, total, b) => `We don receive payment for order ${ref} (${total}). Thank you as you choose ${b}!`,
+  pickupAtTable: (table) => `We go bring am come ${table}.`,
+  pickupWhenReady: () => "We go message you when e ready to collect.",
+  pickupShowQr: () => "Show the QR code for this receipt when you come collect.",
+  pickupShowCode: (code) => `Show this message when you come collect. Your code na ${code}.`,
+  hereIsReceipt: () => "See your receipt:",
+  noProblem: () => "No wahala. Tell me if you need anything else.",
+  cancelledQuote: (ref) => `No wahala, I don cancel quote ${ref}. Message me anytime you need new one.`,
+  defaultHelp: (names) => `I fit give you quote for: ${names}. Tell me wetin you need and how many.`,
+};
+
+export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr, pcm };

@@ -1,3 +1,5 @@
+import type { Lang } from "./i18n.js";
+
 // Money helpers. All amounts are whole kobo (₦1 = 100 kobo) stored as integers,
 // so sums never pick up rounding errors. Naira only appears when we format text
 // for a customer to read.
@@ -41,7 +43,7 @@ export function currencySign(currency: Currency): string {
 }
 
 /** The currency's name in a sentence, e.g. "fee in naira" or "frais en francs CFA". */
-export function currencyName(currency: Currency, lang: "en" | "fr" = "en"): string {
+export function currencyName(currency: Currency, lang: Lang = "en"): string {
   if (currency === "NGN") return "naira";
   return lang === "fr" ? "francs CFA" : "CFA francs";
 }

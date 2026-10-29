@@ -37,7 +37,7 @@ import {
 } from "./plans.js";
 import type { FlyerStore, Group, Member, Picture } from "./store.js";
 import type { WishWriter } from "./wish.js";
-import { guessLanguage, type Lang } from "../../core/i18n.js";
+import { guessLanguage, writtenLang, type Lang } from "../../core/i18n.js";
 
 // Phase 3: birthday and event flyers for WhatsApp groups (alumni, friends).
 //
@@ -186,7 +186,8 @@ Le jour de chaque anniversaire, je vous envoie le flyer le matin, prêt à trans
 🇬🇧 Send *english* to use me in English.`;
 
 const helpText = (lang: Lang) => (lang === "fr" ? HELP_FR : HELP);
-const tr = (lang: Lang, en: string, fr: string) => (lang === "fr" ? fr : en);
+// Pidgin is optional: a message without it goes out in English.
+const tr = (lang: Lang, en: string, fr: string, pcm?: string) => (lang === "fr" ? fr : lang === "pcm" ? (pcm ?? en) : en);
 
 /**
  * French commands, turned into the English ones the bot reads, so French
@@ -466,7 +467,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       dateLabel: first ? formatMonthDay(first.birthday, group.language) : formatMonthDay({ month: 10, day: 14 }, group.language),
       groupName: group.name,
       logo: await logoFor(group),
-      lang: group.language,
+      lang: writtenLang(group.language),
     };
   }
 
@@ -567,7 +568,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const done =
       edit === "original"
         ? tr(lang, `Back to ${m.name}'s photo as you sent it ✅`, `Retour à la photo de ${m.name} telle qu'envoyée ✅`)
-        : tr(lang, `Done ✅ Here's ${m.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${m.name} :`);
+        : tr(lang, `Done ✅ Here's ${m.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${m.name} :`, `E don do ✅ See ${m.name} flyer now:`);
     return photoSaved(done, saved, group, from);
   }
 
@@ -640,7 +641,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const caption = target.value(to);
       lastEvent.set(from, { ...event, caption });
       const flyer = await render.event({ photo: event.photo, caption, logo: await logoFor(group), style: await styleFor(group) });
-      return { text: tr(lang, "Done ✅ Here's the corrected flyer:", "C'est fait ✅ Voici le flyer corrigé :"), images: [{ data: flyer, mimeType: JPEG }] };
+      return { text: tr(lang, "Done ✅ Here's the corrected flyer:", "C'est fait ✅ Voici le flyer corrigé :", "E don do ✅ See the correct flyer:"), images: [{ data: flyer, mimeType: JPEG }] };
     }
 
     if (target.field === "group") {
@@ -670,7 +671,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     lastPhoto.set(from, member.id);
     lastEvent.delete(from);
     return {
-      text: tr(lang, `Done ✅ Here's ${member.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${member.name} :`),
+      text: tr(lang, `Done ✅ Here's ${member.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${member.name} :`, `E don do ✅ See ${member.name} flyer now:`),
       images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }],
     };
   }
@@ -687,7 +688,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       groupName: group.name,
       logo: await logoFor(group),
       wish,
-      lang: group.language,
+      lang: writtenLang(group.language),
     });
   }
 
@@ -717,7 +718,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       .catch((err) => {
         log.error(`Import for ${group.name} failed:`, err);
         return sendLater({
-          text: tr(lang, "Sorry, the import stopped part-way. Send *members* to see who was saved, then try again.", "Désolé, l'import s'est arrêté en cours de route. Envoyez *membres* pour voir qui a été enregistré, puis réessayez."),
+          text: tr(lang, "Sorry, the import stopped part-way. Send *members* to see who was saved, then try again.", "Désolé, l'import s'est arrêté en cours de route. Envoyez *membres* pour voir qui a été enregistré, puis réessayez.", "Sorry, the import stop for middle. Send *members* to see who don save, then try again."),
         });
       });
     opts.onBackground?.(work);
@@ -835,12 +836,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const m = found[0]!;
       const touched = await touchUp(picture);
       const member = await opts.store.saveMember(group.id, m.name, m.birthday, touched.photo, touched.original);
-      return photoSaved(tr(lang, `Photo saved for ${member.name} ✅`, `Photo enregistrée pour ${member.name} ✅`), member, group, from);
+      return photoSaved(tr(lang, `Photo saved for ${member.name} ✅`, `Photo enregistrée pour ${member.name} ✅`, `Photo don save for ${member.name} ✅`), member, group, from);
     }
 
     if (/^logo$/i.test(caption)) {
       await opts.store.saveLogo(group.id, picture);
-      return { text: tr(lang, `Logo saved for ${group.name} ✅ It'll appear on every flyer from now on.`, `Logo enregistré pour ${group.name} ✅ Il apparaîtra désormais sur chaque flyer.`) };
+      return { text: tr(lang, `Logo saved for ${group.name} ✅ It'll appear on every flyer from now on.`, `Logo enregistré pour ${group.name} ✅ Il apparaîtra désormais sur chaque flyer.`, `Logo don save for ${group.name} ✅ E go dey every flyer from now.`) };
     }
 
     if (/^background$/i.test(caption)) {
@@ -857,17 +858,17 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     if (/^(add|birthday)\b/i.test(caption)) {
       const parsed = parseAddCaption(caption);
       if (!parsed?.name) {
-        return { text: tr(lang, "Please put the name and birthday in the caption, like this:\nadd Ada Okafor, 14 March", "Mettez le nom et la date d'anniversaire dans la légende, comme ceci :\najouter Awa Diallo, 14 mars") };
+        return { text: tr(lang, "Please put the name and birthday in the caption, like this:\nadd Ada Okafor, 14 March", "Mettez le nom et la date d'anniversaire dans la légende, comme ceci :\najouter Awa Diallo, 14 mars", "Abeg put the name and birthday for the caption, like this:\nadd Ada Okafor, 14 March") };
       }
       if (!parsed.birthday) {
-        return { text: tr(lang, `I couldn't read the birthday for ${parsed.name}. Try a date like 14 March or 14/03.`, `Je n'arrive pas à lire la date d'anniversaire de ${parsed.name}. Essayez une date comme 14 mars ou 14/03.`) };
+        return { text: tr(lang, `I couldn't read the birthday for ${parsed.name}. Try a date like 14 March or 14/03.`, `Je n'arrive pas à lire la date d'anniversaire de ${parsed.name}. Essayez une date comme 14 mars ou 14/03.`, `I no fit read the birthday for ${parsed.name}. Try date like 14 March or 14/03.`) };
       }
       const full = await fullReply(group, parsed.name);
       if (full) return full;
       const touched = await touchUp(picture);
       const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, touched.photo, touched.original);
       const saved = await photoSaved(
-        tr(lang, `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, `${member.name} est enregistré(e) 🎂 ${formatMonthDay(member.birthday, "fr")}. Voici un aperçu de son flyer :`),
+        tr(lang, `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, `${member.name} est enregistré(e) 🎂 ${formatMonthDay(member.birthday, "fr")}. Voici un aperçu de son flyer :`, `${member.name} don save 🎂 ${formatMonthDay(member.birthday)}. See how their flyer go look:`),
         member,
         group,
         from,
@@ -974,7 +975,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
     if (lower === "members" || lower === "list") {
       const members = await opts.store.members(group.id);
-      if (!members.length) return { text: `${tr(lang, `No members in ${group.name} yet.`, `Pas encore de membres dans ${group.name}.`)}\n\n${helpText(lang)}` };
+      if (!members.length) return { text: `${tr(lang, `No members in ${group.name} yet.`, `Pas encore de membres dans ${group.name}.`, `No member dey ${group.name} yet.`)}\n\n${helpText(lang)}` };
       const lines = members
         .sort((a, b) => daysUntil(a.birthday, today) - daysUntil(b.birthday, today))
         .map((m) => `• ${m.name}${fr ? " : " : ": "}${formatMonthDay(m.birthday, lang)}`);
@@ -988,7 +989,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         .map((m) => ({ m, days: daysUntil(m.birthday, today) }))
         .filter((x) => x.days <= 30)
         .sort((a, b) => a.days - b.days);
-      if (!soon.length) return { text: tr(lang, `No birthdays in ${group.name} in the next 30 days.`, `Aucun anniversaire dans ${group.name} dans les 30 prochains jours.`) };
+      if (!soon.length) return { text: tr(lang, `No birthdays in ${group.name} in the next 30 days.`, `Aucun anniversaire dans ${group.name} dans les 30 prochains jours.`, `No birthday for ${group.name} for the next 30 days.`) };
       const when = (d: number) =>
         fr ? (d === 0 ? "aujourd'hui 🎉" : d === 1 ? "demain" : `dans ${d} jours`) : d === 0 ? "today 🎉" : d === 1 ? "tomorrow" : `in ${d} days`;
       return {
@@ -1001,10 +1002,10 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const celebrants = (await opts.store.members(group.id)).filter((m) =>
         dates.some((d) => d.month === m.birthday.month && d.day === m.birthday.day),
       );
-      if (!celebrants.length) return { text: tr(lang, `No birthdays in ${group.name} today.`, `Aucun anniversaire dans ${group.name} aujourd'hui.`) };
+      if (!celebrants.length) return { text: tr(lang, `No birthdays in ${group.name} today.`, `Aucun anniversaire dans ${group.name} aujourd'hui.`, `No birthday for ${group.name} today.`) };
       const images = [];
       for (const m of celebrants) {
-        const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang });
+        const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang: writtenLang(lang) });
         images.push({ data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) });
       }
       const trialNote = await useTrialFlyers(group, celebrants.length);
@@ -1019,7 +1020,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const m = found[0]!;
       lastPhoto.set(from, m.id);
       lastEvent.delete(from);
-      const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang });
+      const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang: writtenLang(lang) });
       const image = { data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) };
       return { text: await useTrialFlyers(group, 1), images: [image] };
     }
@@ -1029,7 +1030,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const found = findMember(await opts.store.members(group.id), remove[1]!);
       if (found.length !== 1) return { text: notFound(found, remove[1]!, lang) };
       await opts.store.removeMember(found[0]!.id);
-      return { text: tr(lang, `Removed ${found[0]!.name} from ${group.name}.`, `${found[0]!.name} a été retiré(e) de ${group.name}.`) };
+      return { text: tr(lang, `Removed ${found[0]!.name} from ${group.name}.`, `${found[0]!.name} a été retiré(e) de ${group.name}.`, `I don remove ${found[0]!.name} from ${group.name}.`) };
     }
 
     const addAdmin = text.match(/^add admin\s+(.+)$/i);
@@ -1343,6 +1344,15 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         "C'est tout ! Le matin de chaque anniversaire, je vous envoie le flyer du membre à transférer au groupe. Envoyez *aide* à tout moment pour voir tout ce que je sais faire, ou *assistance* pour parler à une personne.",
       ].join("\n");
     }
+    if (lang === "pcm") {
+      return [
+        "*Step 3 of 3: add your members.*",
+        "• One by one: send member photo with the caption *add Ada Okafor, 14 March*",
+        "• All at once (Standard plan and up): paste Google Sheets link, or send CSV file, with columns *Name*, *Birthday* and *Photo*",
+        "",
+        "Na everything be that! Every birthday morning, I go send you the member flyer to forward to the group. Send *help* anytime to see everything I fit do, or *support* to reach person.",
+      ].join("\n");
+    }
     return [
       "*Step 3 of 3: add your members.*",
       "• One at a time: send a member's photo with the caption *add Ada Okafor, 14 March*",
@@ -1371,14 +1381,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         group,
         page,
         page === 1
-          ? `${lead}${tr(lang, "*Step 2 of 3: pick a design.* Here they are with your group's name on them. ", "*Étape 2 sur 3 : choisissez un modèle.* Les voici avec le nom de votre groupe. ")}`
+          ? `${lead}${tr(lang, "*Step 2 of 3: pick a design.* Here they are with your group's name on them. ", "*Étape 2 sur 3 : choisissez un modèle.* Les voici avec le nom de votre groupe. ", "*Step 2 of 3: pick design.* See dem with your group name for top. ")}`
           : "",
-        tr(lang, "Tap *Choose a design* to pick one, or reply with a number, e.g. *1*, or *skip* to keep design 1.", "Touchez *Choisir un modèle*, ou répondez avec un numéro, par exemple *1*, ou *passer* pour garder le modèle 1."),
+        tr(lang, "Tap *Choose a design* to pick one, or reply with a number, e.g. *1*, or *skip* to keep design 1.", "Touchez *Choisir un modèle*, ou répondez avec un numéro, par exemple *1*, ou *passer* pour garder le modèle 1.", "Tap *Choose a design* to pick one, or reply with number, like *1*, or *skip* to keep design 1."),
       );
     };
 
     if (step === "logo") {
-      if (skip) return step2(tr(lang, "No problem, you can send it later with the caption *logo*.\n\n", "Pas de souci, vous pourrez l'envoyer plus tard avec la légende *logo*.\n\n"));
+      if (skip) return step2(tr(lang, "No problem, you can send it later with the caption *logo*.\n\n", "Pas de souci, vous pourrez l'envoyer plus tard avec la légende *logo*.\n\n", "No wahala, you fit send am later with the caption *logo*.\n\n"));
       const isPicture = (msg.type === "image" || msg.type === "document") && msg.mediaId;
       if (!isPicture || !/^(logo)?$/i.test(text)) return null;
       const file = await ctx.downloadMedia(msg.mediaId!);
@@ -1386,7 +1396,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       await opts.store.saveLogo(group.id, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
       const withLogo = (await opts.store.groupsForAdmin(msg.from)).find((g) => g.id === group.id) ?? group;
       group = withLogo;
-      return step2(tr(lang, "Logo saved ✅\n\n", "Logo enregistré ✅\n\n"));
+      return step2(tr(lang, "Logo saved ✅\n\n", "Logo enregistré ✅\n\n", "Logo don save ✅\n\n"));
     }
 
     if (skip) {
@@ -1414,7 +1424,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       text: tr(
         lang,
         `Design set to *${theme.label}* ✅ (change it any time with *design*)\n\n${setupDone()}`,
-        `Modèle choisi : *${theme.labelFr}* ✅ (changez-le quand vous voulez avec *design*)\n\n${setupDone("fr")}`,
+        `Modèle choisi : *${theme.labelFr}* ✅ (changez-le quand vous voulez avec *design*)\n\n${setupDone("fr")}`, `Design don set to *${theme.label}* ✅ (change am anytime with *design*)\n\n${setupDone("pcm")}`,
       ),
       images: [{ data: flyer, mimeType: JPEG }],
     };
@@ -1436,9 +1446,17 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const who = msg.contactName ? `${msg.contactName} (${msg.from})` : msg.from;
       const isPicture = (msg.type === "image" || msg.type === "document") && !!msg.mediaId;
       // The group's language once there is one; before that, the language they write in.
+      // Someone who writes Pidgin to an English group gets Pidgin back; the flyers stay in English.
       const heard = guessLanguage(said);
       if (heard) spoken.set(msg.from, heard);
       let lang: Lang = groups[0]?.language ?? spoken.get(msg.from) ?? "en";
+      if (lang === "en" && spoken.get(msg.from) === "pcm") lang = "pcm";
+
+      if (/^(?:language\s+)?(pidgin|pigin|naija|broken english)$/i.test(said)) {
+        spoken.set(msg.from, "pcm");
+        if (groups[0]?.language === "fr") await opts.store.setStyle(groups[0].id, { language: "en" });
+        return { text: "No wahala, I go dey yarn you for Pidgin from now. Your flyers go still dey for English. Send *english* to change am back." };
+      }
 
       // "français" / "english" switches the current group's language.
       const switchLang = said.match(/^(?:langue\s+|language\s+)?(français|francais|french|english|anglais)$/i);
@@ -1473,8 +1491,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         await opts.store.setChatState(msg.from, null);
         return {
           text: groups.length
-            ? tr(lang, "OK, cancelled.", "D'accord, c'est annulé.")
-            : tr(lang, "OK, cancelled. Message me any time to set up a group.", "D'accord, c'est annulé. Écrivez-moi quand vous voulez pour créer un groupe."),
+            ? tr(lang, "OK, cancelled.", "D'accord, c'est annulé.", "Okay, I don cancel am.")
+            : tr(lang, "OK, cancelled. Message me any time to set up a group.", "D'accord, c'est annulé. Écrivez-moi quand vous voulez pour créer un groupe.", "Okay, I don cancel am. Message me anytime you wan set up group."),
         };
       }
       const support = text.match(/^(?:support|help me|talk to (?:a )?(?:person|human|someone)|agent|complain(?:t)?)\b[:\s]*([\s\S]*)$/i);
@@ -1482,13 +1500,13 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         const body = support ? support[1]!.trim() : text;
         if (!body) {
           await opts.store.setChatState(msg.from, { step: "support", groupId: groups[0]?.id ?? null });
-          return { text: tr(lang, "What do you need help with? Type your message and I'll pass it to a person on our team.", "En quoi puis-je vous aider ? Écrivez votre message et je le transmets à une personne de notre équipe.") };
+          return { text: tr(lang, "What do you need help with? Type your message and I'll pass it to a person on our team.", "En quoi puis-je vous aider ? Écrivez votre message et je le transmets à une personne de notre équipe.", "Wetin you need help with? Type your message, I go pass am to person for our team.") };
         }
         await opts.store.setChatState(msg.from, null);
         const where = groups[0] ? ` (group: ${groups[0].name}, ${planOf(groups[0]).label} plan)` : "";
         log.info(`Support message from ...${msg.from.slice(-4)}`);
         return {
-          text: tr(lang, "Thanks, I've passed that to our team. They'll reply to you here.", "Merci, j'ai transmis votre message à notre équipe. Elle vous répondra ici."),
+          text: tr(lang, "Thanks, I've passed that to our team. They'll reply to you here.", "Merci, j'ai transmis votre message à notre équipe. Elle vous répondra ici.", "Thank you, I don pass am to our team. Dem go reply you here."),
           notify: opts.owners.map((to) => ({
             to,
             text: `🆘 Support from ${who}${where}:\n${body}\n\nTo answer, send: reply ${msg.from} <your message>`,
@@ -1507,7 +1525,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             text: tr(
               lang,
               `What's your group called? Reply with its name as it should appear on the flyers, e.g. *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`,
-              `Comment s'appelle votre groupe ? Répondez avec son nom tel qu'il doit apparaître sur les flyers, par exemple *Promo 2010 Lycée Classique*.${groups.length ? " (Ou *annuler*.)" : ""}`,
+              `Comment s'appelle votre groupe ? Répondez avec son nom tel qu'il doit apparaître sur les flyers, par exemple *Promo 2010 Lycée Classique*.${groups.length ? " (Ou *annuler*.)" : ""}`, `Wetin be your group name? Reply with the name as e suppose show for the flyers, like *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`,
             ),
           };
         }
@@ -1523,7 +1541,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           trialNote = tr(
             lang,
             `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever comes first) you get every ${trialPlan.label} feature: all designs and colours, spreadsheet import and event flyers. No card needed. After that the group carries on free on the Free plan unless you upgrade.`,
-            `\n\n🎁 *Essai gratuit ${trialPlan.label} :* pendant ${opts.trial.days} jours (ou ${opts.trial.flyers} flyers, au premier des deux termes), vous avez tout ${trialPlan.label} : tous les modèles et couleurs, l'import de tableur et les flyers d'événement. Sans carte bancaire. Ensuite, le groupe continue gratuitement sur la formule Free, sauf si vous changez de formule.`,
+            `\n\n🎁 *Essai gratuit ${trialPlan.label} :* pendant ${opts.trial.days} jours (ou ${opts.trial.flyers} flyers, au premier des deux termes), vous avez tout ${trialPlan.label} : tous les modèles et couleurs, l'import de tableur et les flyers d'événement. Sans carte bancaire. Ensuite, le groupe continue gratuitement sur la formule Free, sauf si vous changez de formule.`, `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever one reach first) you go get every ${trialPlan.label} feature: all the designs and colours, spreadsheet import and event flyers. No card needed. After that, the group go continue free on the Free plan unless you upgrade.`,
           );
         }
         await opts.store.setChatState(msg.from, { step: "logo", groupId: group.id });
@@ -1532,7 +1550,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           text: tr(
             lang,
             `Created *${group.name}* ✅ You're its admin.${trialNote}\n\nThree quick steps to get it ready:\n\n*Step 1 of 3: your logo.* Send your group's logo as a picture. (Send it as a document to keep a see-through background.) No logo? Reply *skip*.`,
-            `*${group.name}* est créé ✅ Vous en êtes l'administrateur.${trialNote}\n\nTrois petites étapes pour le préparer :\n\n*Étape 1 sur 3 : votre logo.* Envoyez le logo du groupe en image. (En document pour garder un fond transparent.) Pas de logo ? Répondez *passer*.`,
+            `*${group.name}* est créé ✅ Vous en êtes l'administrateur.${trialNote}\n\nTrois petites étapes pour le préparer :\n\n*Étape 1 sur 3 : votre logo.* Envoyez le logo du groupe en image. (En document pour garder un fond transparent.) Pas de logo ? Répondez *passer*.`, `*${group.name}* don ready ✅ Na you be the admin.${trialNote}\n\nThree quick steps to set am up:\n\n*Step 1 of 3: your logo.* Send your group logo as picture. (Send am as document if you wan keep see-through background.) No logo? Reply *skip*.`,
           ),
           notify: isOwner
             ? undefined
@@ -1540,17 +1558,22 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         };
       }
 
-      const group = groups[0];
+      const group = groups[0] && lang === "pcm" ? { ...groups[0], language: lang } : groups[0];
       if (!group) {
         if (!isOwner && !opts.openSignup) {
           return {
-            text: tr(lang, "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.", "Bonjour ! Ce numéro crée des flyers d'anniversaire et d'événement pour les groupes WhatsApp. Demandez à l'administrateur de votre groupe de vous ajouter."),
+            text: tr(lang, "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.", "Bonjour ! Ce numéro crée des flyers d'anniversaire et d'événement pour les groupes WhatsApp. Demandez à l'administrateur de votre groupe de vous ajouter.", "Hello! This number dey make birthday and event flyers for WhatsApp groups. Ask your group admin make dem add you."),
           };
         }
         await opts.store.setChatState(msg.from, { step: "name", groupId: null });
         if (lang === "fr") {
           return {
             text: `Bonjour ! Je suis ${opts.brandName} 🎉 Je crée des flyers d'anniversaire pour les membres de votre groupe WhatsApp (anciens élèves, amis, église, travail), je vous les envoie le matin de chaque anniversaire, prêts à transférer, et j'ajoute le logo de votre groupe sur vos photos d'événement.\n\nC'est gratuit pour les groupes jusqu'à ${planById("free").maxMembers} personnes${trialPlan ? `, et les nouveaux groupes essaient tout ${trialPlan.label} gratuitement pendant ${opts.trial!.days} jours, sans carte bancaire` : ""} (envoyez *formules* pour les grands groupes). Des questions ? Envoyez *assistance*.\n\nCréons votre groupe. *Comment s'appelle-t-il ?* Répondez avec son nom, par exemple *Promo 2010 Lycée Classique*.\n\n(Send *english* for English.)`,
+          };
+        }
+        if (lang === "pcm") {
+          return {
+            text: `How far! Na ${opts.brandName} 🎉 I dey make birthday flyers for the members of your WhatsApp group (alumni, friends, church, work), I go send dem to you every birthday morning ready to forward, and I go put your group logo for your event photos.\n\nE free for groups wey get up to ${planById("free").maxMembers} people${trialPlan ? `, and new groups fit try every ${trialPlan.label} feature free for ${opts.trial!.days} days, no card needed` : ""} (send *plans* for bigger groups). Any question? Send *support*.\n\nMake we set up your group. *Wetin be the name?* Reply with the name, like *Unilag Class of 2010*.`,
           };
         }
         return {
@@ -1574,7 +1597,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             text: tr(
               lang,
               "Please send a photo (JPG or PNG), or a member list as a CSV file. From Excel or Google Sheets: File > Download > CSV.",
-              "Envoyez une photo (JPG ou PNG), ou une liste de membres en fichier CSV. Depuis Excel ou Google Sheets : Fichier > Télécharger > CSV.",
+              "Envoyez une photo (JPG ou PNG), ou une liste de membres en fichier CSV. Depuis Excel ou Google Sheets : Fichier > Télécharger > CSV.", "Abeg send photo (JPG or PNG), or member list as CSV file. From Excel or Google Sheets: File > Download > CSV.",
             ),
           };
         }

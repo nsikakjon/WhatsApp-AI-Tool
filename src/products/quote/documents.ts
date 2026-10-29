@@ -5,7 +5,7 @@
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import QRCode from "qrcode";
-import type { Lang } from "../../core/i18n.js";
+import { writtenLang, type Lang } from "../../core/i18n.js";
 import { formatMoney, type Currency } from "../../core/money.js";
 import type { QuoteLine } from "./pricing.js";
 import { isPhoneNumber } from "../../core/whatsapp/ids.js";
@@ -99,7 +99,7 @@ export function formatDocDate(date: Date, lang: Lang = "en"): string {
 
 export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   loadFonts();
-  const w = WORDS[input.lang ?? "en"];
+  const w = WORDS[writtenLang(input.lang)];
   const money = (minor: number) => formatMoney(minor, input.currency ?? "NGN");
   let logo: Image | undefined;
   if (input.logo) {
