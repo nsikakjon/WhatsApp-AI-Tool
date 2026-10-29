@@ -76,6 +76,8 @@ export interface ChatSignupOptions {
   sheets?: Pick<SheetSync, "remember" | "ownerCommand">;
   /** Gets a WhatsApp message for each new sign-up (the yarnOga team). */
   alertWaId?: string;
+  /** Asks a new owner for their email for setup tips; null when not to ask. Off when not given. */
+  askEmail?: (a: { waId: string; businessId: string }) => Promise<string | null>;
   now?: () => Date;
   fetchSheet?: (link: string) => Promise<string>;
   log?: Pick<Console, "error">;
@@ -315,6 +317,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     await opts.setup.replacePriceList(businessId, items);
     if (opts.sheets && signup.sheetUrl) await opts.sheets.remember(businessId, signup.sheetUrl);
     await opts.store.save(waId, { step: "done", draftCsv: null, signedUpAt: now() });
+    const emailAsk = opts.askEmail ? await opts.askEmail({ waId, businessId }) : null;
     return {
       text: [
         `Done! *${signup.businessName}* is set up on the yarnOga Free plan.`,
@@ -323,6 +326,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         AFTER,
         "",
         "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
+        ...(emailAsk ? ["", emailAsk] : []),
       ].join("\n"),
       ...alert(
         `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items${signup.referralCode ? `, code ${signup.referralCode}` : ""}. It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on.`,

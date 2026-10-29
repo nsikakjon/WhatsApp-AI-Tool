@@ -81,6 +81,8 @@ export interface FlyerBotOptions {
     edit: typeof editPhoto;
   };
   log?: Pick<Console, "info" | "error">;
+  /** Asks an admin for their email for setup tips, once their group has 3 members; null when not to ask. Off when not given. */
+  askEmail?: (a: { waId: string; groupId: string }) => Promise<string | null>;
   /** For downloading Google Sheets and photo links. */
   fetch?: typeof fetch;
   /** Called with work that carries on after replying (a spreadsheet import), so tests can wait for it. */
@@ -515,6 +517,15 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     };
   }
 
+  /** From the third member on, asks an English-speaking admin once for their email (the tips are in English). */
+  async function withEmailAsk(reply: Reply, group: Group, from: string): Promise<Reply> {
+    if (!opts.askEmail || group.language === "fr" || !reply.list) return reply;
+    const count = (await opts.store.members(group.id)).length;
+    if (count < 3) return reply;
+    const ask = await opts.askEmail({ waId: from, groupId: group.id });
+    return ask ? { ...reply, list: { ...reply.list, body: `${reply.list.body}\n\nNice, ${count} members saved. ${ask}` } } : reply;
+  }
+
   /** "brighter", "rotate Ada Okafor", "black and white Ada"... -> the edit and who it's for. */
   function photoEditWanted(text: string): { edit: PhotoEdit; name: string } | null {
     const words = text.trim().split(/\s+/);
@@ -855,12 +866,13 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (full) return full;
       const touched = await touchUp(picture);
       const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, touched.photo, touched.original);
-      return photoSaved(
+      const saved = await photoSaved(
         tr(lang, `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, `${member.name} est enregistré(e) 🎂 ${formatMonthDay(member.birthday, "fr")}. Voici un aperçu de son flyer :`),
         member,
         group,
         from,
       );
+      return withEmailAsk(saved, group, from);
     }
 
     if (!planOf(group).eventFlyers) {
