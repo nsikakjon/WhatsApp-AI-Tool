@@ -141,6 +141,7 @@ Other commands:
 • *remove Ada Okafor*
 • a photo captioned *photo Ada Okafor*: add or change Ada's photo
 • *brighter*, *darker*, *warmer*, *black and white*, *plain background*, *closer*, *rotate* or *original*: touch up the last photo you added (or add a name, e.g. *rotate Ada*)
+• *change amadi to Amadi*: fix a name, a date (*change date to 30 October*), the group name or an event flyer's words, then I'll remake the flyer
 • *add admin 08012345678*: let someone else manage this group
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
@@ -170,6 +171,7 @@ Autres commandes :
 • *supprimer Awa Diallo*
 • une photo avec la légende *photo Awa Diallo* : ajouter ou changer la photo d'Awa
 • *plus clair*, *plus sombre*, *plus chaud*, *noir et blanc*, *fond uni*, *plus près*, *pivoter* ou *originale* : retoucher la dernière photo ajoutée (ou ajoutez un nom, par exemple *pivoter Awa*)
+• *changer awa en Awa* : corriger un nom, une date (*changer la date en 30 octobre*), le nom du groupe ou les mots d'un flyer d'événement, puis je refais le flyer
 • *ajouter admin +225 07 12 34 56 78* : laisser quelqu'un d'autre gérer ce groupe
 • *couleur or* (ou un code comme #1a7f37) : changer la couleur ; *couleur par défaut* pour annuler
 • *fond* : envoyez une image avec cette légende pour l'utiliser derrière vos flyers ; *sans fond* pour annuler
@@ -203,6 +205,7 @@ export function fromFrench(text: string): string {
     [/^(sans fond|fond désactivé|fond desactive|retirer le fond)$/i, "background off"],
     [/^fond$/i, "background"],
     [/^groupes$/i, "groups"],
+    [/^(?:changer|modifier|corriger|remplacer)\s+(?=.+\s(?:en|par)\s)/i, "change "],
     [/^(?:changer|passer)\s+(?:au\s+groupe\s+|à\s+|a\s+)?(?=\S)/i, "switch "],
     [/^nouveau\s+groupe\b/i, "new group"],
     [/^(formule|ma formule|abonnement)$/i, "plan"],
@@ -261,9 +264,37 @@ export function parseAddCaption(text: string): { name: string; birthday: MonthDa
   return null;
 }
 
-function tidyName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
+/** Tidies spacing, and capitalises a name typed all in lowercase ("amadi nnadozie" -> "Amadi Nnadozie"). */
+export function tidyName(name: string): string {
+  const tidy = name.trim().replace(/\s+/g, " ");
+  if (tidy !== tidy.toLowerCase()) return tidy;
+  return tidy.replace(/(^|[\s'’-])(\p{L})/gu, (_, before: string, letter: string) => before + letter.toUpperCase());
 }
+
+/** "change Saturday to Sunday": the verb, then every way of splitting the rest into old and new text. */
+const TEXT_EDIT = /^(?:edit|change|fix|correct|update|rename|replace)\s+(.+)$/i;
+const TEXT_EDIT_JOIN = /\s+(?:to|with|into|en|par)\s+/gi;
+
+export function textEditsWanted(text: string): Array<{ from: string; to: string }> {
+  const rest = text.match(TEXT_EDIT)?.[1];
+  if (!rest) return [];
+  const unquote = (t: string) => t.trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+  const splits = [];
+  for (const join of rest.matchAll(TEXT_EDIT_JOIN)) {
+    const from = unquote(rest.slice(0, join.index));
+    const to = unquote(rest.slice(join.index! + join[0].length));
+    if (from && to) splits.push({ from, to });
+  }
+  return splits;
+}
+
+/** Replaces the first match of `from` in `text`, whatever its capitals. */
+function swapText(text: string, from: string, to: string): string {
+  const at = text.toLowerCase().indexOf(from.toLowerCase());
+  return at < 0 ? text : text.slice(0, at) + to + text.slice(at + from.length);
+}
+
+const sameDay = (a: MonthDay, b: MonthDay | null) => !!b && a.month === b.month && a.day === b.day;
 
 function findMember(members: Member[], query: string): Member[] {
   const q = query.trim().toLowerCase();
@@ -283,6 +314,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   const photos = opts.photos ?? { prepare: preparePhoto, tone: tonePhoto, edit: editPhoto };
   /** Each admin's last member photo, so "brighter" on its own knows whose. Forgotten on restart; a name still works. */
   const lastPhoto = new Map<string, string>();
+  /** Each admin's last event flyer, so its words can be corrected. Forgotten on restart. */
+  const lastEvent = new Map<string, { groupId: string; photo: Uint8Array; caption: string }>();
   /** The language each number last wrote in, for people without a group yet. Forgotten on restart. */
   const spoken = new Map<string, Lang>();
   const owners = new Set(opts.owners);
@@ -466,6 +499,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   /** The member's photo with the edits to choose from, as a tappable list. */
   async function photoSaved(lead: string, member: Member, group: Group, from: string): Promise<Reply> {
     lastPhoto.set(from, member.id);
+    lastEvent.delete(from);
     const first = member.name.split(" ")[0];
     const fr = group.language === "fr";
     return {
@@ -473,8 +507,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }],
       list: {
         body: fr
-          ? `J'ai centré la photo de ${first} et corrigé la lumière. Envie de changer quelque chose ? Touchez *Retoucher*, ou tapez simplement *plus clair*, *pivoter*, etc.`
-          : `I've centred ${first}'s photo and fixed the light. Want to change anything? Tap *Edit photo*, or just type *brighter*, *rotate* and so on.`,
+          ? `J'ai centré la photo de ${first} et corrigé la lumière. Envie de changer quelque chose ? Touchez *Retoucher*, ou tapez simplement *plus clair*, *pivoter*, etc. Nom ou date à corriger ? Tapez par exemple *changer le nom en Awa Diallo*.`
+          : `I've centred ${first}'s photo and fixed the light. Want to change anything? Tap *Edit photo*, or just type *brighter*, *rotate* and so on. Name or date wrong? Type e.g. *change name to Ada Okafor*.`,
         button: fr ? "Retoucher" : "Edit photo",
         rows: PHOTO_EDITS.map((e) => ({ id: `${e.word} ${member.name}`, title: fr ? e.titleFr : e.title, description: fr ? e.descriptionFr : e.description })),
       },
@@ -524,6 +558,110 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         ? tr(lang, `Back to ${m.name}'s photo as you sent it ✅`, `Retour à la photo de ${m.name} telle qu'envoyée ✅`)
         : tr(lang, `Done ✅ Here's ${m.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${m.name} :`);
     return photoSaved(done, saved, group, from);
+  }
+
+  type TextTarget =
+    | { field: "name"; member: Member; value: (to: string) => string }
+    | { field: "birthday"; member: Member }
+    | { field: "group"; value: (to: string) => string }
+    | { field: "caption"; value: (to: string) => string };
+
+  /** Where `from` appears: on the flyer just made first, then any member, then the group name. */
+  function findText(from: string, group: Group, members: Member[], admin: string): TextTarget | null {
+    const last = members.find((m) => m.id === lastPhoto.get(admin));
+    const event = lastEvent.get(admin);
+    const whole = (to: string) => to;
+    const has = (text: string) => text.toLowerCase().includes(from.toLowerCase());
+    const date = parseBirthday(from);
+
+    // "name", "date", "group name", "Ada's birthday", "le nom de Awa"...
+    const key = from.toLowerCase().replace(/^(?:(?:the|le|la)\s+|l['’])/, "");
+    if (/^group(?:['’]s)?(?:\s+name)?$|^nom du groupe$/.test(key)) return { field: "group", value: whole };
+    const field = key.match(/^(?:(.+?)['’]s\s+)?(name|nom|birthday|date|anniversaire)(?:\s+(?:of|for|de|d['’])\s*(.+))?$/);
+    if (field) {
+      const whose = field[1] ?? field[3];
+      const who = whose ? findMember(members, whose) : last ? [last] : [];
+      if (who.length !== 1) return null;
+      return field[2] === "name" || field[2] === "nom" ? { field: "name", member: who[0]!, value: whole } : { field: "birthday", member: who[0]! };
+    }
+
+    if (event?.groupId === group.id && has(event.caption)) {
+      return { field: "caption", value: (to) => swapText(event.caption, from, to) };
+    }
+    if (last && has(last.name)) return { field: "name", member: last, value: (to) => swapText(last.name, from, to) };
+    if (last && date && sameDay(last.birthday, date)) return { field: "birthday", member: last };
+
+    const exact = members.filter((m) => m.name.toLowerCase() === from.toLowerCase());
+    if (exact.length === 1) return { field: "name", member: exact[0]!, value: whole };
+    if (has(group.name)) return { field: "group", value: (to) => swapText(group.name, from, to) };
+    const partly = members.filter((m) => has(m.name));
+    if (partly.length === 1) return { field: "name", member: partly[0]!, value: (to) => swapText(partly[0]!.name, from, to) };
+    const born = date ? members.filter((m) => sameDay(m.birthday, date)) : [];
+    if (born.length === 1) return { field: "birthday", member: born[0]! };
+    return null;
+  }
+
+  /** "change amadi nnadozie to Amadi Nnadozie", "change date to 30 October", "change 4pm to 5pm"... */
+  async function changeText(group: Group, from: string, edits: Array<{ from: string; to: string }>): Promise<Reply> {
+    const lang = group.language;
+    const members = await opts.store.members(group.id);
+    let target: TextTarget | null = null;
+    let to = "";
+    // Longest old words first, so "change Back to School to Back to Base" isn't read as changing "Back".
+    for (const edit of [...edits].reverse()) {
+      target = findText(edit.from, group, members, from);
+      to = edit.to;
+      if (target) break;
+    }
+    if (!target) {
+      const old = edits[0]!.from;
+      return {
+        text: tr(
+          lang,
+          `I couldn't find "${old}" on your flyers. Type the words as they are now, then the new ones, e.g. *change ada okafor to Ada Okafor* or *change date to 30 October*.`,
+          `Je ne trouve pas « ${old} » sur vos flyers. Tapez les mots tels qu'ils sont, puis les nouveaux, par exemple *changer awa diallo en Awa Diallo* ou *changer la date en 30 octobre*.`,
+        ),
+      };
+    }
+
+    if (target.field === "caption") {
+      const event = lastEvent.get(from)!;
+      const caption = target.value(to);
+      lastEvent.set(from, { ...event, caption });
+      const flyer = await render.event({ photo: event.photo, caption, logo: await logoFor(group), style: await styleFor(group) });
+      return { text: tr(lang, "Done ✅ Here's the corrected flyer:", "C'est fait ✅ Voici le flyer corrigé :"), images: [{ data: flyer, mimeType: JPEG }] };
+    }
+
+    if (target.field === "group") {
+      const name = target.value(to).trim().replace(/\s+/g, " ").slice(0, 80);
+      await opts.store.renameGroup(group.id, name);
+      const renamed = { ...group, name };
+      const last = members.find((m) => m.id === lastPhoto.get(from));
+      const flyer = last ? await birthdayFlyer(last, renamed) : await render.birthday({ ...(await sampleFor(renamed)), style: await styleFor(renamed) });
+      return {
+        text: tr(lang, `Group name changed to *${name}* ✅ Every flyer uses it from now on.`, `Nom du groupe changé : *${name}* ✅ Tous les flyers l'utilisent désormais.`),
+        images: [{ data: flyer, mimeType: JPEG }],
+      };
+    }
+
+    let member = target.member;
+    if (target.field === "birthday") {
+      const birthday = parseBirthday(to);
+      if (!birthday) return { text: tr(lang, `I couldn't read "${to}" as a date. Try one like 14 March or 14/03.`, `Je n'arrive pas à lire « ${to} » comme une date. Essayez par exemple 14 mars ou 14/03.`) };
+      member = await opts.store.saveMember(group.id, member.name, birthday, null);
+    } else {
+      const name = tidyName(target.value(to));
+      const taken = members.find((m) => m.id !== member.id && m.name.toLowerCase() === name.toLowerCase());
+      if (taken) return { text: tr(lang, `${taken.name} is already in ${group.name}.`, `${taken.name} est déjà dans ${group.name}.`) };
+      await opts.store.renameMember(member.id, name);
+      member = { ...member, name };
+    }
+    lastPhoto.set(from, member.id);
+    lastEvent.delete(from);
+    return {
+      text: tr(lang, `Done ✅ Here's ${member.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${member.name} :`),
+      images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }],
+    };
   }
 
   async function birthdayFlyer(member: Member, group: Group, wish?: string): Promise<Uint8Array> {
@@ -748,10 +886,13 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       logo: await logoFor(group),
       style: await styleFor(group),
     });
+    lastEvent.set(from, { groupId: group.id, photo, caption });
+    lastPhoto.delete(from);
+    const fix = caption ? tr(lang, "Spotted a mistake? Type *change*, the words as they are, *to* and the new words, e.g. *change 4pm to 5pm*.", "Une erreur ? Tapez *changer*, les mots actuels, *en* et les nouveaux mots, par exemple *changer 16h en 17h*.") : "";
     const tip = group.logoPath ? "" : tr(lang, "Tip: send your group logo with the caption *logo* and I'll add it to every flyer.", "Astuce : envoyez le logo du groupe avec la légende *logo* et je l'ajouterai à chaque flyer.");
     const trialNote = await useTrialFlyers(group, 1);
     return {
-      text: [tip, trialNote].filter(Boolean).join("\n\n"),
+      text: [fix, tip, trialNote].filter(Boolean).join("\n\n"),
       images: [{ data: flyer, mimeType: JPEG }],
     };
   }
@@ -811,6 +952,9 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const photoEdit = photoEditWanted(text);
     if (photoEdit) return changePhoto(group, from, photoEdit.edit, photoEdit.name);
 
+    const textEdits = textEditsWanted(text);
+    if (textEdits.length) return changeText(group, from, textEdits);
+
     if (lower === "background off" || lower === "background reset") {
       await opts.store.saveBackground(group.id, null);
       return { text: tr(lang, "Background removed. Birthday flyers use the design's colours again.", "Fond retiré. Les flyers d'anniversaire reprennent les couleurs du modèle.") };
@@ -861,6 +1005,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const found = findMember(await opts.store.members(group.id), flyerFor[1]!);
       if (found.length !== 1) return { text: notFound(found, flyerFor[1]!, lang) };
       const m = found[0]!;
+      lastPhoto.set(from, m.id);
+      lastEvent.delete(from);
       const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang });
       const image = { data: await birthdayFlyer(m, group, wish), mimeType: JPEG, caption: withCredit(group, wish) };
       return { text: await useTrialFlyers(group, 1), images: [image] };

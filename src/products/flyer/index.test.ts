@@ -6,6 +6,7 @@ import {
   forwardTip,
   normalizeNumber,
   parseAddCaption,
+  tidyName,
   type BirthdayDeliverer,
   type BirthdayDelivery,
 } from "./index.js";
@@ -73,6 +74,9 @@ function memoryStore(plan = "organisation") {
     async setStyle(groupId, style) {
       Object.assign(groups.find((g) => g.id === groupId)!, style);
     },
+    async renameGroup(groupId, name) {
+      groups.find((g) => g.id === groupId)!.name = name;
+    },
     async saveMember(groupId, name, birthday, photo, original) {
       const path = photo ? `${groupId}/${name}/${++clock}` : null;
       if (photo && path) pictures.set(path, photo.data);
@@ -85,6 +89,9 @@ function memoryStore(plan = "organisation") {
       const member: Member = { id: `m${members.length + 1}`, groupId, name, birthday, photoPath: path };
       members.push(member);
       return { ...member, isNew: true };
+    },
+    async renameMember(id, name) {
+      members.find((m) => m.id === id)!.name = name;
     },
     async removeMember(id) {
       members.splice(members.findIndex((m) => m.id === id), 1);
@@ -853,7 +860,7 @@ describe("flyer bot: members and flyers", () => {
     expect((await bot.handle(photo(OWNER, "Logo"), ctx))?.text).toContain("Logo saved");
     const second = await bot.handle(photo(OWNER, "Homecoming 12 Dec"), ctx);
     expect(text(second?.images?.[0]?.data)).toBe("event:Homecoming 12 Dec:logo");
-    expect(second?.text).toBe("");
+    expect(second?.text).not.toContain("send your group logo");
   });
 
   it("refuses files that aren't pictures", async () => {
@@ -934,6 +941,96 @@ describe("flyer bot: touching up photos", () => {
     const s = await withGroup();
     await s.bot.handle(photo(OWNER, "Homecoming"), ctx);
     expect(text((s.render.event.mock.calls.at(-1)![0] as { photo: Uint8Array }).photo)).toBe("toned(jpg)");
+  });
+});
+
+describe("flyer bot: correcting words", () => {
+  const birthdayCall = (s: ReturnType<typeof setup>) =>
+    s.render.birthday.mock.calls.at(-1)![0] as unknown as { name: string; dateLabel: string; groupName: string };
+
+  it("capitalises names typed in lowercase, and leaves other names as typed", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add amadi nnadozie, 29 October"), ctx);
+    await s.bot.handle(photo(OWNER, "add Ngozi McDonald-ade, 1 May"), ctx);
+    expect(s.members.map((m) => m.name)).toEqual(["Amadi Nnadozie", "Ngozi McDonald-ade"]);
+    expect(tidyName("  o'neil  okafor-bello ")).toBe("O'Neil Okafor-Bello");
+  });
+
+  it("fixes a member's name the way jay typed it", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Amadi Nnadozi, 29 October"), ctx);
+    s.members[0]!.name = "amadi nnadozie";
+    const reply = await s.bot.handle(msg(OWNER, { text: "Edit amadi nnadozie to Amadi Nnadozie" }), ctx);
+    expect(reply?.text).toBe("Done ✅ Here's Amadi Nnadozie's flyer now:");
+    expect(s.members[0]!.name).toBe("Amadi Nnadozie");
+    expect(birthdayCall(s).name).toBe("Amadi Nnadozie");
+    // The photo stays, and the photo edits still know whose it is.
+    await s.bot.handle(msg(OWNER, { text: "brighter" }), ctx);
+    expect(text(s.pictures.get(s.members[0]!.photoPath!))).toBe("brighter(fixed(jpg))");
+  });
+
+  it("fixes part of a name, the name or date of the last flyer, or anyone by name", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await s.bot.handle(photo(OWNER, "add Tunde Bakare, 1 Jan"), ctx);
+
+    await s.bot.handle(msg(OWNER, { text: "change Bakare to Bakare-Ojo" }), ctx);
+    expect(s.members[1]!.name).toBe("Tunde Bakare-Ojo");
+    await s.bot.handle(msg(OWNER, { text: "change the date to 2 January" }), ctx);
+    expect(s.members[1]!.birthday).toEqual({ month: 1, day: 2 });
+    expect(birthdayCall(s).dateLabel).toBe("2 January");
+    await s.bot.handle(msg(OWNER, { text: "fix 2 Jan to 3/1" }), ctx);
+    expect(s.members[1]!.birthday).toEqual({ month: 1, day: 3 });
+    await s.bot.handle(msg(OWNER, { text: "change name to tunde bakare" }), ctx);
+    expect(s.members[1]!.name).toBe("Tunde Bakare");
+
+    await s.bot.handle(msg(OWNER, { text: "change Ada's birthday to 15 March" }), ctx);
+    expect(s.members[0]!.birthday).toEqual({ month: 3, day: 15 });
+    await s.bot.handle(msg(OWNER, { text: "edit Ada Okafor to Adaeze Okafor" }), ctx);
+    expect(s.members[0]!.name).toBe("Adaeze Okafor");
+  });
+
+  it("changes the group name on the flyers", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const reply = await s.bot.handle(msg(OWNER, { text: "change 2010 to 2011" }), ctx);
+    expect(reply?.text).toContain("Group name changed to *Unilag Class of 2011*");
+    expect(s.groups[0]!.name).toBe("Unilag Class of 2011");
+    expect(birthdayCall(s).groupName).toBe("Unilag Class of 2011");
+  });
+
+  it("remakes the last event flyer with corrected words", async () => {
+    const s = await withGroup();
+    const first = await s.bot.handle(photo(OWNER, "Back to School party: Sat 4pm"), ctx);
+    expect(first?.text).toContain("change 4pm to 5pm");
+    const reply = await s.bot.handle(msg(OWNER, { text: "change Back to School to Back to Base" }), ctx);
+    expect(text(reply?.images?.[0]?.data)).toBe("event:Back to Base party: Sat 4pm:nologo");
+    await s.bot.handle(msg(OWNER, { text: "change 4pm to 5pm" }), ctx);
+    expect((s.render.event.mock.calls.at(-1)![0] as { caption: string; photo: Uint8Array }).caption).toBe("Back to Base party: Sat 5pm");
+    expect(text((s.render.event.mock.calls.at(-1)![0] as { photo: Uint8Array }).photo)).toBe("toned(jpg)");
+  });
+
+  it("understands French", async () => {
+    const s = await withGroup();
+    s.groups[0]!.language = "fr";
+    await s.bot.handle(photo(OWNER, "ajouter awa diallo, 14 mars"), ctx);
+    expect(s.members[0]!.name).toBe("Awa Diallo");
+    const reply = await s.bot.handle(msg(OWNER, { text: "changer la date en 15 mars" }), ctx);
+    expect(reply?.text).toBe("C'est fait ✅ Voici le flyer de Awa Diallo :");
+    expect(s.members[0]!.birthday).toEqual({ month: 3, day: 15 });
+    await s.bot.handle(msg(OWNER, { text: "corriger Diallo par Diallo-Koné" }), ctx);
+    expect(s.members[0]!.name).toBe("Awa Diallo-Koné");
+    // "changer 2" still switches group.
+    expect((await s.bot.handle(msg(OWNER, { text: "changer 2" }), ctx))?.text).not.toContain("Je ne trouve pas");
+  });
+
+  it("says so when it can't find the words, or a member's new name is taken", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await s.bot.handle(photo(OWNER, "add Tunde Bakare, 1 Jan"), ctx);
+    expect((await s.bot.handle(msg(OWNER, { text: "change Chidi to Chidi Obi" }), ctx))?.text).toContain(`couldn't find "Chidi"`);
+    expect((await s.bot.handle(msg(OWNER, { text: "change Tunde Bakare to ada okafor" }), ctx))?.text).toContain("Ada Okafor is already in Unilag Class of 2010");
+    expect((await s.bot.handle(msg(OWNER, { text: "change date to someday" }), ctx))?.text).toContain(`couldn't read "someday"`);
   });
 });
 
