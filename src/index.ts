@@ -709,6 +709,9 @@ const payments = paymentSite
       store: createSupabasePaymentStore(supabase),
       callbackUrl: `${paymentSite.publicUrl}/payments/done`,
       customerEmail: paymentSite.customerEmail,
+      receiptEmailFor: emailStore
+        ? async (waId) => (await emailStore.byWaId(waId)).find((c) => c.email && c.receiptsAt && !c.unsubscribedAt)?.email ?? undefined
+        : undefined,
       onPaid: paidHandlers,
       send: (product, note) => sendNotice({ store, whatsapp }, note, note.fromNumberId ?? productNumbers[product]),
     })

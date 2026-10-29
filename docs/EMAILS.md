@@ -88,5 +88,6 @@ Resend's free plan: 3,000 emails a month, 100 a day. At today's sign-ups that's 
 
 ## Not built yet
 
-- Asking for an email at upgrade so Paystack receipts go to the customer, and the "thank you for upgrading" emails (P1, P2 in EMAILS.md).
+- Asking for an email at the moment of upgrading. Paystack receipts already go to the payer when we have their email for receipts; otherwise they still go to `PAYSTACK_CUSTOMER_EMAIL`.
+- The "thank you for upgrading" emails (P1, P2 in EMAILS.md).
 - The website "Get the free setup guide" box.
