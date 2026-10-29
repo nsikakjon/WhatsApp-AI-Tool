@@ -1,3 +1,5 @@
+import type { Lang } from "../../core/i18n.js";
+
 // Birthday dates: reading what admins type ("14 March", "14/03", "March 14th")
 // and working out whose birthday it is today, in Lagos time.
 
@@ -68,7 +70,7 @@ export function parseBirthday(text: string): MonthDay | null {
 }
 
 /** "14 March", or in French "14 mars" and "1er mars". */
-export function formatMonthDay({ month, day }: MonthDay, lang: "en" | "fr" = "en"): string {
+export function formatMonthDay({ month, day }: MonthDay, lang: Lang = "en"): string {
   if (lang === "fr") return `${day === 1 ? "1er" : day} ${MONTHS_FR_SHOWN[month - 1]!}`;
   const name = MONTHS[month - 1]!;
   return `${day} ${name[0]!.toUpperCase()}${name.slice(1)}`;
