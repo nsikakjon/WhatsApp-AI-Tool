@@ -46,7 +46,7 @@ const OutputSchema = z.object({
   items: z.array(z.object({ ref: z.string(), quantity: z.number().int() })),
   show: z.array(z.string()),
   message: z.string().nullable(),
-  language: z.enum(["en", "fr"]),
+  language: z.enum(["en", "fr", "pcm"]),
 });
 
 /**
@@ -86,8 +86,8 @@ Read the customer's latest message, using the earlier chat for context, and fill
   - "other" for anything else: greetings, questions, things not on the list, or a request too vague to quote.
 - items: only for "quote", otherwise empty. Use only refs from the list above. Count quantity in the unit the item name gives: single items one by one, packs as packs (300 pieces sold in packs of 100 is 3 packs), and square feet for items priced per square foot (6ft x 3ft is 18; round any part of a square foot up). If the customer doesn't say the size, type or quantity and more than one item could fit, don't guess: use "other" and ask.
 - show: only for "catalogue": refs of the items they asked about, or empty to show everything.
-- message: for "other" and "catalogue", a short, friendly reply in the customer's language: French if they wrote in French, otherwise plain English (customers may write in Pidgin; reply in simple English then). Ask what's missing, or say what the business sells. Otherwise null.
-- language: the language the customer is writing in: "fr" for French, "en" for English or Pidgin. If you can't tell (just a number, an emoji, "ok"), use the language of the earlier chat, or "${usual === "French" ? "fr" : "en"}" if there is none.
+- message: for "other" and "catalogue", a short, friendly reply in the customer's language: French if they wrote in French, Nigerian Pidgin if they wrote in Pidgin, otherwise plain English. Write Pidgin the way people in Lagos write it on WhatsApp (for example "No wahala, wetin you need and how many?"), easy to read, not exaggerated. Ask what's missing, or say what the business sells. Otherwise null.
+- language: the language the customer is writing in: "fr" for French, "pcm" for Nigerian Pidgin (abeg, wetin, dey, una, I wan, how much e be), "en" for English. A message that is mostly English with one Nigerian word ("please o", "thanks boss") is "en". If you can't tell (just a number, an emoji, "ok", "yes"), use the language of the earlier chat, or "${usual === "French" ? "fr" : "en"}" if there is none.
 
 Never mention a price, total, discount or amount of money in message, in any currency (naira, CFA francs or other), even if the customer asks. Prices are only sent by the system. If they ask the price of something, use intent "quote" when you can tell what they want and how many, otherwise "catalogue".`;
 }

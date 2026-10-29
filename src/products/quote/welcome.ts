@@ -56,6 +56,7 @@ export function customerWelcome(w: CustomerWelcome): Reply {
   const first = w.items[0];
   const firstName = w.customerName?.trim().split(/\s+/)[0];
   if (w.lang === "fr") return frenchWelcome(w, products, first, firstName);
+  if (w.lang === "pcm") return pidginWelcome(w, products, first, firstName);
   const example = first ? `${Math.max(first.minQuantity, 10)} ${productName(first.name)}` : "what you need";
   const body = [
     `Hi${firstName ? ` ${firstName}` : ""}! Welcome to ${w.businessName}.`,
@@ -99,6 +100,30 @@ function frenchWelcome(w: CustomerWelcome, products: string[], first: CustomerWe
     buttons: {
       body,
       buttons: [{ id: QUOTE_CHOICE, title: "Obtenir un devis" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Parler à quelqu'un" }] : [])],
+    },
+  };
+}
+
+function pidginWelcome(w: CustomerWelcome, products: string[], first: CustomerWelcome["items"][number] | undefined, firstName: string | undefined): Reply {
+  const example = first ? `${Math.max(first.minQuantity, 10)} ${productName(first.name)}` : "wetin you need";
+  const body = [
+    `How far${firstName ? ` ${firstName}` : ""}! You don land ${w.businessName}.`,
+    ...(products.length ? [`Wetin we get: ${products.slice(0, PRODUCTS_SHOWN).join(", ")}${products.length > PRODUCTS_SHOWN ? " and more" : ""}.`] : []),
+    "",
+    "How to order:",
+    `1. Tell me wetin you need and how many, like *${example}*${w.voiceNotes ? ". You fit type am or send voice note" : ""}.`,
+    "2. I go send you quote with the total.",
+    "3. Reply *YES* to order, or tell me wetin to change. *Cancel* go drop the quote.",
+    ...(w.delivery ? ["4. Tell me where we go deliver am, or talk *pickup* if you go come collect am."] : []),
+    ...(w.invoices ? [`${w.delivery ? 5 : 4}. Your invoice go come here.`] : []),
+    "",
+    w.catalogue ? "Send *menu* to see everything we dey sell, and *help* to see this one again." : "Send *help* anytime to see this one again.",
+  ].join("\n");
+  return {
+    text: "",
+    buttons: {
+      body,
+      buttons: [{ id: QUOTE_CHOICE, title: "Get quote" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Talk to person" }] : [])],
     },
   };
 }

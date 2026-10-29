@@ -1,7 +1,9 @@
 import type { Lang } from "../../../core/i18n.js";
 
-// Everything the delivery steps say, in English and French. Amounts arrive
-// already formatted in the business's currency; nothing here works out money.
+// Everything the delivery steps say, in English and French, and what the
+// customer sees in Nigerian Pidgin too (riders and owners get English).
+// Amounts arrive already formatted in the business's currency; nothing here
+// works out money.
 
 export interface DeliveryTexts {
   // To the customer
@@ -307,4 +309,18 @@ const fr: DeliveryTexts = {
   courierNoPayments: "Je ne peux pas créer de lien de paiement pour l'instant. Contactez l'assistance yarnOga pour réserver le coursier.",
 };
 
-export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr };
+const pcm: DeliveryTexts = {
+  ...en,
+  confirmingFee: (b) => `${b} dey confirm the delivery fee to your address. You go get the new total here soon.`,
+  askAddress:
+    "Where we go deliver am? Tap *Send location* to share pin, or type the full address with the area (like: 12 Allen Avenue, Ikeja). Reply *PICKUP* if you go come collect am yourself.",
+  collectFrom: (p) => `No wahala, you go come collect am${p ? ` from:\n${p}` : "."}`,
+  tapConfirm: "Tap *Confirm order* make I place am.",
+  tapConfirmOrChange: "Tap *Confirm order* make I place am, or change the address.",
+  willConfirmFee: (b) => `Thank you! ${b} go confirm the delivery fee to that address and send you the new total here.`,
+  riderComing: (r, l, b, link) => `${r} go deliver your order ${l} from ${b}. Follow am here: ${link}`,
+  deliveryCancelled: (l, b) => `The delivery for your order ${l} don cancel. ${b} go reach you.`,
+  courierComing: (c, l, b, link) => `${c} go deliver your order ${l} from ${b}.${link ? ` Follow am here: ${link}` : ""}`,
+};
+
+export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr, pcm };

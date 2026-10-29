@@ -19,7 +19,7 @@ export interface GoogleSpeakerOptions {
   fetch?: typeof fetch;
 }
 
-const DEFAULT_VOICES: Record<Lang, string> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A" };
+const DEFAULT_VOICES: Record<Lang, string> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A", pcm: "en-GB-Neural2-A" };
 
 export function createGoogleSpeaker(opts: GoogleSpeakerOptions): Speaker {
   const doFetch = opts.fetch ?? fetch;
@@ -48,12 +48,12 @@ export interface AzureSpeakerOptions {
   apiKey: string;
   /** The resource's region, e.g. westeurope. */
   region: string;
-  /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice and a Nigerian English one. */
+  /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice and a Nigerian English one (which also reads Pidgin). */
   voices?: Partial<Record<Lang, string>>;
   fetch?: typeof fetch;
 }
 
-const AZURE_VOICES: Record<Lang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural" };
+const AZURE_VOICES: Record<Lang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural", pcm: "en-NG-EzinneNeural" };
 
 /** Text made safe to put inside the SSML Azure reads. */
 function xml(text: string): string {
