@@ -29,7 +29,44 @@ describe("loadConfig", () => {
       businessName: "KahnPrints",
       orderPrefix: "KP",
       ownerWaId: "2348012345678",
+      language: "en",
+      currency: "NGN",
+      voiceReplies: false,
+      courierDelivery: false,
     });
+    expect(loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_LANGUAGE: "FR", QUOTE_CURRENCY: "xof" }).quote).toMatchObject({ language: "fr", currency: "XOF" });
+    expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote", ANTHROPIC_API_KEY: "a", QUOTE_CURRENCY: "USD" })).toThrow("QUOTE_CURRENCY");
+  });
+
+  it("switches Shipbubble couriers on with a real API key", () => {
+    expect(loadConfig(base).shipbubble).toBeUndefined();
+    expect(loadConfig({ ...base, SHIPBUBBLE_API_KEY: "sb_sandbox_abc", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" }).shipbubble).toEqual({
+      apiKey: "sb_sandbox_abc",
+      contactEmail: "p@example.com",
+      categoryId: undefined,
+      itemKg: 0.5,
+    });
+    expect(() => loadConfig({ ...base, SHIPBUBBLE_API_KEY: "pk_abc", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" })).toThrow("SHIPBUBBLE_API_KEY");
+  });
+
+  it("uses Azure for voice replies when its key and region are set, else Google", () => {
+    expect(loadConfig(base).tts).toBeUndefined();
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g" }).tts).toMatchObject({ provider: "google", apiKey: "g" });
+    expect(loadConfig({ ...base, GOOGLE_TTS_API_KEY: "g", AZURE_SPEECH_KEY: "a", AZURE_SPEECH_REGION: "West Europe" }).tts).toMatchObject({ provider: "azure", apiKey: "a", region: "westeurope" });
+    expect(() => loadConfig({ ...base, AZURE_SPEECH_KEY: "a" })).toThrow("AZURE_SPEECH_REGION");
+  });
+
+  it("switches Flutterwave on with its secret key and hash", () => {
+    expect(loadConfig(base).flutterwave).toBeUndefined();
+    const env = { ...base, FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-abc-X", PUBLIC_URL: "https://bot.example.com/", PAYSTACK_CUSTOMER_EMAIL: "p@example.com" };
+    expect(() => loadConfig(env)).toThrow("FLUTTERWAVE_SECRET_HASH");
+    expect(loadConfig({ ...env, FLUTTERWAVE_SECRET_HASH: "a-long-secret-hash" }).flutterwave).toEqual({
+      secretKey: "FLWSECK_TEST-abc-X",
+      secretHash: "a-long-secret-hash",
+      publicUrl: "https://bot.example.com",
+      customerEmail: "p@example.com",
+    });
+    expect(() => loadConfig({ ...env, FLUTTERWAVE_SECRET_KEY: "FLWPUBK-abc", FLUTTERWAVE_SECRET_HASH: "a-long-secret-hash" })).toThrow("secret key");
   });
 
   it("keeps broadcasts off unless BROADCASTS_ENABLED is true, and then needs a template", () => {
@@ -51,6 +88,14 @@ describe("loadConfig", () => {
     expect(loadConfig(base).quoteOrderBoard).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_ORDER_BOARD: "true" })).toThrow("PUBLIC_URL");
     expect(loadConfig({ ...base, QUOTE_ORDER_BOARD: "true", PUBLIC_URL: "https://bot.example.com/" }).quoteOrderBoard).toEqual({
+      publicUrl: "https://bot.example.com",
+    });
+  });
+
+  it("keeps walk-in orders off unless QUOTE_WALK_IN is true, and then needs the public address", () => {
+    expect(loadConfig(base).quoteWalkIn).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_WALK_IN: "true" })).toThrow("PUBLIC_URL");
+    expect(loadConfig({ ...base, QUOTE_WALK_IN: "true", PUBLIC_URL: "https://bot.example.com" }).quoteWalkIn).toEqual({
       publicUrl: "https://bot.example.com",
     });
   });
@@ -126,15 +171,10 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, INBOX_PASSWORD: "short" })).toThrow("at least 12");
   });
 
-  it("switches on the sign-up page only with a password, and then needs the Meta app details", () => {
+  it("switches on the sign-up page with its configuration ID, and then needs the App ID", () => {
     expect(loadConfig(base).signup).toBeUndefined();
-    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw" })).toThrow("META_APP_ID");
-    expect(() => loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1" })).toThrow("META_SIGNUP_CONFIG_ID");
-    expect(loadConfig({ ...base, SIGNUP_PASSWORD: "pw", META_APP_ID: "1", META_SIGNUP_CONFIG_ID: "2" }).signup).toEqual({
-      password: "pw",
-      appId: "1",
-      configId: "2",
-    });
+    expect(() => loadConfig({ ...base, META_SIGNUP_CONFIG_ID: "2" })).toThrow("META_APP_ID");
+    expect(loadConfig({ ...base, META_APP_ID: "1", META_SIGNUP_CONFIG_ID: "2" }).signup).toEqual({ appId: "1", configId: "2" });
   });
 
   it("reads the quote plan, off when unset", () => {
@@ -222,5 +262,42 @@ describe("loadConfig", () => {
     ).toEqual({ name: "birthday_flyer", language: "en" });
     expect(loadConfig({ ...base, FLYER_PHONE_NUMBER_ID: "f", FLYER_OWNER_WA_IDS: "1", FLYER_OPEN_SIGNUP: "false" }).flyer?.openSignup).toBe(false);
     expect(() => loadConfig({ ...base, FLYER_SEND_HOUR: "24" })).toThrow("FLYER_SEND_HOUR");
+  });
+
+  it("reads who gets alerts, and needs a Resend key for email", () => {
+    expect(loadConfig(base).alerts).toEqual({ waId: undefined, template: undefined, email: undefined, sentry: undefined });
+    const alerts = loadConfig({
+      ...base,
+      ALERT_WA_ID: "+234 801 234 5678",
+      ALERT_EMAIL: "jay@example.com",
+      RESEND_API_KEY: "re_x",
+      SENTRY_DSN: "https://abc@o1.ingest.sentry.io/42",
+    }).alerts;
+    expect(alerts.waId).toBe("2348012345678");
+    expect(alerts.email).toEqual({ apiKey: "re_x", to: "jay@example.com", from: "yarnOga alerts <alerts@yarnoga.com>" });
+    expect(alerts.sentry).toEqual({ dsn: "https://abc@o1.ingest.sentry.io/42", environment: "production" });
+    expect(() => loadConfig({ ...base, ALERT_EMAIL: "jay@example.com" })).toThrow("RESEND_API_KEY");
+    expect(() => loadConfig({ ...base, SENTRY_DSN: "nope" })).toThrow("SENTRY_DSN");
+  });
+
+  it("switches the compliance page on with a long password, and Dojah when both keys are set", () => {
+    expect(loadConfig(base).compliance).toBeUndefined();
+    expect(() => loadConfig({ ...base, COMPLIANCE_PASSWORD: "short" })).toThrow("COMPLIANCE_PASSWORD");
+    expect(loadConfig({ ...base, COMPLIANCE_PASSWORD: "a long enough pass" }).compliance).toEqual({ password: "a long enough pass", dojah: undefined });
+    expect(
+      loadConfig({ ...base, COMPLIANCE_PASSWORD: "a long enough pass", DOJAH_APP_ID: "app", DOJAH_SECRET_KEY: "sk", DOJAH_SANDBOX: "true" }).compliance?.dojah,
+    ).toEqual({ appId: "app", secretKey: "sk", sandbox: true });
+  });
+
+  it("switches the owner app on with a public address", () => {
+    expect(loadConfig(base).ownerApp).toBeUndefined();
+    expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com" }).ownerApp).toEqual({
+      publicUrl: "https://bot.example.com",
+      supportEmail: "support@yarnoga.com",
+      supportWaId: undefined,
+    });
+    expect(
+      loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com", OWNER_APP_URL: "https://app.yarnoga.com", SUPPORT_WA_ID: "+234 800 000 0000" }).ownerApp,
+    ).toMatchObject({ publicUrl: "https://app.yarnoga.com", supportWaId: "2348000000000" });
   });
 });

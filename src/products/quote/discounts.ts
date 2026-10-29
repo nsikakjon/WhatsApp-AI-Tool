@@ -66,11 +66,13 @@ function dayText(date: Date): string {
   return new Date(date.getTime() - 60_000).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });
 }
 
-function codeLine(c: DiscountCode, now: Date): string {
+type Money = (minor: number) => string;
+
+function codeLine(c: DiscountCode, now: Date, money: Money): string {
   const ended = c.endsAt && c.endsAt <= now;
   const parts = [`${c.percentOff}% off`];
   if (c.endsAt) parts.push(ended ? `ended ${dayText(c.endsAt)}` : `until ${dayText(c.endsAt)}`);
-  parts.push(`${c.orders} order${c.orders === 1 ? "" : "s"}${c.orders ? ` (${formatNaira(c.discountKobo)} off)` : ""}`);
+  parts.push(`${c.orders} order${c.orders === 1 ? "" : "s"}${c.orders ? ` (${money(c.discountKobo)} off)` : ""}`);
   if (c.maxUses != null) parts.push(`${Math.max(c.maxUses - c.orders, 0)} left`);
   if (!c.active) parts.push("paused");
   return `• *${c.code}*: ${parts.join(", ")}`;
@@ -80,11 +82,11 @@ const HOW =
   "To make a code, send *new code*, a name and the discount, e.g. *new code XMAS 20%*. You can add an end date and a limit: *new code BLACKFRIDAY 30% until 29 Nov limit 100*. Customers send the code after they get a quote. *code XMAS off* pauses a code, and *on* starts it again.";
 
 /** The owner's discount code commands. Null when the message isn't one. */
-export async function discountCommand(store: DiscountStore, text: string, now = new Date()): Promise<string | null> {
+export async function discountCommand(store: DiscountStore, text: string, now = new Date(), money: Money = formatNaira): Promise<string | null> {
   const t = text.trim();
   if (/^(my |discount |sale )?codes$|^discounts?$/i.test(t)) {
     const codes = await store.codes();
-    return codes.length ? `Your discount codes:\n${codes.map((c) => codeLine(c, now)).join("\n")}\n\n${HOW}` : `You have no discount codes yet.\n\n${HOW}`;
+    return codes.length ? `Your discount codes:\n${codes.map((c) => codeLine(c, now, money)).join("\n")}\n\n${HOW}` : `You have no discount codes yet.\n\n${HOW}`;
   }
 
   const make = t.match(/^(?:new|add|create|make)\s+(?:discount\s+|sale\s+)?code\s+(\S+)(.*)$/i);
@@ -135,8 +137,8 @@ export function readCode(text: string): { code: string; explicit: boolean } | nu
 }
 
 /** The line a quote, invoice or owner alert shows for a discount. */
-export function discountLine(d: { code: string; amountKobo: number }): string {
-  return `• Discount (${d.code}) = -${formatNaira(d.amountKobo)}`;
+export function discountLine(d: { code: string; amountKobo: number }, money: Money = formatNaira): string {
+  return `• Discount (${d.code}) = -${money(d.amountKobo)}`;
 }
 
 /**
@@ -148,6 +150,7 @@ export async function customerCode(
   text: string,
   openQuote: () => Promise<SavedOrder | null>,
   ref: (order: SavedOrder) => string,
+  money: Money = formatNaira,
 ): Promise<string | null> {
   const asked = readCode(text);
   if (!asked) return null;
@@ -170,10 +173,10 @@ export async function customerCode(
   return [
     `Code *${res.code}* applied: ${res.percentOff}% off. Your quote (${ref(order)}) is now:`,
     "",
-    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} @ ${formatNaira(l.unitPriceKobo)} = ${formatNaira(l.totalKobo)}`),
-    discountLine({ code: res.code, amountKobo: res.discountKobo }),
+    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} @ ${money(l.unitPriceKobo)} = ${money(l.totalKobo)}`),
+    discountLine({ code: res.code, amountKobo: res.discountKobo }, money),
     "",
-    `*Total: ${formatNaira(res.totalKobo)}*`,
+    `*Total: ${money(res.totalKobo)}*`,
     "",
     "Reply YES to place this order, or tell me what to change.",
   ].join("\n");

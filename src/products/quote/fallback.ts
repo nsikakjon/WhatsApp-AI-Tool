@@ -1,15 +1,18 @@
+import type { Lang } from "../../core/i18n.js";
 import type { CatalogEntry, Understander, Understanding } from "./understand.js";
 
 // The no-AI way of reading a customer's message, used when a business has
 // used up its AI credits for the month (see credits.ts). It understands:
 // - YES / OK / confirm, and NO / cancel,
 // - an item number from the menu and how many, e.g. "3 x 100" (one per line),
-// - a plain request whose words point at exactly one item, e.g. "50 tote bags".
+// - a plain request whose words point at exactly one item, e.g. "50 tote bags",
+// - asking for the catalogue, menu or price list.
 // Anything else gets the numbered menu. Prices are still worked out in code
 // from the database, exactly as with the AI.
 
-const CONFIRM = /^(yes|yeah|yep|yup|ok|okay|confirm|confirmed|go ahead|sure|proceed)\b/i;
-const CANCEL = /^(no|nope|cancel|stop|not now)\b/i;
+const CONFIRM = /^(yes|yeah|yep|yup|ok|okay|confirm|confirmed|go ahead|sure|proceed|oui|ouais|d'accord|confirmer?|je confirme|vas-y|allez-y)\b/i;
+const CANCEL = /^(no|nope|cancel|stop|not now|non|annuler?|pas maintenant)\b/i;
+const CATALOGUE = /\b(catalog(ue)?|menu|price ?list|products|what do you (sell|have)|liste de prix|tarifs?|produits|qu'est-ce que vous vendez)\b/i;
 // "3 x 100", "3*100", "item 3: 100", "#3 - 100"
 const MENU_PICK = /^(?:item|no\.?|number|#)?\s*(\d{1,3})\s*(?:x|\*|:|-|=|,|for)\s*(\d{1,7})\s*(?:pcs|pieces|copies|units|packs?)?\.?$/i;
 
@@ -18,22 +21,24 @@ const MENU_SIZE = 40;
 
 export function createKeywordUnderstander(): Understander {
   return {
-    async understand({ text, catalog }): Promise<Understanding> {
+    async understand({ text, catalog, language }): Promise<Understanding> {
+      const lang = language ?? "en";
       const message = text.trim();
       // "Yes, 100 flyers" is a request, not a yes to the last quote.
       if (!/\d/.test(message)) {
         if (CONFIRM.test(message)) return { intent: "confirm", items: [], message: null };
         if (CANCEL.test(message)) return { intent: "cancel", items: [], message: null };
+        if (CATALOGUE.test(message)) return { intent: "catalogue", items: [], message: menu(catalog, lang) };
       }
 
       const lines = message.split(/\n|;|,\s*(?=\d)|\band\b/i).map((l) => l.trim()).filter(Boolean);
       const items: Understanding["items"] = [];
       for (const line of lines) {
         const item = menuPick(line, catalog) ?? wordMatch(line, catalog);
-        if (!item) return { intent: "other", items: [], message: menu(catalog) };
+        if (!item) return { intent: "other", items: [], message: menu(catalog, lang) };
         items.push(item);
       }
-      return items.length > 0 ? { intent: "quote", items, message: null } : { intent: "other", items: [], message: menu(catalog) };
+      return items.length > 0 ? { intent: "quote", items, message: null } : { intent: "other", items: [], message: menu(catalog, lang) };
     },
   };
 }
@@ -78,13 +83,16 @@ function wordMatch(line: string, catalog: CatalogEntry[]) {
   return best && !tie ? { variantId: best.id, quantity } : null;
 }
 
-function menu(catalog: CatalogEntry[]): string {
+function menu(catalog: CatalogEntry[], lang: Lang): string {
   const shown = catalog.slice(0, MENU_SIZE);
+  const fr = lang === "fr";
   return [
-    "Here's what we offer:",
+    fr ? "Voici ce que nous proposons :" : "Here's what we offer:",
     ...shown.map((c, i) => `${i + 1}. ${c.name}`),
-    ...(catalog.length > shown.length ? ["(and more: ask the team)"] : []),
+    ...(catalog.length > shown.length ? [fr ? "(et plus : demandez à l'équipe)" : "(and more: ask the team)"] : []),
     "",
-    "Reply with the item number and how many, one per line. For example: *1 x 100*",
+    fr
+      ? "Répondez avec le numéro de l'article et la quantité, un par ligne. Par exemple : *1 x 100*"
+      : "Reply with the item number and how many, one per line. For example: *1 x 100*",
   ].join("\n");
 }

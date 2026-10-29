@@ -11,6 +11,7 @@ import {
 } from "./qualify.js";
 import type { Lead, LeadStore, LeadUpdate } from "./store.js";
 import type { LeadUnderstander, Understanding } from "./understand.js";
+import { isPhoneNumber, showWaId } from "../../core/whatsapp/ids.js";
 
 // The real estate lead qualifier.
 //
@@ -135,11 +136,11 @@ function nextQuestion(d: LeadDetails): string {
 }
 
 function who(l: Lead): string {
-  return `${l.name ?? "A lead"} (+${l.waId})`;
+  return `${l.name ?? "A lead"} (${showWaId(l.waId)})`;
 }
 
 function chatLink(waId: string): string {
-  return `Chat: https://wa.me/${waId}`;
+  return isPhoneNumber(waId) ? `Chat: https://wa.me/${waId}` : "They hid their number, so reply through the bot's WhatsApp number.";
 }
 
 export function agentAlert(l: Lead): string {

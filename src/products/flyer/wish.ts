@@ -1,11 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { Lang } from "../../core/i18n.js";
 
 // The short birthday message that goes with each flyer. The AI writes a fresh
 // one each time so the group doesn't see the same words every birthday; if the
 // AI is switched off or fails, a ready-made message is used instead.
 
 export interface WishWriter {
-  write(input: { name: string; groupName: string }): Promise<string>;
+  write(input: { name: string; groupName: string; lang?: Lang }): Promise<string>;
 }
 
 const FALLBACKS = [
@@ -15,18 +16,26 @@ const FALLBACKS = [
   "Happy birthday, {first}! 🥳 We celebrate you today and always. Have a fantastic day! From {group}",
 ];
 
+const FALLBACKS_FR = [
+  "Joyeux anniversaire, {first} ! 🎉 Nous te souhaitons de la joie, une bonne santé et une merveilleuse année. De la part de tous à {group} ! 🥂",
+  "Joyeux anniversaire, {first} ! 🎂 Que cette nouvelle année t'apporte bénédictions, rires et réussite. Avec amour, {group} ❤️",
+  "C'est l'anniversaire de {first} aujourd'hui ! 🎉 Bonne fête de la part de toute la famille {group} 🎈",
+  "Joyeux anniversaire, {first} ! 🥳 On te célèbre aujourd'hui et toujours. Passe une excellente journée ! {group}",
+];
+
 function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name;
 }
 
 /** A ready-made message, chosen by name so the same person gets the same one. */
-export function fallbackWish(name: string, groupName: string): string {
+export function fallbackWish(name: string, groupName: string, lang?: Lang): string {
   let sum = 0;
   for (const ch of name) sum += ch.charCodeAt(0);
-  return FALLBACKS[sum % FALLBACKS.length]!.replace("{first}", firstName(name)).replace("{group}", groupName);
+  const list = lang === "fr" ? FALLBACKS_FR : FALLBACKS;
+  return list[sum % list.length]!.replace("{first}", firstName(name)).replace("{group}", groupName);
 }
 
-export const SYSTEM_PROMPT = `You write the short message posted with a birthday flyer in a Nigerian WhatsApp group (school alumni, old friends, colleagues).
+export const SYSTEM_PROMPT = `You write the short message posted with a birthday flyer in an African WhatsApp group (school alumni, old friends, colleagues).
 
 Write one warm, upbeat birthday message of one or two sentences (under 220 characters) that:
 - addresses the person by their first name,
@@ -45,13 +54,13 @@ export function createWishWriter(opts: {
   const client = opts.client ?? (opts.apiKey ? new Anthropic({ apiKey: opts.apiKey }) : undefined);
 
   return {
-    async write({ name, groupName }) {
-      if (!client) return fallbackWish(name, groupName);
+    async write({ name, groupName, lang }) {
+      if (!client) return fallbackWish(name, groupName, lang);
       try {
         const response = await client.messages.create({
           model: opts.model,
           max_tokens: 300,
-          system: SYSTEM_PROMPT,
+          system: lang === "fr" ? `${SYSTEM_PROMPT}\n\nWrite the message in French (as spoken in French-speaking Africa), using "tu".` : SYSTEM_PROMPT,
           messages: [{ role: "user", content: `Name: ${name}\nGroup: ${groupName}` }],
         });
         const text = response.content
@@ -59,12 +68,12 @@ export function createWishWriter(opts: {
           .join("")
           .trim();
         if (response.stop_reason !== "end_turn" || !text || text.length > 400) {
-          return fallbackWish(name, groupName);
+          return fallbackWish(name, groupName, lang);
         }
         return text;
       } catch (err) {
         log.error("AI birthday message failed, using a ready-made one:", err);
-        return fallbackWish(name, groupName);
+        return fallbackWish(name, groupName, lang);
       }
     },
   };

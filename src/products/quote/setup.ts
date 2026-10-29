@@ -1,6 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { guardedBasicAuth } from "../../core/security/guard.js";
 import { Hono, type Context } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { formatNaira } from "../../core/money.js";
@@ -15,6 +14,7 @@ import {
   type DraftImageType,
   type PriceListDrafter,
 } from "./drafter.js";
+import { PAYSTACK_SUBACCOUNT } from "./paylinks.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
 import {
   DEFAULT_BUSINESS_ID,
@@ -52,6 +52,8 @@ export interface QuoteSetupDeps {
    * all, itself included (null = no cap).
    */
   branches?: { limit(mainId: string): Promise<number | null> };
+  /** Pay links on invoices (QUOTE_PAY_LINKS, migration 0045): each business's Paystack subaccount is set here. */
+  payLinks?: boolean;
   log?: Pick<Console, "error">;
 }
 
@@ -66,10 +68,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
 
   app.use(
     "*",
-    basicAuth({
-      verifyUser: (_username, password) => samePassword(password, deps.password),
-      realm: "yarnOga quote bot setup",
-    }),
+    guardedBasicAuth({ password: deps.password, realm: "yarnOga quote bot setup" }),
   );
 
   // The browser sends the password with every request, so a form on another
@@ -309,12 +308,19 @@ ${priceTable(items)}
   }
 
   async function form(action: string, settings: BusinessSettings, problems: string[], selfId?: string): Promise<string> {
-    return businessForm(action, settings, problems, await mainChoices(selfId));
+    return businessForm(action, settings, problems, await mainChoices(selfId), Boolean(deps.payLinks));
   }
 
   /** The settings form, plus the branch choice checked against the main business's plan. */
   async function readForm(body: Record<string, unknown>, selfId?: string) {
     const result = readSettings(body, deps.reservedNumberIds);
+    if (deps.payLinks) {
+      const code = field(body, "paystackSubaccount").trim();
+      result.settings.paystackSubaccount = code || null;
+      if (code && !PAYSTACK_SUBACCOUNT.test(code)) {
+        result.problems.push("The Paystack subaccount code starts with ACCT_, e.g. ACCT_8f4s1eq7ml6rlzj (Paystack > Subaccounts).");
+      }
+    }
     if (!deps.branches) return result;
     const wanted = field(body, "branchOf") || null;
     result.settings.branchOf = wanted;
@@ -440,7 +446,7 @@ export function readSettings(
   return { settings, problems };
 }
 
-function businessForm(action: string, s: BusinessSettings, problems: string[], mains: QuoteBusiness[] | null = null): string {
+function businessForm(action: string, s: BusinessSettings, problems: string[], mains: QuoteBusiness[] | null = null, payLinks = false): string {
   const value = (v: string | null) => esc(v ?? "");
   return `${problems.length ? `<ul class="error">${problems.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <form method="post" action="${action}" class="stack">
@@ -451,6 +457,7 @@ function businessForm(action: string, s: BusinessSettings, problems: string[], m
 <label>Alert number <small>the owner's WhatsApp number for new orders, e.g. 2348012345678. They can also send "paid MC-1001".</small><input name="ownerWaId" inputmode="tel" value="${value(s.ownerWaId)}"></label>
 <label>Address or phone on invoices <small>optional</small><textarea name="businessDetails" rows="2" maxlength="300">${value(s.businessDetails)}</textarea></label>
 <label>Bank details on invoices <small>optional, e.g. bank, account number, account name</small><textarea name="paymentDetails" rows="2" maxlength="300">${value(s.paymentDetails)}</textarea></label>
+${payLinks ? `<label>Paystack subaccount <small>optional, e.g. ACCT_8f4s1eq7ml6rlzj. With it, invoices come with a pay link and the money goes to this business's bank account.</small><input name="paystackSubaccount" maxlength="40" value="${value(s.paystackSubaccount ?? null)}"></label>` : ""}
 ${mains ? branchField(s.branchOf ?? null, mains) : ""}
 <label class="check"><input type="checkbox" name="active"${s.active ? " checked" : ""}> Answer customers on this number</label>
 <p><button type="submit">Save</button> <a href="/quote-setup">Cancel</a></p>
@@ -559,8 +566,3 @@ function esc(text: string): string {
 }
 
 /** Compares in constant time, so response timing can't reveal the password letter by letter. */
-function samePassword(given: string, expected: string): boolean {
-  const a = createHash("sha256").update(given).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}

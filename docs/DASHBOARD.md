@@ -19,7 +19,7 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 | Section | Numbers |
 | --- | --- |
 | Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |
-| WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart |
+| WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart, and messages each number sent this month with how many are past Meta's free 1,000 (needs migration 0043) |
 | yarnOga Flyers | groups, members, birthday flyers sent, groups per plan, what paid plans are worth per month at list price |
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
 | Site Reporter | active sites, team members, updates, photos, voice notes, daily reports |
@@ -106,14 +106,14 @@ takes two parts.
    the yarnoga TikTok account, and create an app (**Manage apps > Connect an app**).
 2. In the app, add the **Login Kit** product with the scopes `user.info.basic`
    and `user.info.stats`, and add this redirect URI:
-   `https://whatsapp-ai-tool-production.up.railway.app/dashboard/tiktok/callback`
+   `https://app.yarnoga.com/dashboard/tiktok/callback`
 3. `user.info.stats` needs TikTok's approval for a live app. To skip the wait,
    use the app's **Sandbox**: create one, add the yarnoga account as a
    **target user**, and use the Sandbox's keys in the next step.
 4. On Railway add `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET` (from the app's
    or Sandbox's **Credentials**).
 5. After the redeploy open
-   `https://whatsapp-ai-tool-production.up.railway.app/dashboard/tiktok/connect`,
+   `https://app.yarnoga.com/dashboard/tiktok/connect`,
    sign in as yarnoga and allow access. The page then shows a key: add it on
    Railway as `TIKTOK_REFRESH_TOKEN`.
 

@@ -3,8 +3,12 @@ import { readBusinessPlanCode } from "./plan.js";
 
 // What each quote bot plan includes: AI credits, number of products, voice
 // notes, invoices, staff inbox, follow-ups, broadcasts, test screen, delivery,
-// order board, sales dashboard, product photos and stock (catalogue), and
-// how many numbers a business and its branches can have (branches).
+// order board, sales dashboard, product photos and stock (catalogue), how
+// many numbers a business and its branches can have (branches), and how many
+// WhatsApp messages each number may send a month (bot_messages, messages.ts),
+// walk-in orders and how many pickup screens (walk_in, stations, walkin/),
+// and yarnOga's fee on pay-link payments (transaction_fee, in hundredths of a
+// percent, paylinks.ts).
 // The rows live in quote_plan_features (migrations 0025, 0034); limits are changed
 // there, never in code.
 //
@@ -34,7 +38,21 @@ export type PlanFeature =
   | "order_board"
   | "sales_dashboard"
   | "catalogue"
-  | "branches";
+  | "branches"
+  | "bot_messages"
+  | "walk_in"
+  | "stations"
+  | "transaction_fee"
+  /** The most yarnOga's fee can be on one payment, in kobo (naira) or centimes (CFA francs), migration 0052. */
+  | "transaction_fee_cap_ngn"
+  | "transaction_fee_cap_cfa"
+  /** Customer care (migration 0054): payment reminders, ratings and "order again" from Starter, */
+  | "pay_reminders"
+  | "ratings"
+  | "order_again"
+  /** the morning summary and the Customers page from Pro. */
+  | "daily_summary"
+  | "customers_page";
 
 export interface FeatureRow {
   included: boolean;

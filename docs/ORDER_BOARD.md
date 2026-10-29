@@ -21,9 +21,9 @@ no plan, like KahnPrints, gets both.
 ## Switching it on
 
 1. In Supabase, run `supabase/migrations/0036_quote_order_board.sql`.
-2. On Railway, add `QUOTE_ORDER_BOARD=true` and `PUBLIC_URL` (your Railway
-   address, e.g. `https://whatsapp-ai-tool-production.up.railway.app`; you
-   already have it if delivery or payments are on).
+2. On Railway, add `QUOTE_ORDER_BOARD=true` and `PUBLIC_URL`
+   (`https://app.yarnoga.com`; you already have it if delivery or payments are
+   on).
 3. From the owner's WhatsApp, send **orders** to the bot.
 
 The link is signed with the WhatsApp app secret, so nobody can guess another

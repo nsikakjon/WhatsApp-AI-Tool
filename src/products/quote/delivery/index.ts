@@ -1,10 +1,14 @@
-import { formatNaira } from "../../../core/money.js";
+import { guessLanguage, type Lang } from "../../../core/i18n.js";
+import { currencyName, formatMoney, type Currency } from "../../../core/money.js";
 import type { Notice, ProductContext, Reply } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
 import { itemsAfterDiscount, type OrderDetails, type OrderStore, type SavedOrder } from "../store.js";
 import { deliveryNotice, riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
+import { showWaId } from "../../../core/whatsapp/ids.js";
+import { DELIVERY_TEXTS } from "./texts.js";
+import type { CourierParty, CourierService } from "./shipbubble.js";
 
 // Delivery for the quote and order bot, with the business's own riders.
 //
@@ -22,8 +26,8 @@ import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./
 // is why tracking runs through the rider's page (tracking.ts).
 
 export interface TrackingLinks {
-  customer(d: Delivery): string;
-  rider(d: Delivery): string;
+  customer(d: Pick<Delivery, "id">): string;
+  rider(d: Pick<Delivery, "id">): string;
 }
 
 export interface DispatchOptions {
@@ -39,33 +43,61 @@ export interface DispatchOptions {
   links: TrackingLinks;
   /** Approved template for updates to people who haven't messaged in the last day. */
   template?: TemplateName;
+  /** The business's language and currency (English and naira when unset). */
+  language?: Lang;
+  currency?: Currency;
+  /** Where online payments are refunded, for the owner's note. */
+  payProvider?: string;
+  /**
+   * Shipbubble couriers (naira businesses only) for addresses outside the
+   * business's zones. `from` is the shop, where the courier collects.
+   * `payLink` makes a link for the owner to pay the courier fee when the
+   * customer paid them directly; the courier is booked once that's paid.
+   */
+  courier?: {
+    service: CourierService;
+    from: CourierParty;
+    payLink?(order: OrderDetails, feeKobo: number): Promise<string>;
+  };
 }
 
 export interface DeliveryCharge {
   /** e.g. "Delivery (Ikeja)" */
   label: string;
   feeKobo: number;
+  /** A Shipbubble courier's fee, which goes to yarnOga to pay the courier rather than to the business. */
+  courier?: boolean;
 }
 
 export interface Dispatch {
   /** Rider updates, the owner's delivery commands and the customer's address. Null for anything else. */
   handle(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null>;
   /** Asks where to deliver before a quote becomes an order. Null once that's settled. */
-  beforeConfirm(order: SavedOrder, customer: { waId: string; name?: string }): Promise<Reply | null>;
+  beforeConfirm(order: SavedOrder, customer: { waId: string; name?: string }, lang?: Lang): Promise<Reply | null>;
   /** The delivery line on the invoice, already included in the order total. */
   charge(orderId: string): Promise<DeliveryCharge | null>;
   /** What the owner needs to know about delivering an order, and what to send next. */
   ownerNote(order: SavedOrder): Promise<string | null>;
+  /**
+   * The courier fee has reached yarnOga (in a pay link, or paid by the owner):
+   * books the courier and returns who to tell. Booking twice is prevented.
+   */
+  bookCourier(orderNumber: number): Promise<Notice[]>;
 }
 
 const ORDER = String.raw`#?\s*(?:[a-z]+\s*-?\s*)?(\d+)`;
-const PICKUP = /^(pick\s*-?\s*up|collect|i('|’)?ll (come|pick it up|collect)|self pick\s*-?\s*up)\b/i;
-const NOT_AN_ADDRESS = /^(no|nope|cancel|stop|yes|ok|okay)\b/i;
-const CHANGE = /^(change address|deliver instead)$/i;
+const PICKUP = /^(pick\s*-?\s*up|collect|i('|’)?ll (come|pick it up|collect)|self pick\s*-?\s*up|retrait|je (viens|passe|vais venir) (le |la )?(chercher|récupérer|prendre)|à emporter)(?![\p{L}])/iu;
+const NOT_AN_ADDRESS = /^(no|nope|cancel|stop|yes|ok|okay|non|annuler|oui|d'accord|merci)\b/i;
+const CHANGE = /^(change address|deliver instead|changer l'adresse|plutôt livrer)$/i;
 
 export function createDispatch(opts: DispatchOptions): Dispatch {
   const { store } = opts;
   const ref = (orderNumber: number) => `${opts.orderPrefix}-${orderNumber}`;
+  const businessLang = opts.language ?? "en";
+  // Owner and rider messages use the business's language.
+  const t = DELIVERY_TEXTS[businessLang];
+  const money = (minor: number) => formatMoney(minor, opts.currency ?? "NGN");
+  const describe = (d: Pick<Delivery, "address" | "lat">, w = t) => d.address ?? (d.lat !== null ? w.pinnedLocation : w.addressGiven);
 
   return {
     async handle(msg, ctx) {
@@ -81,7 +113,8 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       return customerStep(msg, ctx);
     },
 
-    async beforeConfirm(order, customer) {
+    async beforeConfirm(order, customer, lang = businessLang) {
+      const c = DELIVERY_TEXTS[lang];
       const d =
         (await store.forOrder(order.id)) ??
         (await store.start({
@@ -93,40 +126,63 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
           customerWaId: customer.waId,
           customerName: customer.name ?? null,
         }));
-      if (d.status === "asking") return askForAddress();
-      if (d.status === "needs_fee") {
-        return { text: `${opts.businessName} is confirming the delivery fee to your address. You'll get the new total here shortly.` };
-      }
+      if (d.status === "asking") return askForAddress(c);
+      if (d.status === "needs_fee") return { text: c.confirmingFee(opts.businessName) };
       return null;
     },
 
     async charge(orderId) {
       const d = await store.forOrder(orderId);
       if (!d || d.feeKobo === null || d.status === "pickup" || d.status === "cancelled") return null;
-      return { label: d.zoneName ? `Delivery (${d.zoneName})` : "Delivery", feeKobo: d.feeKobo };
+      if (d.courier) return { label: t.courierLine(d.courier.name), feeKobo: d.feeKobo, courier: true };
+      return { label: t.deliveryLine(d.zoneName), feeKobo: d.feeKobo };
     },
 
     async ownerNote(order) {
       const d = await store.forOrder(order.id);
       if (!d) return null;
-      if (d.status === "pickup") return "The customer will collect it.";
+      if (d.status === "pickup") return t.customerCollects;
       if (d.status !== "proposed" && d.status !== "failed") return null;
-      return [`Deliver to: ${describe(d)}`, mapLink(d), "", await sendItOut(ref(order.orderNumber))].join("\n");
+      const label = ref(order.orderNumber);
+      if (d.courier && !d.courier.orderId && d.status === "proposed") {
+        return [t.deliverTo(describe(d)), "", t.courierToPay(label, d.courier.name, money(d.feeKobo ?? 0))].join("\n");
+      }
+      return [t.deliverTo(describe(d)), mapLink(d), "", await sendItOut(label)].join("\n");
+    },
+
+    async bookCourier(orderNumber) {
+      const label = ref(orderNumber);
+      const order = await opts.orders.findOrder(orderNumber);
+      const d = order ? await store.forOrder(order.id) : null;
+      const toOwner = (text: string): Notice[] => (opts.ownerWaId ? [{ to: opts.ownerWaId, text }] : []);
+      if (!order || !d?.courier || !opts.courier) return toOwner(t.courierNotFound(label));
+      if (d.courier.orderId || d.status !== "proposed") return [];
+      let booking;
+      try {
+        booking = await opts.courier.service.book(d.courier);
+      } catch (err) {
+        // The fee is already with yarnOga, so the owner and yarnOga both hear about it (errors reach Jay's alerts).
+        console.error(`Courier booking for ${label} (${opts.businessName}) failed after the fee was paid:`, err);
+        return toOwner(t.courierBookFailed(label, d.courier.name, (err as Error).message));
+      }
+      const courier = { ...d.courier, orderId: booking.orderId, trackingUrl: booking.trackingUrl, phone: booking.courierPhone, name: booking.courierName || d.courier.name };
+      const updated = await store.update(d.id, ["proposed"], { status: "assigned", courier });
+      if (!updated) return [];
+      return [
+        deliveryNotice(updated.customerWaId, t.courierComing(courier.name, label, opts.businessName, courier.trackingUrl), updated, opts.template),
+        ...toOwner(t.courierBooked(label, courier.name, courier.phone, courier.pickupEta, opts.courier.from.address)),
+      ];
     },
   };
 
   async function sendItOut(label: string): Promise<string> {
     const riders = await store.riders();
-    if (riders.length === 0) return `To send it out, add your rider first: *add rider Musa 0803 123 4567*, then *rider ${label} Musa*.`;
-    return `To send it out, reply *rider ${label} ${riders[0]!.name}* (your riders: ${riders.map((r) => r.name).join(", ")}).`;
+    if (riders.length === 0) return t.addRiderFirst(label);
+    return t.replyRider(label, riders[0]!.name, riders.map((r) => r.name).join(", "));
   }
 
-  function askForAddress(): Reply {
-    return {
-      text: "",
-      locationRequest:
-        "Where should we deliver? Tap *Send location* to share a pin, or type the full address with the area (for example: 12 Allen Avenue, Ikeja). Reply *PICKUP* to collect it yourself.",
-    };
+  function askForAddress(c = t): Reply {
+    return { text: "", locationRequest: c.askAddress };
   }
 
   async function customerStep(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
@@ -135,15 +191,16 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     const d = await store.forOrder(order.id);
     if (!d) return null;
     const text = msg.text?.trim() ?? "";
+    const c = DELIVERY_TEXTS[guessLanguage(text) ?? businessLang];
 
     if (msg.location && ["asking", "needs_fee", "proposed", "pickup"].includes(d.status)) {
       const { latitude: lat, longitude: lng, name, address } = msg.location;
       const label = [name, address].filter(Boolean).join(", ") || null;
-      return place(order, d, { address: label, lat, lng }, zoneForPin(await store.zones(), { lat, lng }));
+      return place(order, d, { address: label, lat, lng }, zoneForPin(await store.zones(), { lat, lng }), c);
     }
     if ((d.status === "proposed" || d.status === "pickup") && CHANGE.test(text)) {
       await store.update(d.id, ["proposed", "pickup"], { status: "asking" });
-      return askForAddress();
+      return askForAddress(c);
     }
     if (d.status !== "asking" || !text) return null;
 
@@ -151,23 +208,19 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       const updated = await store.update(d.id, ["asking"], { status: "pickup", feeKobo: null, zoneName: null });
       if (!updated || !(await store.setQuoteTotal(order.id, itemsAfterDiscount(order)))) return null;
       return {
-        text: [
-          `No problem, you'll collect it${opts.pickup ? ` from:\n${opts.pickup}` : "."}`,
-          "",
-          `*Total: ${formatNaira(itemsAfterDiscount(order))}*`,
-        ].join("\n"),
+        text: [c.collectFrom(opts.pickup), "", c.total(money(itemsAfterDiscount(order)))].join("\n"),
         buttons: {
-          body: "Tap *Confirm order* to place it.",
+          body: c.tapConfirm,
           buttons: [
-            { id: "yes", title: "Confirm order" },
-            { id: "deliver instead", title: "Deliver instead" },
+            { id: "yes", title: c.confirmOrder },
+            { id: "deliver instead", title: c.deliverInstead },
           ],
         },
       };
     }
     // Short replies and questions go to the normal chat, not into the address.
     if (text.length < 8 || text.endsWith("?") || NOT_AN_ADDRESS.test(text)) return null;
-    return place(order, d, { address: text, lat: null, lng: null }, zoneForAddress(await store.zones(), text));
+    return place(order, d, { address: text, lat: null, lng: null }, zoneForAddress(await store.zones(), text), c);
   }
 
   async function place(
@@ -175,25 +228,35 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     d: Delivery,
     where: { address: string | null; lat: number | null; lng: number | null },
     zone: Zone | null,
+    c = t,
   ): Promise<Reply | null> {
     const from: Delivery["status"][] = ["asking", "needs_fee", "proposed", "pickup"];
     const itemsKobo = itemsAfterDiscount(order);
+    if (!zone && opts.courier) {
+      const offer = await courierOffer(order, d, where);
+      if (offer) {
+        if (!(await store.setQuoteTotal(order.id, itemsKobo + offer.feeKobo))) return null;
+        const updated = await store.update(d.id, from, { ...where, status: "proposed", zoneName: null, feeKobo: offer.feeKobo, courier: offer.courier });
+        if (!updated) return null;
+        return proposal(updated, itemsKobo, c);
+      }
+    }
     if (!zone) {
       const updated = await store.update(d.id, from, { ...where, status: "needs_fee", zoneName: null, feeKobo: null });
       if (!updated || !(await store.setQuoteTotal(order.id, itemsKobo))) return null;
       const label = ref(order.orderNumber);
       return {
-        text: `Thanks! ${opts.businessName} will confirm the delivery fee to that address and send you the new total here.`,
+        text: c.willConfirmFee(opts.businessName),
         ...(opts.ownerWaId
           ? {
               notify: [
                 {
                   to: opts.ownerWaId,
                   text: [
-                    `${label}: ${d.customerName ?? "a customer"} (+${d.customerWaId}) wants delivery to ${describe(updated)}, which isn't in any of your delivery zones.`,
+                    t.outsideZones(label, d.customerName ?? t.aCustomer, d.customerWaId, describe(updated)),
                     mapLink(updated),
                     "",
-                    `Reply *fee ${label} 2500* with the delivery fee in naira (or *fee ${label} 0* for free delivery).`,
+                    t.replyFee(label, currencyName(opts.currency ?? "NGN", businessLang)),
                   ].join("\n"),
                 },
               ],
@@ -204,22 +267,52 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (!(await store.setQuoteTotal(order.id, itemsKobo + zone.feeKobo))) return null;
     const updated = await store.update(d.id, from, { ...where, status: "proposed", zoneName: zone.name, feeKobo: zone.feeKobo });
     if (!updated) return null;
-    return proposal(updated, itemsKobo);
+    return proposal(updated, itemsKobo, c);
   }
 
-  function proposal(d: Delivery, itemsKobo: number): Reply {
+  /** The cheapest Shipbubble courier for this address, or null to fall back to the owner pricing it. */
+  async function courierOffer(
+    order: SavedOrder,
+    d: Delivery,
+    where: { address: string | null; lat: number | null; lng: number | null },
+  ): Promise<{ feeKobo: number; courier: NonNullable<Delivery["courier"]> } | null> {
+    try {
+      const quote = await opts.courier!.service.quote(
+        opts.courier!.from,
+        { name: d.customerName ?? "Customer", phone: d.customerWaId, address: where.address ?? `${where.lat},${where.lng}`, lat: where.lat, lng: where.lng },
+        order.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitKobo: l.unitPriceKobo })),
+      );
+      if (!quote) return null;
+      return {
+        feeKobo: quote.feeKobo,
+        courier: {
+          name: quote.courierName,
+          courierId: quote.courierId,
+          serviceCode: quote.serviceCode,
+          requestToken: quote.requestToken,
+          pickupEta: quote.pickupEta,
+          deliveryEta: quote.deliveryEta,
+        },
+      };
+    } catch (err) {
+      console.error(`Courier price for ${ref(order.orderNumber)} failed; the owner will price it:`, err);
+      return null;
+    }
+  }
+
+  function proposal(d: Delivery, itemsKobo: number, c = t): Reply {
     const fee = d.feeKobo ?? 0;
     return {
       text: [
-        `Delivery to ${describe(d)}${d.zoneName ? ` (${d.zoneName})` : ""}: ${fee === 0 ? "free" : formatNaira(fee)}`,
-        `Items: ${formatNaira(itemsKobo)}`,
-        `*Total: ${formatNaira(itemsKobo + fee)}*`,
+        d.courier ? c.courierOffer(describe(d, c), d.courier.name, d.courier.deliveryEta, money(fee)) : c.deliveryTo(describe(d, c), d.zoneName, fee === 0 ? null : money(fee)),
+        c.items(money(itemsKobo)),
+        c.total(money(itemsKobo + fee)),
       ].join("\n"),
       buttons: {
-        body: "Tap *Confirm order* to place it, or change the address.",
+        body: c.tapConfirmOrChange,
         buttons: [
-          { id: "yes", title: "Confirm order" },
-          { id: "change address", title: "Change address" },
+          { id: "yes", title: c.confirmOrder },
+          { id: "change address", title: c.changeAddress },
         ],
       },
     };
@@ -227,39 +320,40 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
 
   async function ownerCommand(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
     const text = (msg.text ?? "").trim().replace(/\s+/g, " ");
-    if (/^(delivery|deliveries|riders help)$/i.test(text)) return { text: ownerHelp(opts.orderPrefix) };
+    if (/^(delivery|deliveries|riders help|livraison|livraisons)$/i.test(text)) return { text: t.ownerHelp(opts.orderPrefix, currencyName(opts.currency ?? "NGN", businessLang)) };
     if (/^riders$/i.test(text)) {
       const riders = await store.riders();
       return {
         text: riders.length
-          ? ["Your riders:", ...riders.map((r) => `• ${r.name} (+${r.waId})`)].join("\n")
-          : "You haven't added any riders yet. Send *add rider Musa 0803 123 4567*.",
+          ? [t.yourRiders, ...riders.map((r) => `• ${r.name} (+${r.waId})`)].join("\n")
+          : t.noRiders,
       };
     }
 
     const add = text.match(/^add rider (.+?) (\+?[\d][\d -]{6,}\d)$/i);
     if (add) {
       const waId = nigerianWaId(add[2]!);
-      if (!waId) return { text: "That doesn't look like a phone number. Try: *add rider Musa 0803 123 4567*" };
+      if (!waId) return { text: t.notAPhone };
       const rider = await store.addRider(add[1]!.trim(), waId);
-      return {
-        text: `Added ${rider.name} (+${rider.waId}). Ask ${rider.name} to send *hi* to this WhatsApp number once, so WhatsApp lets my job messages through.`,
-      };
+      return { text: t.added(rider.name, rider.waId) };
     }
     const remove = text.match(/^remove rider (.+)$/i);
     if (remove) {
       return {
         text: (await store.removeRider(remove[1]!.trim()))
-          ? `${remove[1]!.trim()} won't be offered for deliveries any more.`
-          : `I can't find a rider called ${remove[1]!.trim()}. Send *riders* to see your list.`,
+          ? t.removed(remove[1]!.trim())
+          : t.noSuchRider(remove[1]!.trim()),
       };
     }
 
-    const fee = text.match(new RegExp(`^fee ${ORDER} (?:₦|n|ngn)? ?([\\d,]+)$`, "i"));
-    if (fee) return setFee(Number(fee[1]), Number(fee[2]!.replace(/,/g, "")));
+    const fee = text.match(new RegExp(`^fee ${ORDER} (?:₦|n|ngn|f|cfa|fcfa)? ?(\\d[\\d,. ]*)$`, "i"));
+    if (fee) return setFee(Number(fee[1]), Number(fee[2]!.replace(/[,. ]/g, "")));
 
     const rider = text.match(new RegExp(`^rider ${ORDER} (.+)$`, "i"));
     if (rider) return assign(Number(rider[1]), rider[2]!.trim(), ctx);
+
+    const courier = text.match(new RegExp(`^courier ${ORDER}$`, "i"));
+    if (courier) return courierCommand(Number(courier[1]));
 
     const cancel = text.match(new RegExp(`^cancel delivery ${ORDER}$`, "i"));
     if (cancel) return cancelDelivery(Number(cancel[1]));
@@ -274,31 +368,50 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
   async function lookup(orderNumber: number, quotes = false): Promise<{ order: OrderDetails; d: Delivery } | Reply> {
     const label = ref(orderNumber);
     const order = await opts.orders.findOrder(orderNumber);
-    if (!order) return { text: `I can't find order ${label}. Please check the number.` };
-    if (order.status === "quoted" && !quotes) return { text: `${label} hasn't been confirmed by the customer yet.` };
+    if (!order) return { text: t.cantFind(label) };
+    if (order.status === "quoted" && !quotes) return { text: t.notConfirmed(label) };
     const d = await store.forOrder(order.id);
-    if (!d) return { text: `${label} has no delivery details. It was ordered before delivery was switched on, or the customer hasn't chosen yet.` };
+    if (!d) return { text: t.noDeliveryDetails(label) };
     return { order, d };
   }
 
-  async function setFee(orderNumber: number, naira: number): Promise<Reply> {
+  /** "courier KP-1001": the customer paid the owner directly, so the owner pays the courier fee by link. */
+  async function courierCommand(orderNumber: number): Promise<Reply> {
+    const found = await lookup(orderNumber);
+    if (!("order" in found)) return found;
+    const { order, d } = found;
+    const label = ref(orderNumber);
+    if (!d.courier || !opts.courier) return { text: t.noCourier(label) };
+    if (d.courier.orderId || d.status !== "proposed") return { text: t.courierAlreadyBooked(label, d.courier.name) };
+    if (!opts.courier.payLink) return { text: t.courierNoPayments };
+    try {
+      const url = await opts.courier.payLink(order, d.feeKobo ?? 0);
+      return { text: t.courierPayLink(label, d.courier.name, money(d.feeKobo ?? 0), url) };
+    } catch (err) {
+      console.error(`Courier fee link for ${label} failed:`, err);
+      return { text: t.courierNoPayments };
+    }
+  }
+
+  async function setFee(orderNumber: number, whole: number): Promise<Reply> {
     const found = await lookup(orderNumber, true);
     if (!("order" in found)) return found;
     const { order, d } = found;
     const label = ref(orderNumber);
     if (order.status !== "quoted" || (d.status !== "needs_fee" && d.status !== "proposed")) {
-      return { text: `${label} isn't waiting for a delivery fee, so I've left it as it is.` };
+      return { text: t.notWaitingForFee(label) };
     }
-    const feeKobo = naira * 100;
+    // Whole naira or whole francs; stored in hundredths either way.
+    const feeKobo = whole * 100;
     const itemsKobo = itemsAfterDiscount(order);
     if (!(await store.setQuoteTotal(order.id, itemsKobo + feeKobo))) {
-      return { text: `${label} has just been confirmed or cancelled, so I've left the fee as it was.` };
+      return { text: t.justConfirmed(label) };
     }
     const updated = await store.update(d.id, ["needs_fee", "proposed"], { status: "proposed", feeKobo });
-    if (!updated) return { text: `${label} has just changed. Send the fee again if it's still needed.` };
+    if (!updated) return { text: t.justChangedFee(label) };
     const offer = proposal(updated, itemsKobo);
     return {
-      text: `Sent ${updated.customerName ?? `+${updated.customerWaId}`} the delivery fee of ${formatNaira(feeKobo)} for ${label} (new total ${formatNaira(itemsKobo + feeKobo)}).`,
+      text: t.sentFee(updated.customerName ?? showWaId(updated.customerWaId), money(feeKobo), label, money(itemsKobo + feeKobo)),
       notify: [{ to: updated.customerWaId, text: offer.text, buttons: offer.buttons }],
     };
   }
@@ -308,77 +421,72 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (!("order" in found)) return found;
     const { order, d } = found;
     const label = ref(orderNumber);
-    if (order.status === "cancelled" || d.status === "cancelled") return { text: `${label} was cancelled.` };
-    if (d.status === "pickup") return { text: `The customer is collecting ${label} themselves.` };
-    if (d.status === "picked_up") return { text: `${d.riderName} has already picked up ${label}.` };
-    if (d.status === "delivered") return { text: `${label} has already been delivered.` };
+    if (order.status === "cancelled" || d.status === "cancelled") return { text: t.wasCancelled(label) };
+    if (d.status === "pickup") return { text: t.customerCollecting(label) };
+    if (d.status === "picked_up") return { text: t.alreadyPicked(d.riderName ?? "", label) };
+    if (d.status === "delivered") return { text: t.alreadyDelivered(label) };
 
     const riders = await store.riders();
     const waId = nigerianWaId(who);
     const rider = riders.find((r) => r.name.toLowerCase() === who.toLowerCase() || (waId !== null && r.waId === waId));
     if (!rider) {
-      return {
-        text: `I don't know a rider called ${who}. Add them first: *add rider ${waId ? "Name" : who} ${waId ? who : "0803 123 4567"}*`,
-      };
+      return { text: t.unknownRider(who, `${waId ? "Name" : who} ${waId ? who : "0803 123 4567"}`) };
     }
 
     const previous = d.status === "assigned" && d.riderWaId && d.riderWaId !== rider.waId ? d.riderWaId : null;
     const updated = await store.update(d.id, ["proposed", "assigned", "failed"], { status: "assigned", rider });
-    if (!updated) return { text: `${label} has just changed. Send *rider ${label} ${rider.name}* again if it still needs a rider.` };
+    if (!updated) return { text: t.justChangedRider(label, rider.name) };
 
     const job = jobText(updated, order);
     const notices: Notice[] = [
       {
         ...deliveryNotice(rider.waId, job, updated, opts.template),
         buttons: {
-          body: `Tap when ${label} is picked up and when it's delivered.`,
+          body: t.tapWhen(label),
           buttons: [
-            { id: `picked ${label}`, title: "Picked up" },
-            { id: `delivered ${label}`, title: "Delivered" },
-            { id: `failed ${label}`, title: "Couldn't deliver" },
+            { id: `picked ${label}`, title: t.pickedUp },
+            { id: `delivered ${label}`, title: t.delivered },
+            { id: `failed ${label}`, title: t.couldntDeliver },
           ],
         },
       },
       deliveryNotice(
         updated.customerWaId,
-        `${rider.name} will deliver your order ${label} from ${opts.businessName}. Follow it here: ${opts.links.customer(updated)}`,
+        t.riderComing(rider.name, label, opts.businessName, opts.links.customer(updated)),
         updated,
         opts.template,
       ),
     ];
     if (previous) {
-      notices.push(deliveryNotice(previous, `${label} has gone to another rider, so you don't need to deliver it.`, updated, opts.template));
+      notices.push(deliveryNotice(previous, t.goneElsewhere(label), updated, opts.template));
     }
 
-    const lines = [`Sent ${label} to ${rider.name}. ${updated.customerName ?? "The customer"} has a link to follow the delivery.`];
+    const lines = [t.sentTo(label, rider.name, updated.customerName ?? t.theCustomer)];
     if (!opts.template && !(await ctx.canMessageFreely(rider.waId))) {
       lines.push(
         "",
-        `⚠️ ${rider.name} hasn't messaged this number in the last 24 hours, so WhatsApp may not deliver the job. Ask ${rider.name} to send *hi* to this number, then send *rider ${label} ${rider.name}* again, or forward this:`,
+        t.riderSilent(rider.name, label),
         "",
         job,
       );
     }
     if (order.status !== "paid") {
-      lines.push("", `${label} isn't marked paid yet. If ${rider.name} collects payment on delivery, reply *paid ${label}* once you have it.`);
+      lines.push("", t.notPaidYet(label, rider.name));
     }
     return { text: lines.join("\n"), notify: notices };
   }
 
   function jobText(d: Delivery, order: OrderDetails): string {
-    return [
-      `New delivery ${d.orderRef} from ${opts.businessName}`,
-      `Pick up: ${opts.pickup ?? opts.businessName}`,
-      `Deliver to: ${describe(d)}`,
-      `Map: ${mapLink(d)}`,
-      `Customer: ${d.customerName ? `${d.customerName}, ` : ""}+${d.customerWaId}`,
-      order.status === "paid"
-        ? "Payment: already paid."
-        : `Payment: not paid yet (${formatNaira(order.totalKobo)}). Check with ${opts.businessName} before you hand it over.`,
-      "",
-      "When you set off, open this link and keep it open so the customer can see you coming:",
-      opts.links.rider(d),
-    ].join("\n");
+    return t.job({
+      ref: d.orderRef,
+      business: opts.businessName,
+      pickup: opts.pickup ?? opts.businessName,
+      where: describe(d),
+      map: mapLink(d),
+      customer: `${d.customerName ? `${d.customerName}, ` : ""}+${d.customerWaId}`,
+      payment: order.status === "paid" ? t.paid : t.unpaid(money(order.totalKobo), opts.businessName),
+      link: opts.links.rider(d),
+    });
   }
 
   async function cancelDelivery(orderNumber: number): Promise<Reply> {
@@ -386,23 +494,23 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (!("order" in found)) return found;
     const { order, d } = found;
     const label = ref(orderNumber);
-    if (d.status === "delivered") return { text: `${label} has already been delivered.` };
+    if (d.status === "delivered") return { text: t.alreadyDelivered(label) };
     const updated = await store.update(d.id, ["asking", "needs_fee", "proposed", "pickup", "assigned", "picked_up", "failed"], {
       status: "cancelled",
     });
-    if (!updated) return { text: `${label}'s delivery was already cancelled.` };
+    if (!updated) return { text: t.deliveryAlreadyCancelled(label) };
     if (order.status === "quoted") await store.setQuoteTotal(order.id, itemsAfterDiscount(order));
 
     const notices: Notice[] = [
-      deliveryNotice(updated.customerWaId, `The delivery of your order ${label} has been cancelled. ${opts.businessName} will contact you.`, updated, opts.template),
+      deliveryNotice(updated.customerWaId, t.deliveryCancelled(label, opts.businessName), updated, opts.template),
     ];
     if (updated.riderWaId && d.status !== "pickup") {
-      const back = d.status === "picked_up" ? ` Please bring it back to ${opts.businessName}.` : "";
-      notices.push(deliveryNotice(updated.riderWaId, `${label} is cancelled, so don't deliver it.${back}`, updated, opts.template));
+      const back = d.status === "picked_up" ? opts.businessName : null;
+      notices.push(deliveryNotice(updated.riderWaId, t.dontDeliver(label, back), updated, opts.template));
     }
-    const lines = [`Cancelled the delivery of ${label}. I've told the customer${updated.riderName && d.status !== "pickup" ? ` and ${updated.riderName}` : ""}.`];
+    const lines = [t.cancelledDelivery(label, updated.riderName && d.status !== "pickup" ? updated.riderName : null)];
     if (order.status === "paid") {
-      lines.push("", `${label} was paid. If the customer should get money back, refund it from your Paystack dashboard (open the payment, then Refund) or by bank transfer.`);
+      lines.push("", t.refundNote(label, opts.payProvider ?? "Paystack"));
     }
     return { text: lines.join("\n"), notify: notices };
   }
@@ -412,13 +520,12 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     const step = text.match(new RegExp(`^(picked(?: up)?|delivered|failed|couldn'?t deliver)(?: ${ORDER})?$`, "i"));
     if (step) {
       const d = step[2] ? await jobByNumber(Number(step[2]), rider) : await store.activeForRider(rider.waId);
-      if (!d) return { text: step[2] ? `${ref(Number(step[2]))} isn't one of your deliveries.` : "You don't have a delivery in progress." };
+      if (!d) return { text: step[2] ? t.notYours(ref(Number(step[2]))) : t.noJob };
       const word = step[1]!.toLowerCase();
       const to: RiderStep = word.startsWith("picked") ? "picked_up" : word === "delivered" ? "delivered" : "failed";
-      const moved = await riderStep(store, d, to, { trackingLink: opts.links.customer(d), template: opts.template });
-      if (!moved) return { text: `${d.orderRef} is already marked ${statusWords(d.status)}.` };
-      const thanks = { picked_up: "Thanks! The customer knows you're on the way.", delivered: "Thanks! Marked delivered.", failed: "Okay, I've told the business." }[to];
-      return { text: `${d.orderRef}: ${thanks}`, notify: moved.notices };
+      const moved = await riderStep(store, d, to, { trackingLink: opts.links.customer(d), template: opts.template, lang: businessLang });
+      if (!moved) return { text: t.alreadyMarked(d.orderRef, t.status[d.status] ?? d.status) };
+      return { text: `${d.orderRef}: ${t.thanks[to]}`, notify: moved.notices };
     }
 
     if (msg.location || msg.type === "unsupported") {
@@ -426,9 +533,9 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       if (!d) return null;
       if (msg.location) {
         await store.setRiderPosition(d.id, msg.location.latitude, msg.location.longitude, new Date());
-        return { text: `Got your location for ${d.orderRef}. For live updates, keep your rider page open: ${opts.links.rider(d)}` };
+        return { text: t.gotLocation(d.orderRef, opts.links.rider(d)) };
       }
-      return { text: `WhatsApp doesn't pass live location on to me. To share where you are, open your rider page and keep it open: ${opts.links.rider(d)}` };
+      return { text: t.noLiveLocation(opts.links.rider(d)) };
     }
     return null;
   }
@@ -438,23 +545,4 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     const d = order ? await store.forOrder(order.id) : null;
     return d && d.riderWaId === rider.waId ? d : null;
   }
-}
-
-function describe(d: Pick<Delivery, "address" | "lat">): string {
-  return d.address ?? (d.lat !== null ? "the pinned location" : "the address given");
-}
-
-function statusWords(status: Delivery["status"]): string {
-  return { picked_up: "picked up", delivered: "delivered", failed: "not delivered", cancelled: "cancelled" }[status as string] ?? status;
-}
-
-function ownerHelp(prefix: string): string {
-  return [
-    "Delivery:",
-    "• *add rider Musa 0803 123 4567* saves a rider. *riders* lists them, *remove rider Musa* takes one off.",
-    `• *rider ${prefix}-1001 Musa* sends Musa the job and gives the customer a tracking link.`,
-    `• *fee ${prefix}-1001 2500* sets the delivery fee (in naira) when an address isn't in your zones.`,
-    `• *cancel delivery ${prefix}-1001* stops a delivery and tells the customer and rider.`,
-    "Delivery zones and fees are set in the quote_delivery_zones table (see docs/DELIVERY.md).",
-  ].join("\n");
 }

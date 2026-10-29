@@ -6,6 +6,10 @@ import type { BrandingStore, CatalogStore, OrderStore, SavedOrder } from "./stor
 import type { DocumentInput } from "./documents.js";
 import type { Understander, Understanding } from "./understand.js";
 import type { PlanGate } from "./plan.js";
+import type { Dispatch } from "./delivery/index.js";
+import { createWalkIn } from "./walkin/index.js";
+import { BUSINESS, links, memoryWalkIn } from "./walkin/testing.js";
+import { welcomeAsk } from "./welcome.js";
 
 const variants: Variant[] = [
   {
@@ -314,7 +318,7 @@ describe("quote product", () => {
 
   it("falls back politely when the AI fails", async () => {
     const { product } = setup(new Error("timeout"));
-    expect((await product.handle(text("hi"), ctx))?.text).toContain("Sorry, I didn't catch that");
+    expect((await product.handle(text("do you open on sundays"), ctx))?.text).toContain("Sorry, I didn't catch that");
   });
 
   it("handles a transcribed voice note like a typed message", async () => {
@@ -432,6 +436,108 @@ describe("owner: logo, invoices and receipts", () => {
   });
 });
 
+describe("welcome and menu", () => {
+  it("greets with how to order and buttons, without asking the AI", async () => {
+    const { product, seen } = setup(new Error("unused"));
+    const reply = (await product.handle(text("Hi there!"), ctx))!;
+    expect(seen).toHaveLength(0);
+    expect(reply.text).toBe("");
+    expect(reply.buttons?.body).toContain("Hi Ada! Welcome to KahnPrints.");
+    expect(reply.buttons?.body).toContain("We offer: Flyers, Business cards, DTF transfers.");
+    expect(reply.buttons?.body).toContain("e.g. *50 Flyers*. You can type it or send a voice note.");
+    expect(reply.buttons?.body).toContain("4. You get your invoice here.");
+    expect(reply.buttons?.body).not.toContain("pickup");
+    expect(reply.buttons?.buttons.map((b) => b.title)).toEqual(["Get a quote", "Talk to someone"]);
+    expect((await product.handle(text("menu"), ctx))?.buttons?.body).toContain("How to order:");
+  });
+
+  it("leaves greetings with a request in them to the AI", async () => {
+    const { product, seen } = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    expect((await product.handle(text("hi, I need 100 flyers"), ctx))?.text).toContain("Here's your quote");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("answers the buttons", async () => {
+    const { product } = setup(new Error("unused"));
+    expect((await product.handle(text("get a quote"), ctx))?.text).toContain("I can give you a quote for: Flyers");
+    const team = (await product.handle(text("talk to someone"), ctx))!;
+    expect(team.text).toContain("let the KahnPrints team know");
+    expect(team.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("Ada (+2348012345678) would like to talk to someone") });
+  });
+
+  it("shows only what the plan includes", async () => {
+    const product = createQuoteProduct({
+      businessName: "Mama Cakes",
+      orderPrefix: "MC",
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => ({ intent: "other", items: [], message: "ok" }) },
+      features: { planCode: async () => "free", has: async (f) => f === "catalogue", limit: async () => null },
+      log: { error() {} },
+    });
+    const body = (await product.handle(text("good morning"), ctx))!.buttons!.body;
+    expect(body).not.toContain("voice note");
+    expect(body).not.toContain("invoice");
+    expect((await product.handle(text("good morning"), ctx))!.buttons!.buttons).toHaveLength(1);
+  });
+
+  it("knows the words customers use for a menu or price list", () => {
+    for (const ask of ["menu", "Menu?", "food menu", "Drinks menu pls", "can I see the menu", "send me your price list", "pricelist", "Rate card",
+      "catalogue", "what do you sell?", "What's on the menu", "wetin una get", "abeg send una menu", "today's specials", "flavours", "wine list"]) {
+      expect(welcomeAsk(ask), ask).toBe("catalogue");
+    }
+    for (const other of ["2 shawarma and a coke", "menu for a wedding of 200 guests", "how much is jollof rice", "list of 50 names"]) {
+      expect(welcomeAsk(other), other).not.toBe("catalogue");
+    }
+    expect(welcomeAsk("help")).toBe("help");
+  });
+
+  it("sends the product cards for menu or price list, without asking the AI", async () => {
+    const shown: number[] = [];
+    const product = createQuoteProduct({
+      businessName: "Grill House",
+      orderPrefix: "GH",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => { throw new Error("unused"); } },
+      catalogue: {
+        ownerCommand: async () => null,
+        shortages: async () => new Map(),
+        photos: async () => [],
+        confirmed: async () => {},
+        cards: async (_v, page) => (shown.push(page), { text: "Here's what we sell.", cards: [] }),
+      },
+      log: { error() {} },
+    });
+    expect((await product.handle(text("menu"), ctx))?.text).toBe("Here's what we sell.");
+    expect((await product.handle(text("Price list please"), ctx))?.text).toBe("Here's what we sell.");
+    expect(shown).toEqual([1, 1]);
+    expect((await product.handle(text("hi"), ctx))?.buttons?.body).toContain("Send *menu* to see everything we sell");
+    expect((await product.handle({ ...text("menu"), from: OWNER }, ctx))?.text).toContain("Your owner commands:");
+  });
+
+  it("shows the welcome for menu when product cards are off", async () => {
+    const { product, seen } = setup(new Error("unused"));
+    const body = (await product.handle(text("price list"), ctx))?.buttons?.body;
+    expect(body).toContain("We offer: Flyers");
+    expect(body).toContain("Send *help* any time to see this again.");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("gives the owner their commands on menu, and the customer view on hi", async () => {
+    const { product } = setup(new Error("unused"));
+    const menu = (await product.handle({ ...text("help"), from: OWNER }, ctx))!.text;
+    expect(menu).toContain("Your owner commands:");
+    expect(menu).toContain("*paid KP-1001*: marks an order paid and sends the customer a receipt");
+    expect(menu).toContain("captioned *logo*");
+    expect(menu).not.toContain("*orders*");
+    expect(menu).not.toContain("*stock*");
+    const hi = (await product.handle({ ...text("hello"), from: OWNER }, ctx))!;
+    expect(hi.buttons?.body).toContain("You're the owner: send *menu* for your commands.");
+  });
+});
+
 describe("safeMessage", () => {
   it("lets ordinary questions through", () => {
     expect(safeMessage("Which paper would you like, matte or gloss?")).toBe("Which paper would you like, matte or gloss?");
@@ -480,6 +586,32 @@ describe("quote product on a plan", () => {
     const reply = await say("yes", confirm);
     expect(reply?.text).toContain("is confirmed");
     expect(reply?.notify?.[0]?.text).toContain("order 47 of 50");
+  });
+
+  it("tells the owner about their bot messages, and lists them in the plan reply", async () => {
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => quote },
+      renderDocument: fakeDocuments().render,
+      plan: {
+        credit: async () => null,
+        checkOrder: async () => ({ allowed: true, warning: null }),
+        summary: async (usage = []) => ["Your plan: *Starter*", ...usage].join("\n"),
+      },
+      botMessages: {
+        check: async () => "Heads-up: your WhatsApp number has sent 800 of the 1000 bot messages",
+        summaryLine: async () => "Bot messages this month: 800 of 1000",
+      },
+      log: { error() {} },
+    });
+    const reply = await product.handle(text("100 flyers"), ctx);
+    expect(reply?.notify).toEqual([{ to: OWNER, text: "Heads-up: your WhatsApp number has sent 800 of the 1000 bot messages" }]);
+    const plan = await product.handle({ ...text("plan"), from: OWNER }, ctx);
+    expect(plan?.text).toBe("Your plan: *Starter*\nBot messages this month: 800 of 1000");
   });
 
   it("hands the order to the owner instead of confirming it once the month's orders are used up", async () => {
@@ -615,5 +747,339 @@ describe("quote product with plan features", () => {
     const owner = await product.handle({ ...text("invoice KP-1001"), from: OWNER }, ctx);
     expect(owner?.text).toContain("aren't on your plan");
     expect(drawn).toHaveLength(0);
+  });
+});
+
+describe("pay links", () => {
+  async function confirmWithLink(payLink: (order: SavedOrder, waId: string) => Promise<string>) {
+    const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
+    await quote.product.handle(text("100 flyers"), ctx);
+    const docs = fakeDocuments();
+    const bot = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: quote.store,
+      ai: { understand: async () => ({ intent: "confirm", items: [], message: null }) },
+      renderDocument: docs.render,
+      payLink,
+      log: { error() {} },
+    });
+    return { bot, reply: await bot.handle(text("yes"), ctx), orders: quote.orders, drawn: docs.drawn };
+  }
+
+  it("puts the pay link on the invoice for the order's saved total", async () => {
+    const asked: Array<[number, number, string]> = [];
+    const { reply } = await confirmWithLink(async (order, waId) => {
+      asked.push([order.orderNumber, order.totalKobo, waId]);
+      return "https://checkout.paystack.com/abc";
+    });
+    expect(asked).toEqual([[1001, 1_500_000, "2348012345678"]]);
+    expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001\n\nPay online by card, bank transfer or USSD: https://checkout.paystack.com/abc");
+    expect(reply?.notify?.[0]?.text).toContain("sent a link to pay online");
+  });
+
+  it("falls back to paying the business directly when Paystack is down", async () => {
+    const { reply } = await confirmWithLink(async () => {
+      throw new Error("down");
+    });
+    expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001");
+    expect(reply?.notify?.[0]?.text).toContain("reply *paid KP-1001*");
+  });
+
+  it("marks the order paid once Paystack confirms, and sends the receipt", async () => {
+    const { bot, orders, drawn } = await confirmWithLink(async () => "https://checkout.paystack.com/abc");
+    const notes = await bot.orderPaid(1001);
+    expect(orders[0]?.status).toBe("paid");
+    expect(drawn.at(-1)).toMatchObject({ kind: "receipt", totalKobo: 1_500_000 });
+    expect(notes[0]).toMatchObject({ to: "2348012345678", text: expect.stringContaining("Payment received for order KP-1001"), images: [{ caption: "Receipt KP-1001" }] });
+    expect(notes[1]).toMatchObject({ to: OWNER, text: expect.stringContaining("KP-1001 paid online (₦15,000) by Ada") });
+  });
+
+  it("warns the owner instead of a second receipt when the order was already paid", async () => {
+    const { bot, orders } = await confirmWithLink(async () => "https://checkout.paystack.com/abc");
+    orders[0]!.status = "paid";
+    const notes = await bot.orderPaid(1001);
+    expect(notes).toEqual([{ to: OWNER, text: expect.stringContaining("already marked paid") }]);
+    await expect(bot.orderPaid(2000)).rejects.toThrow("can't be found");
+  });
+});
+
+describe("quote product with walk-in orders", () => {
+  function walkInBot(opts: { delivery?: boolean } = {}) {
+    const mem = memoryOrders();
+    const walk = memoryWalkIn();
+    walk.settings.walkIn = true;
+    const docs = fakeDocuments();
+    const deliveryAsked: string[] = [];
+    // A delivery set-up that would ask for an address: walk-in orders must never reach it.
+    const delivery = {
+      handle: async () => null,
+      beforeConfirm: async (order: SavedOrder) => {
+        deliveryAsked.push(order.id);
+        return { text: "Where should we deliver?" };
+      },
+      charge: async () => null,
+      ownerNote: async () => null,
+    } as unknown as Dispatch;
+    const product = createQuoteProduct({
+      businessName: "Element House",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: mem.store,
+      ai: {
+        understand: async ({ text }) =>
+          /^yes$/i.test(text) ? { intent: "confirm", items: [], message: null } : { intent: "quote", items: [{ variantId: "v-card", quantity: 100 }], message: null },
+      },
+      ...(opts.delivery === false ? {} : { delivery }),
+      renderDocument: docs.render,
+      walkIn: createWalkIn({ businessId: BUSINESS, orderPrefix: "KP", store: walk.store, links }),
+      log: { error() {} },
+    });
+    return { product, walk, drawn: docs.drawn, deliveryAsked };
+  }
+
+  it("skips delivery, gives the order a pickup code and tells the owner the table", async () => {
+    const { product, walk, deliveryAsked } = walkInBot();
+    expect((await product.handle(text("table 7"), ctx))?.text).toContain("you're at Table 7");
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(deliveryAsked).toEqual([]);
+    expect(reply?.text).toContain("Please pay at the counter and give them your order number, KP-1001.");
+    expect(reply?.notify?.[0]?.text).toContain("New walk-in order KP-1001 from Ada (+2348012345678) at Table 7:");
+    expect(walk.orders.get("o1")?.pickupCode).toMatch(/^\d{4}$/);
+  });
+
+  it("puts the QR code on the receipt and the order on its screens once paid online", async () => {
+    const { product, walk, drawn } = walkInBot();
+    await product.handle(text("table 7"), ctx);
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    await product.handle(text("YES"), ctx);
+
+    const notes = await product.orderPaid(1001, { how: "online", feeKobo: 12_500 });
+    const receipt = drawn.find((d) => d.kind === "receipt")!;
+    expect(receipt.pickup).toMatchObject({ table: "Table 7", stations: ["Counter"] });
+    expect(receipt.pickup!.qrText).toContain("https://bot.example.com/pickup/");
+    expect(notes[0]?.text).toContain("We'll bring it to Table 7. Show the QR code on this receipt when you collect.");
+    expect(notes[1]?.text).toContain("less the yarnOga fee (₦125) and Paystack's fee");
+    expect(notes[1]?.text).toContain("It's on your pickup screen: Counter.");
+    expect(walk.tickets).toHaveLength(1);
+  });
+
+  it("keeps delivering to customers who haven't checked in at the venue", async () => {
+    const { product, walk, deliveryAsked } = walkInBot();
+    walk.settings.paused = true;
+    await product.handle(text("100 business cards"), ctx);
+    expect((await product.handle(text("YES"), ctx))?.text).toBe("Where should we deliver?");
+    expect(deliveryAsked).toEqual(["o1"]);
+  });
+
+  it("checks a customer in without a table, and treats every chat as walk-in when there's no delivery", async () => {
+    const { product, walk } = walkInBot();
+    expect((await product.handle(text("I'm here"), ctx))?.text).toContain("Welcome! Order here");
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(reply?.notify?.[0]?.text).toContain("New walk-in order KP-1001 from Ada (+2348012345678):");
+    expect(walk.orders.get("o1")?.tableLabel).toBeNull();
+
+    const noDelivery = walkInBot({ delivery: false });
+    await noDelivery.product.handle(text("100 business cards"), ctx);
+    noDelivery.walk.addOrder("o1", 1001);
+    expect((await noDelivery.product.handle(text("YES"), ctx))?.text).toContain("Please pay at the counter");
+  });
+
+  it("says so when the owner has closed orders at the venue", async () => {
+    const { product, walk } = walkInBot();
+    walk.settings.paused = true;
+    await product.handle(text("table 7"), ctx);
+    expect((await product.handle(text("100 business cards"), ctx))?.text).toBe(
+      "Sorry, Element House isn't taking new orders right now. Please ask a member of staff.",
+    );
+  });
+
+  it("tells the owner an order was paid at the counter", async () => {
+    const { product, walk } = walkInBot();
+    await product.handle(text("I'm here"), ctx);
+    await product.handle(text("100 business cards"), ctx);
+    walk.addOrder("o1", 1001);
+    await product.handle(text("YES"), ctx);
+    const notes = await product.orderPaid(1001, { how: "counter" });
+    expect(notes[1]?.text).toContain("KP-1001 was paid at the counter");
+    expect(await product.orderPaid(1001, { how: "counter" })).toEqual([]);
+  });
+});
+
+describe("French and CFA francs", () => {
+  const cfa: Variant[] = [
+    { id: "v-pagne", name: "Pagne: 6 yards", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_250_000 }] },
+  ];
+  function frenchBot(answer: Understanding) {
+    const mem = memoryOrders();
+    const seen: Array<Parameters<Understander["understand"]>[0]> = [];
+    const docs = fakeDocuments();
+    const product = createQuoteProduct({
+      businessName: "Chez Awa",
+      orderPrefix: "CA",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => cfa },
+      orders: mem.store,
+      ai: {
+        async understand(input) {
+          seen.push(input);
+          return answer;
+        },
+      },
+      branding: memoryBranding().branding,
+      renderDocument: docs.render,
+      language: "fr",
+      currency: "XOF",
+      log: { error() {} },
+    });
+    return { product, seen, drawn: docs.drawn, ...mem };
+  }
+
+  it("quotes a French customer in French, priced in FCFA from the price list", async () => {
+    const { product, seen, orders } = frenchBot({ intent: "quote", items: [{ variantId: "v-pagne", quantity: 2 }], message: null, language: "fr" });
+    const reply = await product.handle(text("Je voudrais 2 pagnes s'il vous plaît"), ctx);
+    expect(reply?.text).toContain("Voici votre devis (CA-1001)");
+    expect(reply?.text).toMatch(/25\s000\sFCFA/);
+    expect(reply?.text).toContain("Répondez OUI");
+    expect(orders[0]?.totalKobo).toBe(2_500_000);
+    expect(seen[0]?.language).toBe("fr");
+  });
+
+  it("answers an English customer of a French business in English", async () => {
+    const { product } = frenchBot({ intent: "quote", items: [{ variantId: "v-pagne", quantity: 1 }], message: null, language: "en" });
+    const reply = await product.handle(text("Hello, I need 1 pagne please"), ctx);
+    expect(reply?.text).toContain("Here's your quote (CA-1001)");
+    expect(reply?.text).toMatch(/12\s500\sFCFA/);
+  });
+
+  it("greets in French and keeps a model-written price out of the reply", async () => {
+    const hi = frenchBot({ intent: "other", items: [], message: "Bonjour !", language: "fr" });
+    const reply = await hi.product.handle(text("Bonjour"), ctx);
+    expect(reply?.buttons?.body ?? reply?.text).toContain("Bienvenue chez Chez Awa");
+
+    const sneaky = frenchBot({ intent: "other", items: [], message: "Le pagne coûte 5 000 FCFA.", language: "fr" });
+    const answer = await sneaky.product.handle(text("C'est combien le pagne ?"), ctx);
+    expect(answer?.text ?? "").not.toContain("5 000");
+  });
+});
+
+describe("payment reminders", () => {
+  it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
+    const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });
+    await product.handle(text("200 cards"), ctx);
+    orders[0]!.status = "confirmed";
+    const first = await product.paymentReminder(1001, 1);
+    expect(first).toContain("your order KP-1001 (₦10,000) is waiting for payment");
+    expect(first).toContain("Bank 0000000000");
+    expect(await product.paymentReminder(1001, 2)).toContain("last reminder");
+    orders[0]!.status = "paid";
+    expect(await product.paymentReminder(1001, 2)).toBeNull();
+  });
+});
+
+describe("about and opening hours", () => {
+  it("passes the About section to the AI and says when the shop is closed", async () => {
+    const seen: Array<{ about?: string | null }> = [];
+    const nearlyNever = { mon: ["00:00", "00:01"], tue: ["00:00", "00:01"], wed: ["00:00", "00:01"], thu: ["00:00", "00:01"], fri: ["00:00", "00:01"], sat: ["00:00", "00:01"], sun: ["00:00", "00:01"] } as const;
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (input) => (seen.push(input), { intent: "other", items: [], message: "We're opposite the filling station." }) },
+      about: async () => ({ text: "Opposite the filling station.", hours: { ...nearlyNever } as never }),
+      log: { error() {} },
+    });
+    await product.handle(text("where are you located?"), ctx);
+    expect(seen[0]?.about).toContain("Opposite the filling station.");
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("We're closed right now and open again");
+  });
+});
+
+describe("ratings", () => {
+  it("asks with three buttons, saves a tap without the AI, and tells the owner about a bad one", async () => {
+    const saved: Array<[number, string, number]> = [];
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      saveRating: async (n, waId, stars) => (saved.push([n, waId, stars]), saved.length === 1),
+      log: { error() {} },
+    });
+    const ask = product.ratingAsk(1001);
+    expect(ask.buttons.body).toContain("How did we do with your order KP-1001?");
+    expect(ask.buttons.buttons.map((b) => b.id)).toEqual(["rate KP-1001 5", "rate KP-1001 3", "rate KP-1001 1"]);
+
+    const bad = await product.handle(text("rate KP-1001 1"), ctx);
+    expect(bad?.text).toContain("sorry it wasn't right");
+    expect(bad?.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("*not good*") });
+    expect(saved[0]).toEqual([1001, "2348012345678", 1]);
+    expect((await product.handle(text("rate KP-1001 5"), ctx))?.text).toContain("already have your answer");
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("order again", () => {
+  it("offers the last order on hi, and quotes it again at today's prices", async () => {
+    const mem = memoryOrders();
+    const last = {
+      id: "old", orderNumber: 900, totalKobo: 999,
+      lines: [
+        { variantId: "v-flyer", name: "Flyers: A5, double-sided", quantity: 500, unitPriceKobo: 1, totalKobo: 500 },
+        { variantId: "v-gone", name: "Old stickers", quantity: 10, unitPriceKobo: 1, totalKobo: 10 },
+      ],
+    };
+    const seen: unknown[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      ai: { understand: async (i) => (seen.push(i), { intent: "other", items: [], message: "?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.body).toContain("Last time you ordered: 500 x Flyers: A5, double-sided");
+    expect(hi?.buttons?.buttons.at(-1)).toEqual({ id: "order again", title: "🔁 Order again" });
+
+    const again = await product.handle(text("order again"), ctx);
+    expect(again?.text).toContain("isn't on the price list any more (Old stickers)");
+    expect(again?.text).toContain("500 x Flyers: A5, double-sided @ ₦100 = ₦50,000");
+    expect(mem.orders.at(-1)?.totalKobo).toBe(5_000_000);
+    expect(seen).toEqual([]);
+  });
+
+  it("is left out on a plan without it (Free)", async () => {
+    const mem = memoryOrders();
+    const last = { id: "old", orderNumber: 900, totalKobo: 1, lines: [{ variantId: "v-flyer", name: "Flyers", quantity: 500, unitPriceKobo: 1, totalKobo: 500 }] };
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: { ...mem.store, lastOrder: async () => last },
+      features: { planCode: async () => "free", has: async (f) => f !== "order_again", limit: async () => null },
+      ai: { understand: async () => ({ intent: "other", items: [], message: "How can I help?" }) },
+      log: { error() {} },
+    });
+    const hi = await product.handle(text("hi"), ctx);
+    expect(hi?.buttons?.buttons.some((x) => x.id === "order again")).toBe(false);
+    await product.handle(text("order again"), ctx);
+    expect(mem.orders).toEqual([]);
   });
 });

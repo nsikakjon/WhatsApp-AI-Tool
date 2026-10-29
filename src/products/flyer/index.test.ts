@@ -6,6 +6,7 @@ import {
   forwardTip,
   normalizeNumber,
   parseAddCaption,
+  tidyName,
   type BirthdayDeliverer,
   type BirthdayDelivery,
 } from "./index.js";
@@ -25,6 +26,7 @@ function memoryStore(plan = "organisation") {
   const members: Member[] = [];
   const pictures = new Map<string, Uint8Array>();
   const cutouts = new Map<string, Uint8Array | null>();
+  const originals = new Map<string, Uint8Array>();
   const claims = new Set<string>();
   const chat = new Map<string, ChatState>();
   let clock = 0;
@@ -47,6 +49,7 @@ function memoryStore(plan = "organisation") {
         plan,
         planUntil: null,
         trialFlyersLeft: null,
+        language: "en",
       };
       groups.push(group);
       await store.addAdmin(group.id, adminWaId);
@@ -71,9 +74,13 @@ function memoryStore(plan = "organisation") {
     async setStyle(groupId, style) {
       Object.assign(groups.find((g) => g.id === groupId)!, style);
     },
-    async saveMember(groupId, name, birthday, photo) {
-      const path = photo ? `${groupId}/${name}` : null;
+    async renameGroup(groupId, name) {
+      groups.find((g) => g.id === groupId)!.name = name;
+    },
+    async saveMember(groupId, name, birthday, photo, original) {
+      const path = photo ? `${groupId}/${name}/${++clock}` : null;
       if (photo && path) pictures.set(path, photo.data);
+      if (original && path) originals.set(path, original.data);
       const existing = members.find((m) => m.groupId === groupId && m.name.toLowerCase() === name.toLowerCase());
       if (existing) {
         Object.assign(existing, { birthday }, path ? { photoPath: path } : {});
@@ -82,6 +89,9 @@ function memoryStore(plan = "organisation") {
       const member: Member = { id: `m${members.length + 1}`, groupId, name, birthday, photoPath: path };
       members.push(member);
       return { ...member, isNew: true };
+    },
+    async renameMember(id, name) {
+      members.find((m) => m.id === id)!.name = name;
     },
     async removeMember(id) {
       members.splice(members.findIndex((m) => m.id === id), 1);
@@ -97,6 +107,9 @@ function memoryStore(plan = "organisation") {
           group: groups.find((g) => g.id === member.groupId)!,
           admins: admins.filter((a) => a.groupId === member.groupId).map((a) => a.waId),
         }));
+    },
+    async loadOriginal(photoPath) {
+      return originals.get(photoPath);
     },
     async loadCutout(photoPath) {
       return cutouts.get(photoPath);
@@ -165,7 +178,7 @@ function memoryStore(plan = "organisation") {
       return new Map<string, number | null>([["organisation", 7300000]]);
     },
   };
-  return { store, groups, members, claims, chat, cutouts };
+  return { store, groups, members, claims, chat, cutouts, pictures, originals };
 }
 
 const background: Array<Promise<void>> = [];
@@ -193,6 +206,15 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; tr
     designSheet: vi.fn(async (sample: { name: string }) => Buffer.from(`sheet:${sample.name}`)),
     cutout: vi.fn(async (): Promise<Buffer | null> => Buffer.from("cut")),
   };
+  const photos = {
+    prepare: vi.fn(async (p: Uint8Array) => Buffer.from(`fixed(${text(p)})`)),
+    tone: vi.fn(async (p: Uint8Array) => Buffer.from(`toned(${text(p)})`)),
+    edit: vi.fn(async (edit: string, current: Uint8Array, original: Uint8Array) =>
+      edit === "rotate"
+        ? { photo: Buffer.from(`fixed(rotated(${text(original)}))`), original: Buffer.from(`rotated(${text(original)})`) }
+        : { photo: Buffer.from(edit === "original" ? text(original) : `${edit}(${text(current)})`) },
+    ),
+  };
   const bot = createFlyerBot({
     store: mem.store,
     wishes: { write: async ({ name, groupName }) => `Happy birthday ${name} from ${groupName}` },
@@ -202,6 +224,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; tr
     credit: "Made with Flyer Bot",
     sendHour: 7,
     render: render as never,
+    photos: photos as never,
     log: silent,
     fetch: webFetch,
     onBackground: (work) => void background.push(work),
@@ -209,7 +232,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; tr
     trial: opts.trial,
     payments: opts.payments,
   });
-  return { bot, render, ...mem };
+  return { bot, render, photos, ...mem };
 }
 
 let n = 0;
@@ -783,12 +806,12 @@ describe("flyer bot: members and flyers", () => {
   });
 
   it("cuts the person out once for designs that use cutouts, then reuses it", async () => {
-    const { bot, render, cutouts } = await withGroup();
+    const { bot, render, cutouts, members } = await withGroup();
     await bot.handle(msg(OWNER, { text: "design midnight" }), ctx);
     await bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
     await bot.handle(msg(OWNER, { text: "flyer Ada" }), ctx);
     expect(render.cutout).toHaveBeenCalledTimes(1);
-    expect(text(cutouts.get("g1/Ada Okafor") ?? undefined)).toBe("cut");
+    expect(text(cutouts.get(members[0]!.photoPath!) ?? undefined)).toBe("cut");
     const last = render.birthday.mock.calls.at(-1)![0] as { cutout?: Uint8Array };
     expect(text(last.cutout)).toBe("cut");
   });
@@ -837,7 +860,7 @@ describe("flyer bot: members and flyers", () => {
     expect((await bot.handle(photo(OWNER, "Logo"), ctx))?.text).toContain("Logo saved");
     const second = await bot.handle(photo(OWNER, "Homecoming 12 Dec"), ctx);
     expect(text(second?.images?.[0]?.data)).toBe("event:Homecoming 12 Dec:logo");
-    expect(second?.text).toBe("");
+    expect(second?.text).not.toContain("send your group logo");
   });
 
   it("refuses files that aren't pictures", async () => {
@@ -866,6 +889,150 @@ describe("flyer bot: members and flyers", () => {
 function collect(sent: BirthdayDelivery[], reachable = (_to: string) => true): BirthdayDeliverer {
   return { canReach: async (to) => reachable(to), send: async (d) => void sent.push(d) };
 }
+
+describe("flyer bot: touching up photos", () => {
+  const photoOf = (s: ReturnType<typeof setup>, name: string) => text(s.pictures.get(s.members.find((m) => m.name === name)!.photoPath!));
+
+  it("frames and brightens a new member's photo, keeps the original, and offers edits", async () => {
+    const s = await withGroup();
+    const reply = await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("fixed(jpg)");
+    expect(text(s.originals.get(s.members[0]!.photoPath!))).toBe("jpg");
+    expect(reply?.list?.button).toBe("Edit photo");
+    expect(reply?.list?.rows.map((r) => r.id)).toContain("rotate Ada Okafor");
+    expect(reply?.list?.rows.map((r) => r.id)).toContain("black and white Ada Okafor");
+  });
+
+  it("applies typed edits to the last photo added, or to a named member", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await s.bot.handle(photo(OWNER, "add Tunde Bakare, 1 Jan"), ctx);
+
+    const reply = await s.bot.handle(msg(OWNER, { text: "Brighter" }), ctx);
+    expect(reply?.text).toContain("Tunde Bakare's flyer now");
+    expect(photoOf(s, "Tunde Bakare")).toBe("brighter(fixed(jpg))");
+
+    await s.bot.handle(msg(OWNER, { text: "black and white Ada" }), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("mono(fixed(jpg))");
+    // Edits build on each other, and the original stays the photo as sent.
+    await s.bot.handle(msg(OWNER, { text: "warmer" }), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("warmer(mono(fixed(jpg)))");
+
+    await s.bot.handle(msg(OWNER, { text: "rotate" }), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("fixed(rotated(jpg))");
+    await s.bot.handle(msg(OWNER, { text: "original" }), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("rotated(jpg)");
+  });
+
+  it("asks whose photo when it can't tell", async () => {
+    const s = await withGroup();
+    expect((await s.bot.handle(msg(OWNER, { text: "rotate" }), ctx))?.text).toContain("Whose photo?");
+    expect((await s.bot.handle(msg(OWNER, { text: "closer Nobody" }), ctx))?.text).toContain("couldn't find");
+  });
+
+  it("still saves the photo as sent when touching it up fails", async () => {
+    const s = await withGroup();
+    s.photos.prepare.mockRejectedValueOnce(new Error("broken image"));
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    expect(photoOf(s, "Ada Okafor")).toBe("jpg");
+  });
+
+  it("brightens event photos too", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "Homecoming"), ctx);
+    expect(text((s.render.event.mock.calls.at(-1)![0] as { photo: Uint8Array }).photo)).toBe("toned(jpg)");
+  });
+});
+
+describe("flyer bot: correcting words", () => {
+  const birthdayCall = (s: ReturnType<typeof setup>) =>
+    s.render.birthday.mock.calls.at(-1)![0] as unknown as { name: string; dateLabel: string; groupName: string };
+
+  it("capitalises names typed in lowercase, and leaves other names as typed", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add amadi nnadozie, 29 October"), ctx);
+    await s.bot.handle(photo(OWNER, "add Ngozi McDonald-ade, 1 May"), ctx);
+    expect(s.members.map((m) => m.name)).toEqual(["Amadi Nnadozie", "Ngozi McDonald-ade"]);
+    expect(tidyName("  o'neil  okafor-bello ")).toBe("O'Neil Okafor-Bello");
+  });
+
+  it("fixes a member's name the way jay typed it", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Amadi Nnadozi, 29 October"), ctx);
+    s.members[0]!.name = "amadi nnadozie";
+    const reply = await s.bot.handle(msg(OWNER, { text: "Edit amadi nnadozie to Amadi Nnadozie" }), ctx);
+    expect(reply?.text).toBe("Done ✅ Here's Amadi Nnadozie's flyer now:");
+    expect(s.members[0]!.name).toBe("Amadi Nnadozie");
+    expect(birthdayCall(s).name).toBe("Amadi Nnadozie");
+    // The photo stays, and the photo edits still know whose it is.
+    await s.bot.handle(msg(OWNER, { text: "brighter" }), ctx);
+    expect(text(s.pictures.get(s.members[0]!.photoPath!))).toBe("brighter(fixed(jpg))");
+  });
+
+  it("fixes part of a name, the name or date of the last flyer, or anyone by name", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await s.bot.handle(photo(OWNER, "add Tunde Bakare, 1 Jan"), ctx);
+
+    await s.bot.handle(msg(OWNER, { text: "change Bakare to Bakare-Ojo" }), ctx);
+    expect(s.members[1]!.name).toBe("Tunde Bakare-Ojo");
+    await s.bot.handle(msg(OWNER, { text: "change the date to 2 January" }), ctx);
+    expect(s.members[1]!.birthday).toEqual({ month: 1, day: 2 });
+    expect(birthdayCall(s).dateLabel).toBe("2 January");
+    await s.bot.handle(msg(OWNER, { text: "fix 2 Jan to 3/1" }), ctx);
+    expect(s.members[1]!.birthday).toEqual({ month: 1, day: 3 });
+    await s.bot.handle(msg(OWNER, { text: "change name to tunde bakare" }), ctx);
+    expect(s.members[1]!.name).toBe("Tunde Bakare");
+
+    await s.bot.handle(msg(OWNER, { text: "change Ada's birthday to 15 March" }), ctx);
+    expect(s.members[0]!.birthday).toEqual({ month: 3, day: 15 });
+    await s.bot.handle(msg(OWNER, { text: "edit Ada Okafor to Adaeze Okafor" }), ctx);
+    expect(s.members[0]!.name).toBe("Adaeze Okafor");
+  });
+
+  it("changes the group name on the flyers", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    const reply = await s.bot.handle(msg(OWNER, { text: "change 2010 to 2011" }), ctx);
+    expect(reply?.text).toContain("Group name changed to *Unilag Class of 2011*");
+    expect(s.groups[0]!.name).toBe("Unilag Class of 2011");
+    expect(birthdayCall(s).groupName).toBe("Unilag Class of 2011");
+  });
+
+  it("remakes the last event flyer with corrected words", async () => {
+    const s = await withGroup();
+    const first = await s.bot.handle(photo(OWNER, "Back to School party: Sat 4pm"), ctx);
+    expect(first?.text).toContain("change 4pm to 5pm");
+    const reply = await s.bot.handle(msg(OWNER, { text: "change Back to School to Back to Base" }), ctx);
+    expect(text(reply?.images?.[0]?.data)).toBe("event:Back to Base party: Sat 4pm:nologo");
+    await s.bot.handle(msg(OWNER, { text: "change 4pm to 5pm" }), ctx);
+    expect((s.render.event.mock.calls.at(-1)![0] as { caption: string; photo: Uint8Array }).caption).toBe("Back to Base party: Sat 5pm");
+    expect(text((s.render.event.mock.calls.at(-1)![0] as { photo: Uint8Array }).photo)).toBe("toned(jpg)");
+  });
+
+  it("understands French", async () => {
+    const s = await withGroup();
+    s.groups[0]!.language = "fr";
+    await s.bot.handle(photo(OWNER, "ajouter awa diallo, 14 mars"), ctx);
+    expect(s.members[0]!.name).toBe("Awa Diallo");
+    const reply = await s.bot.handle(msg(OWNER, { text: "changer la date en 15 mars" }), ctx);
+    expect(reply?.text).toBe("C'est fait ✅ Voici le flyer de Awa Diallo :");
+    expect(s.members[0]!.birthday).toEqual({ month: 3, day: 15 });
+    await s.bot.handle(msg(OWNER, { text: "corriger Diallo par Diallo-Koné" }), ctx);
+    expect(s.members[0]!.name).toBe("Awa Diallo-Koné");
+    // "changer 2" still switches group.
+    expect((await s.bot.handle(msg(OWNER, { text: "changer 2" }), ctx))?.text).not.toContain("Je ne trouve pas");
+  });
+
+  it("says so when it can't find the words, or a member's new name is taken", async () => {
+    const s = await withGroup();
+    await s.bot.handle(photo(OWNER, "add Ada Okafor, 14 March"), ctx);
+    await s.bot.handle(photo(OWNER, "add Tunde Bakare, 1 Jan"), ctx);
+    expect((await s.bot.handle(msg(OWNER, { text: "change Chidi to Chidi Obi" }), ctx))?.text).toContain(`couldn't find "Chidi"`);
+    expect((await s.bot.handle(msg(OWNER, { text: "change Tunde Bakare to ada okafor" }), ctx))?.text).toContain("Ada Okafor is already in Unilag Class of 2010");
+    expect((await s.bot.handle(msg(OWNER, { text: "change date to someday" }), ctx))?.text).toContain(`couldn't read "someday"`);
+  });
+});
 
 describe("flyer bot: birthday mornings", () => {
   // 14 March 2027, 08:00 in Lagos.
@@ -952,5 +1119,28 @@ describe("helpers", () => {
     expect(forwardTip(["Ada"], "Class of 2010")).toBe(
       "🎂 Today is Ada's birthday! Forward the flyer to Class of 2010, then type @ and pick the name to tag them.",
     );
+  });
+});
+
+describe("flyer bot: French", () => {
+  it("greets a French speaker in French and makes their group French", async () => {
+    const { bot, groups } = setup({ openSignup: true });
+    const hello = await bot.handle(msg(ADMIN, { text: "Bonjour" }), ctx);
+    expect(hello?.text).toContain("Comment s'appelle-t-il");
+    const created = await bot.handle(msg(ADMIN, { text: "Promo 2010 Lycée Classique" }), ctx);
+    expect(created?.text).toContain("Étape 1 sur 3");
+    expect(groups[0]?.language).toBe("fr");
+  });
+
+  it("takes French commands and answers in French, with French dates", async () => {
+    const { bot, render } = await withGroup();
+    expect((await bot.handle(msg(OWNER, { text: "français" }), ctx))?.text).toContain("en français");
+    const added = await bot.handle(photo(OWNER, "ajouter Awa Diallo, 1er mars"), ctx);
+    expect(added?.text).toContain("Awa Diallo est enregistré(e) 🎂 1er mars");
+    expect(added?.list?.button).toBe("Retoucher");
+    expect(render.birthday).toHaveBeenLastCalledWith(expect.objectContaining({ lang: "fr", dateLabel: "1er mars" }));
+    expect((await bot.handle(msg(OWNER, { text: "membres" }), ctx))?.text).toContain("• Awa Diallo : 1er mars");
+    expect((await bot.handle(msg(OWNER, { text: "supprimer Awa" }), ctx))?.text).toContain("a été retiré(e)");
+    expect((await bot.handle(msg(OWNER, { text: "english" }), ctx))?.text).toContain("in English");
   });
 });

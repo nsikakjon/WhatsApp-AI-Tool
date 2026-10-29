@@ -1,6 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { UnknownBusinessError, type TestBots } from "./bots.js";
 import { renderTestPage } from "./page.js";
 import { MAX_QUESTION, type TestBotId } from "./questions.js";
@@ -37,10 +36,7 @@ export function createBotTest(deps: BotTestDeps) {
 
   app.use(
     "*",
-    basicAuth({
-      verifyUser: (_username, password) => samePassword(password, deps.password),
-      realm: "yarnOga bot test",
-    }),
+    guardedBasicAuth({ password: deps.password, realm: "yarnOga bot test" }),
   );
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
@@ -146,11 +142,6 @@ async function readJson(req: Request): Promise<Record<string, unknown> | undefin
   }
 }
 
-function samePassword(given: string, expected: string): boolean {
-  const a = createHash("sha256").update(given).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}
 
 function lagosDate(now: Date): string {
   // Lagos is UTC+1 all year.

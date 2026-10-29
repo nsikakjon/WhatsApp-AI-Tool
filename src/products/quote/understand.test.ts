@@ -29,6 +29,7 @@ describe("Claude understander", () => {
         { ref: "p9", quantity: 5 },
         { ref: "p1", quantity: 0 },
       ],
+      show: [],
       message: null,
     });
     const ai = createClaudeUnderstander({ apiKey: "x", model: "claude-haiku-5-5", businessName: "KahnPrints", client });
@@ -42,11 +43,18 @@ describe("Claude understander", () => {
       catalog,
     });
 
-    expect(result).toEqual({ intent: "quote", items: [{ variantId: "uuid-card", quantity: 200 }], message: null });
+    expect(result).toEqual({ intent: "quote", items: [{ variantId: "uuid-card", quantity: 200 }], show: [], message: null });
     // Conversation sent to the AI starts with the customer and ends with the new message.
     expect(calls[0].messages.map((m: any) => m.role)).toEqual(["user", "assistant", "user"]);
     expect(calls[0].messages.at(-1).content).toBe("200 cards");
     expect(calls[0].model).toBe("claude-haiku-5-5");
+  });
+
+  it("maps the products a customer asks to see back to price list ids", async () => {
+    const { client } = fakeClient({ intent: "catalogue", items: [], show: ["p1", "p7"], message: "Here you go" });
+    const ai = createClaudeUnderstander({ apiKey: "x", model: "m", businessName: "KahnPrints", client });
+    const result = await ai.understand({ text: "show me your flyers", history: [], catalog });
+    expect(result).toMatchObject({ intent: "catalogue", show: ["uuid-flyer"] });
   });
 
   it("throws when the AI gives no usable answer", async () => {

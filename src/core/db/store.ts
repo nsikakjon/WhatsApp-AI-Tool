@@ -5,8 +5,16 @@ import type { IncomingMessage, OwnerReply } from "../whatsapp/types.js";
 // Everything the core needs to save. Kept as an interface so tests can use an
 // in-memory version instead of a real database.
 export interface MessageStore {
-  /** Creates the contact if new (or updates their name). Returns the contact's id. */
-  upsertContact(waId: string, name?: string): Promise<string>;
+  /**
+   * Creates the contact if new (or updates their name). Returns the contact's id.
+   * `userId` is Meta's business-scoped user ID, kept next to the phone number.
+   */
+  upsertContact(waId: string, name?: string, userId?: string): Promise<string>;
+  /**
+   * The WhatsApp ID we already have for this business-scoped user ID, or null.
+   * Lets a customer who later hides their number keep the same chat, orders and history.
+   */
+  waIdForUser(userId: string): Promise<string | null>;
   /**
    * Saves an incoming message. Returns "duplicate" if we've already saved a
    * message with this WhatsApp ID, which means Meta re-sent the webhook and we
@@ -86,16 +94,27 @@ async function insertMessage(db: SupabaseClient, row: Record<string, unknown>) {
 
 export function createSupabaseStore(db: SupabaseClient): MessageStore {
   return {
-    async upsertContact(waId, name) {
+    async upsertContact(waId, name, userId) {
       const row: Record<string, unknown> = { wa_id: waId, updated_at: new Date().toISOString() };
       if (name) row.name = name;
-      const { data, error } = await db
-        .from("contacts")
-        .upsert(row, { onConflict: "wa_id" })
-        .select("id")
-        .single();
-      if (error) throw new Error(`upsertContact failed: ${error.message}`);
+      if (userId) row.user_id = userId;
+      const save = (r: Record<string, unknown>) =>
+        db.from("contacts").upsert(r, { onConflict: "wa_id" }).select("id").single();
+      let { data, error } = await save(row);
+      // Save without the user ID if migration 0044 hasn't been run yet, or if the
+      // ID is already on another contact (someone first seen with a hidden number).
+      if (error && userId && error.message.includes("user_id")) {
+        const { user_id: _skipped, ...rest } = row;
+        ({ data, error } = await save(rest));
+      }
+      if (error || !data) throw new Error(`upsertContact failed: ${error?.message ?? "no row"}`);
       return data.id as string;
+    },
+
+    async waIdForUser(userId) {
+      const { data, error } = await db.from("contacts").select("wa_id").eq("user_id", userId).maybeSingle();
+      if (error) return null;
+      return (data?.wa_id as string | undefined) ?? null;
     },
 
     async recordInbound(contactId, msg) {

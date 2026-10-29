@@ -1,4 +1,4 @@
-import type { OutgoingButtons, OutgoingImage, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
+import type { OutgoingAudio, OutgoingButtons, OutgoingImage, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
 // The contract every product module (echo, quote bot, site reporter, lead
@@ -10,7 +10,11 @@ export interface Reply {
   text: string;
   /** Pictures to send after the text, e.g. a finished flyer. */
   images?: OutgoingImage[];
-  /** A tappable list of choices, sent after the pictures. */
+  /** A voice note sent right after the text, e.g. the reply read aloud. */
+  audio?: OutgoingAudio;
+  /** Cards (a picture, text and buttons each), e.g. products from a catalogue, sent after the pictures. */
+  cards?: OutgoingButtons[];
+  /** A tappable list of choices, sent after the cards. */
   list?: OutgoingList;
   /** A message with up to 3 buttons, sent after the pictures. */
   buttons?: OutgoingButtons;

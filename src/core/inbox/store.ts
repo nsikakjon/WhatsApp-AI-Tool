@@ -26,8 +26,11 @@ export interface ChatMessage {
 }
 
 export interface InboxStore {
-  /** The most recent chats, newest first. */
-  listChats(limit: number): Promise<ChatSummary[]>;
+  /**
+   * The most recent chats, newest first. With `only`, just the chats on that
+   * number (and, with includeUnnumbered, ones saved before numbers were recorded).
+   */
+  listChats(limit: number, only?: { numberId: string; includeUnnumbered: boolean }): Promise<ChatSummary[]>;
   /** The customer behind a chat, or null if there's no such contact. */
   contact(contactId: string): Promise<{ waId: string; name: string | null } | null>;
   /**
@@ -44,12 +47,16 @@ export interface InboxStore {
 
 export function createSupabaseInboxStore(db: SupabaseClient): InboxStore {
   return {
-    async listChats(limit) {
-      const { data, error } = await db
+    async listChats(limit, only) {
+      let query = db
         .from("inbox_chats")
-        .select("contact_id, business_number_id, wa_id, name, last_direction, last_type, last_body, last_at")
-        .order("last_at", { ascending: false })
-        .limit(limit);
+        .select("contact_id, business_number_id, wa_id, name, last_direction, last_type, last_body, last_at");
+      if (only) {
+        query = only.includeUnnumbered
+          ? query.or(`business_number_id.eq.${only.numberId},business_number_id.is.null`)
+          : query.eq("business_number_id", only.numberId);
+      }
+      const { data, error } = await query.order("last_at", { ascending: false }).limit(limit);
       if (error) throw new Error(`listChats failed: ${error.message}`);
       return (data ?? []).map((row) => ({
         contactId: row.contact_id as string,

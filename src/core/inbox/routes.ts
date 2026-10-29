@@ -7,6 +7,7 @@ import { canMessageFreely } from "../whatsapp/outbox.js";
 import { SESSION_DAYS, cookieSecret, createLoginThrottle, passwordMatches } from "./auth.js";
 import type { InboxStore } from "./store.js";
 import { chatListPage, chatPage, loginPage, type NumberLabel } from "./views.js";
+import { showWaId } from "../whatsapp/ids.js";
 
 export interface InboxDeps {
   /** The shared staff password (INBOX_PASSWORD). */
@@ -128,7 +129,7 @@ export function createInbox(deps: InboxDeps) {
     const botPaused = isPauseActive(pause, now());
     return c.html(
       chatPage({
-        title: chat.contact.name ? `${chat.contact.name} (+${chat.contact.waId})` : `+${chat.contact.waId}`,
+        title: chat.contact.name ? `${chat.contact.name} (${showWaId(chat.contact.waId)})` : showWaId(chat.contact.waId),
         numberLabel: deps.numbers.length > 1 ? chat.number.label : undefined,
         messages,
         base: chat.base,

@@ -1,3 +1,4 @@
+import type { Lang } from "../../core/i18n.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MonthDay } from "./dates.js";
 
@@ -19,6 +20,8 @@ export interface Group {
   planUntil: Date | null;
   /** Finished flyers left in the group's free trial; null when it isn't on one. */
   trialFlyersLeft: number | null;
+  /** The language of the bot's messages and the flyers (migration 0051). */
+  language: Lang;
 }
 
 export interface Member {
@@ -53,18 +56,31 @@ export interface FlyerStore {
   /** Saves a background picture, or removes it when null. */
   saveBackground(groupId: string, picture: Picture | null): Promise<void>;
   /** Changes the group's design and/or accent colour (null clears the colour). */
-  setStyle(groupId: string, style: { theme?: string; accent?: string | null }): Promise<void>;
+  setStyle(groupId: string, style: { theme?: string; accent?: string | null; language?: Lang }): Promise<void>;
+  /** Changes the group name printed on its flyers. */
+  renameGroup(groupId: string, name: string): Promise<void>;
   /**
    * Adds a member, or updates their birthday (and photo, if one is given) if
    * the name is already in the group. Returns whether they were new.
+   * `original` is the photo as it was sent, kept when `photo` is a touched-up copy.
    */
-  saveMember(groupId: string, name: string, birthday: MonthDay, photo: Picture | null): Promise<Member & { isNew: boolean }>;
+  saveMember(
+    groupId: string,
+    name: string,
+    birthday: MonthDay,
+    photo: Picture | null,
+    original?: Picture,
+  ): Promise<Member & { isNew: boolean }>;
+  /** Corrects a member's name, keeping their birthday and photo. */
+  renameMember(memberId: string, name: string): Promise<void>;
   removeMember(memberId: string): Promise<void>;
   members(groupId: string): Promise<Member[]>;
   /** Members with one of these birthdays, in active groups, with each group and its admins. */
   birthdaysOn(dates: MonthDay[]): Promise<Array<{ member: Member; group: Group; admins: string[] }>>;
   /** Downloads a saved photo or logo. */
   loadPicture(path: string): Promise<Uint8Array>;
+  /** A member photo as it was sent, before any touching up; undefined if none was kept. */
+  loadOriginal(photoPath: string): Promise<Uint8Array | undefined>;
   /**
    * The saved cut-out of a member photo (see cutout.ts): the PNG, null if the
    * photo has no person in it, or undefined if it hasn't been made yet.
@@ -110,6 +126,16 @@ export function cutoutPath(photoPath: string): string {
   return `${photoPath}.cutout.png`;
 }
 
+/** The photo as it was sent is saved next to the touched-up one. */
+export function originalPath(photoPath: string): string {
+  return `${photoPath}.original`;
+}
+
+/** Everything saved for one member photo. */
+function photoFiles(photoPath: string): string[] {
+  return [photoPath, cutoutPath(photoPath), originalPath(photoPath)];
+}
+
 function extFor(mimeType: string): string {
   return mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
 }
@@ -133,7 +159,8 @@ function toMember(row: MemberRow): Member {
   };
 }
 
-const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until, trial_flyers_left";
+// language needs migration 0051.
+const GROUP_COLUMNS = "id, name, logo_path, theme, accent, background_path, plan, plan_until, trial_flyers_left, language";
 
 interface GroupRow {
   id: string;
@@ -145,6 +172,7 @@ interface GroupRow {
   plan: string;
   plan_until: string | null;
   trial_flyers_left: number | null;
+  language?: string | null;
 }
 
 function toGroup(row: GroupRow): Group {
@@ -158,6 +186,7 @@ function toGroup(row: GroupRow): Group {
     plan: row.plan,
     planUntil: row.plan_until ? new Date(row.plan_until) : null,
     trialFlyersLeft: row.trial_flyers_left,
+    language: row.language === "fr" ? "fr" : "en",
   };
 }
 
@@ -230,11 +259,17 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       if (error) throw new Error(`setStyle failed: ${error.message}`);
     },
 
-    async saveMember(groupId, name, birthday, photo) {
+    async renameGroup(groupId, name) {
+      const { error } = await db.from("flyer_groups").update({ name }).eq("id", groupId);
+      if (error) throw new Error(`renameGroup failed: ${error.message}`);
+    },
+
+    async saveMember(groupId, name, birthday, photo, original) {
       let path: string | null = null;
       if (photo) {
         path = `${groupId}/members/${crypto.randomUUID()}.${extFor(photo.mimeType)}`;
         await upload(path, photo);
+        if (original) await upload(originalPath(path), original);
       }
       const row: Record<string, unknown> = { group_id: groupId, name, birth_month: birthday.month, birth_day: birthday.day };
       if (path) row.photo_path = path;
@@ -246,15 +281,20 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
       const { data, error } = await query.select(MEMBER_COLUMNS).single();
       if (error) throw new Error(`saveMember failed: ${error.message}`);
       // A new photo replaces the old one, which is then deleted.
-      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove([existing.photoPath, cutoutPath(existing.photoPath)]);
+      if (existing?.photoPath && path) await db.storage.from(BUCKET).remove(photoFiles(existing.photoPath));
       return { ...toMember(data as MemberRow), isNew: !existing };
+    },
+
+    async renameMember(memberId, name) {
+      const { error } = await db.from("flyer_members").update({ name }).eq("id", memberId);
+      if (error) throw new Error(`renameMember failed: ${error.message}`);
     },
 
     async removeMember(memberId) {
       const { data, error } = await db.from("flyer_members").delete().eq("id", memberId).select("photo_path");
       if (error) throw new Error(`removeMember failed: ${error.message}`);
       const paths = (data ?? []).map((r) => r.photo_path as string | null).filter((p): p is string => !!p);
-      if (paths.length) await db.storage.from(BUCKET).remove(paths.flatMap((p) => [p, cutoutPath(p)]));
+      if (paths.length) await db.storage.from(BUCKET).remove(paths.flatMap(photoFiles));
     },
 
     async members(groupId) {
@@ -288,6 +328,12 @@ export function createSupabaseFlyerStore(db: SupabaseClient): FlyerStore {
     async loadPicture(path) {
       const { data, error } = await db.storage.from(BUCKET).download(path);
       if (error || !data) throw new Error(`loadPicture failed: ${error?.message ?? "no data"}`);
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async loadOriginal(photoPath) {
+      const { data, error } = await db.storage.from(BUCKET).download(originalPath(photoPath));
+      if (error || !data) return undefined;
       return new Uint8Array(await data.arrayBuffer());
     },
 

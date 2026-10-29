@@ -14,12 +14,14 @@ import {
 } from "./drafter.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import type { SetupStore } from "./store.js";
+import { welcomeAsk } from "./welcome.js";
 
 // Sign-up by WhatsApp on the yarnOga quotes number. That number runs the demo
 // shop; a business owner who sends "sign up" is instead walked through:
 //
-// 1. business name, 2. what they sell, 3. their prices: typed, as a voice
-// note, as a photo of their price list or as a CSV file. The AI drafts the
+// 1. business name, 2. what they sell, 3. a referral code if they have one,
+// 4. their prices: typed, as a voice note, as a photo of their price list or
+// as a CSV file. The AI drafts the
 // price list (drafter.ts, as on the setup screen) and the bot shows it back.
 // The owner corrects it in the chat or replies YES. Only then is the business
 // created, on the Free plan and switched off until its own number is
@@ -29,13 +31,15 @@ import type { SetupStore } from "./store.js";
 // Afterwards the owner can send "try" to chat with their own bot as a
 // customer (test orders are not saved) and "prices" to change the list.
 
-export type SignupStep = "name" | "about" | "prices" | "done";
+export type SignupStep = "name" | "about" | "referral" | "prices" | "done";
 
 export interface Signup {
   waId: string;
   step: SignupStep;
   businessName: string | null;
   description: string | null;
+  /** A promo or referral code given at sign-up, used on the business's first upgrade. */
+  referralCode: string | null;
   /** The drafted price list waiting for YES, in the setup screen's CSV format. */
   draftCsv: string | null;
   businessId: string | null;
@@ -51,8 +55,10 @@ export interface SignupStore {
   remove(waId: string): Promise<void>;
   /** How many businesses have signed up by chat since this time. */
   signedUpSince(since: Date): Promise<number>;
+  /** True when this promo or referral code is switched on and can be used on a quote plan. */
+  codeExists(code: string): Promise<boolean>;
   /** Adds the business on the Free plan, switched off, with this number for order alerts. Returns its id. */
-  createBusiness(b: { name: string; description: string | null; orderPrefix: string; ownerWaId: string }): Promise<string>;
+  createBusiness(b: { name: string; description: string | null; orderPrefix: string; ownerWaId: string; referralCode: string | null }): Promise<string>;
 }
 
 export interface ChatSignupOptions {
@@ -85,6 +91,9 @@ const YES = /^(yes|yeah|yep|ok|okay|save|save it|confirm|correct)[.!]*$/i;
 const TRY = /^(try|try it|test|test it|try my bot)[.!]*$/i;
 const DONE_TRYING = /^(done|stop|exit|end|finish)[.!]*$/i;
 const PRICES = /^(prices|price list|my prices|change prices|update prices)[.!]*$/i;
+const NO_CODE = /^(no|nope|none|nah|skip|no code|i don'?t have (one|a code|any))[.!]*$/i;
+
+const ASK_REFERRAL = "Do you have a referral code? Send it now, or send *no* to carry on.";
 
 const ASK_PRICES =
   "Now your prices. Type them, send a voice note, or send a photo of your price list, for example:\n" +
@@ -127,15 +136,22 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           }
         }
         if (SIGN_UP.test(text)) {
-          await opts.store.save(msg.from, { step: "name", businessName: null, description: null, draftCsv: null, trying: false });
+          await opts.store.save(msg.from, { step: "name", businessName: null, description: null, referralCode: null, draftCsv: null, trying: false });
           return {
             text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
           };
         }
         const reply = await next.handle(msg, ctx);
-        if (signup || ctx.history.length > 0) return reply;
-        const invite = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
-        return reply ? { ...reply, text: reply.text ? `${reply.text}\n\n${invite}` : invite } : { text: invite };
+        const ask = welcomeAsk(text);
+        const welcome = ask === "greeting" || ask === "help";
+        if (signup?.businessId && welcome && reply) return addNote(reply, AFTER);
+        if (signup || (ctx.history.length > 0 && !welcome)) return reply;
+        if (!reply) return { text: INVITE };
+        const invited = addNote(reply, INVITE);
+        if (invited.buttons && invited.buttons.buttons.length < 3) {
+          invited.buttons.buttons = [...invited.buttons.buttons, { id: "sign up", title: "Get my own bot" }];
+        }
+        return invited;
       }
 
       if (CANCEL.test(text)) {
@@ -159,8 +175,20 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           const about = text.replace(/\s+/g, " ");
           if (!about) return { text: "In a few words, what do you sell?" };
           if (about.length > 120) return { text: "Please keep that short, a few words is enough (120 letters at most)." };
-          await opts.store.save(msg.from, { step: "prices", description: about });
-          return { text: ASK_PRICES };
+          await opts.store.save(msg.from, { step: "referral", description: about });
+          return { text: ASK_REFERRAL };
+        }
+        case "referral": {
+          if (NO_CODE.test(text)) {
+            await opts.store.save(msg.from, { step: "prices", referralCode: null });
+            return { text: ASK_PRICES };
+          }
+          const code = text.replace(/\s+/g, "").toUpperCase();
+          if (!/^[A-Z0-9]{4,20}$/.test(code) || !(await opts.store.codeExists(code))) {
+            return { text: `I can't find the code *${text}*. Check the spelling and send it again, or send *no* to carry on without one.` };
+          }
+          await opts.store.save(msg.from, { step: "prices", referralCode: code });
+          return { text: `Thanks, I've kept *${code}*. Its discount comes off your first month when you upgrade.\n\n${ASK_PRICES}` };
         }
         default:
           return pricesStep(signup, msg, ctx, text);
@@ -273,6 +301,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       description: signup.description,
       orderPrefix: orderPrefix(signup.businessName!),
       ownerWaId: waId,
+      referralCode: signup.referralCode,
     });
     await opts.store.save(waId, { businessId });
     await opts.setup.replacePriceList(businessId, items);
@@ -286,7 +315,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
       ].join("\n"),
       ...alert(
-        `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items. It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on.`,
+        `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items${signup.referralCode ? `, code ${signup.referralCode}` : ""}. It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on.`,
       ),
     };
   }
@@ -340,6 +369,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   }
 }
 
+const INVITE = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
+
+/** Adds a paragraph to the end of a reply, inside its buttons message if it has one. */
+function addNote(reply: Reply, note: string): Reply {
+  if (reply.buttons) return { ...reply, buttons: { ...reply.buttons, body: `${reply.buttons.body}\n\n${note}` } };
+  return { ...reply, text: reply.text ? `${reply.text}\n\n${note}` : note };
+}
+
 const AFTER = "Send *try* to chat with your bot as a customer would, or *prices* to change your price list.";
 
 /** A CSV file the owner sent, as text, or the reply explaining why it can't be read. */
@@ -383,6 +420,7 @@ type SignupRow = {
   step: SignupStep;
   business_name: string | null;
   description: string | null;
+  referral_code?: string | null;
   draft_csv: string | null;
   business_id: string | null;
   trying: boolean;
@@ -402,6 +440,7 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
         step: r.step,
         businessName: r.business_name,
         description: r.description,
+        referralCode: r.referral_code ?? null,
         draftCsv: r.draft_csv,
         businessId: r.business_id,
         trying: r.trying,
@@ -416,6 +455,7 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
         ...(c.step !== undefined ? { step: c.step } : {}),
         ...(c.businessName !== undefined ? { business_name: c.businessName } : {}),
         ...(c.description !== undefined ? { description: c.description } : {}),
+        ...(c.referralCode !== undefined ? { referral_code: c.referralCode } : {}),
         ...(c.draftCsv !== undefined ? { draft_csv: c.draftCsv } : {}),
         ...(c.businessId !== undefined ? { business_id: c.businessId } : {}),
         ...(c.trying !== undefined ? { trying: c.trying } : {}),
@@ -438,10 +478,29 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
       if (error) throw new Error(`count quote sign-ups failed: ${error.message}`);
       return count ?? 0;
     },
+    async codeExists(code) {
+      const { data, error } = await db
+        .from("promo_codes")
+        .select("code")
+        .eq("code", code)
+        .eq("active", true)
+        .or("product.is.null,product.eq.quote")
+        .maybeSingle();
+      if (error) throw new Error(`promo code lookup failed: ${error.message}`);
+      return Boolean(data);
+    },
     async createBusiness(b) {
       const { data, error } = await db
         .from("quote_businesses")
-        .insert({ name: b.name, description: b.description, order_prefix: b.orderPrefix, owner_wa_id: b.ownerWaId, plan_code: "free", active: false })
+        .insert({
+          name: b.name,
+          description: b.description,
+          order_prefix: b.orderPrefix,
+          owner_wa_id: b.ownerWaId,
+          plan_code: "free",
+          active: false,
+          ...(b.referralCode ? { referral_code: b.referralCode } : {}),
+        })
         .select("id")
         .single();
       if (error) throw new Error(`create signed-up business failed: ${error.message}`);

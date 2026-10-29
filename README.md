@@ -84,8 +84,10 @@ commands: [docs/FLYERS.md](docs/FLYERS.md).
 When a business also uses the WhatsApp Business app on the bot's number, the bot
 goes quiet in a chat for `OWNER_REPLY_PAUSE_MINUTES` (default 60) after the owner
 replies from the app, then answers again. Needs the `smb_message_echoes` webhook
-field and migration 0019. A password-protected sign-up page at `/signup`
-(`SIGNUP_PASSWORD`, off by default) connects a number through Meta's pop-up.
+field and migration 0019. A public sign-up page at `/signup`
+(`META_SIGNUP_CONFIG_ID`, off by default) connects a number through Meta's
+pop-up, either one that stays in the app or a new one, and adds it as a
+switched-off quote business.
 See [docs/COEXISTENCE.md](docs/COEXISTENCE.md).
 
 ## Payments (Paystack)
@@ -101,6 +103,30 @@ A password-protected page at `/dashboard` with live numbers for every product
 (chats, flyer groups and plans, sales, site updates, leads). Switched on by
 `DASHBOARD_PASSWORD`: [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
+## Owners' and staff app (app.yarnoga.com)
+
+A web app at `/home` (old `/app` links redirect there) where each business on the quote bot sees its dashboard,
+inbox, order board, price list (with photos and minimum quantities), riders
+and delivery zones, a bot test, QR posters, exports (CSV, Google Sheets, PDF),
+bank accounts, alert numbers and team. Owners and staff log in by sending
+**app** to their bot on WhatsApp, or with a password. Switched on by
+`OWNER_APP`; needs migration 0049. See [docs/OWNER_APP.md](docs/OWNER_APP.md).
+
+## Business verification (KYB)
+
+Owners send their registration details and documents from the app (**Verify
+business**); Jay reviews and approves them at `/compliance`, with an optional
+CAC register check through Dojah. Switched on by `COMPLIANCE_PASSWORD`; needs
+migration 0050. See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
+
+## Monitoring
+
+`/health/full` and `/status` check the database, WhatsApp and the AI; Jay gets
+WhatsApp and email alerts when one fails, when the server stops answering, and
+for errors (also sent to Sentry). If answering a customer fails, the bot tries
+again and otherwise tells the customer to resend. See
+[docs/MONITORING.md](docs/MONITORING.md).
+
 ## Staff inbox (in progress)
 
 A password-protected web page at `/inbox` where staff see every chat on every
@@ -113,13 +139,20 @@ migrations 0019 and 0015. See [docs/INBOX.md](docs/INBOX.md).
 1. [docs/META_SETUP.md](docs/META_SETUP.md): steps 1 to 4 (create the Meta app, get the test number).
 2. [docs/DEPLOY_RAILWAY.md](docs/DEPLOY_RAILWAY.md): set up Supabase and deploy to Railway.
 3. [docs/META_SETUP.md](docs/META_SETUP.md): steps 5 to 8 (connect the webhook and test).
+4. [docs/CUSTOM_DOMAIN.md](docs/CUSTOM_DOMAIN.md): give the server the address app.yarnoga.com.
 
 ## How the code is organised
 
 ```
 src/
   index.ts               starts the server with real settings
-  app.ts                 web routes: /health, /webhooks/whatsapp and /inbox
+  app.ts                 web routes: /health, /webhooks/whatsapp, /inbox and /home
+  owner/                 the owners' and staff app (app.yarnoga.com)
+    index.ts             login, sessions and the pages' routes
+    sections/            dashboard, inbox, orders, price list, delivery, tools, settings
+    store.ts             what the app reads and writes in Supabase
+    posters.ts           QR posters; exports.ts: CSV and PDF reports
+    whatsapp.ts          "app" login links and copies of alerts to extra numbers
   config.ts              reads settings from environment variables
   core/                  shared WhatsApp core (used by every product)
     product.ts           the contract every product follows
@@ -136,6 +169,10 @@ src/
       store.ts           reads chats and messages from Supabase
       auth.ts            password check, login cookie, wrong-password lockout
     schedule.ts          runs a task on a timer (daily reports, birthdays)
+    health.ts            /health/full, /status and the watchdog
+    alerts/              error alerts to Jay (WhatsApp, email) and Sentry
+    security/guard.ts    slows down password guessing on every owner page
+    pdf.ts               turns page pictures into a PDF
     money.ts             kobo <-> naira formatting
     voice/transcribe.ts  turns voice notes into text (Groq Whisper)
   products/

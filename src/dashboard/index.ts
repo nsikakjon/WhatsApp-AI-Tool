@@ -1,6 +1,6 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { renderDashboard } from "./page.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
@@ -33,10 +33,7 @@ export function createDashboard(deps: DashboardDeps) {
 
   app.use(
     "*",
-    basicAuth({
-      verifyUser: (_username, password) => samePassword(password, deps.password),
-      realm: "yarnOga dashboard",
-    }),
+    guardedBasicAuth({ password: deps.password, realm: "yarnOga dashboard" }),
   );
 
   app.get("/", async (c) => {
@@ -163,8 +160,3 @@ export function fromDashboard(origin: string | undefined, referer: string | unde
 }
 
 /** Compares in constant time, so response timing can't reveal the password letter by letter. */
-function samePassword(given: string, expected: string): boolean {
-  const a = createHash("sha256").update(given).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}

@@ -1,7 +1,9 @@
 // "Gold stars" birthday design: a warm gold card, a big round photo, the
 // birthday wish beside it, foil balloon stars and glitter. Unlike the other
 // designs it prints the wish on the flyer itself.
+import type { Lang } from "../../core/i18n.js";
 import { drawCredit } from "./credit.js";
+import { fitWidth, flyerWords } from "./words.js";
 import { createCanvas, loadImage, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 
 export interface GoldStarsInput {
@@ -13,11 +15,14 @@ export interface GoldStarsInput {
   wish?: string;
   logo?: Uint8Array;
   credit?: string;
+  lang?: Lang;
 }
 
 /** Used on previews, before a real birthday message is written. */
 export const SAMPLE_WISH =
   "Today we celebrate you! Wishing you a day full of **joy**, sweet surprises and **laughter** with the people who **love** you most.";
+export const SAMPLE_WISH_FR =
+  "Aujourd'hui, on te célèbre ! Nous te souhaitons une journée pleine de **joie**, de belles surprises et de **rires** avec ceux qui t'**aiment** le plus.";
 
 const W = 1080,
   H = 1350;
@@ -224,7 +229,9 @@ export async function renderGoldStars({
   wish,
   logo,
   credit,
+  lang,
 }: GoldStarsInput): Promise<Buffer> {
+  const w = flyerWords(lang);
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
   const rand = rng(name);
@@ -318,15 +325,17 @@ export async function renderGoldStars({
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#ffffff";
   ctx.font = '34px "Poppins ExtraBold"';
-  ctx.fillText("Happy", tx, 330);
-  ctx.fillText("Birthday!", tx, 370);
+  ctx.fillText(w.happy, tx, 330);
+  const exclaim = w.lang === "fr" ? "anniversaire !" : "Birthday!";
+  fitWidth(ctx, exclaim, tw);
+  ctx.fillText(exclaim, tx, 370);
   // The group name goes under the wish and must end above the silver star
   // (around y = 720), so the wish gets whatever room the name leaves.
   ctx.font = '24px "Poppins ExtraBold"';
   const groupLines = wrapWords(ctx, groupName, tw);
   const end = richText(
     ctx,
-    wish || SAMPLE_WISH,
+    wish || (w.lang === "fr" ? SAMPLE_WISH_FR : SAMPLE_WISH),
     tx,
     420,
     tw,
@@ -336,7 +345,7 @@ export async function renderGoldStars({
   );
   ctx.fillStyle = "#fff6e6";
   ctx.font = '22px "Poppins"';
-  ctx.fillText("with love,", tx, end + 64);
+  ctx.fillText(w.lang === "fr" ? "avec amour," : "with love,", tx, end + 64);
   ctx.font = '24px "Poppins ExtraBold"';
   ctx.fillStyle = "#ffffff";
   let gy = end + 96;
@@ -357,9 +366,11 @@ export async function renderGoldStars({
   // Headline and name, bottom left.
   ctx.fillStyle = "#2b2b2b";
   ctx.font = '150px "Poppins ExtraBold"';
-  ctx.fillText("Happy", 70, 1058);
+  fitWidth(ctx, w.happy, W - 140);
+  ctx.fillText(w.happy, 70, 1058);
   ctx.font = '64px "Poppins ExtraBold"';
-  ctx.fillText("BIRTHDAY", 82, 1146);
+  fitWidth(ctx, w.birthday.toUpperCase(), W - 160);
+  ctx.fillText(w.birthday.toUpperCase(), 82, 1146);
   ctx.save();
   ctx.font = '112px "Great Vibes"';
   // Deep chocolate script with a soft light halo, so it reads on the pale bloom and the gold.

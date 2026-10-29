@@ -107,7 +107,9 @@ The demo number is also where new businesses sign up, so an ad can simply say
 
 1. the business name,
 2. what it sells (a few words),
-3. its prices: typed, as a voice note, as a photo of the price list, as a
+3. a referral code, if they have one (any switched-on promo or referral code;
+   **no** skips it),
+4. its prices: typed, as a voice note, as a photo of the price list, as a
    CSV file, or as a link to a Google Sheet shared as "Anyone with the link".
 
 For a spreadsheet, the bot offers a template to start from: a Google Sheet to
@@ -133,6 +135,11 @@ After signing up, the owner can send:
   **done** ends it.
 - **prices** to change the price list the same way.
 
+A code given at sign-up is kept on the business (`referral_code`) and used on
+its first upgrade without retyping it, so the business that shared it gets its
+free month. If the code has ended or was already used by then, the upgrade is
+simply at the full price.
+
 Everyone else on the number gets the demo shop, and a first-time visitor's
 first reply ends with an invitation to send "sign up".
 
@@ -141,7 +148,8 @@ WhatsApp number, 30 AI drafts and test replies per person a day, 200 drafts a
 day overall, and 30 new businesses a day (any more are told the yarnOga team
 will be in touch, and you get a message).
 
-To switch it on: run migration `0039_quote_chat_signup.sql`, make sure
+To switch it on: run migrations `0039_quote_chat_signup.sql` and
+`0046_quote_signup_referral.sql`, make sure
 `QUOTE_MULTI_BUSINESS=true`, and set `QUOTE_SIGNUP_PHONE_NUMBER_ID` to the demo
 number's Phone number ID. The setup screen stays the place for big
 spreadsheets, bulk edits and switching businesses on.

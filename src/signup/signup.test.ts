@@ -3,9 +3,8 @@ import { createSignup } from "./index.js";
 import type { Connection } from "./store.js";
 
 const silent = { info() {}, error() {} };
-const AUTH = { Authorization: "Basic " + Buffer.from("jay:secret").toString("base64") };
 
-function setup(fail?: "exchange" | "subscribe" | "details") {
+function setup(fail?: "exchange" | "subscribe" | "register" | "details", limits?: { perVisitor: number; total: number }) {
   const saved: Connection[] = [];
   const calls: string[] = [];
   const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -18,54 +17,67 @@ function setup(fail?: "exchange" | "subscribe" | "details") {
     if (url.endsWith("/subscribed_apps")) {
       return fail === "subscribe" ? json(403, { error: { message: "no" } }) : json(200, { success: true });
     }
+    if (url.endsWith("/register")) {
+      return fail === "register" ? json(400, { error: { message: "bad pin" } }) : json(200, { success: true });
+    }
     if (url.includes("fields=display_phone_number")) {
       return fail === "details" ? json(500, {}) : json(200, { display_phone_number: "+234 811 433 0749", verified_name: "KahnPrints" });
     }
     return json(404, {});
   }) as typeof fetch;
+  const added: string[] = [];
   const app = createSignup({
-    password: "secret",
     app: { appId: "APPID", appSecret: "APPSECRET", graphApiVersion: "v23.0" },
     configId: "CONFIG",
     store: { save: async (c) => void saved.push(c) },
+    onConnected: async (c) => {
+      added.push(c.phoneNumberId);
+      return true;
+    },
+    perVisitorDailyLimit: limits?.perVisitor,
+    dailyLimit: limits?.total,
     fetch: fakeFetch,
     log: silent,
   });
-  const complete = (body: unknown) =>
+  const complete = (body: unknown, visitor = "1.2.3.4") =>
     app.request("/complete", {
       method: "POST",
-      headers: { ...AUTH, "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-forwarded-for": visitor },
       body: JSON.stringify(body),
     });
-  return { app, saved, calls, complete };
+  return { app, saved, calls, added, complete };
 }
 
 const finished = { code: "AQB-code_123", waba_id: "1463401605808243", phone_number_id: "1341325682404019", coexistence: true };
 
 describe("sign-up page", () => {
-  it("asks for the password", async () => {
+  it("is open without a password and offers both ways to connect", async () => {
     const { app } = setup();
-    expect((await app.request("/")).status).toBe(401);
-    expect((await app.request("/complete", { method: "POST" })).status).toBe(401);
-  });
-
-  it("shows the Embedded Signup button with the app and configuration", async () => {
-    const { app } = setup();
-    const res = await app.request("/", { headers: AUTH });
+    const res = await app.request("/");
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('const APP_ID = "APPID"');
     expect(html).toContain('const CONFIG_ID = "CONFIG"');
     expect(html).toContain("whatsapp_business_app_onboarding");
+    expect(html).toContain("It's a new number");
+    expect(html).toContain("https://yarnoga.com/data-deletion.html");
   });
 
-  it("swaps the code, connects the account to the bot and saves the number", async () => {
-    const { saved, calls, complete } = setup();
+  it("connects an app number without registering it, and adds it as a business", async () => {
+    const { saved, calls, added, complete } = setup();
     const res = await complete(finished);
     expect(res.status).toBe(200);
-    expect((await res.json()).message).toContain("+234 811 433 0749 is connected");
+    expect(await res.json()).toEqual({
+      number: "+234 811 433 0749",
+      name: "KahnPrints",
+      phoneNumberId: "1341325682404019",
+      coexistence: true,
+      pin: null,
+      added: true,
+    });
     expect(calls[0]).toContain("client_secret=APPSECRET");
     expect(calls[1]).toBe("POST https://graph.facebook.com/v23.0/1463401605808243/subscribed_apps");
+    expect(calls.some((c) => c.endsWith("/register"))).toBe(false);
     expect(saved).toEqual([
       {
         phoneNumberId: "1341325682404019",
@@ -76,6 +88,28 @@ describe("sign-up page", () => {
         businessToken: "BIZ_TOKEN",
       },
     ]);
+    expect(added).toEqual(["1341325682404019"]);
+  });
+
+  it("registers a new number with a six-digit PIN and shows the PIN once", async () => {
+    const { calls, complete } = setup();
+    const res = await complete({ ...finished, coexistence: false });
+    expect(res.status).toBe(200);
+    expect((await res.json()).pin).toMatch(/^\d{6}$/);
+    expect(calls).toContain("POST https://graph.facebook.com/v23.0/1341325682404019/register");
+  });
+
+  it("never sends the business's token back to the browser", async () => {
+    const { complete } = setup();
+    expect(await (await complete(finished)).text()).not.toContain("BIZ_TOKEN");
+  });
+
+  it("limits finished sign-ups per visitor and per day", async () => {
+    const { complete } = setup(undefined, { perVisitor: 1, total: 2 });
+    expect((await complete(finished, "a")).status).toBe(200);
+    expect((await complete(finished, "a")).status).toBe(429);
+    expect((await complete(finished, "b")).status).toBe(200);
+    expect((await complete(finished, "c")).status).toBe(429);
   });
 
   it("still saves the number if its details can't be read", async () => {
@@ -86,11 +120,12 @@ describe("sign-up page", () => {
   });
 
   it("saves nothing when Meta refuses", async () => {
-    for (const step of ["exchange", "subscribe"] as const) {
-      const { saved, complete } = setup(step);
-      const res = await complete(finished);
+    for (const step of ["exchange", "subscribe", "register"] as const) {
+      const { saved, added, complete } = setup(step);
+      const res = await complete({ ...finished, coexistence: false });
       expect(res.status).toBe(502);
       expect(saved).toEqual([]);
+      expect(added).toEqual([]);
     }
   });
 
