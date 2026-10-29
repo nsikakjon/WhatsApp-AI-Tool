@@ -28,11 +28,39 @@ kobo); the AI never sets a price. Money is typed in naira and saved in kobo.
 - **With a password:** once set in Settings > Your password, log in at
   `/home/login` with the WhatsApp number and password.
 - The owner is whoever's number is the business's owner number. Staff are
-  added in Settings > Team.
+  added in Settings > Team, each with a role (see below).
 - Guessing is slowed down: after 5 wrong passwords from one address, or for one
   number, logins wait 15 minutes (and every wrong password waits a moment).
 - Logins last 30 days. Setting a password, or **Log out everywhere else**,
   logs out every other browser. Removing a staff member logs them out at once.
+
+## Staff roles
+
+When the owner adds someone in Settings > Team they pick a role, and can
+change it later from the same table. A change counts from that person's next
+page; removing someone logs them out at once.
+
+| Role    | Sees and does                                                                 |
+| ------- | ----------------------------------------------------------------------------- |
+| Owner   | Everything                                                                    |
+| Manager | Everything except Settings, Export and Verify business                        |
+| Cashier | Inbox, Orders (can mark paid), Customers, the price list to read. No takings   |
+| Rider   | The order board and Riders & delivery. No chats, prices or takings            |
+
+"Takings" means the business's money figures: paid in this month, amounts
+owed, column totals on the order board, what each customer has spent and plan
+usage. Each order on the board still shows its own price to everyone, since
+that is what the customer has to pay.
+
+Pages are checked on the server as well as hidden from the menu, so typing a
+page's address doesn't get round a role. WhatsApp owner commands such as
+`paid KP-1001` still work only from the owner's number.
+
+**To switch roles on**: Supabase > SQL Editor > New query > paste all of
+`supabase/migrations/0058_staff_roles.sql` > Run. It turns everyone who was
+"staff" into a manager, which is the same access they had. Until it is run,
+existing staff carry on as managers, but adding or changing a role shows an
+error asking for the update.
 
 ## Switching it on
 
