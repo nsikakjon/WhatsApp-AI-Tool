@@ -2,8 +2,7 @@ import { guessLanguage, type Lang } from "../../../core/i18n.js";
 import { currencyName, formatMoney, type Currency } from "../../../core/money.js";
 import type { Notice, ProductContext, Reply } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
-import { quoteTotal } from "../pricing.js";
-import type { OrderDetails, OrderStore, SavedOrder } from "../store.js";
+import { itemsAfterDiscount, type OrderDetails, type OrderStore, type SavedOrder } from "../store.js";
 import { deliveryNotice, riderStep, type RiderStep, type TemplateName } from "./status.js";
 import type { Delivery, DeliveryStore, Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
@@ -207,9 +206,9 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
 
     if (PICKUP.test(text)) {
       const updated = await store.update(d.id, ["asking"], { status: "pickup", feeKobo: null, zoneName: null });
-      if (!updated || !(await store.setQuoteTotal(order.id, quoteTotal(order.lines)))) return null;
+      if (!updated || !(await store.setQuoteTotal(order.id, itemsAfterDiscount(order)))) return null;
       return {
-        text: [c.collectFrom(opts.pickup), "", c.total(money(quoteTotal(order.lines)))].join("\n"),
+        text: [c.collectFrom(opts.pickup), "", c.total(money(itemsAfterDiscount(order)))].join("\n"),
         buttons: {
           body: c.tapConfirm,
           buttons: [
@@ -232,7 +231,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     c = t,
   ): Promise<Reply | null> {
     const from: Delivery["status"][] = ["asking", "needs_fee", "proposed", "pickup"];
-    const itemsKobo = quoteTotal(order.lines);
+    const itemsKobo = itemsAfterDiscount(order);
     if (!zone && opts.courier) {
       const offer = await courierOffer(order, d, where);
       if (offer) {
@@ -404,7 +403,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     }
     // Whole naira or whole francs; stored in hundredths either way.
     const feeKobo = whole * 100;
-    const itemsKobo = quoteTotal(order.lines);
+    const itemsKobo = itemsAfterDiscount(order);
     if (!(await store.setQuoteTotal(order.id, itemsKobo + feeKobo))) {
       return { text: t.justConfirmed(label) };
     }
@@ -500,7 +499,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       status: "cancelled",
     });
     if (!updated) return { text: t.deliveryAlreadyCancelled(label) };
-    if (order.status === "quoted") await store.setQuoteTotal(order.id, quoteTotal(order.lines));
+    if (order.status === "quoted") await store.setQuoteTotal(order.id, itemsAfterDiscount(order));
 
     const notices: Notice[] = [
       deliveryNotice(updated.customerWaId, t.deliveryCancelled(label, opts.businessName), updated, opts.template),

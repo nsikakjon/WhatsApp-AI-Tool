@@ -14,6 +14,7 @@ import { isStopRequest } from "./followups.js";
 import { quoteLine, quoteTotal, type QuoteLine, type Variant } from "./pricing.js";
 import { CARDS_PAGE, type Catalogue } from "./catalogue.js";
 import type { AiCredits } from "./credits.js";
+import { customerCode, discountCommand, discountLine, type DiscountStore } from "./discounts.js";
 import type { MessageAllowance } from "./messages.js";
 import { createKeywordUnderstander } from "./fallback.js";
 import type { PlanFeatures } from "./features.js";
@@ -39,7 +40,9 @@ import type { WalkIn, WalkInMode } from "./walkin/index.js";
 // The owner can also send the business logo (a photo captioned "logo"),
 // "invoice KP-1001" or "receipt KP-1001" for a copy to forward or print, and
 // "orders" for the link to their order board and sales (board.ts), and
-// "stock" or product photos (catalogue.ts).
+// "stock" or product photos (catalogue.ts). With discount codes on
+// (discounts.ts), the owner makes codes such as XMAS and customers send them
+// after a quote.
 //
 // With a plan set (QUOTE_PLAN, see plan.ts), the free plan stops confirming
 // orders after its monthly limit and adds a "Powered by yarnOga" line, and
@@ -108,6 +111,8 @@ export interface QuoteProductOptions {
   catalogue?: Catalogue;
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
+  /** The business's discount codes for its customers (discounts.ts). Without it, codes aren't read. */
+  discounts?: DiscountStore;
   /** The owner's "referral" reply: their referral code and how often it's been used (referrals.ts). */
   referral?: () => Promise<string>;
   /** Makes an online payment link for a confirmed order (paylinks.ts). Without it, customers pay the business directly. */
@@ -208,6 +213,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (opts.optOutOfFollowUps && isStopRequest(msg.text)) {
         await opts.optOutOfFollowUps(ctx.contactId);
         return { text: t.stopReminders() };
+      }
+
+      if (opts.discounts) {
+        const codeReply = await customerCode(opts.discounts, msg.text, () => opts.orders.latestOpenQuote(ctx.contactId), ref, money);
+        if (codeReply) return { text: codeReply };
       }
 
       const variants = await opts.catalog.activeVariants();
@@ -571,6 +581,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
                   text: [
                     own.wantsToOrder(name ?? own.aCustomer(), `+${waId}`, ref(order)),
                     ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
+                    ...(order.discount ? [discountLine(order.discount, money)] : []),
                     own.total(money(order.totalKobo)),
                     "",
                     own.overLimitOwner(check.limit, check.planName, ref(order)),
@@ -631,6 +642,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           text: [
             own.newOrder(!!spot, ref(order), name ?? own.aCustomer(), `+${waId}`, spot?.table ?? null),
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
+            ...(order.discount ? [discountLine(order.discount, money)] : []),
             ...(delivery ? [`• ${delivery.label} = ${money(delivery.feeKobo)}`] : []),
             own.total(money(order.totalKobo)),
             ...(note ? ["", note] : []),
@@ -663,7 +675,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */
   async function documentImage(
     kind: "invoice" | "receipt",
-    order: Pick<OrderDetails, "orderNumber" | "lines" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
+    order: Pick<OrderDetails, "orderNumber" | "lines" | "discount" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
     delivery: DeliveryCharge | null,
     pickup: Pickup | null = null,
     t: QuoteTexts = own,
@@ -682,6 +694,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         customerName: order.customerName ?? undefined,
         customerWaId: order.customerWaId,
         lines: order.lines,
+        ...(order.discount ? { discount: order.discount } : {}),
         ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
@@ -722,6 +735,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const text = (msg.text ?? "").trim();
+    const discountReply = opts.discounts ? await discountCommand(opts.discounts, text, new Date(), money) : null;
+    if (discountReply) return { text: discountReply };
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) {
       const messagesLine = opts.botMessages ? await opts.botMessages.summaryLine() : null;
       return { text: await opts.plan.summary(messagesLine ? [messagesLine] : []) };

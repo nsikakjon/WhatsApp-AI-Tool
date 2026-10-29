@@ -36,6 +36,8 @@ export interface DocumentInput {
   /** Digits only, e.g. 2348012345678. */
   customerWaId: string;
   lines: QuoteLine[];
+  /** A discount code, as its own line taken off the items. Already taken off totalKobo. */
+  discount?: { code: string; amountKobo: number };
   /** The delivery fee, as its own line. Already included in totalKobo. */
   delivery?: { label: string; feeKobo: number };
   totalKobo: number;
@@ -56,14 +58,14 @@ const WORDS = {
     customer: "Customer", item: "ITEM", qty: "QTY", unit: "UNIT PRICE", amount: "AMOUNT", totalDue: "TOTAL DUE", amountPaid: "AMOUNT PAID",
     paid: "PAID", awaiting: "AWAITING PAYMENT", howToPay: "HOW TO PAY", showWhenCollect: "SHOW THIS WHEN YOU COLLECT", forTable: "For",
     collectAt: "Collect at:", codeOnce: "Each code works once.", quoteRef: (ref: string) => `Please quote ${ref} when you pay. Thank you!`,
-    thanks: "Thank you for your business!",
+    thanks: "Thank you for your business!", discount: "Discount",
   },
   fr: {
     invoice: "FACTURE", receipt: "REÇU", no: "N°", date: "Date", paidOn: "Payé le", billTo: "FACTURÉ À", receivedFrom: "REÇU DE",
     customer: "Client", item: "ARTICLE", qty: "QTÉ", unit: "PRIX UNITAIRE", amount: "MONTANT", totalDue: "TOTAL À PAYER", amountPaid: "MONTANT PAYÉ",
     paid: "PAYÉ", awaiting: "EN ATTENTE DE PAIEMENT", howToPay: "COMMENT PAYER", showWhenCollect: "À MONTRER AU RETRAIT", forTable: "Pour",
     collectAt: "Retrait à :", codeOnce: "Chaque code ne sert qu'une fois.", quoteRef: (ref: string) => `Merci d'indiquer ${ref} lors du paiement.`,
-    thanks: "Merci de votre confiance !",
+    thanks: "Merci de votre confiance !", discount: "Remise",
   },
 };
 
@@ -112,9 +114,11 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   const scratch = createCanvas(10, 10).getContext("2d");
   const cols = { item: MARGIN + 24, qty: 640, unit: 880, amount: WIDTH - MARGIN - 24 };
   scratch.font = "30px Inter";
-  const items = input.delivery
-    ? [...input.lines, { name: input.delivery.label, quantity: null, unitPriceKobo: null, totalKobo: input.delivery.feeKobo }]
-    : input.lines;
+  const items: Array<{ name: string; quantity: number | null; unitPriceKobo: number | null; totalKobo: number; minus?: boolean }> = [
+    ...input.lines,
+    ...(input.discount ? [{ name: `${w.discount} (${input.discount.code})`, quantity: null, unitPriceKobo: null, totalKobo: input.discount.amountKobo, minus: true }] : []),
+    ...(input.delivery ? [{ name: input.delivery.label, quantity: null, unitPriceKobo: null, totalKobo: input.delivery.feeKobo }] : []),
+  ];
   const rows = items.map((l) => wrap(scratch, l.name, cols.qty - cols.item - 60));
   const rowsHeight = rows.reduce((h, r) => h + r.length * 42 + 30, 0);
   const notes = input.kind === "invoice" && input.paymentDetails ? input.paymentDetails : "";
@@ -215,7 +219,7 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
     if (l.quantity !== null) ctx.fillText(l.quantity.toLocaleString(input.lang === "fr" ? "fr-FR" : "en-NG"), cols.qty, y);
     if (l.unitPriceKobo !== null) ctx.fillText(money(l.unitPriceKobo), cols.unit, y);
     ctx.font = "30px Inter SemiBold";
-    ctx.fillText(money(l.totalKobo), cols.amount, y);
+    ctx.fillText(`${l.minus ? "-" : ""}${money(l.totalKobo)}`, cols.amount, y);
     y += nameRows.length * 42 + 10;
     ctx.fillStyle = RULE;
     ctx.fillRect(MARGIN, y, WIDTH - 2 * MARGIN, 2);
