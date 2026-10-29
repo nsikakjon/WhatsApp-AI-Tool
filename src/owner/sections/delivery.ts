@@ -41,7 +41,7 @@ function courierCard(courier: { available: boolean; on: boolean; set?(on: boolea
   const control = !courier.set
     ? `<p class="muted small" style="margin:10px 0 0">On the main number this is set by yarnOga; ask support to change it.</p>`
     : owner
-      ? `<form method="post" action="/app/delivery/courier" style="margin-top:12px"><input type="hidden" name="on" value="${courier.on ? "off" : "on"}"><button class="${courier.on ? "ghost" : ""} small">${courier.on ? "Turn couriers off" : "Turn couriers on"}</button></form>`
+      ? `<form method="post" action="/home/delivery/courier" style="margin-top:12px"><input type="hidden" name="on" value="${courier.on ? "off" : "on"}"><button class="${courier.on ? "ghost" : ""} small">${courier.on ? "Turn couriers off" : "Turn couriers on"}</button></form>`
       : "";
   return `<div class="card" style="margin-top:20px"><div class="cardhead"><h3>Couriers for other areas</h3><span class="tag ${courier.on ? "lime" : ""}">${courier.on ? "On" : "Off"}</span></div>${how}${control}</div>`;
 }
@@ -106,7 +106,7 @@ function liveSection(initial: ReturnType<typeof liveJson>): string {
   draw(${data});
   setInterval(async () => {
     try {
-      const res = await fetch("/app/delivery/live", { cache: "no-store", credentials: "same-origin" });
+      const res = await fetch("/home/delivery/live", { cache: "no-store", credentials: "same-origin" });
       if (res.ok) draw(await res.json());
     } catch {}
   }, 15000);
@@ -126,13 +126,13 @@ export function registerDelivery(app: Hono<Env>, ctx: SectionContext) {
       return ctx.render(
         c,
         "Riders & delivery",
-        "/app/delivery",
+        "/home/delivery",
         `<p>Delivery isn't switched on for your business yet. With it on, the bot asks customers for their address or location, adds your delivery fee from the zones you set here, and you send your own riders out from WhatsApp with live tracking for the customer.</p>
-<p>Ask yarnOga support to switch it on: <a href="/app/help">Help</a>.</p>`,
+<p>Ask yarnOga support to switch it on: <a href="/home/help">Help</a>.</p>`,
       );
     }
     if (biz.features && !(await biz.features.has("delivery"))) {
-      return ctx.render(c, "Riders & delivery", "/app/delivery", `<p>Delivery comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
+      return ctx.render(c, "Riders & delivery", "/home/delivery", `<p>Delivery comes with Pro and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
     const [zones, riders, live] = await Promise.all([
       biz.delivery.zones(),
@@ -144,29 +144,29 @@ export function registerDelivery(app: Hono<Env>, ctx: SectionContext) {
     const zoneRows = zones
       .map(
         (z) => `<tr><td><b>${esc(z.name)}</b><br><span class="muted small">${esc(z.areas.join(", ") || "no areas yet")}</span></td><td>${formatMoney(z.feeKobo, biz.currency)}</td>
-<td>${owner ? `<details><summary class="small">Change</summary><form method="post" action="/app/delivery/zones/${z.id}">
+<td>${owner ? `<details><summary class="small">Change</summary><form method="post" action="/home/delivery/zones/${z.id}">
 <label>Name<input name="name" value="${esc(z.name)}" required maxlength="60"></label>
 <label>Areas <span class="muted">(separate with commas)</span><textarea name="areas">${esc(z.areas.join(", "))}</textarea></label>
 <label>Fee (${currencySign(biz.currency)})<input name="fee" inputmode="decimal" value="${(z.feeKobo / 100).toFixed(2).replace(/\.00$/, "")}" required></label>
 <div class="actions"><button class="small">Save</button></div></form>
-<form method="post" action="/app/delivery/zones/${z.id}/remove" style="margin-top:8px"><button class="danger small">Remove zone</button></form></details>` : ""}</td></tr>`,
+<form method="post" action="/home/delivery/zones/${z.id}/remove" style="margin-top:8px"><button class="danger small">Remove zone</button></form></details>` : ""}</td></tr>`,
       )
       .join("");
     const riderRows = riders
       .map(
-        (r) => `<tr><td>${esc(r.name)}</td><td>${esc(showWaId(r.waId))}</td><td>${owner ? `<form method="post" action="/app/delivery/riders/${r.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
+        (r) => `<tr><td>${esc(r.name)}</td><td>${esc(showWaId(r.waId))}</td><td>${owner ? `<form method="post" action="/home/delivery/riders/${r.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
       )
       .join("");
     return ctx.render(
       c,
       "Riders & delivery",
-      "/app/delivery",
+      "/home/delivery",
       `${live ? liveSection(liveJson(live, ctx.now())) : ""}
 ${courierCard(biz.courier, owner)}
 <h2>Delivery zones and fees</h2>
 <p class="muted">A customer's address is matched to a zone by the area names in it; the longest match wins ("Lekki Phase 1" before "Lekki"). An address in no zone is sent to you to price.</p>
 <div class="scroll"><table><tr><th>Zone and areas</th><th>Fee</th><th></th></tr>${zoneRows || `<tr><td colspan="3" class="muted">No zones yet.</td></tr>`}</table></div>
-${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a zone</b></summary><form method="post" action="/app/delivery/zones">
+${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a zone</b></summary><form method="post" action="/home/delivery/zones">
 <label>Name<input name="name" required maxlength="60" placeholder="e.g. Island"></label>
 <label>Areas <span class="muted">(separate with commas)</span><textarea name="areas" placeholder="Lekki, Ajah, Victoria Island, VI, Ikoyi"></textarea></label>
 <label>Fee (${currencySign(biz.currency)})<input name="fee" inputmode="decimal" required placeholder="2500"></label>
@@ -174,7 +174,7 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a zone<
 <h2>Riders</h2>
 <p class="muted">Riders get the pickup and drop-off on WhatsApp, and share their location so the customer can follow the delivery.</p>
 <div class="scroll"><table><tr><th>Name</th><th>WhatsApp</th><th></th></tr>${riderRows || `<tr><td colspan="3" class="muted">No riders yet.</td></tr>`}</table></div>
-${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider</b></summary><form method="post" action="/app/delivery/riders">
+${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider</b></summary><form method="post" action="/home/delivery/riders">
 <div class="row"><label>Name<input name="name" required maxlength="60"></label><label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label></div>
 <div class="actions"><button>Add rider</button></div></form></details>` : `<p class="muted small">Only the owner can change zones and riders.</p>`}
 <p class="muted small" style="margin-top:20px">To send a rider out: on WhatsApp, send <code>rider ${esc(biz.orderPrefix)}-1001 Musa</code>. Ask each new rider to send <b>hi</b> to your business number once, so WhatsApp lets job messages through. When no zone matches an address, send <code>fee ${esc(biz.orderPrefix)}-1001 2500</code>.</p>`,
@@ -183,10 +183,10 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider
 
   app.post("/delivery/courier", async (c) => {
     const courier = c.get("biz").courier;
-    if (!courier?.available || !courier.set) return c.redirect("/app/delivery?msg=bad", 303);
+    if (!courier?.available || !courier.set) return c.redirect("/home/delivery?msg=bad", 303);
     const form = (await c.req.parseBody()) as Record<string, unknown>;
     await courier.set(field(form, "on", 4) === "on");
-    return c.redirect("/app/delivery?msg=saved", 303);
+    return c.redirect("/home/delivery?msg=saved", 303);
   });
 
   // The live list, for the page to refresh itself. Staff can see it too.
@@ -198,8 +198,8 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider
 
   // Changes are owner-only.
   app.use("/delivery/*", async (c, next) => {
-    if (c.req.method === "POST" && c.get("user").role !== "owner") return c.redirect("/app/delivery?msg=owner_only", 303);
-    if (!c.get("biz").delivery) return c.redirect("/app/delivery", 303);
+    if (c.req.method === "POST" && c.get("user").role !== "owner") return c.redirect("/home/delivery?msg=owner_only", 303);
+    if (!c.get("biz").delivery) return c.redirect("/home/delivery", 303);
     await next();
   });
 
@@ -211,34 +211,34 @@ ${owner ? `<details class="card" style="margin-top:12px"><summary><b>Add a rider
 
   app.post("/delivery/zones", async (c) => {
     const zone = readZone(await c.req.parseBody(), c.get("biz").currency);
-    if (!zone) return c.redirect("/app/delivery?msg=bad", 303);
+    if (!zone) return c.redirect("/home/delivery?msg=bad", 303);
     await c.get("biz").delivery!.saveZone(null, zone);
-    return c.redirect("/app/delivery?msg=added", 303);
+    return c.redirect("/home/delivery?msg=added", 303);
   });
 
   app.post("/delivery/zones/:id", async (c) => {
     const zone = readZone(await c.req.parseBody(), c.get("biz").currency);
-    if (!zone || !UUID.test(c.req.param("id"))) return c.redirect("/app/delivery?msg=bad", 303);
+    if (!zone || !UUID.test(c.req.param("id"))) return c.redirect("/home/delivery?msg=bad", 303);
     await c.get("biz").delivery!.saveZone(c.req.param("id"), zone);
-    return c.redirect("/app/delivery?msg=saved", 303);
+    return c.redirect("/home/delivery?msg=saved", 303);
   });
 
   app.post("/delivery/zones/:id/remove", async (c) => {
     if (UUID.test(c.req.param("id"))) await c.get("biz").delivery!.removeZone(c.req.param("id"));
-    return c.redirect("/app/delivery?msg=removed", 303);
+    return c.redirect("/home/delivery?msg=removed", 303);
   });
 
   app.post("/delivery/riders", async (c) => {
     const form = await c.req.parseBody();
     const name = field(form, "name", 60);
     const waId = normaliseWaId(field(form, "wa", 30));
-    if (!name || !waId) return c.redirect("/app/delivery?msg=bad", 303);
+    if (!name || !waId) return c.redirect("/home/delivery?msg=bad", 303);
     await c.get("biz").delivery!.addRider(name, waId);
-    return c.redirect("/app/delivery?msg=added", 303);
+    return c.redirect("/home/delivery?msg=added", 303);
   });
 
   app.post("/delivery/riders/:id/remove", async (c) => {
     if (UUID.test(c.req.param("id"))) await c.get("biz").delivery!.removeRider(c.req.param("id"));
-    return c.redirect("/app/delivery?msg=removed", 303);
+    return c.redirect("/home/delivery?msg=removed", 303);
   });
 }

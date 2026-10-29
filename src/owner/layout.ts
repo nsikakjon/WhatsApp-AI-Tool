@@ -1,3 +1,4 @@
+import { mark } from "../core/brand.js";
 import type { Role } from "./store.js";
 
 // The owner app's look: yarnOga black and lime, glassy cards with a soft lime
@@ -37,21 +38,8 @@ export function icon(name: string, size = 20): string {
   return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ""}</svg>`;
 }
 
-// The yarnOga mark (assets/brand/yarnoga-icon.svg). Each copy on a page gets its own
-// gradient ids, since a hidden copy's gradients don't paint the visible one.
-function mark(id: string, size: number): string {
-  return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 512 512" aria-hidden="true"><defs>
-<linearGradient id="${id}a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1ff9e"/><stop offset=".45" stop-color="#c6ff1f"/><stop offset="1" stop-color="#86d100"/></linearGradient>
-<linearGradient id="${id}b" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a9f000"/><stop offset="1" stop-color="#3f9a00"/></linearGradient>
-<filter id="${id}s" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".45"/></filter></defs>
-<g class="bubble"><path class="tail" d="M185.6 368.4 92 440l17.3-172.8Z" fill="url(#${id}b)" stroke="url(#${id}b)" stroke-width="30" stroke-linejoin="round"/>
-<path d="M397 287.3a150 150 0 0 1-282 0" fill="none" stroke="url(#${id}b)" stroke-width="72" stroke-linecap="round"/>
-<path class="ring" pathLength="1" d="M126.1 311a150 150 0 1 1 257.1 4.5" fill="none" stroke="url(#${id}a)" stroke-width="72" stroke-linecap="round" filter="url(#${id}s)"/></g>
-<path class="y" pathLength="1" d="m208 184 48 54 48-54m-48 54v58" fill="none" stroke="#f3f4ef" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-}
-
 function logo(id: string, cls: string): string {
-  return `<a class="${cls}" href="/app" aria-label="yarnOga">${mark(id, 40)}<b>yarn<span>Oga</span></b></a>`;
+  return `<a class="${cls}" href="/home" aria-label="yarnOga">${mark(id, 40)}<b>yarn<span>Oga</span></b></a>`;
 }
 
 export interface NavItem {
@@ -65,19 +53,19 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { href: "/app", label: "Dashboard", icon: "home", tab: true },
-  { href: "/app/inbox", label: "Inbox", icon: "inbox", tab: true },
-  { href: "/app/orders", label: "Orders", icon: "orders", tab: true },
-  { href: "/app/prices", label: "Price list", icon: "prices", tab: true },
-  { href: "/app/customers", label: "Customers", icon: "users" },
-  { href: "/app/delivery", label: "Riders & delivery", icon: "delivery" },
-  { href: "/app/test", label: "Test your bot", icon: "test" },
-  { href: "/app/posters", label: "QR posters", icon: "posters" },
-  { href: "/app/verify", label: "Verify business", icon: "shield", ownerOnly: true },
-  { href: "/app/export", label: "Export", icon: "export", ownerOnly: true },
-  { href: "/app/settings", label: "Settings", icon: "settings", ownerOnly: true },
-  { href: "/app/help", label: "Help", icon: "help" },
-  { href: "/app/status", label: "Status", icon: "status" },
+  { href: "/home", label: "Dashboard", icon: "home", tab: true },
+  { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true },
+  { href: "/home/orders", label: "Orders", icon: "orders", tab: true },
+  { href: "/home/prices", label: "Price list", icon: "prices", tab: true },
+  { href: "/home/customers", label: "Customers", icon: "users" },
+  { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
+  { href: "/home/test", label: "Test your bot", icon: "test" },
+  { href: "/home/posters", label: "QR posters", icon: "posters" },
+  { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
+  { href: "/home/export", label: "Export", icon: "export", ownerOnly: true },
+  { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true },
+  { href: "/home/help", label: "Help", icon: "help" },
+  { href: "/home/status", label: "Status", icon: "status" },
 ];
 
 export interface Shell {
@@ -105,7 +93,7 @@ export function page(s: Shell, body: string): string {
   const main = items.slice(0, 7).map(link).join("");
   const rest = items.slice(7).map(link).join("");
   const switcher = s.others?.length
-    ? `<form method="post" action="/app/switch" class="switch"><select name="user" aria-label="Switch business">${[
+    ? `<form method="post" action="/home/switch" class="switch"><select name="user" aria-label="Switch business">${[
         `<option value="">${esc(s.businessName)}</option>`,
         ...s.others.map((o) => `<option value="${o.userId}">${esc(o.name)}</option>`),
       ].join("")}</select><button class="ghost small">Switch</button></form>`
@@ -114,7 +102,7 @@ export function page(s: Shell, body: string): string {
   const role = s.role === "owner" ? "Owner" : "Staff";
   const tabs = items.filter((n) => n.tab);
   const moreActive = !tabs.some((n) => n.href === s.active);
-  const logout = `<form method="post" action="/app/logout"><button class="navbtn">${icon("logout")}<span>Log out</span></button></form>`;
+  const logout = `<form method="post" action="/home/logout"><button class="navbtn">${icon("logout")}<span>Log out</span></button></form>`;
   return doc(
     s.title,
     `<div class="shell">
@@ -125,8 +113,8 @@ export function page(s: Shell, body: string): string {
   ${switcher}${logout}
 </aside>
 <div class="content">
-  <header class="topbar"><a class="topmark" href="/app" aria-label="yarnOga">${mark("mt", 36)}</a><div class="titles"><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
-    <div class="topactions"><a class="iconbtn" href="/app/help" aria-label="Help">${icon("help")}</a><span class="avatar" title="${esc(s.userName)} · ${role}">${esc(initials(s.userName))}</span></div></header>
+  <header class="topbar"><a class="topmark" href="/home" aria-label="yarnOga">${mark("mt", 36)}</a><div class="titles"><p class="crumb">${esc(s.businessName)}</p><h1>${esc(s.title)}</h1></div>
+    <div class="topactions"><a class="iconbtn" href="/home/help" aria-label="Help">${icon("help")}</a><span class="avatar" title="${esc(s.userName)} · ${role}">${esc(initials(s.userName))}</span></div></header>
   <main>${flash}${body}</main>
 </div>
 <nav class="tabs" aria-label="Main">${tabs.map(link).join("")}
@@ -158,7 +146,7 @@ export function bare(title: string, body: string): string {
 function doc(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#0a0b0b"><title>${esc(title)} · yarnOga</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/app/brand/mark-32.png"><link rel="icon" type="image/png" sizes="64x64" href="/app/brand/mark-64.png"><link rel="apple-touch-icon" href="/app/brand/mark-128.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/home/brand/mark-32.png"><link rel="icon" type="image/png" sizes="64x64" href="/home/brand/mark-64.png"><link rel="apple-touch-icon" href="/home/brand/mark-128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;500;600&family=Schibsted+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
 <style>${CSS}</style></head><body>${body}</body></html>`;

@@ -37,7 +37,7 @@ export interface Config {
     sentry?: { dsn: string; environment: string };
   };
   /**
-   * The owners' and staff web app at /app (OWNER_APP=true): dashboard, inbox,
+   * The owners' and staff web app at /home (OWNER_APP=true): dashboard, inbox,
    * orders, price list, delivery, posters, exports and settings for each
    * quote business. Needs migration 0049.
    */

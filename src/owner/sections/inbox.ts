@@ -15,14 +15,14 @@ const MAX_REPLY = 4096;
 
 export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
   const off = (c: AppContext) =>
-    ctx.render(c, "Inbox", "/app/inbox", `<p>The inbox isn't switched on yet. Please ask yarnOga support to switch it on.</p>`);
+    ctx.render(c, "Inbox", "/home/inbox", `<p>The inbox isn't switched on yet. Please ask yarnOga support to switch it on.</p>`);
 
   app.get("/inbox", async (c) => {
     const inbox = ctx.deps.inbox;
     if (!inbox) return off(c);
     const biz = c.get("biz");
     if (biz.features && !(await biz.features.has("staff_inbox"))) {
-      return ctx.render(c, "Inbox", "/app/inbox", `<p>The inbox comes with Standard and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
+      return ctx.render(c, "Inbox", "/home/inbox", `<p>The inbox comes with Standard and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
     const chats = (await inbox.store.listChats(150, { numberId: biz.numberId, includeUnnumbered: biz.includeUnnumbered })).filter(
@@ -33,7 +33,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
         const preview = chat.lastBody ? chat.lastBody.slice(0, 90) : `[${chat.lastType}]`;
         const waiting = chat.lastDirection === "inbound";
         const name = chat.name ?? showWaId(chat.waId);
-        return `<a class="chatrow${waiting ? " new" : ""}" href="/app/inbox/${chat.contactId}"><span class="avatar">${esc(initials(name))}</span>
+        return `<a class="chatrow${waiting ? " new" : ""}" href="/home/inbox/${chat.contactId}"><span class="avatar">${esc(initials(name))}</span>
 <span class="body"><span class="line1"><b>${esc(name)}</b><span class="muted small">${esc(when(chat.lastAt, ctx.now()))}</span></span>
 <span class="preview">${waiting ? '<i class="dot lime"></i>' : "You: "}${esc(preview)}</span></span></a>`;
       })
@@ -41,7 +41,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
     return ctx.render(
       c,
       "Inbox",
-      "/app/inbox",
+      "/home/inbox",
       `<form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search by name or number" aria-label="Search chats"><button class="ghost">Search</button></form>
 <div class="list">${rows || `<p style="padding:14px" class="muted">No chats yet.</p>`}</div>`,
     );
@@ -58,12 +58,12 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
     ]);
     // Only someone who has written to this business's number.
     if (!contact || !messages.some((m) => m.direction === "inbound")) return null;
-    return { inbox, contactId, contact, messages, numberId: biz.numberId, base: `/app/inbox/${contactId}` };
+    return { inbox, contactId, contact, messages, numberId: biz.numberId, base: `/home/inbox/${contactId}` };
   }
 
   app.get("/inbox/:contactId", async (c) => {
     const chat = await findChat(c);
-    if (!chat) return ctx.render(c, "Chat not found", "/app/inbox", `<p>That chat isn't here. <a href="/app/inbox">Back to the inbox</a></p>`, 404);
+    if (!chat) return ctx.render(c, "Chat not found", "/home/inbox", `<p>That chat isn't here. <a href="/home/inbox">Back to the inbox</a></p>`, 404);
     const [pause, canReply] = await Promise.all([
       chat.inbox.messages.botPause(chat.contactId, chat.numberId),
       canMessageFreely(chat.inbox.messages, chat.contact.waId, ctx.now()),
@@ -86,7 +86,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
       ? `<form method="post" action="${chat.base}/reply"><label for="t">Reply as a person</label><textarea id="t" name="text" maxlength="${MAX_REPLY}" required></textarea>
 <div class="actions"><button>Send</button></div><p class="muted small">Sending a reply takes the chat over from the bot.</p></form>`
       : `<p class="flash bad">The customer last wrote more than a day ago, so WhatsApp won't deliver a reply until they write again.</p>`;
-    return ctx.render(c, title, "/app/inbox", `<p><a href="/app/inbox">← All chats</a></p><div class="chat">${bubbles}</div>${control}${reply}`);
+    return ctx.render(c, title, "/home/inbox", `<p><a href="/home/inbox">← All chats</a></p><div class="chat">${bubbles}</div>${control}${reply}`);
   });
 
   app.post("/inbox/:contactId/reply", async (c) => {

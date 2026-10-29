@@ -26,7 +26,7 @@ kobo); the AI never sets a price. Money is typed in naira and saved in kobo.
   **app** to the business's WhatsApp number from their own phone. The bot
   replies with a link that works once, for 15 minutes.
 - **With a password:** once set in Settings > Your password, log in at
-  `/app/login` with the WhatsApp number and password.
+  `/home/login` with the WhatsApp number and password.
 - The owner is whoever's number is the business's owner number. Staff are
   added in Settings > Team.
 - Guessing is slowed down: after 5 wrong passwords from one address, or for one

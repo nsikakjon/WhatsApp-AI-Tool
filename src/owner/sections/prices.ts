@@ -108,8 +108,8 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
         const price = from.length ? `from ${formatMoney(Math.min(...from), biz.currency)}${p.unit ? ` per ${esc(p.unit)}` : ""}` : "priced by the team";
         const min = Math.min(...p.options.map((o) => o.minQuantity));
         const stockLow = p.options.some((o) => o.stock !== null && o.stock <= 5);
-        const photo = p.photoPath && biz.photos ? `<img class="thumb" src="/app/prices/${p.id}/photo" alt="" loading="lazy">` : `<div class="thumb">${esc(p.name.slice(0, 1).toUpperCase())}</div>`;
-        return `<a class="card product" href="/app/prices/${p.id}">${photo}<div style="min-width:0"><b>${esc(p.name)}</b>
+        const photo = p.photoPath && biz.photos ? `<img class="thumb" src="/home/prices/${p.id}/photo" alt="" loading="lazy">` : `<div class="thumb">${esc(p.name.slice(0, 1).toUpperCase())}</div>`;
+        return `<a class="card product" href="/home/prices/${p.id}">${photo}<div style="min-width:0"><b>${esc(p.name)}</b>
 <p class="price">${price}</p>
 <p class="muted small" style="margin:0">${p.category ? `<span class="tag">${esc(p.category)}</span> ` : ""}${stockLow ? '<span class="tag red">low stock</span> ' : ""}${p.options.length} option${p.options.length === 1 ? "" : "s"} · min ${min}</p></div></a>`;
       })
@@ -117,10 +117,10 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
     return ctx.render(
       c,
       "Price list",
-      "/app/prices",
+      "/home/prices",
       `<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
-<a class="button" href="/app/prices/new">${icon("plus", 18)}Add a product</a></div>
-<div class="cards">${cards || `<p class="muted">No products yet. <a href="/app/prices/new">Add your first one</a>.</p>`}</div>
+<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a></div>
+<div class="cards">${cards || `<p class="muted">No products yet. <a href="/home/prices/new">Add your first one</a>.</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
     );
   });
@@ -146,17 +146,17 @@ ${o?.id ? `<input type="hidden" name="o${i}_id" value="${o.id}">` : ""}
 <p style="margin:12px 0 4px"><b>Price each</b> <span class="muted small">Cheaper for bigger orders? Add a second price from a higher quantity.</span></p>
 <table class="tiers"><tr><th>From quantity</th><th>Price each (${currencySign(biz.currency)})</th></tr>${tiers}</table></fieldset>`;
     }).join("");
-    const action = product ? `/app/prices/${product.id}` : "/app/prices/new";
+    const action = product ? `/home/prices/${product.id}` : "/home/prices/new";
     const photo =
       biz.photos
         ? `<label>Photo <span class="muted">(JPEG or PNG, up to 5 MB; customers see it on product cards)</span>
-${product?.photoPath ? `<img class="thumb" src="/app/prices/${product.id}/photo" alt="Current photo" style="width:120px;height:120px;display:block;margin:6px 0">` : ""}
+${product?.photoPath ? `<img class="thumb" src="/home/prices/${product.id}/photo" alt="Current photo" style="width:120px;height:120px;display:block;margin:6px 0">` : ""}
 <input type="file" name="photo" accept="image/jpeg,image/png"></label>`
         : "";
     return ctx.render(
       c,
       product ? product.name : "Add a product",
-      "/app/prices",
+      "/home/prices",
       `${problems.length ? `<div class="flash bad"><p><b>Please fix:</b></p><ul>${problems.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
 <form method="post" action="${action}" enctype="multipart/form-data">
 <label for="n">Product name</label><input id="n" name="name" required maxlength="80" value="${v(p?.name)}" placeholder="e.g. Flyers">
@@ -166,10 +166,10 @@ ${product?.photoPath ? `<img class="thumb" src="/app/prices/${product.id}/photo"
 <label>Production time <span class="muted">(days)</span><input name="lead" inputmode="numeric" value="${v(p?.leadTimeDays)}" placeholder="e.g. 2"></label></div>
 ${photo}
 <h2>Options and prices</h2>${optionRows}
-<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/app/prices/${product.id}` : "/app/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/app/prices">Cancel</a></div>
+<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>
 <p class="muted small">Leave an option's prices empty if your team prices it case by case: the bot then tells the customer someone will confirm the price.</p>
 </form>
-${product ? `<form method="post" action="/app/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
+${product ? `<form method="post" action="/home/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
       problems.length ? 400 : 200,
     );
   };
@@ -181,14 +181,14 @@ ${product ? `<form method="post" action="/app/prices/${product.id}/remove" style
   app.get("/prices/:id", async (c) => {
     const id = c.req.param("id");
     const product = UUID.test(id) ? await c.get("biz").prices.product(id) : null;
-    if (!product) return ctx.render(c, "Not found", "/app/prices", `<p>That product isn't on your list. <a href="/app/prices">Back</a></p>`, 404);
+    if (!product) return ctx.render(c, "Not found", "/home/prices", `<p>That product isn't on your list. <a href="/home/prices">Back</a></p>`, 404);
     return formPage(c, product, null, [], extraSlots(c));
   });
 
   async function save(c: AppContext, id: string | null) {
     const biz = c.get("biz");
     const existing = id ? await biz.prices.product(id) : null;
-    if (id && !existing) return c.redirect("/app/prices", 303);
+    if (id && !existing) return c.redirect("/home/prices", 303);
     const form = (await c.req.parseBody()) as Record<string, unknown>;
     const { input, problems } = readProductForm(form, biz.currency);
     let photo: { data: Uint8Array; type: "image/jpeg" | "image/png" } | null = null;
@@ -212,16 +212,16 @@ ${product ? `<form method="post" action="/app/prices/${product.id}/remove" style
     }
     if (photo && biz.photos) await biz.photos.savePhoto(productId, photo.data, photo.type);
     ctx.log.info(`Owner app: ${biz.name} saved product "${input.name}"`);
-    return c.redirect("/app/prices?msg=saved", 303);
+    return c.redirect("/home/prices?msg=saved", 303);
   }
 
   app.post("/prices/new", (c) => save(c, null));
-  app.post("/prices/:id", (c) => (UUID.test(c.req.param("id")) ? save(c, c.req.param("id")) : c.redirect("/app/prices", 303)));
+  app.post("/prices/:id", (c) => (UUID.test(c.req.param("id")) ? save(c, c.req.param("id")) : c.redirect("/home/prices", 303)));
 
   app.post("/prices/:id/remove", async (c) => {
     const id = c.req.param("id");
     if (UUID.test(id)) await c.get("biz").prices.remove(id);
-    return c.redirect("/app/prices?msg=removed", 303);
+    return c.redirect("/home/prices?msg=removed", 303);
   });
 
   app.get("/prices/:id/photo", async (c) => {

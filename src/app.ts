@@ -29,7 +29,7 @@ export function createApp(
   more: {
     /** Checks behind /health/full and /status. Without them, /health alone. */
     health?: HealthDeps;
-    /** The owners' and staff web app at /app (OWNER_APP). */
+    /** The owners' and staff web app at /home (OWNER_APP). */
     ownerApp?: OwnerAppDeps;
     /** Jay's business verification page at /compliance (COMPLIANCE_PASSWORD). */
     compliance?: ComplianceDeps;
@@ -76,10 +76,16 @@ export function createApp(
 
   // The owners' and staff web app (app.yarnoga.com), only when OWNER_APP is on.
   if (more.ownerApp) {
-    app.get("/app/", (c) => c.redirect("/app", 301));
-    app.route("/app", createOwnerApp(more.ownerApp));
+    app.get("/home/", (c) => c.redirect("/home", 301));
+    app.route("/home", createOwnerApp(more.ownerApp));
+    // The app used to live at /app; links already sent on WhatsApp still work.
+    app.get("/app/*", (c) => {
+      const url = new URL(c.req.url);
+      return c.redirect(`/home${url.pathname.slice(4)}${url.search}`, 301);
+    });
+    app.get("/app", (c) => c.redirect("/home", 301));
     // app.yarnoga.com on its own opens the app.
-    app.get("/", (c) => (new URL(c.req.url).hostname.startsWith("app.") ? c.redirect("/app", 302) : c.notFound()));
+    app.get("/", (c) => (new URL(c.req.url).hostname.startsWith("app.") ? c.redirect("/home", 302) : c.notFound()));
   }
 
   if (more.compliance) app.route("/compliance", createCompliance(more.compliance));

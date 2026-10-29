@@ -91,5 +91,5 @@ the current files, which use the Railway address, keep working.
 
 ## 7. Bookmarks
 
-Use `https://app.yarnoga.com/inbox`, `/dashboard`, `/quote-setup` and `/app`.
+Use `https://app.yarnoga.com/inbox`, `/dashboard`, `/quote-setup` and `/home` (the owner app; old `/app` links still work).
 Each asks you to log in once on the new address.

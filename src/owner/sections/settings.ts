@@ -86,8 +86,8 @@ ${
     const bankRows = banks
       .map(
         (b) => `<tr><td><b>${esc(b.bankName)}</b><br>${esc(b.accountNumber)} · ${esc(b.accountName)}</td>
-<td>${b.isPrimary ? '<span class="tag lime">On invoices</span>' : `<form method="post" action="/app/settings/banks/${b.id}/primary"><button class="ghost small">Use on invoices</button></form>`}</td>
-<td><form method="post" action="/app/settings/banks/${b.id}/remove"><button class="danger small">Remove</button></form></td></tr>`,
+<td>${b.isPrimary ? '<span class="tag lime">On invoices</span>' : `<form method="post" action="/home/settings/banks/${b.id}/primary"><button class="ghost small">Use on invoices</button></form>`}</td>
+<td><form method="post" action="/home/settings/banks/${b.id}/remove"><button class="danger small">Remove</button></form></td></tr>`,
       )
       .join("");
     const bankList = ctx.deps.banks ? await ctx.deps.banks.banks().catch(() => []) : [];
@@ -98,7 +98,7 @@ ${
     const alertRows = [
       ...(info?.ownerWaId ? [`<tr><td>${esc(showWaId(info.ownerWaId))}</td><td>Owner (main alert number)</td><td></td></tr>`] : []),
       ...alerts.map(
-        (a) => `<tr><td>${esc(showWaId(a.waId))}</td><td>${esc(a.name ?? "")}</td><td><form method="post" action="/app/settings/alerts/${a.id}/remove"><button class="danger small">Remove</button></form></td></tr>`,
+        (a) => `<tr><td>${esc(showWaId(a.waId))}</td><td>${esc(a.name ?? "")}</td><td><form method="post" action="/home/settings/alerts/${a.id}/remove"><button class="danger small">Remove</button></form></td></tr>`,
       ),
     ].join("");
 
@@ -106,19 +106,19 @@ ${
       .map(
         (m) => `<tr><td>${esc(m.name ?? "")}${m.id === user.id ? ' <span class="tag">you</span>' : ""}</td><td>${esc(showWaId(m.waId))}</td><td>${m.role === "owner" ? "Owner" : "Staff"}</td>
 <td class="muted small">${m.lastLoginAt ? esc(m.lastLoginAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })) : "never"}</td>
-<td>${m.role === "staff" ? `<form method="post" action="/app/settings/team/${m.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
+<td>${m.role === "staff" ? `<form method="post" action="/home/settings/team/${m.id}/remove"><button class="danger small">Remove</button></form>` : ""}</td></tr>`,
       )
       .join("");
 
     const body = `${envNote}
 <h2 id="business">Business details</h2>
-<form method="post" action="/app/settings/business" enctype="multipart/form-data" class="card">
+<form method="post" action="/home/settings/business" enctype="multipart/form-data" class="card">
 <label>Business name<input name="name" required maxlength="80" value="${v(info?.name ?? biz.name)}"${biz.fromEnv ? " disabled" : ""}></label>
 <label>What you do <span class="muted">(helps the AI understand customers, e.g. "a print shop in Ikeja")</span><input name="description" maxlength="200" value="${v(info?.description)}"${biz.fromEnv ? " disabled" : ""}></label>
 <label>Address and phone <span class="muted">(printed on invoices and receipts)</span><textarea name="details" maxlength="400"${biz.fromEnv ? " disabled" : ""}>${v(info?.businessDetails)}</textarea></label>
 <div class="row"><label>Your WhatsApp business number <span class="muted">(the one customers message; used on posters)</span><input name="whatsapp" inputmode="tel" value="${v(info?.whatsappNumber ? showWaId(info.whatsappNumber) : "")}" placeholder="0801 234 5678"></label>
 <label>Owner's number <span class="muted">(gets new-order alerts and owner commands)</span><input name="owner" inputmode="tel" value="${v(info?.ownerWaId ? showWaId(info.ownerWaId) : "")}"${biz.fromEnv ? " disabled" : ""}></label></div>
-<label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/app/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
+<label>Logo <span class="muted">(JPEG or PNG; on invoices, receipts and posters)</span>${logo ? `<img src="/home/settings/logo" alt="Current logo" style="max-height:80px;display:block;margin:6px 0;background:#fff;border-radius:6px;padding:4px">` : ""}<input type="file" name="logo" accept="image/jpeg,image/png"></label>
 <div class="actions"><button>Save details</button></div></form>
 
 ${aboutForm(about)}
@@ -126,7 +126,7 @@ ${aboutForm(about)}
 ${care ? careForm(care, await careOnPlan(biz.features)) : ""}
 
 <h2 id="language">Language and currency</h2>
-<form method="post" action="/app/settings/language" class="card">
+<form method="post" action="/home/settings/language" class="card">
 <div class="row"><label>Bot language <span class="muted">(your messages and invoices; customers who write in French or English always get replies in their own language)</span>
 <select name="language"${biz.fromEnv ? " disabled" : ""}>${option("en", "English", biz.language)}${option("fr", "Français (French)", biz.language)}</select></label>
 <label>Currency <span class="muted">(your prices are in this currency)</span>
@@ -139,7 +139,7 @@ ${care ? careForm(care, await careOnPlan(biz.features)) : ""}
 <p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (On the main number, invoices still show the details set by yarnOga until support updates them.)" : ""}</p>
 <div class="scroll"><table>${bankRows || `<tr><td class="muted">No bank accounts yet.</td></tr>`}</table></div>
 <details class="card" style="margin-top:12px"${banks.length ? "" : " open"}><summary><b>Add a bank account</b></summary>
-<form method="post" action="/app/settings/banks"><label>Bank${bankInput}</label>
+<form method="post" action="/home/settings/banks"><label>Bank${bankInput}</label>
 <div class="row"><label>Account number<input name="number" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required placeholder="10 digits"></label>
 <label>Account name ${bankList.length ? '<span class="muted">(checked with your bank)</span>' : ""}<input name="account_name" maxlength="100"${bankList.length ? "" : " required"}></label></div>
 <div class="actions"><button>Add account</button></div></form></details>
@@ -148,25 +148,25 @@ ${feeNote}
 <h2 id="alerts">Alert numbers</h2>
 <p class="muted">Who gets a WhatsApp message for each new order, payment and customer who asks for a person. Each number should send <b>hi</b> to your business number once, so WhatsApp lets alerts through.</p>
 <div class="scroll"><table>${alertRows || `<tr><td class="muted">No alert numbers yet.</td></tr>`}</table></div>
-<form method="post" action="/app/settings/alerts" class="card" style="margin-top:12px"><div class="row">
+<form method="post" action="/home/settings/alerts" class="card" style="margin-top:12px"><div class="row">
 <label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label><label>Name <span class="muted">(optional)</span><input name="name" maxlength="60" placeholder="e.g. Shop manager"></label></div>
 <div class="actions"><button>Add alert number</button></div></form>
 
 <h2 id="team">Team</h2>
 <p class="muted">Staff log in by sending <b>app</b> to your business number from their own WhatsApp. They can use the inbox, orders, price list, delivery, posters and bot test, but not settings or exports.</p>
 <div class="scroll"><table><tr><th>Name</th><th>WhatsApp</th><th>Role</th><th>Last login</th><th></th></tr>${teamRows}</table></div>
-<form method="post" action="/app/settings/team" class="card" style="margin-top:12px"><div class="row">
+<form method="post" action="/home/settings/team" class="card" style="margin-top:12px"><div class="row">
 <label>Name<input name="name" required maxlength="60"></label><label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label></div>
 <div class="actions"><button>Add staff member</button></div></form>
 
 <h2 id="password">Your password</h2>
 <p class="muted">${user.passwordHash ? "You have a password. Setting a new one logs out your other logins." : "Set one to log in with your number and password, without WhatsApp."}</p>
-<form method="post" action="/app/settings/password" class="card"><input type="hidden" name="username" value="${esc(user.waId)}" autocomplete="username">
+<form method="post" action="/home/settings/password" class="card"><input type="hidden" name="username" value="${esc(user.waId)}" autocomplete="username">
 <label>New password <span class="muted">(at least 10 characters)</span><input type="password" name="password" required minlength="10" autocomplete="new-password"></label>
 <label>Type it again<input type="password" name="again" required minlength="10" autocomplete="new-password"></label>
 <div class="actions"><button>Save password</button></div></form>
-<form method="post" action="/app/settings/logout-all" style="margin-top:12px"><button class="ghost small">Log out everywhere else</button></form>`;
-    return ctx.render(c, "Settings", "/app/settings", body);
+<form method="post" action="/home/settings/logout-all" style="margin-top:12px"><button class="ghost small">Log out everywhere else</button></form>`;
+    return ctx.render(c, "Settings", "/home/settings", body);
   });
 
   app.get("/settings/logo", async (c) => {
@@ -176,7 +176,7 @@ ${feeNote}
     return c.body(logo as unknown as ArrayBuffer, 200, { "Content-Type": type });
   });
 
-  const done = (c: AppContext, msg: string, anchor = "") => c.redirect(`/app/settings?msg=${msg}${anchor}`, 303);
+  const done = (c: AppContext, msg: string, anchor = "") => c.redirect(`/home/settings?msg=${msg}${anchor}`, 303);
 
   app.post("/settings/business", async (c) => {
     const biz = c.get("biz");
@@ -266,7 +266,7 @@ ${feeNote}
       // The bank's own name for the account, so a typo can't send customers' money elsewhere.
       const resolved = await ctx.deps.banks.resolve(number, bankCode).catch(() => null);
       if (!resolved) {
-        return ctx.render(c, "Settings", "/app/settings", `<p class="flash bad">${esc(bankName)} couldn't find account ${esc(number)}. Please check the number and the bank.</p><p><a href="/app/settings#banks">Back to settings</a></p>`, 400);
+        return ctx.render(c, "Settings", "/home/settings", `<p class="flash bad">${esc(bankName)} couldn't find account ${esc(number)}. Please check the number and the bank.</p><p><a href="/home/settings#banks">Back to settings</a></p>`, 400);
       }
       accountName = resolved;
     }
@@ -320,7 +320,7 @@ ${feeNote}
     const again = typeof form.again === "string" ? form.again : "";
     const problem = password !== again ? "The two passwords don't match." : passwordProblem(password, user.waId);
     if (problem) {
-      return ctx.render(c, "Settings", "/app/settings", `<p class="flash bad">${esc(problem)}</p><p><a href="/app/settings#password">Back to settings</a></p>`, 400);
+      return ctx.render(c, "Settings", "/home/settings", `<p class="flash bad">${esc(problem)}</p><p><a href="/home/settings#password">Back to settings</a></p>`, 400);
     }
     await ctx.deps.users.setPassword(user.waId, await hashPassword(password));
     // This browser stays logged in with the new epoch.
@@ -358,7 +358,7 @@ function aboutForm(about: BusinessAbout | null): string {
     })
     .join("");
   return `<h2 id="about">About your business</h2>
-<form method="post" action="/app/settings/about" class="card">
+<form method="post" action="/home/settings/about" class="card">
 <label>What customers often ask <span class="muted">(where you are, landmarks, delivery days, returns, how long orders take; don't put prices here, they come from your price list)</span>
 <textarea name="about" maxlength="1500" rows="6" placeholder="e.g. We're at 12 Allen Avenue, Ikeja, opposite the filling station. Orders are ready in 2 working days. We deliver Monday to Saturday. Returns within 7 days with the receipt.">${esc(about?.text ?? "")}</textarea></label>
 <p style="margin:14px 0 6px"><b>Opening hours</b> <span class="muted small">(Lagos time; outside these hours the bot tells customers when you open again)</span></p>
@@ -379,7 +379,7 @@ function careForm(care: CareSettings, onPlan: Record<keyof CareSettings, true | 
       ? `<label class="check" style="align-items:flex-start"><input type="checkbox" name="${name}" value="on"${care[name] ? " checked" : ""} style="margin-top:4px"> <span><b>${title}</b><br><span class="muted small">${note}</span></span></label>`
       : `<label class="check" style="align-items:flex-start"><input type="checkbox" disabled style="margin-top:4px"> <span><b>${title}</b> <span class="muted small">(comes with ${onPlan[name]} and above; send <b>plan</b> to your bot to upgrade)</span><br><span class="muted small">${note}</span></span></label>`;
   return `<h2 id="care">Messages the bot sends for you</h2>
-<form method="post" action="/app/settings/care" class="card">
+<form method="post" action="/home/settings/care" class="card">
 ${box("payReminders", "Remind customers who haven't paid", "At most two friendly reminders with the pay link, about 3 and 20 hours after they confirm.")}
 ${box("ratings", "Ask customers how it went", "Once per paid order, with Great / OK / Not good buttons. You hear about a \"Not good\" straight away.")}
 ${box("dailySummary", "Morning summary to me", "Yesterday's orders, money in, unpaid orders and low stock at 8am. Tap \"Got it\" to keep it coming.")}
