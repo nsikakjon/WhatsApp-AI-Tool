@@ -115,6 +115,7 @@ export interface OwnerMenu {
   referral: boolean;
   delivery: boolean;
   walkIn?: boolean;
+  shop?: boolean;
 }
 
 export function ownerMenu(m: OwnerMenu): string {
@@ -124,6 +125,7 @@ export function ownerMenu(m: OwnerMenu): string {
     return [
       "Vos commandes de propriétaire :",
       ...(m.ordersLink ? ["• *orders* : votre tableau des commandes et des ventes"] : []),
+      ...(m.shop ? ["• *shop* : le lien de votre boutique, pour Instagram et votre statut"] : []),
       `• *paid ${order}* : marque une commande payée${m.invoices ? " et envoie le reçu au client" : ""}`,
       ...(m.invoices ? [`• *invoice ${order}* ou *receipt ${order}* : une copie pour vous`] : []),
       ...(m.logo ? ["• une image avec la légende *logo* : votre logo sur les factures et reçus"] : []),
@@ -140,6 +142,7 @@ export function ownerMenu(m: OwnerMenu): string {
   return [
     "Your owner commands:",
     ...(m.ordersLink ? ["• *orders*: your order board and sales"] : []),
+    ...(m.shop ? ["• *shop*: your shop link, for Instagram and your status"] : []),
     `• *paid ${order}*: marks an order paid${m.invoices ? " and sends the customer a receipt" : ""}`,
     ...(m.invoices ? [`• *invoice ${order}* or *receipt ${order}*: a copy for you`] : []),
     ...(m.logo ? ["• a picture captioned *logo*: your logo on invoices and receipts"] : []),

@@ -114,6 +114,8 @@ export interface QuoteProductOptions {
   sheets?: { ownerCommand(msg: IncomingMessage): Promise<Reply | null> };
   /** The owner's private orders page (board.ts), sent when they send "orders". */
   ordersLink?: string;
+  /** The public shop page (shop.ts): "shop" sends its link, "shop link <name>" changes it. */
+  shop?: { ownerCommand(msg: IncomingMessage): Promise<string | null> };
   /** The business's discount codes for its customers (discounts.ts). Without it, codes aren't read. */
   discounts?: DiscountStore;
   /** The owner's "referral" reply: their referral code and how often it's been used (referrals.ts). */
@@ -725,6 +727,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (catalogueReply) return catalogueReply;
     const walkInReply = opts.walkIn ? await opts.walkIn.ownerCommand(msg) : null;
     if (walkInReply) return walkInReply;
+    const shopReply = opts.shop ? await opts.shop.ownerCommand(msg) : null;
+    if (shopReply) return { text: shopReply };
     const caption = (msg.caption ?? "").trim();
     if ((msg.type === "image" || msg.type === "document") && msg.mediaId) {
       if (!/^logo$/i.test(caption)) {
@@ -764,6 +768,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           referral: !!opts.referral,
           delivery: !!opts.delivery && (await deliveryOnPlan()),
           walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
+          shop: !!opts.shop,
         }),
       };
     }

@@ -14,6 +14,7 @@ import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
 import { createEmailRoutes } from "./core/email/routes.js";
+import { createShopPage, type ShopDeps } from "./products/quote/shop.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -36,6 +37,8 @@ export function createApp(
     compliance?: ComplianceDeps;
     /** The unsubscribe page and email pictures at /email (EMAILS_ENABLED). */
     emails?: Parameters<typeof createEmailRoutes>[0];
+    /** Each quote business's public shop page at /shop/<name> (QUOTE_SHOP). */
+    shop?: ShopDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -94,6 +97,8 @@ export function createApp(
   if (more.compliance) app.route("/compliance", createCompliance(more.compliance));
 
   if (more.emails) app.route("/email", createEmailRoutes(more.emails));
+
+  if (more.shop) app.route("/", createShopPage(more.shop));
 
   return app;
 }
