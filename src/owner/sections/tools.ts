@@ -85,6 +85,34 @@ ${result}
     }
   });
 
+  // ---- Shop link (on the posters page: both are ways to share the business) ----
+  const shopCard = async (c: AppContext) => {
+    if (!ctx.deps.shop) return "";
+    const biz = c.get("biz");
+    try {
+      const link = await ctx.deps.shop.link(biz.id, biz.name);
+      const slug = link.slice(link.lastIndexOf("/") + 1);
+      const rename = c.get("user").role === "owner"
+        ? `<form method="post" action="/home/posters/shop-name"><label>Change the name in the link<input name="slug" maxlength="40" value="${esc(slug)}" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" required></label>
+<div class="actions"><button class="ghost small">Save</button></div></form>`
+        : "";
+      return `<div class="card"><h2 style="margin-top:0">Your shop link</h2>
+<p>Put it in your Instagram bio, on your WhatsApp status or on flyers. Customers see your products and prices, pick how many, and WhatsApp opens with their order already typed.</p>
+<p style="word-break:break-all"><a href="${esc(link)}" target="_blank" rel="noopener"><b>${esc(link)}</b></a></p>${rename}</div>`;
+    } catch (err) {
+      ctx.log.error("Owner app: shop link failed:", err);
+      return "";
+    }
+  };
+
+  app.post("/posters/shop-name", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    if (!ctx.deps.shop) return c.notFound();
+    const result = await ctx.deps.shop.rename(c.get("biz").id, field(await c.req.parseBody(), "slug", 60));
+    return c.redirect(`/home/posters?msg=${result.ok ? "shop_renamed" : result.reason === "taken" ? "shop_taken" : "shop_name"}`, 303);
+  });
+
   // ---- QR posters ----
   const posterInput = async (c: AppContext) => {
     const biz = c.get("biz");
@@ -104,12 +132,13 @@ ${result}
 
   app.get("/posters", async (c) => {
     const p = await posterInput(c);
+    const shop = await shopCard(c);
     if (!p.whatsappNumber) {
       return ctx.render(
         c,
         "QR posters",
         "/home/posters",
-        `<p>Posters need the WhatsApp number your customers message. ${c.get("user").role === "owner" ? `<a href="/home/settings">Add it in Settings</a>` : "Ask the owner to add it in Settings"}, then come back.</p>`,
+        `${shop}<p>Posters need the WhatsApp number your customers message. ${c.get("user").role === "owner" ? `<a href="/home/settings">Add it in Settings</a>` : "Ask the owner to add it in Settings"}, then come back.</p>`,
       );
     }
     const qs = (o: Orientation, ext: string) =>
@@ -121,7 +150,7 @@ ${result}
       c,
       "QR posters",
       "/home/posters",
-      `<p>Put these at your counter, door or window. Customers scan the code with their phone camera and a WhatsApp chat with your bot opens, with a greeting already typed.</p>
+      `${shop}<p>Put these at your counter, door or window. Customers scan the code with their phone camera and a WhatsApp chat with your bot opens, with a greeting already typed.</p>
 <form method="get" class="card"><div class="row">
 <label>Language<select name="lang"><option value="en"${p.lang === "en" ? " selected" : ""}>English</option><option value="fr"${p.lang === "fr" ? " selected" : ""}>Français</option></select></label>
 <label>Colour<input type="color" name="colour" value="${esc(p.colour)}" style="height:44px"></label></div>
