@@ -45,7 +45,7 @@ page; removing someone logs them out at once.
 | Owner   | Everything                                                                    |
 | Manager | Everything except Settings, Export and Verify business                        |
 | Cashier | Inbox, Orders (can mark paid), Customers, the price list to read. No takings   |
-| Rider   | The order board and Riders & delivery. No chats, prices or takings            |
+| Rider   | The order board and Riders & delivery. No chats, price list or takings        |
 
 "Takings" means the business's money figures: paid in this month, amounts
 owed, column totals on the order board, what each customer has spent and plan

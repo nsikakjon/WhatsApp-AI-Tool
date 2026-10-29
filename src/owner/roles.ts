@@ -46,7 +46,7 @@ export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Mana
 export const ROLE_HELP: Record<StaffRole, string> = {
   manager: "everything except Settings, Export and Verify business",
   cashier: "Inbox, Orders (can mark paid), Customers and the price list to read; no takings or totals",
-  rider: "the order board and deliveries; no chats, takings or prices (to send them jobs, add them under Riders & delivery too)",
+  rider: "the order board and deliveries; no chats, takings or price list (to send them jobs, add them under Riders & delivery too)",
 };
 
 /** A role read from the database. Rows from before migration 0058 say "staff", which is today's manager. */
