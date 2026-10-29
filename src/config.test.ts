@@ -17,6 +17,20 @@ describe("loadConfig", () => {
     expect(config.quote).toBeUndefined();
   });
 
+  it("switches the emails on only with a Resend key, from yarnOga's own address", () => {
+    expect(loadConfig(base).emails).toBeUndefined();
+    expect(() => loadConfig({ ...base, EMAILS_ENABLED: "true", PUBLIC_URL: "https://app.yarnoga.com" })).toThrow(/RESEND_API_KEY/);
+    const config = loadConfig({ ...base, EMAILS_ENABLED: "true", RESEND_API_KEY: "re_x", PUBLIC_URL: "https://app.yarnoga.com" });
+    expect(config.emails).toEqual({
+      apiKey: "re_x",
+      from: "Nsikak John at yarnOga <hello@updates.yarnoga.com>",
+      replyTo: "support@yarnoga.com",
+      publicUrl: "https://app.yarnoga.com",
+      perDay: 90,
+    });
+    expect(() => loadConfig({ ...base, EMAILS_ENABLED: "true", RESEND_API_KEY: "re_x", PUBLIC_URL: "https://app.yarnoga.com", EMAIL_FROM: "yarnOga" })).toThrow(/EMAIL_FROM/);
+  });
+
   it("requires an Anthropic key for the quote bot", () => {
     expect(() => loadConfig({ ...base, ACTIVE_PRODUCT: "quote" })).toThrow("ANTHROPIC_API_KEY");
   });

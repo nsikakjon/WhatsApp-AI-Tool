@@ -64,6 +64,16 @@ import { createLeadQualifier } from "./products/leads/index.js";
 import { createSupabaseLeadStore } from "./products/leads/store.js";
 import { createClaudeLeadUnderstander } from "./products/leads/understand.js";
 import { runEvery } from "./core/schedule.js";
+import { createEmailAsker, withEmailReplies } from "./core/email/ask.js";
+import { resendSender } from "./core/email/resend.js";
+import { emailLinks } from "./core/email/routes.js";
+import { sendDueEmails, type SeriesBook } from "./core/email/series.js";
+import { createEmailSettings } from "./core/email/settings.js";
+import { createSupabaseEmails } from "./core/email/store.js";
+import { createSupabaseQuoteEmailFacts, localNumber, quoteEmails } from "./products/quote/emails.js";
+import { createSupabaseFlyerEmailFacts, flyerEmails } from "./products/flyer/emails.js";
+import { createSupabaseSiteEmailFacts, siteEmails } from "./products/site/emails.js";
+import { leadsEmails } from "./products/leads/emails.js";
 import { createTestBots } from "./bottest/bots.js";
 import { loadBotTestConfig } from "./bottest/config.js";
 import { createBotTest } from "./bottest/index.js";
@@ -115,6 +125,14 @@ const config = loadConfig();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey, {
   auth: { persistSession: false },
 });
+
+// yarnOga's own welcome and setup-tip emails to our customers (EMAILS_ENABLED,
+// docs/EMAILS.md): the bots ask for an email after a first success, and a
+// timer further down sends the series.
+const emailConfig = config.emails;
+const emailStore = emailConfig ? createSupabaseEmails(supabase) : undefined;
+const emailAsker = emailStore && createEmailAsker(emailStore);
+const emailSettings = emailStore && createEmailSettings(emailStore);
 
 // With QUOTE_MULTI_BUSINESS on, business #1 (the main number) only sees its
 // own price list and orders. With it off, nothing looks at businesses at all.
@@ -518,6 +536,16 @@ if (chatSignup && quoteBusinesses) {
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
     sheets: sheetSync,
+    askEmail: emailAsker
+      ? ({ waId, businessId }) =>
+          emailAsker.ask({
+            product: "quote",
+            accountId: businessId,
+            waId,
+            question: "Want a short email each week showing how to get more orders from your bot?",
+            source: "quote chat sign-up",
+          })
+      : undefined,
     // The owner's own bot with test orders kept in memory; its order alerts go to the owner.
     tryBot: async (businessId, ownerWaId) => {
       const business = await businesses.get(businessId);
@@ -699,6 +727,16 @@ const flyerBot = flyerConfig
       trial: TRIAL,
       payments,
       promos: payments ? createSupabasePromoAdmin(supabase) : undefined,
+      askEmail: emailAsker
+        ? ({ waId, groupId }) =>
+            emailAsker.ask({
+              product: "flyer",
+              accountId: groupId,
+              waId,
+              question: "Want tips by email on getting the whole group in quickly?",
+              source: "flyer chat, third member",
+            })
+        : undefined,
     })
   : undefined;
 if (flyerBot && flyerConfig) {
@@ -771,6 +809,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
         health: () => runChecks(health),
         healthLabels: health.labels,
+        emails: emailSettings,
         verification: {
           store: verifications,
           // Jay hears about each business that sends its details.
@@ -894,6 +933,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
       }
     : undefined;
 
+// "stop emails", and answers to the email question, work on every number.
+const answering = (p: Product): Product => (emailStore ? withEmailReplies(p, { store: emailStore }) : p);
+const routes = {
+  site: siteReporter && answering(siteReporter),
+  leads: leadQualifier && answering(leadQualifier),
+  flyer: flyerBot && answering(flyerBot),
+  main: answering(product),
+};
+
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
   appSecret: config.whatsapp.appSecret,
@@ -902,10 +950,10 @@ const app = createApp({
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
-    if (siteReporter && msg.businessNumberId === siteConfig?.phoneNumberId) return siteReporter;
-    if (leadQualifier && msg.businessNumberId === leadsConfig?.phoneNumberId) return leadQualifier;
-    if (flyerBot && msg.businessNumberId === flyerConfig?.phoneNumberId) return flyerBot;
-    return product;
+    if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
+    if (routes.leads && msg.businessNumberId === leadsConfig?.phoneNumberId) return routes.leads;
+    if (routes.flyer && msg.businessNumberId === flyerConfig?.phoneNumberId) return routes.flyer;
+    return routes.main;
   },
 }, config.dashboard
   ? {
@@ -968,6 +1016,14 @@ const app = createApp({
             }
           }
         : undefined,
+      saveEmail:
+        emailSettings && quoteBusinesses
+          ? async ({ phoneNumberId, email, tips }) => {
+              const business = await createSupabaseBusinesses(supabase).findByPhoneNumberId(phoneNumberId);
+              if (!business) throw new Error(`No business for the number ${phoneNumberId} just connected`);
+              return emailSettings.save({ product: "quote", accountId: business.id, waId: "", email, tips, source: "signup page" });
+            }
+          : undefined,
     }
   : undefined, config.inbox
   ? {
@@ -1073,7 +1129,53 @@ const app = createApp({
         }
       },
     }
-  : undefined, { health, ownerApp: ownerAppDeps, compliance: complianceDeps });
+  : undefined, {
+  health,
+  ownerApp: ownerAppDeps,
+  compliance: complianceDeps,
+  emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
+});
+
+// The welcome and setup-tip emails: every 15 minutes, whatever is due.
+if (emailConfig && emailStore) {
+  // The number customers see, from WhatsApp, kept for the day.
+  const shown = new Map<string, { at: number; number: string | null }>();
+  const displayNumber = async (phoneNumberId: string): Promise<string | null> => {
+    const hit = shown.get(phoneNumberId);
+    if (hit && Date.now() - hit.at < 86_400_000) return hit.number;
+    const res = await fetch(`https://graph.facebook.com/${config.whatsapp.graphApiVersion}/${phoneNumberId}?fields=display_phone_number`, {
+      headers: { Authorization: `Bearer ${config.whatsapp.accessToken}` },
+      signal: AbortSignal.timeout(7000),
+    }).catch(() => null);
+    const body = res?.ok ? ((await res.json().catch(() => ({}))) as { display_phone_number?: string }) : {};
+    const digits = (body.display_phone_number ?? "").replace(/\D/g, "");
+    const number = digits ? localNumber(digits) : null;
+    shown.set(phoneNumberId, { at: Date.now(), number });
+    return number;
+  };
+  const businesses = createSupabaseBusinesses(supabase);
+  const series: SeriesBook = {};
+  if (config.quote || quoteBusinesses) {
+    series.quote = quoteEmails(
+      emailConfig.publicUrl,
+      createSupabaseQuoteEmailFacts(supabase, {
+        main: config.quote && { id: DEFAULT_BUSINESS_ID, name: config.quote.businessName, plan: config.quote.plan, phoneNumberId: config.whatsapp.phoneNumberId },
+        morningSummary: async (id) =>
+          onPlan({ id, branchOf: id === DEFAULT_BUSINESS_ID ? null : ((await businesses.get(id))?.branchOf ?? null) }, "daily_summary"),
+      }),
+    );
+  }
+  if (flyerConfig) series.flyer = flyerEmails(createSupabaseFlyerEmailFacts(supabase));
+  if (siteConfig) series.site = siteEmails(createSupabaseSiteEmailFacts(supabase, () => displayNumber(siteConfig.phoneNumberId)));
+  if (leadsConfig) {
+    series.leads = leadsEmails(async () => ({ live: true, business: leadsConfig.businessName, botNumber: await displayNumber(leadsConfig.phoneNumberId) }));
+  }
+  const send = resendSender({ apiKey: emailConfig.apiKey, from: emailConfig.from, replyTo: emailConfig.replyTo });
+  const links = emailLinks(config.whatsapp.appSecret, emailConfig.publicUrl);
+  runEvery(15 * 60 * 1000, async () => {
+    await sendDueEmails({ store: emailStore, series, send, links, dailyLimit: emailConfig.perDay });
+  });
+}
 
 // Every hour, read the Google Sheets not read in the last day and tell owners about changes.
 if (sheetSync && sheetStore) {
@@ -1358,6 +1460,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

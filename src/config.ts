@@ -48,6 +48,19 @@ export interface Config {
     supportWaId?: string;
   };
   /**
+   * Welcome and setup-tip emails to our own customers through Resend
+   * (EMAILS_ENABLED=true, migration 0057, docs/EMAILS.md).
+   */
+  emails?: {
+    apiKey: string;
+    /** Sender, on the domain verified in Resend, e.g. "Nsikak John at yarnOga <hello@updates.yarnoga.com>". */
+    from: string;
+    replyTo: string;
+    /** Where the app, the unsubscribe page and the email pictures live, e.g. https://app.yarnoga.com */
+    publicUrl: string;
+    perDay: number;
+  };
+  /**
    * The compliance page at /compliance where Jay checks businesses
    * (COMPLIANCE_PASSWORD, migration 0050), with optional CAC checks through
    * Dojah (DOJAH_APP_ID, DOJAH_SECRET_KEY; DOJAH_SANDBOX=true for test data).
@@ -359,6 +372,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           supportWaId: env.SUPPORT_WA_ID?.replace(/\D/g, "") || undefined,
         }
       : undefined,
+    emails: emailSettings(env),
     compliance: env.COMPLIANCE_PASSWORD
       ? {
           password: longPassword(env, "COMPLIANCE_PASSWORD"),
@@ -655,6 +669,19 @@ function alertSettings(env: NodeJS.ProcessEnv): Config["alerts"] {
     email: to && apiKey ? { apiKey, to, from: env.ALERT_EMAIL_FROM?.trim() || "yarnOga alerts <alerts@yarnoga.com>" } : undefined,
     sentry: dsn ? { dsn, environment: env.SENTRY_ENVIRONMENT?.trim() || "production" } : undefined,
   };
+}
+
+function emailSettings(env: NodeJS.ProcessEnv): Config["emails"] {
+  if (!/^(true|yes|on|1)$/i.test(env.EMAILS_ENABLED ?? "")) return undefined;
+  const apiKey = env.RESEND_API_KEY?.trim();
+  if (!apiKey) throw new Error("EMAILS_ENABLED needs RESEND_API_KEY too (emails are sent through resend.com)");
+  const from = env.EMAIL_FROM?.trim() || "Nsikak John at yarnOga <hello@updates.yarnoga.com>";
+  if (!/<[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>$|^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(from)) {
+    throw new Error(`EMAIL_FROM must be an address, or a name and <address>, e.g. Nsikak John at yarnOga <hello@updates.yarnoga.com> (got "${from}")`);
+  }
+  const replyTo = env.EMAIL_REPLY_TO?.trim() || env.SUPPORT_EMAIL?.trim() || "support@yarnoga.com";
+  const perDay = wholeNumber(env, "EMAILS_PER_DAY", 90);
+  return { apiKey, from, replyTo, publicUrl: publicUrl(env.OWNER_APP_URL || required(env, "PUBLIC_URL")), perDay };
 }
 
 function inboxSettings(password: string | undefined): Config["inbox"] {
