@@ -220,4 +220,10 @@ describe("shop page", () => {
     expect(page).toContain("Commander sur WhatsApp");
     expect(page).toContain(`${formatMoney(15_000, "XOF")} l&#39;unité`);
   });
+
+  it("shows a Pidgin-speaking business's page in English (Pidgin is for chats only)", async () => {
+    const page = await (await pageApp(business({ lang: "pcm" })).request("/shop/adas-prints")).text();
+    expect(page).toContain('<html lang="en">');
+    expect(page).toContain("Order on WhatsApp");
+  });
 });

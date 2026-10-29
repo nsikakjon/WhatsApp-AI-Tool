@@ -216,8 +216,10 @@ export function createShopPage(deps: ShopDeps) {
     const slug = c.req.param("slug").toLowerCase();
     const b = await load(slug);
     if (!b) return c.html(shell("en", "Shop not found", html`<main><div class="card">${TEXT.en.notFound}</div></main>`), 404);
-    const t = TEXT[b.lang];
-    if (!b.whatsappNumber) return c.html(shell(b.lang, b.name, html`<main><div class="card">${t.closed(b.name)}</div></main>`));
+    // Pidgin is a chat language only (core/i18n.ts): a page is English or French.
+    const lang = b.lang === "fr" ? "fr" : "en";
+    const t = TEXT[lang];
+    if (!b.whatsappNumber) return c.html(shell(lang, b.name, html`<main><div class="card">${t.closed(b.name)}</div></main>`));
     const [products, photos] = await Promise.all([b.products(), b.photos()]);
     const wa = (text: string) => `https://wa.me/${b.whatsappNumber}?text=${encodeURIComponent(text)}`;
     const money = (minor: number) => formatMoney(minor, b.currency);
@@ -238,7 +240,7 @@ export function createShopPage(deps: ShopDeps) {
         const facts = priceFacts(o.variant);
         const out = o.stock === 0;
         return html`<li${out ? raw(' class="out"') : ""}>
-        <div><b>${capital(o.label) || p.name}</b><span>${facts ? priceText(facts, money, b.lang) : t.onRequest}</span>${
+        <div><b>${capital(o.label) || p.name}</b><span>${facts ? priceText(facts, money, lang) : t.onRequest}</span>${
           out ? html`<em>${t.soldOut}</em>` : o.stock !== null && o.stock <= FEW_LEFT ? html`<em>${t.left(o.stock)}</em>` : ""
         }</div>
         ${out ? "" : html`<input class="qty" type="number" inputmode="numeric" min="0" step="1" placeholder="0" aria-label="${t.quantity(o.label || p.name)}" data-name="${o.variant.name}" data-min="${o.variant.minQuantity}">`}
@@ -307,7 +309,7 @@ export function createShopPage(deps: ShopDeps) {
 </script>`;
     c.header("Cache-Control", "public, max-age=60");
     return c.html(
-      shell(b.lang, b.name, body, {
+      shell(lang, b.name, body, {
         description: products.slice(0, 6).map((p) => p.name).join(" · "),
         image: firstPhoto ? (firstPhoto.startsWith("https://") ? firstPhoto : `${base}${firstPhoto}`) : null,
         url: `${base}/shop/${slug}`,
@@ -348,7 +350,7 @@ function imageType(data: Uint8Array): string {
   return "image/jpeg";
 }
 
-function shell(lang: Lang, title: string, body: unknown, meta: { description: string; image: string | null; url: string } | null = null) {
+function shell(lang: keyof typeof TEXT, title: string, body: unknown, meta: { description: string; image: string | null; url: string } | null = null) {
   return html`<!doctype html>
 <html lang="${lang}">
 <head>
