@@ -20,15 +20,18 @@ To upload:
 2. Make a folder called `fr` (if it isn't there) and upload `index.html` into it,
    replacing the old one.
 3. Open `https://yarnoga.com/fr/` and check, then press **EN**.
-4. On the English pages, add a link to `/fr/` (e.g. "FR" next to "Try the
-   demo"), so French speakers can find it.
+
+The English pages have the same **EN / FR** switch in their top bar, and the
+switch's styles live in the main `styles.css`, so this page has no styles of
+its own. The site zip in the project folder already includes `fr/index.html`.
 
 If the main site's `styles.css` or `motion.js` version number changes (the
 `?v=...` at the end), update it in `fr/index.html` too so browsers fetch the
 new one.
 
 The page describes the French bot, prices in FCFA, Mobile Money through
-Flutterwave and French voice replies: upload it once those are live.
+Flutterwave, French voice replies, the shop link, discount codes, staff roles
+and the one-tap transfer screenshot confirm.
 
 The page counts its visitors like the rest of the site (Dashboard > Website),
 under the path `/fr/`.
