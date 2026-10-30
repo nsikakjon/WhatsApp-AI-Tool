@@ -7,7 +7,7 @@ import { PLANS, type PlanId } from "./plans.js";
 // yarnOga Flyers' welcome and tip emails to group admins (copy approved by
 // Jay, marketing/email/EMAILS.md). Day 0 is when the admin gives their email;
 // the series stops once the group is on a paid plan. Plan prices come from
-// flyer_plans.
+// flyer_plans. F8 is a guide to a newer feature, sent to paid groups too.
 
 /** The public yarnOga Flyers number, as on the website. */
 export const FLYERS_NUMBER = "0704 385 7494";
@@ -91,6 +91,30 @@ export function flyerEmails(facts: (groupId: string) => Promise<FlyerEmailFacts 
               { list: ["One person, face clearly visible, looking at the camera", "Not a group photo, and not a photo of a photo", "Daylight is better than a dark room"] },
               "You don't need to edit anything. We centre the face, crop it and brighten it for you.",
               "If a flyer comes out with the face too close or too far, use Edit photo on that member: you can make it brighter, warmer, black and white, remove the background, or rotate it.",
+            ],
+          }),
+      },
+      {
+        key: "F8",
+        day: 4,
+        afterStop: true,
+        content: (_f, name) =>
+          email({
+            subject: "Fix a name or date with one message",
+            preview: "No need to start the flyer again.",
+            blocks: [
+              `Hi ${name},`,
+              `If a flyer comes out with a mistake, send the fix to ${FLYERS_NUMBER} in plain words. The bot changes it and sends the flyer again:`,
+              {
+                list: [
+                  "*change amadi nnadozie to Amadi Nnadozie*: a member's name",
+                  "*change Ada's birthday to 3 May*: a member's date",
+                  "*change group name to Unilag Class of 2011*: the group name, on every flyer from now on",
+                  "*change 4pm to 5pm*: the words on the last event flyer",
+                ],
+              },
+              "Names typed all in small letters get their capitals when they're saved, so *amadi nnadozie* becomes *Amadi Nnadozie*. A name typed with capitals is kept exactly as you typed it, for names like *McDonald* or *Bakare-Ojo*.",
+              "If you'd rather chat in Pidgin, send *pidgin* and the bot answers you in Pidgin. Send *english* to switch back. The flyers themselves stay in English.",
             ],
           }),
       },
