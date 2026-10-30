@@ -35,3 +35,12 @@ and the one-tap transfer screenshot confirm.
 
 The page counts its visitors like the rest of the site (Dashboard > Website),
 under the path `/fr/`.
+
+## Prices in other currencies
+
+The Quotes and Flyers pricing sections have a currency picker: naira, cedi,
+CFA franc, Kenyan shilling and US dollar. The prices are fixed (approved by jay
+on 30 October 2026), not live exchange rates, and live in a small table at the
+top of `js/currency.js` in the site zip. The page picks a first currency from
+the visitor's time zone and remembers their choice. Without JavaScript it shows
+naira. The picker's styles are in the main `styles.css` (version `20261030a`).
