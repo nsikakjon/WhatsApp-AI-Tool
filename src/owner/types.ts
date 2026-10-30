@@ -9,7 +9,7 @@ import type { WhatsAppClient } from "../core/whatsapp/client.js";
 import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
 import type { ShopLookStore } from "../products/quote/shop.js";
-import type { AppUser, BusinessData, DeliverySetupStore, PriceStore } from "./store.js";
+import type { AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore } from "./store.js";
 import type { VerificationStore } from "../compliance/store.js";
 
 /** One quote business as the app sees it. Built by the server for whoever is logged in. */
@@ -37,6 +37,8 @@ export interface AppBusiness {
     saveMorePhotos?(productId: string, photos: Array<{ data: Uint8Array; mimeType: string }>): Promise<void>;
     photo(path: string): Promise<{ data: Uint8Array; mimeType: string } | null>;
   };
+  /** Counter sales and cost prices (QUOTE_COUNTER_SALES); without it both are hidden. */
+  counter?: CounterStore;
   /** Riders and zones (QUOTE_DELIVERY); without it the page explains how to switch delivery on. */
   delivery?: DeliverySetupStore;
   /**

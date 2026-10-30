@@ -122,6 +122,7 @@ import {
   createSupabaseBusinessData,
   createSupabaseDeliverySetup,
   createSupabasePrices,
+  createSupabaseCounter,
   createSupabaseUsers,
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
@@ -909,8 +910,9 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             includeUnnumbered: main,
             features,
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
-            prices: createSupabasePrices(supabase, id),
+            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales }),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
+            counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids) : undefined,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
               : undefined,

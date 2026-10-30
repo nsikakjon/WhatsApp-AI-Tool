@@ -168,6 +168,12 @@ describe("quote setup screen", () => {
     expect(saves).toHaveLength(0);
   });
 
+  it("points out prescription medicines on the list being checked", async () => {
+    const { app } = memory();
+    const res = await post(app, `/b/${OTHER_ID}/prices/check`, { pasted: "Product,Price\nParacetamol,500\nAugmentin 625,4500" });
+    expect(await res.text()).toContain("These look like prescription medicines: Augmentin 625.");
+  });
+
   it("downloads the price list as CSV", async () => {
     const { app, prices } = memory();
     prices.set(OTHER_ID, [{ product: "Cupcakes", option: "box of 6", minQuantity: 2, tiers: [{ minQuantity: 2, unitPriceKobo: 600_050 }] }]);

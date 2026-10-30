@@ -1,3 +1,4 @@
+import { registerCounter } from "./sections/counter.js";
 import { registerCustomers } from "./sections/customers.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -57,6 +58,8 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   shop_look: { ok: true, text: "Saved. Your shop shows the new look within 10 minutes." },
   shop_cover_bad: { ok: false, text: "The cover photo must be a JPEG or PNG picture under 5 MB." },
   shop_look_failed: { ok: false, text: "That didn't save. Please try again, and message support if it keeps happening." },
+  sold: { ok: true, text: "Sale recorded. The stock has been updated." },
+  sale_cancelled: { ok: true, text: "Sale cancelled. Its items are back in stock." },
 };
 
 export function createOwnerApp(deps: OwnerAppDeps) {
@@ -256,6 +259,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             businessName: c.get("biz").name,
             userName: user.name ?? ROLE_LABEL[user.role],
             role: user.role,
+            counter: Boolean(c.get("biz").counter),
             others: c.get("others"),
             flash,
           },
@@ -281,6 +285,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerDashboard(app, ctx);
   registerInbox(app, ctx);
   registerOrders(app, ctx);
+  registerCounter(app, ctx);
   registerCustomers(app, ctx);
   registerPrices(app, ctx);
   registerDelivery(app, ctx);

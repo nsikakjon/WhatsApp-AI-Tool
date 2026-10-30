@@ -29,6 +29,8 @@ const ICONS: Record<string, string> = {
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   logout: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  till: '<rect x="3" y="10" width="18" height="10" rx="2"/><path d="M6 10V4h9v6M9 7h3M7 15h2M11 15h2M15 15h2"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   whatsapp: '<path d="M3 21l1.6-4.8A8.5 8.5 0 1 1 8 19.6Z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1-1.3 2 .9c-.2 1.1-1.2 1.9-2.3 1.9-3.3 0-6.3-3-6.3-6.3 0-1.1.8-2.1 1.9-2.3l.9 2Z"/>',
@@ -52,12 +54,15 @@ export interface NavItem {
   need?: Permission;
   /** Shown in the phone's bottom tab bar (the rest go under "More"). */
   tab?: boolean;
+  /** Only when counter sales are switched on (QUOTE_COUNTER_SALES). */
+  counter?: boolean;
 }
 
 export const NAV: NavItem[] = [
   { href: "/home", label: "Dashboard", icon: "home", tab: true },
   { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true, need: "inbox" },
   { href: "/home/orders", label: "Orders", icon: "orders", tab: true },
+  { href: "/home/counter", label: "Counter sale", icon: "till", need: "counter", counter: true },
   { href: "/home/prices", label: "Price list", icon: "prices", tab: true, need: "see_prices" },
   { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
@@ -76,6 +81,8 @@ export interface Shell {
   businessName: string;
   userName: string;
   role: Role;
+  /** Counter sales are on for this business. */
+  counter?: boolean;
   /** Other businesses this person can switch to. */
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
@@ -89,7 +96,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");
@@ -308,7 +315,7 @@ tr:last-child td{border-bottom:0}
 form{margin:0}label{display:block;font-weight:500;font-size:.9rem;margin:16px 0 8px}label .muted{font-weight:400}
 input,select,textarea{width:100%;font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:12px 14px;transition:border-color .15s,box-shadow .15s}
 input::placeholder,textarea::placeholder{color:var(--dim)}
-input[type=checkbox]{width:auto}label.check{display:flex;gap:10px;align-items:center;margin:14px 0 6px}input[type=file]{padding:7px;color:var(--muted)}
+input[type=checkbox],input[type=radio]{width:auto}label.check{display:flex;gap:10px;align-items:center;margin:14px 0 6px}input[type=file]{padding:7px;color:var(--muted)}
 input[type=file]::file-selector-button{font:inherit;font-weight:600;font-size:.84rem;color:var(--text);background:var(--surface3);border:1px solid var(--line2);border-radius:9px;padding:6px 12px;margin-right:12px;cursor:pointer}input[type=color]{padding:4px;height:46px}
 textarea{min-height:100px;resize:vertical}
 input:focus,select:focus,textarea:focus{outline:0;border-color:rgba(198,255,31,.6);box-shadow:0 0 0 4px rgba(198,255,31,.12)}
@@ -391,6 +398,9 @@ main>:first-child,main>h2:first-child,main>.flash+h2{margin-top:0}
 /* Search and toolbars */
 .search{display:flex;gap:8px;margin:0 0 16px;max-width:560px}.search input{flex:1}
 .toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:10px}.toolbar .search{flex:1 1 300px}
+.sellables{display:grid;gap:8px;margin-top:12px}
+.sellable{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r2)}.sellable[hidden]{display:none}
+.qty{display:flex;align-items:center;gap:6px;flex:none}.qty input{width:64px;text-align:center;padding:8px}.qty button{padding:8px 10px}
 .board{align-items:start}
 
 /* Price list and misc */

@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { prescriptionNote } from "../../products/quote/prescription.js";
 import { currencyName, currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
@@ -6,9 +7,10 @@ import { DuplicateProductError, type ProductInput, type ProductOption, type Prod
 import type { AppContext, Env } from "../types.js";
 
 // The price list, one product at a time: photo, name, description, category,
-// unit, production time, and its options, each with a minimum order, stock
-// and prices that can drop as the quantity goes up. Prices are typed in naira
-// and saved in kobo; the bot quotes from exactly these numbers.
+// unit, production time, and its options, each with a minimum order, stock,
+// a cost price (with counter sales on) and prices that can drop as the
+// quantity goes up. Prices are typed in naira and saved in kobo; the bot
+// quotes from exactly these numbers.
 
 const UUID = /^[0-9a-f-]{36}$/;
 const MAX_OPTIONS = 20;
@@ -38,8 +40,10 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
     const optName = field(form, `o${i}_name`, 80);
     const minText = field(form, `o${i}_min`, 9);
     const stockText = field(form, `o${i}_stock`, 9);
+    // Only on the form when counter sales are on; left out, the saved cost stays as it is.
+    const costText = `o${i}_cost` in form ? field(form, `o${i}_cost`, 20) : undefined;
     const tiersText = Array.from({ length: TIERS }, (_, j) => [field(form, `o${i}_f${j}`, 9), field(form, `o${i}_p${j}`, 20)] as const);
-    const blank = !optName && !minText && !stockText && tiersText.every(([f, p]) => !f && !p);
+    const blank = !optName && !minText && !stockText && !costText && tiersText.every(([f, p]) => !f && !p);
     if (blank) continue;
     const label = optName || `Option ${i + 1}`;
     if (!optName) problems.push(`${label}: give it a name, e.g. "Standard" or "A5, both sides".`);
@@ -47,6 +51,11 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
     if (!Number.isInteger(min) || min < 1) problems.push(`${label}: the minimum order must be a whole number, 1 or more.`);
     const stock = stockText === "" ? null : Number(stockText.replace(/,/g, ""));
     if (stock !== null && (!Number.isInteger(stock) || stock < 0)) problems.push(`${label}: stock must be a whole number, or left empty if you don't count it.`);
+    let costKobo: number | null | undefined = costText === undefined ? undefined : null;
+    if (costText) {
+      costKobo = parseMoney(costText, currency);
+      if (costKobo === null) problems.push(`${label}: "${costText}" isn't a cost price. Type it in ${currencyName(currency)}, or leave it empty.`);
+    }
     const tiers: ProductOption["tiers"] = [];
     tiersText.forEach(([fromText, priceText], j) => {
       if (!priceText && !fromText) return;
@@ -69,7 +78,7 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       problems.push(`${label}: the first price must start at the minimum order (${min}) or lower, so every allowed quantity has a price.`);
     }
     const id = field(form, `o${i}_id`, 36);
-    options.push({ ...(UUID.test(id) ? { id } : {}), name: optName, minQuantity: min, stock, tiers });
+    options.push({ ...(UUID.test(id) ? { id } : {}), name: optName, minQuantity: min, stock, ...(costKobo !== undefined ? { costKobo } : {}), tiers });
   }
   if (!options.length) problems.push("Add at least one option with a price (call it \"Standard\" if there's only one).");
   const names = options.map((o) => o.name.toLowerCase());
@@ -106,9 +115,9 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
   app.get("/prices", async (c) => {
     const biz = c.get("biz");
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
-    const products = (await biz.prices.products()).filter(
-      (p) => !q || p.name.toLowerCase().includes(q) || (p.category ?? "").toLowerCase().includes(q),
-    );
+    const all = await biz.prices.products();
+    const products = all.filter((p) => !q || p.name.toLowerCase().includes(q) || (p.category ?? "").toLowerCase().includes(q));
+    const prescription = prescriptionNote(all.map((p) => p.name));
     const cards = products
       .map((p) => {
         const from = p.options.flatMap((o) => o.tiers.map((t) => t.unitPriceKobo));
@@ -125,7 +134,8 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
       c,
       "Price list",
       "/home/prices",
-      `<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
+      `${prescription ? `<div class="flash bad">${esc(prescription)}</div>` : ""}
+<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
 ${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a>` : ""}</div>
 <div class="cards">${cards || `<p class="muted">No products yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices/new">Add your first one</a>.` : ""}</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
@@ -135,6 +145,9 @@ ${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon(
   const formPage = (c: AppContext, product: ProductRecord | null, input: ProductInput | null, problems: string[], extra: number) => {
     const biz = c.get("biz");
     const readOnly = !ctx.can(c, "edit_prices");
+    // Cost prices are the owner's and managers' business, like takings.
+    const costs = Boolean(biz.counter) && ctx.can(c, "money");
+    const naira = (kobo: number) => (kobo / 100).toFixed(2).replace(/\.00$/, "");
     const p = input ?? product;
     const options = p?.options ?? [];
     const slots = Math.min(MAX_OPTIONS, Math.max(options.length + extra, 1));
@@ -144,13 +157,14 @@ ${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon(
       const tiers = Array.from({ length: TIERS }, (_, j) => {
         const t = o?.tiers[j];
         return `<tr><td><input name="o${i}_f${j}" inputmode="numeric" value="${v(t?.minQuantity)}" placeholder="${j === 0 ? "min" : ""}" aria-label="From quantity"></td>
-<td><input name="o${i}_p${j}" inputmode="decimal" value="${t ? v((t.unitPriceKobo / 100).toFixed(2).replace(/\.00$/, "")) : ""}" placeholder="${currencySign(biz.currency)}" aria-label="Price each in ${currencyName(biz.currency)}"></td></tr>`;
+<td><input name="o${i}_p${j}" inputmode="decimal" value="${t ? v(naira(t.unitPriceKobo)) : ""}" placeholder="${currencySign(biz.currency)}" aria-label="Price each in ${currencyName(biz.currency)}"></td></tr>`;
       }).join("");
       return `<fieldset class="card" style="margin:10px 0"><legend class="muted small">Option ${i + 1}</legend>
 ${o?.id ? `<input type="hidden" name="o${i}_id" value="${o.id}">` : ""}
 <label>Name <span class="muted">e.g. "A5, both sides", "Large", "Standard"</span><input name="o${i}_name" value="${v(o?.name ?? (i === 0 && !product ? "Standard" : ""))}"></label>
 <div class="row"><label>Minimum order<input name="o${i}_min" inputmode="numeric" value="${v(o?.minQuantity ?? "")}" placeholder="1"></label>
-<label>In stock <span class="muted">(empty: not counted)</span><input name="o${i}_stock" inputmode="numeric" value="${v(o?.stock)}"></label></div>
+<label>In stock <span class="muted">(empty: not counted)</span><input name="o${i}_stock" inputmode="numeric" value="${v(o?.stock)}"></label>
+${costs ? `<label>Cost each <span class="muted">(what one costs you, for profit)</span><input name="o${i}_cost" inputmode="decimal" value="${o?.costKobo != null ? v(naira(o.costKobo)) : ""}" placeholder="${currencySign(biz.currency)}"></label>` : ""}</div>
 <p style="margin:12px 0 4px"><b>Price each</b> <span class="muted small">Cheaper for bigger orders? Add a second price from a higher quantity.</span></p>
 <table class="tiers"><tr><th>From quantity</th><th>Price each (${currencySign(biz.currency)})</th></tr>${tiers}</table></fieldset>`;
     }).join("");
