@@ -86,7 +86,7 @@ function liveSection(initial: ReturnType<typeof liveJson>): string {
     if (!points.length) return;
     if (!map) {
       map = L.map(box, { zoomControl: true }).setView([6.5244, 3.3792], 11);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
       layer = L.layerGroup().addTo(map);
     }
     layer.clearLayers();
