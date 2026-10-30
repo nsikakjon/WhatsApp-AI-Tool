@@ -247,7 +247,7 @@ function customerPage(d: Delivery) {
   const note = document.getElementById("note");
   // If the map library doesn't load, the steps and the note still work.
   const map = window.L ? L.map("map", { zoomControl: false }).setView([6.5244, 3.3792], 11) : null;
-  if (map) L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+  if (map) L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
   else document.getElementById("map").hidden = true;
   let rider, drop, framed = false;
   async function refresh() {
