@@ -54,7 +54,16 @@ import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./pro
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
-import { createShopLinks, createSupabaseShopProducts, createSupabaseSlugs, type ShopBusiness } from "./products/quote/shop.js";
+import {
+  createShopLinks,
+  createSupabaseShopAreas,
+  createSupabaseShopLookStore,
+  createSupabaseShopProducts,
+  createSupabaseShopRatings,
+  createSupabaseSlugs,
+  supabaseShopLook,
+  type ShopBusiness,
+} from "./products/quote/shop.js";
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
@@ -298,10 +307,13 @@ async function shopBusiness(id: string): Promise<ShopBusiness | null> {
   const business = main ? null : quoteBusinesses ? await createSupabaseBusinesses(supabase).get(id) : null;
   if (!main && !business) return null;
   const catalogue = createSupabaseCatalogue(supabase, id);
+  const { ratingsOn, ...look } = await supabaseShopLook(supabase, id);
   return {
     id,
     name: main ? main.businessName : business!.name,
-    whatsappNumber: await shopNumber(id),
+    ...look,
+    ratings: ratingsOn ? createSupabaseShopRatings(supabase, id) : async () => null,
+    deliveryAreas: delivery ? createSupabaseShopAreas(supabase, id) : async () => [],
     currency: (main ? main.currency : business!.currency) ?? "NGN",
     lang: (main ? main.language : business!.language) ?? "en",
     photos: async () => config.quoteCatalogue && (await onPlan({ id, branchOf: business?.branchOf }, "catalogue")),
@@ -849,7 +861,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         health: () => runChecks(health),
         healthLabels: health.labels,
         emails: emailSettings,
-        shop: shopLinks || undefined,
+        shop: shopLinks ? { ...shopLinks, look: createSupabaseShopLookStore(supabase) } : undefined,
         verification: {
           store: verifications,
           // Jay hears about each business that sends its details.
