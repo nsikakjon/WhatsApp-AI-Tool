@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { prescriptionNote } from "../../products/quote/prescription.js";
 import { currencyName, currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
@@ -105,9 +106,9 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
   app.get("/prices", async (c) => {
     const biz = c.get("biz");
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
-    const products = (await biz.prices.products()).filter(
-      (p) => !q || p.name.toLowerCase().includes(q) || (p.category ?? "").toLowerCase().includes(q),
-    );
+    const all = await biz.prices.products();
+    const products = all.filter((p) => !q || p.name.toLowerCase().includes(q) || (p.category ?? "").toLowerCase().includes(q));
+    const prescription = prescriptionNote(all.map((p) => p.name));
     const cards = products
       .map((p) => {
         const from = p.options.flatMap((o) => o.tiers.map((t) => t.unitPriceKobo));
@@ -124,7 +125,8 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
       c,
       "Price list",
       "/home/prices",
-      `<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
+      `${prescription ? `<div class="flash bad">${esc(prescription)}</div>` : ""}
+<div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
 ${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a>` : ""}</div>
 <div class="cards">${cards || `<p class="muted">No products yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices/new">Add your first one</a>.` : ""}</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
