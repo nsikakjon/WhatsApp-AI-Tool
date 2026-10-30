@@ -4,7 +4,7 @@ import type { Currency } from "../core/money.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertKobo } from "../core/money.js";
 import { productSlug } from "../products/quote/pricelist.js";
-import type { PriceTier } from "../products/quote/pricing.js";
+import type { PriceTier, QuoteLine } from "../products/quote/pricing.js";
 import { toRole, type Role, type StaffRole } from "./roles.js";
 
 // What the owner app reads and writes (migration 0049, plus the quote bot's
@@ -53,6 +53,8 @@ export interface ProductOption {
   minQuantity: number;
   /** Null when stock isn't counted (made to order). */
   stock: number | null;
+  /** What one piece costs the business, for profit (QUOTE_COUNTER_SALES). Null: not entered; missing: not read. */
+  costKobo?: number | null;
   /** Price per piece from each quantity up. Empty: priced by the team. */
   tiers: PriceTier[];
 }
@@ -82,6 +84,45 @@ export interface PriceStore {
   save(id: string | null, input: ProductInput): Promise<string>;
   /** Takes a product off the price list (switched off, so old orders still show it). */
   remove(id: string): Promise<void>;
+}
+
+export const PAID_BY = ["cash", "transfer", "pos"] as const;
+export type PaidBy = (typeof PAID_BY)[number];
+
+/** A line of a sale, for profit. unitCostKobo is the cost price when it was sold (null: none entered then). */
+export interface SoldLine {
+  name: string;
+  quantity: number;
+  totalKobo: number;
+  unitCostKobo: number | null;
+}
+
+export interface CounterSale {
+  id: string;
+  at: Date;
+  /** Who rang it up. */
+  soldBy: string | null;
+  paidBy: PaidBy;
+  totalKobo: number;
+  voided: boolean;
+  lines: SoldLine[];
+}
+
+export type SaleResult =
+  | { ok: true; saleId: string; duplicate: boolean }
+  | { ok: false; reason: "short"; item: string; left: number }
+  | { ok: false; reason: "unknown" };
+
+/** Counter sales (QUOTE_COUNTER_SALES, migration 0060). */
+export interface CounterStore {
+  /** Records a sale and takes it off the stock in one step. The same key twice records it once. */
+  sell(sale: { key: string; userId: string; paidBy: PaidBy; lines: QuoteLine[] }): Promise<SaleResult>;
+  /** Cancels a sale and puts its stock back. False when already cancelled. */
+  void(saleId: string, userId: string): Promise<boolean>;
+  /** Sales made in [from, to), newest first, cancelled ones included. */
+  sales(from: Date, to: Date): Promise<CounterSale[]>;
+  /** WhatsApp orders paid in [from, to): their lines and any discount. */
+  paidOrders(from: Date, to: Date): Promise<Array<{ discountKobo: number; lines: SoldLine[] }>>;
 }
 
 export interface ZoneRecord {
@@ -353,6 +394,7 @@ type ProductRow = {
     name: string;
     min_quantity: number;
     stock?: number | null;
+    cost_kobo?: number | string | null;
     active: boolean;
     created_at: string;
     quote_price_tiers: Array<{ min_quantity: number; unit_price_kobo: number | string }>;
@@ -377,6 +419,7 @@ function toProduct(p: ProductRow): ProductRecord {
         name: v.name,
         minQuantity: v.min_quantity,
         stock: v.stock ?? null,
+        ...(v.cost_kobo !== undefined ? { costKobo: v.cost_kobo === null ? null : Number(v.cost_kobo) } : {}),
         tiers: v.quote_price_tiers
           .map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) }))
           .sort((a, b) => a.minQuantity - b.minQuantity),
@@ -384,10 +427,12 @@ function toProduct(p: ProductRow): ProductRecord {
   };
 }
 
-const PRODUCT_SELECT =
-  "id, name, description, category, unit, lead_time_days, photo_path, active, created_at, quote_variants(id, name, min_quantity, stock, active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))";
+const productSelect = (costs: boolean) =>
+  `id, name, description, category, unit, lead_time_days, photo_path, active, created_at, quote_variants(id, name, min_quantity, stock,${costs ? " cost_kobo," : ""} active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))`;
 
-export function createSupabasePrices(db: SupabaseClient, businessId: string): PriceStore {
+/** `costs`: read and save cost prices too (migration 0060 adds the column). */
+export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean } = {}): PriceStore {
+  const PRODUCT_SELECT = productSelect(Boolean(opts.costs));
   async function product(id: string): Promise<ProductRecord | null> {
     const { data, error } = await db.from("quote_products").select(PRODUCT_SELECT).eq("business_id", businessId).eq("id", id).maybeSingle();
     const row = one(data, error, "product");
@@ -408,7 +453,10 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string): Pr
     product,
 
     async save(id, input) {
-      for (const o of input.options) for (const t of o.tiers) assertKobo(t.unitPriceKobo, "price");
+      for (const o of input.options) {
+        for (const t of o.tiers) assertKobo(t.unitPriceKobo, "price");
+        if (o.costKobo != null) assertKobo(o.costKobo, "cost price");
+      }
       const now = new Date().toISOString();
       const fields = {
         name: input.name,
@@ -446,7 +494,14 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string): Pr
       for (const o of input.options) {
         const match =
           variants.find((v) => o.id && v.id === o.id) ?? variants.find((v) => v.name.toLowerCase() === o.name.toLowerCase() && !kept.has(v.id));
-        const row = { name: o.name, min_quantity: o.minQuantity, stock: o.stock, active: true, updated_at: now };
+        const row = {
+          name: o.name,
+          min_quantity: o.minQuantity,
+          stock: o.stock,
+          ...(opts.costs && o.costKobo !== undefined ? { cost_kobo: o.costKobo } : {}),
+          active: true,
+          updated_at: now,
+        };
         let variantId: string;
         if (match) {
           const { error } = await db.from("quote_variants").update(row).eq("id", match.id);
@@ -481,6 +536,79 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string): Pr
         .eq("id", id)
         .eq("business_id", businessId);
       if (error) throw new Error(`remove product failed: ${error.message}`);
+    },
+  };
+}
+
+/** `businessIds` are the business and its branches, for the figures; sales are rung up on `businessId`. */
+export function createSupabaseCounter(db: SupabaseClient, businessId: string, businessIds: string[]): CounterStore {
+  const soldLine = (r: { name: string; quantity: number; total_kobo: number | string; unit_cost_kobo: number | string | null }): SoldLine => ({
+    name: r.name,
+    quantity: Number(r.quantity),
+    totalKobo: Number(r.total_kobo),
+    unitCostKobo: r.unit_cost_kobo === null ? null : Number(r.unit_cost_kobo),
+  });
+  return {
+    async sell({ key, userId, paidBy, lines }) {
+      for (const l of lines) assertKobo(l.totalKobo, "line total");
+      const { data, error } = await db.rpc("quote_counter_sale", {
+        p_business_id: businessId,
+        p_sale_key: key,
+        p_sold_by: userId,
+        p_paid_by: paidBy,
+        p_lines: lines.map((l) => ({ variant_id: l.variantId, name: l.name, quantity: l.quantity, unit_price_kobo: l.unitPriceKobo, total_kobo: l.totalKobo })),
+      });
+      const row = (one(data, error, "counter sale") ?? [])[0] as { result: string; sale_id: string | null; item: string | null; left_in_stock: number | null } | undefined;
+      if (row?.result === "ok" || row?.result === "duplicate") return { ok: true, saleId: row.sale_id!, duplicate: row.result === "duplicate" };
+      if (row?.result === "short") return { ok: false, reason: "short", item: row.item ?? "", left: row.left_in_stock ?? 0 };
+      return { ok: false, reason: "unknown" };
+    },
+    async void(saleId, userId) {
+      const { data, error } = await db.rpc("quote_counter_void", { p_business_id: businessId, p_sale_id: saleId, p_voided_by: userId });
+      return one(data, error, "cancel counter sale") === true;
+    },
+    async sales(from, to) {
+      const { data, error } = await db
+        .from("quote_counter_sales")
+        .select("id, created_at, paid_by, total_kobo, voided_at, app_users!quote_counter_sales_sold_by_fkey(name, role), quote_counter_sale_items(name, quantity, total_kobo, unit_cost_kobo)")
+        .in("business_id", businessIds)
+        .gte("created_at", from.toISOString())
+        .lt("created_at", to.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      type Row = {
+        id: string;
+        created_at: string;
+        paid_by: PaidBy;
+        total_kobo: number | string;
+        voided_at: string | null;
+        app_users: { name: string | null; role: string } | null;
+        quote_counter_sale_items: Array<Parameters<typeof soldLine>[0]>;
+      };
+      return ((one(data, error, "counter sales") ?? []) as unknown as Row[]).map((r) => ({
+        id: r.id,
+        at: new Date(r.created_at),
+        soldBy: r.app_users ? (r.app_users.name ?? (toRole(r.app_users.role) === "owner" ? "Owner" : null)) : null,
+        paidBy: r.paid_by,
+        totalKobo: Number(r.total_kobo),
+        voided: r.voided_at !== null,
+        lines: r.quote_counter_sale_items.map(soldLine),
+      }));
+    },
+    async paidOrders(from, to) {
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("discount_kobo, quote_order_items(name, quantity, total_kobo, unit_cost_kobo)")
+        .in("business_id", businessIds)
+        .eq("status", "paid")
+        .gte("paid_at", from.toISOString())
+        .lt("paid_at", to.toISOString())
+        .limit(10_000);
+      type Row = { discount_kobo: number | string | null; quote_order_items: Array<Parameters<typeof soldLine>[0]> };
+      return ((one(data, error, "paid orders") ?? []) as unknown as Row[]).map((r) => ({
+        discountKobo: Number(r.discount_kobo ?? 0),
+        lines: r.quote_order_items.map(soldLine),
+      }));
     },
   };
 }

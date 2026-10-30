@@ -3,9 +3,10 @@ import { formatMoney } from "../../core/money.js";
 import { lagosMonthKey } from "../../products/quote/credits.js";
 import { lagosMonthStart } from "../../products/quote/plan.js";
 import { columnOf, type BoardOrder, type SalesFigures } from "../../products/quote/board.js";
-import type { ProductRecord } from "../store.js";
+import type { CounterSale, ProductRecord, SoldLine } from "../store.js";
 import type { SectionContext } from "../index.js";
 import { esc, icon, ring, stat } from "../layout.js";
+import { profitByProduct, profitSummary, signedMoney } from "./counter.js";
 import type { Env } from "../types.js";
 
 const DAY = 86_400_000;
@@ -30,7 +31,10 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
         ctx.log.warn(`Owner app dashboard: ${String(err)}`);
         return fallback;
       });
-    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages, rated] = await Promise.all([
+    // Cashiers and riders see the orders, not the takings.
+    const seesMoney = ctx.can(c, "money");
+    const counter = biz.counter && seesMoney ? biz.counter : null;
+    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages, rated, counterSales, paidOrders] = await Promise.all([
       safe<SalesFigures>(biz.board.sales(thisMonth, at), { quotes: 0, orders: 0, paidInKobo: 0 }),
       safe<SalesFigures>(biz.board.sales(lastMonth, thisMonth), { quotes: 0, orders: 0, paidInKobo: 0 }),
       safe<number | null>(biz.board.aiRepliesUsed(lagosMonthKey(at)), null),
@@ -42,6 +46,8 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
       safe<BoardOrder[]>(biz.board.orders(new Date(at.getTime() - 60 * DAY)), []),
       safe<{ sent: number; limit: number | null } | null>(biz.botMessages ? biz.botMessages() : Promise.resolve(null), null),
       safe<{ count: number; average: number | null; bad: number } | null>(biz.data.ratings ? biz.data.ratings(new Date(at.getTime() - 30 * DAY)) : Promise.resolve(null), null),
+      safe<CounterSale[] | null>(counter ? counter.sales(thisMonth, at) : Promise.resolve(null), null),
+      safe<Array<{ discountKobo: number; lines: SoldLine[] }> | null>(counter ? counter.paidOrders(thisMonth, at) : Promise.resolve(null), null),
     ]);
 
     const n = (x: number) => x.toLocaleString("en-NG");
@@ -79,8 +85,6 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const msgPct = botMessages?.limit ? (botMessages.sent * 100) / botMessages.limit : 0;
     const bestTotal = Math.max(1, ...top.map((t) => t.totalKobo));
     const user = c.get("user");
-    // Cashiers and riders see the orders, not the takings.
-    const seesMoney = ctx.can(c, "money");
     const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Africa/Lagos" }).format(at));
     const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     const dateText = at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Lagos" });
@@ -92,10 +96,30 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
         ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? "A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes." : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/home/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
         : "";
 
+    // Profit: counter sales and paid WhatsApp orders, from the cost prices they had when sold.
+    const keptSales = (counterSales ?? []).filter((s) => !s.voided);
+    const profit = counterSales && paidOrders ? profitSummary([...keptSales, ...paidOrders]) : null;
+    const byProduct = profit ? profitByProduct([...keptSales, ...paidOrders!].flatMap((s) => s.lines), 5) : [];
+    const bestProfit = Math.max(1, ...byProduct.map((t) => t.profitKobo));
+    const profitCard = profit
+      ? `<section class="card" style="margin-top:14px">
+    <div class="cardhead"><div><h3>Profit by product this month</h3><p class="muted small" style="margin:0">Counter sales and paid WhatsApp orders, before discounts</p></div><a href="/home/counter">Counter sale ${icon("arrow", 16)}</a></div>
+    ${
+      byProduct.length
+        ? `<ul class="rank">${byProduct
+            .map(
+              (t) => `<li><div class="rankrow"><b>${esc(t.name)}</b><span>${signedMoney(t.profitKobo, biz.currency)}</span></div><div class="meter"><span style="width:${Math.max(0, Math.round((t.profitKobo * 100) / bestProfit))}%"></span></div><p class="muted small" style="margin:4px 0 0">${n(t.quantity)} sold for ${money(t.salesKobo)}${t.salesKobo ? ` · ${Math.round((t.profitKobo * 100) / t.salesKobo)}% margin` : ""}</p></li>`,
+            )
+            .join("")}</ul>`
+        : `<p class="muted">No sales with a cost price yet this month. Add what each item costs you on the <a href="/home/prices">price list</a> and profit shows here.</p>`
+    }
+  </section>`
+      : "";
+
     const body = `${verifyBanner}
 <section class="hero">
   <div><h2>${greeting}${user.name ? `, ${esc(user.name)}` : ""} 👋</h2><p>${esc(dateText)} · your bot has talked to ${n(chats.customers)} customers this month.</p></div>
-  <div class="quick">${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add product</a>` : ""}${ctx.can(c, "tools") ? `<a class="button ghost" href="/home/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/home/posters">${icon("posters", 18)}QR poster</a>` : `<a class="button" href="/home/orders">${icon("orders", 18)}Orders</a>`}</div>
+  <div class="quick">${biz.counter && ctx.can(c, "counter") ? `<a class="button" href="/home/counter">${icon("till", 18)}Counter sale</a>` : ""}${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add product</a>` : ""}${ctx.can(c, "tools") ? `<a class="button ghost" href="/home/test">${icon("test", 18)}Test bot</a><a class="button ghost" href="/home/posters">${icon("posters", 18)}QR poster</a>` : `<a class="button" href="/home/orders">${icon("orders", 18)}Orders</a>`}</div>
 </section>
 
 <div class="grid">
@@ -103,6 +127,8 @@ ${seesMoney ? stat("Paid in this month", money(now.paidInKobo), `vs ${money(befo
 ${stat("Orders this month", n(now.orders), `vs ${n(before.orders)} last month`, { change: pct(now.orders, before.orders), glow: !seesMoney, icon: "orders" })}
 ${stat("Quotes sent", n(now.quotes), `${conversion}% became orders`, { icon: "export" })}
 ${stat("Customers who messaged", n(chats.customers), `${n(chats.inbound)} in · ${n(chats.outbound)} out`, { icon: "inbox" })}
+${profit ? stat("Profit this month", signedMoney(profit.profitKobo, biz.currency), profit.missing ? `${n(profit.counted)} sales · ${n(profit.missing)} left out (no cost price)` : `from ${n(profit.counted)} sales`, { icon: "prices" }) : ""}
+${counterSales ? stat("Counter sales this month", money(keptSales.reduce((t, s) => t + s.totalKobo, 0)), `${n(keptSales.length)} sale${keptSales.length === 1 ? "" : "s"} · not in Paid in`, { icon: "till" }) : ""}
 ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} / 5`, `${n(rated.count)} rating${rated.count === 1 ? "" : "s"} in 30 days${rated.bad ? ` · ${n(rated.bad)} not good` : ""}`, { icon: "star" }) : ""}
 </div>
 
@@ -144,6 +170,8 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
     }
   </section>
 </div>
+
+${profitCard}
 
 <p class="muted small" style="margin-top:14px">${seesMoney ? `"Paid in" counts orders marked paid, including delivery fees. ` : ""}Numbers include any branches.</p>`;
     return ctx.render(c, "Dashboard", "/home", body);

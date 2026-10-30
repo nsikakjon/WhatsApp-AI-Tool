@@ -132,6 +132,8 @@ export interface Config {
   quoteShop?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
+  /** Counter sales and cost prices in the owner app (migration 0060). */
+  quoteCounterSales: boolean;
   /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
   quoteDiscountCodes: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
@@ -421,6 +423,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
+    quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),

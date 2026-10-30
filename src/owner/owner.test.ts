@@ -10,7 +10,8 @@ import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
 import { customersCsv } from "./sections/customers.js";
-import type { AppUser, BusinessData, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
+import type { AppUser, BusinessData, CounterSale, CounterStore, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
+import { pickedQuantities, priceSale, profitByProduct, profitSummary, saleProfit, signedMoney } from "./sections/counter.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
 import { memoryVerifications } from "../compliance/memory.js";
@@ -520,5 +521,141 @@ describe("WhatsApp side", () => {
     const reply = await wrapped.handle(msg("2348000000000", "yes"), ctx);
     expect(reply!.notify!.map((n) => n.to)).toEqual([OWNER, "2348044444444"]);
     expect(copyOwnerNotices([{ to: "x", text: "receipt" }], OWNER, ["y"])).toHaveLength(1);
+  });
+});
+
+describe("counter sales", () => {
+  const TIN = "44444444-4444-4444-4444-000000000001";
+  const SACHET = "44444444-4444-4444-4444-000000000002";
+  const milk = (): ProductRecord => ({
+    id: "22222222-2222-2222-2222-000000000001",
+    name: "Peak milk",
+    description: null,
+    category: null,
+    unit: null,
+    leadTimeDays: null,
+    active: true,
+    photoPath: null,
+    options: [
+      { id: TIN, name: "Tin", minQuantity: 1, stock: 5, costKobo: 40_000, tiers: [{ minQuantity: 1, unitPriceKobo: 50_000 }, { minQuantity: 12, unitPriceKobo: 45_000 }] },
+      { id: SACHET, name: "Sachet", minQuantity: 1, stock: null, costKobo: null, tiers: [{ minQuantity: 1, unitPriceKobo: 10_000 }] },
+    ],
+  });
+
+  function memoryCounter(): CounterStore & { recorded: CounterSale[] } {
+    const recorded: CounterSale[] = [];
+    const keys = new Map<string, string>();
+    return {
+      recorded,
+      sell: vi.fn(async ({ key, paidBy, lines }) => {
+        if (keys.has(key)) return { ok: true as const, saleId: keys.get(key)!, duplicate: true };
+        const id = `55555555-5555-5555-5555-${String(recorded.length + 1).padStart(12, "0")}`;
+        keys.set(key, id);
+        recorded.unshift({ id, at: new Date(), soldBy: "Bola", paidBy, totalKobo: lines.reduce((t, l) => t + l.totalKobo, 0), voided: false, lines: lines.map((l) => ({ name: l.name, quantity: l.quantity, totalKobo: l.totalKobo, unitCostKobo: l.variantId === TIN ? 40_000 : null })) });
+        return { ok: true as const, saleId: id, duplicate: false };
+      }),
+      void: vi.fn(async (id) => {
+        const s = recorded.find((x) => x.id === id && !x.voided);
+        if (s) s.voided = true;
+        return Boolean(s);
+      }),
+      sales: async () => recorded,
+      paidOrders: async () => [{ discountKobo: 5_000, lines: [{ name: "Peak milk: Tin", quantity: 2, totalKobo: 100_000, unitCostKobo: 40_000 }] }],
+    };
+  }
+
+  function withCounter() {
+    const counter = memoryCounter();
+    const s = setup({ counter });
+    s.prices.all.push(milk());
+    return { ...s, counter };
+  }
+
+  it("prices a sale from the price list, and refuses what's short or below the minimum", () => {
+    const products = [milk()];
+    const sale = priceSale(products, new Map([[TIN, 2], [SACHET, 3]]));
+    expect(sale.problems).toEqual([]);
+    expect(sale.lines.map((l) => [l.name, l.unitPriceKobo, l.totalKobo])).toEqual([["Peak milk: Tin", 50_000, 100_000], ["Peak milk: Sachet", 10_000, 30_000]]);
+    expect(priceSale(products, new Map([[TIN, 6]])).problems).toEqual(["Peak milk: Tin: only 5 left."]);
+    expect(priceSale(products, new Map()).problems[0]).toContain("Tap +");
+    expect(pickedQuantities({ [`q_${TIN}`]: "2", [`q_${SACHET}`]: "", q_bad: "9", [`q_${SACHET.replace("2", "3")}`]: "1.5" })).toEqual({ picked: new Map([[TIN, 2]]), problems: ['"1.5" isn\'t a number of pieces.'] });
+  });
+
+  it("works out profit only where every item has a cost price", () => {
+    const tin = { name: "Peak milk: Tin", quantity: 2, totalKobo: 100_000, unitCostKobo: 40_000 };
+    const sachet = { name: "Peak milk: Sachet", quantity: 1, totalKobo: 10_000, unitCostKobo: null };
+    expect(saleProfit([tin])).toBe(20_000);
+    expect(saleProfit([tin], 25_000)).toBe(-5_000);
+    expect(saleProfit([tin, sachet])).toBeNull();
+    expect(profitSummary([{ lines: [tin] }, { lines: [tin, sachet] }, { lines: [tin], discountKobo: 5_000 }])).toEqual({ profitKobo: 35_000, salesKobo: 195_000, counted: 2, missing: 1 });
+    expect(profitByProduct([tin, sachet, tin], 5)).toEqual([{ name: "Peak milk: Tin", quantity: 4, salesKobo: 200_000, profitKobo: 40_000 }]);
+    expect(signedMoney(-5_000, "NGN")).toBe("-₦50");
+  });
+
+  it("reads a cost price on the product form only when the box is there", () => {
+    const form = { name: "Peak milk", o0_name: "Tin", o0_p0: "500", o0_cost: "₦400" };
+    expect(readProductForm(form).input.options[0]!.costKobo).toBe(40_000);
+    expect(readProductForm({ ...form, o0_cost: "" }).input.options[0]!.costKobo).toBeNull();
+    expect("costKobo" in readProductForm({ name: "Peak milk", o0_name: "Tin", o0_p0: "500" }).input.options[0]!).toBe(false);
+    expect(readProductForm({ ...form, o0_cost: "lots" }).problems[0]).toContain("isn't a cost price");
+  });
+
+  it("lets a cashier ring up a sale once, without seeing profit or cancelling", async () => {
+    const s = withCounter();
+    const cookie = await login(s, STAFF, "cashier");
+    const screen = await (await get(s, "/counter", cookie)).text();
+    expect(screen).toContain("Peak milk: Tin");
+    expect(screen).toContain("₦500 each, ₦450 from 12");
+
+    const check = await s.app.request(`https://${HOST}/counter/check`, post({ [`q_${TIN}`]: "2", paid: "transfer" }, cookie));
+    const review = await check.text();
+    expect(review).toContain("₦1,000");
+    const key = review.match(/name="key" value="([0-9a-f-]{36})"/)![1]!;
+    const confirm = { [`q_${TIN}`]: "2", paid: "transfer", key, total: "100000" };
+    const sold = await s.app.request(`https://${HOST}/counter/sell`, post(confirm, cookie));
+    expect(sold.headers.get("location")).toBe("/home/counter?msg=sold");
+    await s.app.request(`https://${HOST}/counter/sell`, post(confirm, cookie));
+    expect(s.counter.recorded).toHaveLength(1);
+    expect(s.counter.recorded[0]).toMatchObject({ paidBy: "transfer", totalKobo: 100_000 });
+
+    const after = await (await get(s, "/counter", cookie)).text();
+    expect(after).toContain("2 x Peak milk: Tin");
+    expect(after).not.toContain("Profit");
+    expect(after).not.toContain("/cancel");
+    const cancel = await s.app.request(`https://${HOST}/counter/${s.counter.recorded[0]!.id}/cancel`, post({}, cookie));
+    expect(cancel.headers.get("location")).toBe("/home?msg=not_allowed");
+    expect(s.counter.void).not.toHaveBeenCalled();
+  });
+
+  it("shows the new total when a price changed after checking", async () => {
+    const s = withCounter();
+    const cookie = await login(s, OWNER);
+    const res = await s.app.request(`https://${HOST}/counter/sell`, post({ [`q_${TIN}`]: "2", paid: "cash", key: crypto.randomUUID(), total: "90000" }, cookie));
+    expect(await res.text()).toContain("A price changed since you checked");
+    expect(s.counter.sell).not.toHaveBeenCalled();
+  });
+
+  it("shows the owner profit, lets them cancel a sale, and shows cost prices on the price list", async () => {
+    const s = withCounter();
+    const cookie = await login(s, OWNER);
+    await s.app.request(`https://${HOST}/counter/sell`, post({ [`q_${TIN}`]: "1", paid: "cash", key: crypto.randomUUID(), total: "50000" }, cookie));
+    const dash = await (await get(s, "/", cookie)).text();
+    // Counter: 500 - 400 = 100. WhatsApp order: 1,000 - 50 discount - 800 = 150.
+    expect(dash).toContain("Profit this month");
+    expect(dash).toContain("₦250");
+    expect(dash).toContain("Counter sales this month");
+    expect(dash).toContain("Profit by product this month");
+    expect(await (await get(s, "/counter", cookie)).text()).toContain("profit <b>₦100</b>");
+    const cancel = await s.app.request(`https://${HOST}/counter/${s.counter.recorded[0]!.id}/cancel`, post({}, cookie));
+    expect(cancel.headers.get("location")).toBe("/home/counter?msg=sale_cancelled");
+    expect(await (await get(s, `/prices/${milk().id}`, cookie)).text()).toContain('name="o0_cost" inputmode="decimal" value="400"');
+  });
+
+  it("stays hidden when counter sales are off", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, "/", cookie)).text()).not.toContain("/home/counter");
+    expect((await get(s, "/counter", cookie)).status).toBe(404);
+    expect(await (await get(s, "/prices/new", cookie)).text()).not.toContain("_cost");
   });
 });

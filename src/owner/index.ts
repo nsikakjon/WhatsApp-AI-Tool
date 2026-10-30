@@ -1,3 +1,4 @@
+import { registerCounter } from "./sections/counter.js";
 import { registerCustomers } from "./sections/customers.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,8 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   shop_renamed: { ok: true, text: "Shop link changed. The old one no longer works." },
   shop_taken: { ok: false, text: "Another business already has that shop name. Try a different one." },
   shop_name: { ok: false, text: "Use 3 to 40 lowercase letters, numbers or dashes, e.g. mama-put." },
+  sold: { ok: true, text: "Sale recorded. The stock has been updated." },
+  sale_cancelled: { ok: true, text: "Sale cancelled. Its items are back in stock." },
 };
 
 export function createOwnerApp(deps: OwnerAppDeps) {
@@ -253,6 +256,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             businessName: c.get("biz").name,
             userName: user.name ?? ROLE_LABEL[user.role],
             role: user.role,
+            counter: Boolean(c.get("biz").counter),
             others: c.get("others"),
             flash,
           },
@@ -278,6 +282,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerDashboard(app, ctx);
   registerInbox(app, ctx);
   registerOrders(app, ctx);
+  registerCounter(app, ctx);
   registerCustomers(app, ctx);
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
