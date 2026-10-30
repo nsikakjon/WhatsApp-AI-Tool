@@ -136,6 +136,11 @@ export function renderSignupPage(opts: SignupPageOptions): string {
         <p>Remove yarnOga's access at any time in Meta Business Settings, or ask us to delete your data. Meta bills WhatsApp
         message fees to your own WhatsApp account.</p>
       </div>
+      <div>
+        <h3>Pharmacies and chemists</h3>
+        <p>Meta bans selling prescription medicines on WhatsApp and can block a number for it. Keep prescription-only medicines,
+        such as antibiotics like Amoxil, off your price list.</p>
+      </div>
     </div>
   </section>
 

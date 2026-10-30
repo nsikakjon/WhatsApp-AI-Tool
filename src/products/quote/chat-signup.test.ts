@@ -243,6 +243,18 @@ describe("chat sign-up on the quotes number", () => {
     expect(reply?.text).toContain("• Mugs: ₦2,500 each");
   });
 
+  it("warns a pharmacy about prescription medicines and flags them on the list", async () => {
+    const { bot, say } = setUp();
+    await say("sign up");
+    await say("Grace Pharmacy");
+    expect((await say("medicines and toiletries")).text).toMatch(/ban selling prescription medicines on WhatsApp[\s\S]*Do you have a referral code/);
+    await say("no");
+    const csv = { data: new Blob(["Product,Price\nParacetamol,500\nAmoxil 500mg,2500\n"]), mimeType: "text/csv" };
+    const reply = await bot.handle(msg("", { type: "document", mediaId: "m1", text: undefined }), ctx(1, csv));
+    expect(reply?.text).toContain("These look like prescription medicines: Amoxil 500mg.");
+    expect(reply?.text).not.toMatch(/medicines: .*Paracetamol/);
+  });
+
   it("offers the templates and reads a shared Google Sheet without the AI", async () => {
     const links: string[] = [];
     const { say, ai } = setUp(CUPCAKES, { fetchSheet: async (link) => (links.push(link), "Product,Price\nMugs,2500\n") });

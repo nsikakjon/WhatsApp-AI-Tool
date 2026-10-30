@@ -13,6 +13,7 @@ import {
   type PriceListDrafter,
 } from "./drafter.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
+import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
@@ -185,7 +186,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           if (!about) return { text: "In a few words, what do you sell?" };
           if (about.length > 120) return { text: "Please keep that short, a few words is enough (120 letters at most)." };
           await opts.store.save(msg.from, { step: "referral", description: about });
-          return { text: ASK_REFERRAL };
+          return { text: looksLikePharmacy(signup.businessName, about) ? `${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : ASK_REFERRAL };
         }
         case "referral": {
           if (NO_CODE.test(text)) {
@@ -276,6 +277,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       const list = problems.slice(0, 5).map((p) => `• ${p.message}`).join("\n");
       return { text: `A few things need fixing before I can save this:\n${list}\n\nTell me the corrections, or send the list again.` };
     }
+    const prescription = prescriptionNote(items.map((i) => (i.option === "Standard" ? i.product : `${i.product}, ${i.option}`)));
+    if (prescription) flags = [...flags, prescription];
     return {
       text: [
         preview(items),
