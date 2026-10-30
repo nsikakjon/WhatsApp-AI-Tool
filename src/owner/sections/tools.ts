@@ -6,6 +6,7 @@ import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
 import { renderPoster, renderPosterPdf, safeColour, type Orientation, type PosterLang } from "../posters.js";
 import type { AppContext, Env } from "../types.js";
+import { isPhoto } from "./prices.js";
 
 // Test your bot, QR posters, and exports.
 
@@ -94,13 +95,24 @@ ${result}
     try {
       const link = await ctx.deps.shop.link(biz.id, biz.name);
       const slug = link.slice(link.lastIndexOf("/") + 1);
-      const rename = c.get("user").role === "owner"
+      const owner = c.get("user").role === "owner";
+      const rename = owner
         ? `<form method="post" action="/home/posters/shop-name"><label>Change the name in the link<input name="slug" maxlength="40" value="${esc(slug)}" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" required></label>
 <div class="actions"><button class="ghost small">Save</button></div></form>`
         : "";
+      const look = owner && ctx.deps.shop.look ? await ctx.deps.shop.look.get(biz.id).catch(() => null) : null;
+      const lookForm = look
+        ? `<form method="post" action="/home/posters/shop-look" enctype="multipart/form-data" style="margin-top:16px">
+<h3 style="margin:0 0 4px">How your shop looks</h3><p class="muted small" style="margin:0">Your logo comes from Settings. Opening hours, ratings and delivery areas show on the shop when you have them.</p>
+<div class="row"><label>Your colour <span class="muted">(buttons and highlights)</span><input type="color" name="accent" value="${esc(look.accent ?? "#c6ff1f")}" style="height:44px"></label>
+<label style="align-self:end"><input type="checkbox" name="plain"${look.accent ? "" : " checked"}> Use yarnOga's colours</label></div>
+<label>Cover photo <span class="muted">(JPEG or PNG, up to 5 MB; a wide photo of your shop or your best work)</span><input type="file" name="cover" accept="image/jpeg,image/png"></label>
+${look.cover ? `<label><input type="checkbox" name="nocover"> Take the cover photo off</label>` : ""}
+<div class="actions"><button class="ghost small">Save the look</button></div></form>`
+        : "";
       return `<div class="card"><h2 style="margin-top:0">Your shop link</h2>
 <p>Put it in your Instagram bio, on your WhatsApp status or on flyers. Customers see your products and prices, pick how many, and WhatsApp opens with their order already typed.</p>
-<p style="word-break:break-all"><a href="${esc(link)}" target="_blank" rel="noopener"><b>${esc(link)}</b></a></p>${rename}</div>`;
+<p style="word-break:break-all"><a href="${esc(link)}" target="_blank" rel="noopener"><b>${esc(link)}</b></a></p>${rename}${lookForm}</div>`;
     } catch (err) {
       ctx.log.error("Owner app: shop link failed:", err);
       return "";
@@ -113,6 +125,33 @@ ${result}
     if (!ctx.deps.shop) return c.notFound();
     const result = await ctx.deps.shop.rename(c.get("biz").id, field(await c.req.parseBody(), "slug", 60));
     return c.redirect(`/home/posters?msg=${result.ok ? "shop_renamed" : result.reason === "taken" ? "shop_taken" : "shop_name"}`, 303);
+  });
+
+  app.post("/posters/shop-look", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    const look = ctx.deps.shop?.look;
+    if (!look) return c.notFound();
+    const biz = c.get("biz");
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const accent = field(form, "accent", 7).toLowerCase();
+    let cover: { data: Uint8Array; type: string } | null = null;
+    const file = form.cover;
+    if (file instanceof File && file.size > 0) {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const type = isPhoto(data);
+      if (file.size > 5 * 1024 * 1024 || !type) return c.redirect("/home/posters?msg=shop_cover_bad", 303);
+      cover = { data, type };
+    }
+    try {
+      await look.setAccent(biz.id, form.plain || !/^#[0-9a-f]{6}$/.test(accent) ? null : accent);
+      if (cover) await look.saveCover(biz.id, cover.data, cover.type);
+      else if (form.nocover) await look.removeCover(biz.id);
+    } catch (err) {
+      ctx.log.error("Owner app: saving the shop's look failed:", err);
+      return c.redirect("/home/posters?msg=shop_look_failed", 303);
+    }
+    return c.redirect("/home/posters?msg=shop_look", 303);
   });
 
   // ---- QR posters ----

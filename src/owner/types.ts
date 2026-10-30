@@ -8,6 +8,7 @@ import type { Product } from "../core/product.js";
 import type { WhatsAppClient } from "../core/whatsapp/client.js";
 import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
+import type { ShopLookStore } from "../products/quote/shop.js";
 import type { AppUser, BusinessData, DeliverySetupStore, PriceStore } from "./store.js";
 import type { VerificationStore } from "../compliance/store.js";
 
@@ -33,6 +34,7 @@ export interface AppBusiness {
   /** Product photos (QUOTE_CATALOGUE); without it the photo box is hidden. */
   photos?: {
     savePhoto(productId: string, data: Uint8Array, mimeType: string): Promise<void>;
+    saveMorePhotos?(productId: string, photos: Array<{ data: Uint8Array; mimeType: string }>): Promise<void>;
     photo(path: string): Promise<{ data: Uint8Array; mimeType: string } | null>;
   };
   /** Riders and zones (QUOTE_DELIVERY); without it the page explains how to switch delivery on. */
@@ -87,6 +89,8 @@ export interface OwnerAppDeps {
   shop?: {
     link(businessId: string, name: string): Promise<string>;
     rename(businessId: string, wanted: string): Promise<{ ok: true; link: string } | { ok: false; reason: "format" | "taken" }>;
+    /** The shop's colour and cover photo (migration 0060). */
+    look?: ShopLookStore;
   };
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */
   botTestsPerDay?: number;
