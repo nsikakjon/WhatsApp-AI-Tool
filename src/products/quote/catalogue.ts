@@ -43,7 +43,7 @@ export interface CatalogueStore {
   items(): Promise<CatalogueItem[]>;
   setStock(variantId: string, stock: number | null): Promise<void>;
   savePhoto(productId: string, data: Uint8Array, mimeType: string): Promise<void>;
-  /** Replaces a product's extra photos for the shop page (migration 0060); none takes them off. */
+  /** Replaces a product's extra photos for the shop page (migration 0061); none takes them off. */
   saveMorePhotos?(productId: string, photos: Array<{ data: Uint8Array; mimeType: string }>): Promise<void>;
   photo(path: string): Promise<OutgoingImage | null>;
   /** Takes a confirmed order's quantities off the stock. */

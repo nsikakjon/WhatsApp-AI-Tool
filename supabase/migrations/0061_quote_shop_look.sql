@@ -1,6 +1,6 @@
 -- The shop page's own look and extra product photos (docs/SHOP.md).
 -- Run this once in Supabase: SQL Editor > New query > paste > Run
--- (after 0059). Running it again is safe. The shop page works without it,
+-- (after 0060). Running it again is safe. The shop page works without it,
 -- in yarnOga's colours and with one photo per product.
 --
 -- shop_accent: the business's colour for buttons and highlights, e.g. "#e4572e".

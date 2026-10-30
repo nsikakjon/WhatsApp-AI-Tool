@@ -70,7 +70,7 @@ export interface ProductInput {
 export interface ProductRecord extends ProductInput {
   id: string;
   photoPath: string | null;
-  /** Extra photos for the shop page's full-screen view (migration 0060). */
+  /** Extra photos for the shop page's full-screen view (migration 0061). */
   morePhotos: string[];
 }
 
@@ -388,7 +388,7 @@ function toProduct(p: ProductRow): ProductRecord {
   };
 }
 
-// Every product column, so more_photos is read once migration 0060 is run.
+// Every product column, so more_photos is read once migration 0061 is run.
 const PRODUCT_SELECT =
   "*, quote_variants(id, name, min_quantity, stock, active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))";
 

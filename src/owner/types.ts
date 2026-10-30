@@ -89,7 +89,7 @@ export interface OwnerAppDeps {
   shop?: {
     link(businessId: string, name: string): Promise<string>;
     rename(businessId: string, wanted: string): Promise<{ ok: true; link: string } | { ok: false; reason: "format" | "taken" }>;
-    /** The shop's colour and cover photo (migration 0060). */
+    /** The shop's colour and cover photo (migration 0061). */
     look?: ShopLookStore;
   };
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */

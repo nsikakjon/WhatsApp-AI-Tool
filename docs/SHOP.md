@@ -77,7 +77,7 @@ It's on every plan, Free included: it's how customers find the bot.
 2. On Railway, add `QUOTE_SHOP=true`. `PUBLIC_URL` must already be set (it is,
    for payments).
 3. For the colour, cover and extra photos, run
-   `supabase/migrations/0060_quote_shop_look.sql` too (after 0059). Until
+   `supabase/migrations/0061_quote_shop_look.sql` too (after 0060). Until
    then the shop works as before, in yarnOga's colours.
 4. Make sure each business has its WhatsApp number in Settings. For the Demo
    Shop that's `2347048971600`.

@@ -45,7 +45,7 @@ export interface ShopProduct {
   category: string | null;
   /** A stored photo's path, or a sample photo's web address. */
   photoPath: string | null;
-  /** Up to four more photos' paths (migration 0060), for the full-screen view. */
+  /** Up to four more photos' paths (migration 0061), for the full-screen view. */
   morePhotos: string[];
   leadTimeDays: number | null;
   options: ShopOption[];
@@ -58,9 +58,9 @@ export interface ShopBusiness {
   whatsappNumber: string | null;
   currency: Currency;
   lang: Lang;
-  /** The owner's colour, "#e4572e" (migration 0060); null for yarnOga's lime. */
+  /** The owner's colour, "#e4572e" (migration 0061); null for yarnOga's lime. */
   accent: string | null;
-  /** The cover photo's stored path (migration 0060). */
+  /** The cover photo's stored path (migration 0061). */
   coverPath: string | null;
   /** Opening hours (migration 0054), for "Open now". */
   hours: OpeningHours | null;
@@ -914,7 +914,7 @@ export function createSupabaseSlugs(db: SupabaseClient): SlugStore {
   };
 }
 
-/** The business row's shop details. Every column, so it works before and after migrations 0054 and 0060. */
+/** The business row's shop details. Every column, so it works before and after migrations 0054 and 0061. */
 export async function supabaseShopLook(db: SupabaseClient, businessId: string) {
   const { data, error } = await db.from("quote_businesses").select("*").eq("id", businessId).maybeSingle();
   if (error) throw new Error(`shop details failed: ${error.message}`);
@@ -945,7 +945,7 @@ export function createSupabaseShopAreas(db: SupabaseClient, businessId: string):
   };
 }
 
-/** The owner app's side of the shop's look: its colour and cover photo (migration 0060). */
+/** The owner app's side of the shop's look: its colour and cover photo (migration 0061). */
 export interface ShopLookStore {
   get(businessId: string): Promise<{ accent: string | null; cover: boolean }>;
   /** Null goes back to yarnOga's colours. */
