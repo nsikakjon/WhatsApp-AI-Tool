@@ -12,7 +12,8 @@ import type { EmailContact, EmailProduct, EmailStore } from "./store.js";
 //   only between 8am and 8pm Lagos time. The welcome goes straight away.
 // - An email with a condition ("if fewer than 5 price rows") that isn't true
 //   on its day is skipped for good, so nobody is told to do what they've done.
-// - The series stops when the account says so (e.g. they upgraded).
+// - The series stops when the account says so (e.g. they upgraded), except
+//   for emails marked `afterStop`: feature guides that paid customers need too.
 // - At most `dailyLimit` emails a day in total (Resend's free plan allows 100).
 
 export interface AccountFacts {
@@ -27,6 +28,8 @@ export interface SeriesEmail<F extends AccountFacts> {
   day: number;
   /** Only sent if this is true on its day; otherwise skipped. */
   when?: (facts: F) => boolean;
+  /** Still sent once the account says stop, e.g. a feature guide for paid customers too. */
+  afterStop?: boolean;
   content: (facts: F, firstName: string) => EmailContent;
 }
 
@@ -99,7 +102,7 @@ export async function sendDueEmails(deps: SendDueDeps): Promise<number> {
       );
     }
     const f = await facts.get(key)!;
-    if (!f || f.stop) continue;
+    if (!f || (f.stop && !series.emails.some((e) => e.afterStop))) continue;
 
     let start = contact.seriesStartedAt;
     if (!start) {
@@ -111,7 +114,7 @@ export async function sendDueEmails(deps: SendDueDeps): Promise<number> {
     const done = sends.get(contact.id) ?? [];
     const lastSent = Math.max(0, ...done.filter((d) => d.status === "sent").map((d) => d.at.getTime()));
     for (const email of series.emails) {
-      if (done.some((d) => d.key === email.key)) continue;
+      if (done.some((d) => d.key === email.key) || (f.stop && !email.afterStop)) continue;
       if (now.getTime() < start.getTime() + email.day * DAY) break;
       if (email.when && !email.when(f)) {
         await deps.store.record(contact.id, email.key, "skipped");

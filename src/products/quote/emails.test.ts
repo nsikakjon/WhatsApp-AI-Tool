@@ -11,19 +11,43 @@ const facts: QuoteEmailFacts = {
   orders: 2,
   pharmacy: false,
   morningSummary: false,
+  orderAgain: false,
+  shopUrl: "https://app.yarnoga.com/shop/demo-shop",
   planName: "Free",
   month: { chats: 41, quotes: 12, orders: 2, paidKobo: 1_250_000 },
   prices: { starter: { monthly: 700_000, yearly: 625_000 }, pro: { monthly: 2_300_000, yearly: 1_925_000 } },
 };
-const series = quoteEmails("https://app.yarnoga.com", async () => facts);
+const all = { shop: true, counterSales: true, discountCodes: true, broadcasts: true };
+const series = quoteEmails("https://app.yarnoga.com", async () => facts, all);
 const render = (key: string, f = facts) => {
   const content = series.emails.find((e) => e.key === key)!.content(f, "Nsikak");
   return { content, ...renderEmail(content, { imageBase: "https://app.yarnoga.com/email/img", unsubscribeUrl: "https://u" }) };
 };
 
 describe("quote bot emails", () => {
-  it("has the ten approved emails in day order", () => {
-    expect(series.emails.map((e) => `${e.key}:${e.day}`)).toEqual(["Q1:0", "Q2:1", "Q3:2", "Q4:4", "Q5:7", "Q6:10", "Q7:10", "Q8:14", "Q9:21", "Q10:28"]);
+  it("has the ten approved emails and the feature guides in day order", () => {
+    expect(series.emails.map((e) => `${e.key}:${e.day}`)).toEqual([
+      "Q1:0", "Q2:1", "Q3:2", "Q4:4", "G1:5", "Q5:7", "G2:8", "Q6:10", "Q7:10", "G3:12", "Q8:14", "G4:16", "G5:18", "Q9:21", "G6:24", "G7:26", "Q10:28",
+    ]);
+  });
+
+  it("only has a feature's guide while the feature is on, and sends guides to paid businesses too", () => {
+    const off = quoteEmails("https://app.yarnoga.com", async () => facts);
+    expect(off.emails.map((e) => e.key).filter((k) => k.startsWith("G"))).toEqual(["G2", "G4", "G6"]);
+    expect(series.emails.filter((e) => e.afterStop).map((e) => e.key)).toEqual(["G1", "G2", "G3", "G4", "G5", "G6", "G7"]);
+  });
+
+  it("gives the shop link when there is one, and the shop command when not", () => {
+    expect(render("G1").text).toContain("Your link is https://app.yarnoga.com/shop/demo-shop.");
+    expect(render("G1", { ...facts, shopUrl: null }).text).toContain("Send shop to your bot and it replies with your link.");
+    expect(render("G2").text).toContain("post your shop link as text");
+    expect(quoteEmails("https://x", async () => facts).emails.find((e) => e.key === "G2")!.content(facts, "Ada").blocks.join(" ")).not.toContain("shop link");
+  });
+
+  it("says whether their plan has Order again, and gives the JOIN link", () => {
+    expect(render("G6").text).toContain("Send upgrade starter to your bot");
+    expect(render("G6", { ...facts, orderAgain: true }).text).toContain("Your plan has Order again and ratings.");
+    expect(render("G7").text).toContain("https://wa.me/2347048971600?text=JOIN");
   });
 
   it("fills in every email without gaps", () => {

@@ -20,8 +20,8 @@ const text = (key: string, f = facts) =>
   renderEmail(series.emails.find((e) => e.key === key)!.content(f, "Nsikak"), { imageBase: "https://i", unsubscribeUrl: "https://u" }).text;
 
 describe("flyer emails", () => {
-  it("has the seven approved emails in day order", () => {
-    expect(series.emails.map((e) => `${e.key}:${e.day}`)).toEqual(["F1:0", "F2:1", "F3:3", "F4:5", "F7:6", "F5:7", "F6:10"]);
+  it("has the seven approved emails and the text-fix guide in day order", () => {
+    expect(series.emails.map((e) => `${e.key}:${e.day}`)).toEqual(["F1:0", "F2:1", "F3:3", "F8:4", "F4:5", "F7:6", "F5:7", "F6:10"]);
   });
 
   it("fills in every email without gaps", () => {
