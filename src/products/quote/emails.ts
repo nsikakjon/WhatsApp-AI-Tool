@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EmailContent } from "../../core/email/layout.js";
 import type { AccountFacts, Series } from "../../core/email/series.js";
 import { formatNaira } from "../../core/money.js";
+import { PHARMACY_WARNING, looksLikePharmacy } from "./prescription.js";
 
 // The quote and order bot's welcome and setup-tip emails (copy approved by
 // Jay, marketing/email/EMAILS.md). Day 0 is when the business goes live on
@@ -16,6 +17,8 @@ export interface QuoteEmailFacts extends AccountFacts {
   botWaId: string | null;
   priceRows: number;
   orders: number;
+  /** The business sounds like a pharmacy or chemist, so the welcome repeats the prescription warning. */
+  pharmacy: boolean;
   /** Their plan has the 8am summary (Pro and above). */
   morningSummary: boolean;
   planName: string;
@@ -66,6 +69,7 @@ export function quoteEmails(appUrl: string, facts: (businessId: string) => Promi
                   ["Tell your customers", "Send your number to ten regular customers today."],
                 ],
               },
+              ...(f.pharmacy ? [PHARMACY_WARNING] : []),
               "Over the next few weeks I'll send one short email at a time, each showing one thing that saves you time or brings in more orders.",
               "If anything is unclear, reply to this email. A person reads every message.",
             ],
@@ -362,6 +366,7 @@ export function createSupabaseQuoteEmailFacts(
       botWaId,
       priceRows,
       orders,
+      pharmacy: looksLikePharmacy(row.name as string, row.description as string | null),
       morningSummary: await opts.morningSummary(businessId),
       planName: planRows.find((r) => r.code === planCode)?.name ?? "Free",
       month: {

@@ -9,6 +9,7 @@ const facts: QuoteEmailFacts = {
   botWaId: "2347048971600",
   priceRows: 3,
   orders: 2,
+  pharmacy: false,
   morningSummary: false,
   planName: "Free",
   month: { chats: 41, quotes: 12, orders: 2, paidKobo: 1_250_000 },
@@ -40,6 +41,11 @@ describe("quote bot emails", () => {
     expect(content.hero).toBe("welcome");
     expect(text).toContain("Thanks for setting up Demo Shop on yarnOga. Your assistant now answers customers on WhatsApp at 0704 897 1600");
     expect(text).toContain("Open your yarnOga app: https://app.yarnoga.com/home");
+    expect(text).not.toContain("prescription");
+  });
+
+  it("warns pharmacies about prescription medicines in the welcome", () => {
+    expect(render("Q1", { ...facts, pharmacy: true }).text).toContain("ban selling prescription medicines on WhatsApp");
   });
 
   it("sends each conditional email only when it fits", () => {
