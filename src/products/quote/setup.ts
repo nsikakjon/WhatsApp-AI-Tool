@@ -15,6 +15,7 @@ import {
   type PriceListDrafter,
 } from "./drafter.js";
 import { PAYSTACK_SUBACCOUNT } from "./paylinks.js";
+import { prescriptionNote } from "./prescription.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, compareLists, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
 import {
   DEFAULT_BUSINESS_ID,
@@ -284,10 +285,12 @@ ${uploadForm(business.id, csv)}`,
       );
     }
     const current = await deps.setup.priceList(business.id);
+    const prescription = prescriptionNote(items.map((i) => i.product));
     return c.html(
       page(
         `${business.name}: check the new price list`,
         `<p>This is what customers will be quoted from. Nothing is saved until you press <b>Save this price list</b>.</p>
+${prescription ? `<p class="warn">${esc(prescription)}</p>` : ""}
 ${changeSummary(current, items)}
 ${priceTable(items)}
 <form method="post" action="/quote-setup/b/${business.id}/prices/save">
