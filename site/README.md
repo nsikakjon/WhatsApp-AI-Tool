@@ -35,3 +35,13 @@ and the one-tap transfer screenshot confirm.
 
 The page counts its visitors like the rest of the site (Dashboard > Website),
 under the path `/fr/`.
+
+## terms.html: the terms, with the pharmacy rule
+
+The terms page from the site zip, with one paragraph added under **Fair use**:
+pharmacies and chemists must keep prescription-only medicines off their price
+lists, because Meta bans selling them on WhatsApp.
+
+To upload: Hostinger > Websites > yarnoga.com > **File manager** >
+`public_html`, upload `terms.html` and replace the old one. Then open
+`https://yarnoga.com/terms.html` and check the date says 30 October 2026.
