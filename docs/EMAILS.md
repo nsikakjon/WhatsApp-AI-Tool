@@ -23,11 +23,29 @@ In WhatsApp they answer with their email address, or *skip*. A mistyped address 
 
 - Quote bot: 10 emails over 28 days. Day 0 is when the business goes live on its own number, so a business still waiting to be connected gets nothing yet.
 - Flyers: 7 emails over 10 days, from the day the admin gives their email.
+- Feature guides ("New in yarnOga"), in between the setup emails. Unlike the setup emails, these also go to businesses and groups on a paid plan.
 - Site Reporter: 4 emails, lead qualifier: 5 emails (contacts added by hand, see below).
 
 Every 15 minutes the bot sends what's due: at most one email a day per person, between 8am and 8pm Lagos time (the welcome goes straight away), and at most `EMAILS_PER_DAY` in total. An email for a step they've already done is skipped ("Your bot can only quote what's on your list" only goes to a business with fewer than 5 items). The series stops when the business or group moves to a paid plan. Plan prices in the emails come from the database.
 
 **Stopping.** Every email has an Unsubscribe link that works in one click, plus the header Gmail and Yahoo use for their own Unsubscribe button. The page lets them back in if they tapped by mistake. Sending *stop emails* to any yarnOga number also unsubscribes.
+
+## Feature guides
+
+| Email | Day | About | Only while this is on |
+| --- | --- | --- | --- |
+| G1 | 5 | The shop page: the link, colour, cover photo, product photos, where to share it | `QUOTE_SHOP` |
+| G2 | 8 | Selling on WhatsApp Status | |
+| G3 | 12 | Counter sales, cost prices and profit | `QUOTE_COUNTER_SALES` |
+| G4 | 16 | Staff roles (manager, cashier, rider) | |
+| G5 | 18 | Discount codes, and ways to use them | `QUOTE_DISCOUNT_CODES` |
+| G6 | 24 | Order again, ratings and the Customers page | |
+| G7 | 26 | Broadcasts and building a JOIN list | `BROADCASTS_ENABLED` |
+| F8 | 4 | Flyers: fixing a name or date with "change X to Y", and Pidgin | |
+
+A guide whose switch is off isn't in the series. When the switch goes on, everyone already past that day gets the guide as their next email (still one a day). Pay links (Q7), Pidgin (Q3) and the pharmacy warning (Q1) were already in the setup emails.
+
+To change a wording, the quote emails are in `src/products/quote/emails.ts` and the flyer ones in `src/products/flyer/emails.ts`. The copy is also in marketing/email/FEATURE-GUIDES.md in the project files.
 
 ## Switching it on
 
