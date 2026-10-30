@@ -55,6 +55,9 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   shop_renamed: { ok: true, text: "Shop link changed. The old one no longer works." },
   shop_taken: { ok: false, text: "Another business already has that shop name. Try a different one." },
   shop_name: { ok: false, text: "Use 3 to 40 lowercase letters, numbers or dashes, e.g. mama-put." },
+  shop_look: { ok: true, text: "Saved. Your shop shows the new look within 10 minutes." },
+  shop_cover_bad: { ok: false, text: "The cover photo must be a JPEG or PNG picture under 5 MB." },
+  shop_look_failed: { ok: false, text: "That didn't save. Please try again, and message support if it keeps happening." },
   sold: { ok: true, text: "Sale recorded. The stock has been updated." },
   sale_cancelled: { ok: true, text: "Sale cancelled. Its items are back in stock." },
 };

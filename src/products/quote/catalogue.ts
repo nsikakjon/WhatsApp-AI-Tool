@@ -43,6 +43,8 @@ export interface CatalogueStore {
   items(): Promise<CatalogueItem[]>;
   setStock(variantId: string, stock: number | null): Promise<void>;
   savePhoto(productId: string, data: Uint8Array, mimeType: string): Promise<void>;
+  /** Replaces a product's extra photos for the shop page (migration 0061); none takes them off. */
+  saveMorePhotos?(productId: string, photos: Array<{ data: Uint8Array; mimeType: string }>): Promise<void>;
   photo(path: string): Promise<OutgoingImage | null>;
   /** Takes a confirmed order's quantities off the stock. */
   takeStock(orderId: string): Promise<void>;
@@ -352,6 +354,19 @@ export function createSupabaseCatalogue(db: SupabaseClient, businessId: string):
         .eq("id", productId)
         .eq("business_id", businessId);
       if (rowError) throw new Error(`savePhoto row failed: ${rowError.message}`);
+    },
+    async saveMorePhotos(productId, photos) {
+      const paths = photos.map((_, i) => `businesses/${businessId}/products/${productId}-${i + 1}`);
+      for (const [i, p] of photos.entries()) {
+        const { error } = await db.storage.from(FILES_BUCKET).upload(paths[i]!, p.data, { contentType: p.mimeType, upsert: true });
+        if (error) throw new Error(`saveMorePhotos failed: ${error.message}`);
+      }
+      const { error } = await db
+        .from("quote_products")
+        .update({ more_photos: paths, updated_at: new Date().toISOString() })
+        .eq("id", productId)
+        .eq("business_id", businessId);
+      if (error) throw new Error(`saveMorePhotos row failed: ${error.message}`);
     },
     async photo(path) {
       // Sample photos (the demo shop's, from Pexels) are web addresses rather than stored files.

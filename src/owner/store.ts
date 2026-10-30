@@ -72,6 +72,8 @@ export interface ProductInput {
 export interface ProductRecord extends ProductInput {
   id: string;
   photoPath: string | null;
+  /** Extra photos for the shop page's full-screen view (migration 0061). */
+  morePhotos: string[];
 }
 
 /** Thrown when another product already has that name. */
@@ -387,6 +389,7 @@ type ProductRow = {
   unit?: string | null;
   lead_time_days?: number | null;
   photo_path?: string | null;
+  more_photos?: string[] | null;
   active: boolean;
   created_at: string;
   quote_variants: Array<{
@@ -410,6 +413,7 @@ function toProduct(p: ProductRow): ProductRecord {
     unit: p.unit ?? null,
     leadTimeDays: p.lead_time_days ?? null,
     photoPath: p.photo_path ?? null,
+    morePhotos: p.more_photos ?? [],
     active: p.active,
     options: p.quote_variants
       .filter((v) => v.active)
@@ -427,8 +431,9 @@ function toProduct(p: ProductRow): ProductRecord {
   };
 }
 
+// Every product column, so more_photos is read once migration 0061 is run.
 const productSelect = (costs: boolean) =>
-  `id, name, description, category, unit, lead_time_days, photo_path, active, created_at, quote_variants(id, name, min_quantity, stock,${costs ? " cost_kobo," : ""} active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))`;
+  `*, quote_variants(id, name, min_quantity, stock,${costs ? " cost_kobo," : ""} active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))`;
 
 /** `costs`: read and save cost prices too (migration 0060 adds the column). */
 export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean } = {}): PriceStore {

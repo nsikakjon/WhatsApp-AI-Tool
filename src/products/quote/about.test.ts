@@ -17,7 +17,7 @@ describe("about and opening hours", () => {
   });
 
   it("knows when the shop is open, and when it next opens", () => {
-    expect(openState(week, at("2026-10-26T09:00:00Z"))).toEqual({ open: true }); // Mon 10:00
+    expect(openState(week, at("2026-10-26T09:00:00Z"))).toEqual({ open: true, closes: "18:00" }); // Mon 10:00
     expect(openState(week, at("2026-10-26T05:00:00Z"))).toMatchObject({ open: false, next: { day: "mon", time: "08:00", today: true } }); // Mon 06:00
     expect(openState(week, at("2026-10-26T19:30:00Z"))).toMatchObject({ open: false, next: { day: "tue", tomorrow: true } }); // Mon 20:30
     const saturdayNight = openState(week, at("2026-10-31T18:00:00Z"))!; // Sat 19:00

@@ -46,12 +46,12 @@ function lagosClock(now: Date): { day: number; minutes: number } {
 
 const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
 
-/** Open now, or closed with when it next opens (null when no hours are set). */
-export function openState(hours: OpeningHours | null, now: Date): { open: true } | { open: false; next: { day: Day; time: string; today: boolean; tomorrow: boolean } | null } | null {
+/** Open now and when it closes today, or closed with when it next opens (null when no hours are set). */
+export function openState(hours: OpeningHours | null, now: Date): { open: true; closes: string } | { open: false; next: { day: Day; time: string; today: boolean; tomorrow: boolean } | null } | null {
   if (!hours) return null;
   const { day, minutes: m } = lagosClock(now);
   const today = hours[DAYS[day]!];
-  if (today && m >= minutes(today[0]) && m < minutes(today[1])) return { open: true };
+  if (today && m >= minutes(today[0]) && m < minutes(today[1])) return { open: true, closes: today[1] };
   for (let ahead = 0; ahead < 8; ahead++) {
     const d = DAYS[(day + ahead) % 7]!;
     const slot = hours[d];

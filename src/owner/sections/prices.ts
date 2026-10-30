@@ -16,6 +16,7 @@ const UUID = /^[0-9a-f-]{36}$/;
 const MAX_OPTIONS = 20;
 const TIERS = 3;
 const MAX_PHOTO = 5 * 1024 * 1024;
+const MORE_PHOTOS = 4;
 
 export interface PriceForm {
   input: ProductInput;
@@ -172,7 +173,13 @@ ${costs ? `<label>Cost each <span class="muted">(what one costs you, for profit)
       biz.photos
         ? `<label>Photo <span class="muted">(JPEG or PNG, up to 5 MB; customers see it on product cards)</span>
 ${product?.photoPath ? `<img class="thumb" src="/home/prices/${product.id}/photo" alt="Current photo" style="width:120px;height:120px;display:block;margin:6px 0">` : ""}
-<input type="file" name="photo" accept="image/jpeg,image/png"></label>`
+<input type="file" name="photo" accept="image/jpeg,image/png"></label>
+${biz.photos.saveMorePhotos
+  ? `<label>More photos <span class="muted">(up to ${MORE_PHOTOS}; customers swipe through them when they open the product on your shop page. New ones replace the old.)</span>
+${product?.morePhotos.length ? `<span class="muted small">${product.morePhotos.length} saved</span>` : ""}
+<input type="file" name="more" accept="image/jpeg,image/png" multiple></label>
+${product?.morePhotos.length ? `<label><input type="checkbox" name="nomore"> Take the extra photos off</label>` : ""}`
+  : ""}`
         : "";
     return ctx.render(
       c,
@@ -210,7 +217,7 @@ ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}
     const biz = c.get("biz");
     const existing = id ? await biz.prices.product(id) : null;
     if (id && !existing) return c.redirect("/home/prices", 303);
-    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const form = (await c.req.parseBody({ all: true })) as Record<string, unknown>;
     const { input, problems } = readProductForm(form, biz.currency);
     let photo: { data: Uint8Array; type: "image/jpeg" | "image/png" } | null = null;
     const file = form.photo;
@@ -223,6 +230,17 @@ ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}
         else photo = { data, type };
       }
     }
+    const more: Array<{ data: Uint8Array; mimeType: string }> = [];
+    const extra = [form.more].flat().filter((f): f is File => f instanceof File && f.size > 0);
+    if (biz.photos?.saveMorePhotos && extra.length) {
+      if (extra.length > MORE_PHOTOS) problems.push(`Pick up to ${MORE_PHOTOS} more photos.`);
+      for (const f of extra.slice(0, MORE_PHOTOS)) {
+        const data = new Uint8Array(await f.arrayBuffer());
+        const type = isPhoto(data);
+        if (f.size > MAX_PHOTO || !type) problems.push(`"${f.name}" must be a JPEG or PNG picture under 5 MB.`);
+        else more.push({ data, mimeType: type });
+      }
+    }
     if (problems.length) return formPage(c, existing, input, problems, 0);
     let productId: string;
     try {
@@ -232,6 +250,7 @@ ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}
       throw err;
     }
     if (photo && biz.photos) await biz.photos.savePhoto(productId, photo.data, photo.type);
+    if (biz.photos?.saveMorePhotos && (more.length || form.nomore)) await biz.photos.saveMorePhotos(productId, more);
     ctx.log.info(`Owner app: ${biz.name} saved product "${input.name}"`);
     return c.redirect("/home/prices?msg=saved", 303);
   }

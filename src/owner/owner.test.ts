@@ -97,7 +97,7 @@ function memoryPrices(): PriceStore & { all: ProductRecord[] } {
         Object.assign(p, input);
         return id;
       }
-      const p = { ...input, id: `22222222-2222-2222-2222-${String(all.length + 1).padStart(12, "0")}`, photoPath: null };
+      const p = { ...input, id: `22222222-2222-2222-2222-${String(all.length + 1).padStart(12, "0")}`, photoPath: null, morePhotos: [] };
       all.push(p);
       return p.id;
     },
