@@ -172,6 +172,7 @@ describe("the series", () => {
       { key: "A1", day: 0, content: (_f, name) => ({ eyebrow: "e", subject: `Welcome ${name}`, preview: "p", blocks: ["hi"] }) },
       { key: "A2", day: 1, when: (f) => f.rows < 5, content: () => ({ eyebrow: "e", subject: "Add prices", preview: "p", blocks: ["x"] }) },
       { key: "A3", day: 2, content: () => ({ eyebrow: "e", subject: "Test it", preview: "p", blocks: ["x"] }) },
+      { key: "G1", day: 3, afterStop: true, content: () => ({ eyebrow: "e", subject: "New feature", preview: "p", blocks: ["x"] }) },
     ],
   });
   // 29 Oct 2026, 11:00 in Lagos (10:00 UTC).
@@ -221,6 +222,15 @@ describe("the series", () => {
     expect((await run({ facts: null, now: at(0) })).sent).toHaveLength(0);
   });
 
+  it("still sends feature guides after the account says stop, on their day", async () => {
+    const paid = { live: true, stop: true, rows: 0 };
+    const { store } = await run({ facts: paid, now: at(0) });
+    expect((await run({ facts: paid, now: at(2, 12), store })).sent).toHaveLength(0);
+    expect((await run({ facts: paid, now: at(3, 12), store })).sent.map((e) => e.subject)).toEqual(["New feature"]);
+    // The setup emails it passed over aren't marked done, so they'd still come if the account went back to free.
+    expect(store.done.map((d) => d.key)).toEqual(["G1"]);
+  });
+
   it("sends later emails on their day, in Lagos daytime, one a day", async () => {
     const first = await run({ now: at(0) });
     const { store } = first;
@@ -234,7 +244,8 @@ describe("the series", () => {
     expect(await again(at(1, 12))).toEqual(["Add prices"]);
     expect(await again(at(2, 7))).toEqual([]); // 8am in Lagos, but under 20 hours since the last one
     expect(await again(at(2, 12))).toEqual(["Test it"]);
-    expect(await again(at(9, 12))).toEqual([]);
+    expect(await again(at(9, 12))).toEqual(["New feature"]);
+    expect(await again(at(10, 12))).toEqual([]);
   });
 
   it("skips an email whose step is already done", async () => {
