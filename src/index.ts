@@ -1215,9 +1215,11 @@ if (emailConfig && emailStore) {
       emailConfig.publicUrl,
       createSupabaseQuoteEmailFacts(supabase, {
         main: config.quote && { id: DEFAULT_BUSINESS_ID, name: config.quote.businessName, plan: config.quote.plan, phoneNumberId: config.whatsapp.phoneNumberId },
-        morningSummary: async (id) =>
-          onPlan({ id, branchOf: id === DEFAULT_BUSINESS_ID ? null : ((await businesses.get(id))?.branchOf ?? null) }, "daily_summary"),
+        onPlan: async (id, feature) =>
+          onPlan({ id, branchOf: id === DEFAULT_BUSINESS_ID ? null : ((await businesses.get(id))?.branchOf ?? null) }, feature),
+        shopUrl: shopConfig?.publicUrl,
       }),
+      { shop: Boolean(shopConfig), counterSales: config.quoteCounterSales, discountCodes: config.quoteDiscountCodes, broadcasts: Boolean(broadcastConfig) },
     );
   }
   if (flyerConfig) series.flyer = flyerEmails(createSupabaseFlyerEmailFacts(supabase));
