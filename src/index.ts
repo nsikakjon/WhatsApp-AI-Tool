@@ -107,6 +107,7 @@ import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabaseShopCosts } from "./dashboard/costs.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
@@ -1051,6 +1052,11 @@ const routes = {
   main: answering(product),
 };
 
+const dashboardNumbers = [
+  ...numbers,
+  ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
+];
+
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
   appSecret: config.whatsapp.appSecret,
@@ -1068,10 +1074,13 @@ const app = createApp({
 }, config.dashboard
   ? {
       password: config.dashboard.password,
-      stats: createSupabaseStats(supabase, [
-        ...numbers,
-        ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
-      ]),
+      stats: createSupabaseStats(supabase, dashboardNumbers),
+      costs: config.shopCosts
+        ? createSupabaseShopCosts(supabase, {
+            numbers: dashboardNumbers,
+            mainBusiness: config.quote ? { id: DEFAULT_BUSINESS_ID, plan: config.quote.plan ?? null } : undefined,
+          })
+        : undefined,
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       socials: createSocials({

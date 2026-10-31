@@ -1,5 +1,6 @@
 import { mark } from "../core/brand.js";
 import { formatNaira } from "../core/money.js";
+import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import type { SocialAccount } from "./socials.js";
 import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
@@ -46,9 +47,6 @@ function tile(label: string, value: string, note = "", look: "" | "glow" | "loss
   }</div>`;
 }
 
-// Meta charges for each message a number sends after its first 1,000 a month.
-const META_FREE_MESSAGES = 1000;
-
 function sentTable(rows: NumberUse[] | null): string {
   if (rows === null) return `<p class="problem">Messages sent per number will show here once migration 0043 is run in Supabase.</p>`;
   if (rows.length === 0) return "";
@@ -61,6 +59,56 @@ function sentTable(rows: NumberUse[] | null): string {
     )
     .join("");
   return `<p class="intro">Messages each number sent this month. Meta charges for each one past the first ${num(META_FREE_MESSAGES)} on a number.</p><table class="plans wide"><thead><tr><th>Number</th><th>Sent</th><th>Past the free ${num(META_FREE_MESSAGES)}</th><th>Meta bills</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function costRow(s: ShopCost, withPlan = true): string {
+  const c = s.cost;
+  const breakdown = `AI ${formatNaira(c.aiKobo)} · voice ${formatNaira(c.voiceKobo)} · Meta ${formatNaira(c.metaKobo)}`;
+  return `<tr${s.losing && withPlan ? ' class="losing"' : ""}><td>${esc(s.name)}${s.losing && withPlan ? ' <span class="flag">Loses money</span>' : ""}</td>${
+    withPlan ? `<td>${esc(s.plan)}</td><td>${formatNaira(s.paysKobo)}</td>` : ""
+  }<td>${num(s.aiReplies)}</td><td>${num(s.voiceNotes)}<span class="small">${num(s.voiceMinutes)} min</span></td><td>${num(s.sent)}</td><td>${formatNaira(c.totalKobo)}<span class="small">${esc(breakdown)}</span></td><td>${formatNaira(s.projectedKobo)}</td>${
+    withPlan ? `<td class="${s.paysKobo - s.projectedKobo < 0 ? "expense" : "income"}">${signedNaira(s.paysKobo - s.projectedKobo)}</td>` : ""
+  }</tr>`;
+}
+
+function costsSection(costs: ShopCosts | "error" | undefined): string {
+  if (!costs) return "";
+  const intro =
+    "What each shop costs us this month in AI replies, voice notes and Meta message fees, against what its plan pays. Costs are worked out from each provider's list price; a shop is flagged when, at this month's pace, it will cost more than it pays.";
+  if (costs === "error") {
+    return section("costs", "Cost to serve each shop", intro, `<p class="problem">Shop costs couldn't load. Check that migration 0065 has been run in Supabase.</p>`);
+  }
+  const losingShops = costs.shops.filter((s) => s.losing);
+  const losingPlans = costs.plans.filter((p) => p.losing && p.paysKobo > 0);
+  const totalCost = [...costs.shops, ...costs.otherNumbers].reduce((sum, s) => sum + s.cost.totalKobo, 0);
+  const head = (withPlan: boolean) =>
+    `<thead><tr><th>${withPlan ? "Shop" : "Number"}</th>${withPlan ? "<th>Plan</th><th>Pays a month</th>" : ""}<th>AI replies</th><th>Voice notes</th><th>Messages sent</th><th>Cost so far</th><th>Cost by month end</th>${
+      withPlan ? "<th>Left over</th>" : ""
+    }</tr></thead>`;
+  const planRows = costs.plans
+    .map(
+      (p) =>
+        `<tr${p.losing ? ' class="losing"' : ""}><td>${esc(p.plan)}${p.losing && p.paysKobo > 0 ? ' <span class="flag">Loses money</span>' : ""}</td><td>${num(p.shops)}</td><td>${formatNaira(p.paysKobo)}</td><td>${formatNaira(p.projectedKobo)}</td><td class="${p.paysKobo - p.projectedKobo < 0 ? "expense" : "income"}">${signedNaira(p.paysKobo - p.projectedKobo)}</td></tr>`,
+    )
+    .join("");
+  return section(
+    "costs",
+    "Cost to serve each shop",
+    intro,
+    `<div class="tiles">
+${tile("Cost so far this month", formatNaira(totalCost), `all numbers, at ${formatNaira(costs.usdRateKobo)} to $1`)}
+${tile("Shops costing more than they pay", num(losingShops.length), `of ${num(costs.shops.length)} shops, by month end at this pace`, losingShops.length ? "loss" : "")}
+${tile("Paid plans losing money", num(losingPlans.length), losingPlans.length ? losingPlans.map((p) => p.plan).join(", ") : "every paid plan covers its shops' costs", losingPlans.length ? "loss" : "")}
+</div>
+<div class="scroll"><table class="plans wide costs-plans"><thead><tr><th>Plan</th><th>Shops</th><th>Pays a month</th><th>Cost by month end</th><th>Left over</th></tr></thead><tbody>${planRows}</tbody></table></div>
+<div class="scroll"><table class="plans wide costs">${head(true)}<tbody>${costs.shops.map((s) => costRow(s)).join("")}</tbody></table></div>
+${
+  costs.otherNumbers.length
+    ? `<p class="intro">Our own numbers that aren't a shop.</p><div class="scroll"><table class="plans wide costs">${head(false)}<tbody>${costs.otherNumbers.map((s) => costRow(s, false)).join("")}</tbody></table></div>`
+    : ""
+}
+<p class="intro">"Pays a month" is the plan's monthly list price, not money received. Dollar costs use the latest dollar rate in Money. Meta's fee is $0.0067 a message past a number's free ${num(META_FREE_MESSAGES)}; numbers a business connected itself are billed to that business.</p>`,
+  );
 }
 
 function section(id: string, title: string, intro: string, body: string): string {
@@ -277,6 +325,7 @@ export function renderDashboard(
   socialAccounts: SocialAccount[] = [],
   website?: WebsiteStats | "error",
   profit?: ProfitView,
+  costs?: ShopCosts | "error",
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -373,6 +422,7 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
 
   const jumps: [string, string, boolean][] = [
     ["money", "Money", Boolean(profit)],
+    ["costs", "Shop costs", Boolean(costs)],
     ["whatsapp", "WhatsApp", true],
     ["flyers", "Flyers", true],
     ["quotes", "Sales assistant", true],
@@ -478,6 +528,13 @@ th { color:var(--dim); font:600 11px/1.4 var(--body); letter-spacing:.08em; text
 .pair table { max-width:none; }
 .pair td:first-child { word-break:break-all; }
 .wide { max-width:none; }
+.scroll { overflow-x:auto; margin-top:12px; border-radius:14px; }
+.costs { min-width:860px; }
+.costs-plans { min-width:560px; }
+.costs td.income, .costs td.expense, .costs-plans td { white-space:nowrap; }
+.scroll + .intro { margin-top:20px; }
+tr.losing td:first-child { box-shadow:inset 3px 0 0 var(--red); }
+.flag { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:99px; background:var(--redsoft); color:var(--red); font-size:11.5px; font-weight:600; white-space:nowrap; }
 td.income { color:var(--lime); }
 td.expense { color:var(--red); }
 .small { display:block; color:var(--dim); font-size:12.5px; }
@@ -518,6 +575,7 @@ ${mark("m", 48)}
 <main>
 ${glance}
 ${profitSection(profit)}
+${costsSection(costs)}
 ${whatsapp}
 ${flyers}
 ${quotes}
