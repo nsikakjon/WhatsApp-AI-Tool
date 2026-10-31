@@ -22,6 +22,8 @@ export type CreditCheck = {
   useAi: boolean;
   /** A message for the business owner, sent once at 80% and once when credits run out. */
   ownerNotice: string | null;
+  /** True on the message that used the last credit, when ownerNotice says they've run out. */
+  usedUp?: boolean;
 };
 
 export interface AiCredits {
@@ -81,7 +83,7 @@ export function createAiCredits(opts: AiCreditsOptions): AiCredits {
       } else if (allowed > 0 && used === warnAt && warnAt < allowed) {
         ownerNotice = `Heads-up: you've used ${used} of your ${allowed} AI replies this month. ${opts.topUps ? options : "Send *plan* to see your options."}`;
       }
-      return { useAi: used <= allowed, ownerNotice };
+      return { useAi: used <= allowed, ownerNotice, ...(used === allowed + 1 ? { usedUp: true } : {}) };
     },
   };
 }

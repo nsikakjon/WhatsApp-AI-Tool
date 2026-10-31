@@ -183,6 +183,13 @@ async function handleMessage(
     }
   }
   if (!reply) return;
+  if (reply.handOver) {
+    try {
+      await deps.store.pauseBot(contactId, fromNumber ?? "", new Date(now(deps).getTime() + reply.handOver.hours * 3_600_000), "limit");
+    } catch (err) {
+      log.error(`Couldn't hand the chat with ${mask(msg.from)} to the owner:`, err);
+    }
+  }
   try {
     await sendReply(deps, msg.from, contactId, reply, fromNumber, log);
   } catch (err) {

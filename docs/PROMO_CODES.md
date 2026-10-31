@@ -67,6 +67,28 @@ To change the 10% for one business, edit `percent_off` on its row in
 `promo_codes` (its `referrer_business_id` is the business). To change the
 default for all new codes, ask a developer to change the column default.
 
+## Offers for quote bot owners (LIMITUP and COMEBACK)
+
+Off unless `QUOTE_OFFERS=true` (needs migration 0064 and `PAYSTACK_SECRET_KEY`).
+
+- **LIMITUP**: when a business uses up its month's orders or AI replies, the
+  owner's warning says "Upgrade now with code LIMITUP for 20% off your first
+  month". With `QUOTE_LIMIT_ALERTS` on, the Upgrade button already has the code
+  in it, so it's one tap.
+- **COMEBACK**: once a day at 11am, a business that isn't on a paid plan and
+  has had no customer chats or orders for 30 days gets a win-back message with
+  the code and a one-tap upgrade, at most once every 90 days. WhatsApp only
+  lets the bot message an owner who has written to it in the last day, so
+  usually yarnOga gets an alert with the code and the owner's number instead,
+  to send it personally.
+
+Both are normal promo codes: one use per owner, first month only. Migration
+0064 adds them **switched off**, at 20% (LIMITUP) and 30% (COMEBACK). Those
+numbers are suggestions: change `percent_off` on the row in `promo_codes` if
+you want different amounts, then switch each on with `promo LIMITUP on` and
+`promo COMEBACK on` (the same WhatsApp commands as DAYONES above). While a code
+is off, nobody is offered it.
+
 ## Going live
 
 1. In Supabase: SQL Editor, New query, paste all of

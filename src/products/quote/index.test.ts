@@ -629,6 +629,124 @@ describe("quote product on a plan", () => {
     expect(reply?.notify?.[0]?.text).toContain("order 47 of 50");
   });
 
+  describe("with limit alerts", () => {
+    function alerting(check: Awaited<ReturnType<PlanGate["checkOrder"]>>, aiNotice: string | null = null) {
+      const mem = memoryOrders();
+      let intent: Understanding = quote;
+      const product = createQuoteProduct({
+        businessName: "KahnPrints",
+        orderPrefix: "KP",
+        ownerWaId: OWNER,
+        catalog: { activeVariants: async () => variants },
+        orders: mem.store,
+        ai: { understand: async () => intent },
+        renderDocument: fakeDocuments().render,
+        plan: {
+          credit: async () => null,
+          checkOrder: async () => check,
+          summary: async () => "Your plan: *Free*",
+          nextPlan: async () => ({ code: "starter", name: "Starter", monthlyPriceKobo: 700_000, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: null, showCredit: false }),
+        },
+        credits: { spend: async () => ({ useAi: true, ownerNotice: aiNotice }) },
+        topUps: { ownerCommand: async () => null, summaryLine: async () => null },
+        limitAlerts: true,
+        log: { error() {} },
+      });
+      const say = (body: string, next: Understanding) => {
+        intent = next;
+        return product.handle(text(body), ctx);
+      };
+      return { say };
+    }
+
+    it("puts Upgrade and Top up buttons under the AI replies warning", async () => {
+      const { say } = alerting({ allowed: true, warning: null }, "Heads-up: you've used 400 of your 500 AI replies this month.");
+      const reply = await say("100 flyers", quote);
+      expect(reply?.notify).toEqual([
+        {
+          to: OWNER,
+          text: "",
+          buttons: {
+            body: "Heads-up: you've used 400 of your 500 AI replies this month.",
+            buttons: [
+              { id: "upgrade starter", title: "Upgrade to Starter" },
+              { id: "top up", title: "Top up AI replies" },
+            ],
+          },
+        },
+      ]);
+    });
+
+    it("sends the orders warning on its own, with an Upgrade button", async () => {
+      const { say } = alerting({ allowed: true, warning: "Heads-up: this is order 40 of 50 on your Free plan this month." });
+      await say("100 flyers", quote);
+      const reply = await say("yes", confirm);
+      const [order, warning] = reply!.notify!.slice(-2);
+      expect(order?.text).not.toContain("order 40 of 50");
+      expect(warning?.buttons?.body).toContain("order 40 of 50");
+      expect(warning?.buttons?.buttons).toEqual([{ id: "upgrade starter", title: "Upgrade to Starter" }]);
+    });
+
+    it("offers the upgrade code once the orders are used up", async () => {
+      const mem = memoryOrders();
+      let intent: Understanding = quote;
+      const product = createQuoteProduct({
+        businessName: "KahnPrints",
+        orderPrefix: "KP",
+        ownerWaId: OWNER,
+        catalog: { activeVariants: async () => variants },
+        orders: mem.store,
+        ai: { understand: async () => intent },
+        renderDocument: fakeDocuments().render,
+        plan: {
+          credit: async () => null,
+          checkOrder: async () => ({ allowed: false, used: 50, limit: 50, planName: "Free" }),
+          summary: async () => "Your plan: *Free*",
+          nextPlan: async () => ({ code: "starter", name: "Starter", monthlyPriceKobo: 700_000, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: null, showCredit: false }),
+        },
+        limitAlerts: true,
+        limitOffer: async () => ({ code: "LIMITUP", percentOff: 20 }),
+        log: { error() {} },
+      });
+      await product.handle(text("100 flyers"), ctx);
+      intent = confirm;
+      const reply = await product.handle(text("yes"), ctx);
+      const limit = reply!.notify!.at(-1)!;
+      expect(limit.buttons?.body).toContain("Upgrade now with code *LIMITUP* for 20% off your first month.");
+      expect(limit.buttons?.buttons[0]).toEqual({ id: "upgrade starter LIMITUP", title: "Upgrade to Starter" });
+    });
+
+    it("hands an over-limit customer to the owner", async () => {
+      const { say } = alerting({ allowed: false, used: 50, limit: 50, planName: "Free" });
+      await say("100 flyers", quote);
+      const reply = await say("yes", confirm);
+      expect(reply?.text).toContain("team will contact you shortly");
+      expect(reply?.handOver).toEqual({ hours: 24 });
+      const [order, limit] = reply!.notify!.slice(-2);
+      expect(order?.text).toContain("wants to order KP-1001");
+      expect(limit?.buttons?.body).toContain("You've used all 50 orders");
+      expect(limit?.buttons?.body).toContain("won't answer them for the next 24 hours");
+    });
+  });
+
+  it("passes the owner's \"Please call me\" on to yarnOga", async () => {
+    const asked: string[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => quote },
+      askYarnogaToCall: async (waId) => {
+        asked.push(waId);
+      },
+      log: { error() {} },
+    });
+    expect((await product.handle({ ...text("yarnoga call me"), from: OWNER }, ctx))?.text).toContain("will call you soon");
+    expect(asked).toEqual([OWNER]);
+  });
+
   it("tells the owner about their bot messages, and lists them in the plan reply", async () => {
     const product = createQuoteProduct({
       businessName: "KahnPrints",

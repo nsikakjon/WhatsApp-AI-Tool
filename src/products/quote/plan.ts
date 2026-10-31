@@ -81,6 +81,8 @@ export interface PlanGate {
   summary(usage?: string[]): Promise<string>;
   /** The owner's "upgrade starter [yearly]" command: a payment link, or how to upgrade. */
   upgrade?(request: string, ownerWaId: string): Promise<string>;
+  /** The cheapest plan above this one, for an Upgrade button; null on the top plan. */
+  nextPlan?(): Promise<QuotePlan | null>;
 }
 
 export interface PlanGateOptions {
@@ -93,9 +95,14 @@ export interface PlanGateOptions {
    * With prices, owners outside Nigeria pay in their own currency.
    */
   checkout?: { links: PaymentLinks; businessId: string; prices?: PlanPrices };
+  /** QUOTE_LIMIT_ALERTS: also warn once when 80% of the month's orders are used. */
+  alertAt80?: boolean;
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
+
+/** Share of a monthly limit at which owners get the QUOTE_LIMIT_ALERTS heads-up. */
+export const ALERT_SHARE = 0.8;
 
 /** Midnight on the 1st of this month, Lagos time (UTC+1 all year). */
 export function lagosMonthStart(now: Date): Date {
@@ -161,6 +168,9 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       }
       if (used >= limit) return { allowed: false, used, limit, planName: plan.name };
       const left = limit - used - 1;
+      if (opts.alertAt80 && left >= WARN_WHEN_LEFT && used + 1 === Math.ceil(limit * ALERT_SHARE)) {
+        return { allowed: true, warning: `Heads-up: this is order ${used + 1} of ${limit} on your ${plan.name} plan this month.` };
+      }
       const warning =
         left < WARN_WHEN_LEFT
           ? `This is order ${used + 1} of ${limit} on your ${plan.name} plan this month${left === 0 ? ". Send *plan* to see how to keep taking orders." : "."}`
@@ -208,6 +218,12 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         lines.push("", opts.checkout ? "For an extra, contact yarnOga." : "To upgrade or add an extra, contact yarnOga and we'll sort it out.");
       }
       return lines.join("\n");
+    },
+
+    async nextPlan() {
+      const plan = await current();
+      if (!plan) return null;
+      return (await opts.store.paidPlans()).find((p) => p.monthlyPriceKobo > plan.monthlyPriceKobo) ?? null;
     },
 
     async upgrade(request, ownerWaId) {
@@ -385,14 +401,23 @@ export async function readBusinessPlanCode(db: SupabaseClient, businessId: strin
     // Every column, so branch_of (migration 0038) is used when it's there.
     const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
     if (error) throw new Error(`businessPlanCode failed: ${error.message}`);
-    return data as { plan_code?: string | null; plan_paid_until?: string | null; branch_of?: string | null } | null;
+    return data as { plan_code?: string | null; plan_paid_until?: string | null; plan_grace_until?: string | null; branch_of?: string | null } | null;
   };
   let data = await row(businessId);
   // A branch is on its main business's plan.
   if (data?.branch_of) data = await row(data.branch_of);
   const code = data?.plan_code ?? null;
-  const until = data?.plan_paid_until;
-  return code && until && new Date(until) <= new Date() ? "free" : code;
+  return code && data && planLapsed(data) ? "free" : code;
+}
+
+/**
+ * True when a paid plan's time, and any grace period after it (migration
+ * 0064, QUOTE_PLAN_RENEWALS), has run out. A plan with no end date never lapses.
+ */
+export function planLapsed(row: { plan_paid_until?: string | null; plan_grace_until?: string | null }, now = new Date()): boolean {
+  if (!row.plan_paid_until) return false;
+  const end = Math.max(new Date(row.plan_paid_until).getTime(), row.plan_grace_until ? new Date(row.plan_grace_until).getTime() : 0);
+  return end <= now.getTime();
 }
 
 export function createSupabasePlanPayments(db: SupabaseClient): PlanPaymentStore {
@@ -400,15 +425,17 @@ export function createSupabasePlanPayments(db: SupabaseClient): PlanPaymentStore
     async extendPlan(businessId, code, months) {
       const { data, error } = await db
         .from("quote_businesses")
-        .select("plan_code, plan_paid_until")
+        .select("*")
         .eq("id", businessId)
         .maybeSingle();
       if (error) throw new Error(`extendPlan read failed: ${error.message}`);
       if (!data) throw new Error(`extendPlan: no business ${businessId}`);
-      // Paying again for the same plan adds on to the time left; otherwise the new plan starts now.
+      // Paying again for the same plan adds on to the time left, and a renewal
+      // paid in the grace period (migration 0064) carries on from the old end
+      // date. Otherwise the new plan starts now.
       const now = new Date();
       const current = data.plan_paid_until ? new Date(data.plan_paid_until as string) : null;
-      const from = data.plan_code === code && current && current > now ? current : now;
+      const from = data.plan_code === code && current && !planLapsed(data, now) ? current : now;
       const until = new Date(from);
       until.setUTCMonth(until.getUTCMonth() + months);
       const { error: updateError } = await db

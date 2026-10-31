@@ -6,6 +6,7 @@ import { formatMoney, type Currency } from "../../core/money.js";
 import { QUOTE_TEXTS, type QuoteTexts } from "./texts.js";
 import { CREDIT_LINE } from "./plan.js";
 import type { Notice, Product, ProductContext, Reply } from "../../core/product.js";
+import { CHECK_IN_CALL, CHECK_IN_OK } from "./usage-drop.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
@@ -108,6 +109,19 @@ export interface QuoteProductOptions {
   simpleAi?: Understander;
   /** AI reply packs the owner can buy with "top up" (topups.ts). Without it, the plan's replies are all there is. */
   topUps?: { ownerCommand(text: string, ownerWaId: string): Promise<string | null>; summaryLine(): Promise<string | null> };
+  /**
+   * QUOTE_LIMIT_ALERTS: limit warnings reach the owner with one-tap Upgrade
+   * and Top up buttons, and a customer whose order is over the month's limit
+   * is handed to the owner instead of getting more bot replies.
+   */
+  limitAlerts?: boolean;
+  /**
+   * QUOTE_OFFERS: the owner's upgrade offer when a monthly limit runs out, a
+   * promo code row (offers.ts). Null when the code is switched off.
+   */
+  limitOffer?: () => Promise<{ code: string; percentOff: number } | null>;
+  /** The owner tapped "Please call me" on yarnOga's check-in (usage-drop.ts): tell yarnOga. */
+  askYarnogaToCall?: (ownerWaId: string) => Promise<void>;
   /** The plan's monthly WhatsApp messages on a number yarnOga pays for (messages.ts). Without it, nothing is checked. */
   botMessages?: MessageAllowance;
   /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
@@ -157,6 +171,8 @@ export interface QuoteProduct extends Product {
 const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
 /** The "Order again" button's id, and the words that mean the same. */
 const ORDER_AGAIN_ID = "order again";
+/** How long the bot stays out of a chat it handed to the owner because the month's orders ran out. */
+const HAND_OVER_HOURS = 24;
 const ORDER_AGAIN = /^(🔁\s*)?(order again|reorder|re-order|same as last time|same again|same order|recommander|même commande|la même chose)[.!]*$/i;
 
 export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
@@ -297,7 +313,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       }
       const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
       for (const notice of [credit.ownerNotice, messagesNotice]) {
-        if (notice && opts.ownerWaId) reply.notify = [...(reply.notify ?? []), { to: opts.ownerWaId, text: notice }];
+        if (notice && opts.ownerWaId) {
+          const ai = notice === credit.ownerNotice;
+          reply.notify = [...(reply.notify ?? []), await limitNotice(notice, { aiReplies: ai, usedUp: ai && credit.usedUp === true })];
+        }
       }
       return reply;
     },
@@ -489,6 +508,29 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     };
   }
 
+  /**
+   * A limit warning for the owner. With QUOTE_LIMIT_ALERTS it comes under
+   * Upgrade (and, for AI replies, Top up) buttons. Once a limit is used up,
+   * QUOTE_OFFERS adds the upgrade offer code.
+   */
+  async function limitNotice(text: string, kind: { aiReplies?: boolean; usedUp?: boolean } = {}): Promise<Notice> {
+    const to = opts.ownerWaId!;
+    const offer = kind.usedUp && opts.limitOffer ? await opts.limitOffer().catch((err) => (log.error("Couldn't read the limit offer:", err), null)) : null;
+    const body = offer ? `${text}\n\n${own.limitOffer(offer.code, offer.percentOff)}` : text;
+    if (!opts.limitAlerts) return { to, text: body };
+    const next = await opts.plan?.nextPlan?.().catch((err) => {
+      log.error("Couldn't find the next plan up for the Upgrade button:", err);
+      return null;
+    });
+    const buttons = [
+      next
+        ? { id: `upgrade ${next.name.toLowerCase()}${offer ? ` ${offer.code}` : ""}`, title: own.limitButtons.upgrade(next.name) }
+        : { id: "plan", title: own.limitButtons.plans },
+      ...(kind.aiReplies && opts.topUps ? [{ id: "top up", title: own.limitButtons.topUp }] : []),
+    ];
+    return { to, text: "", buttons: { body, buttons } };
+  }
+
   function closedReply(t: QuoteTexts): Reply {
     return { text: t.closed(opts.businessName) };
   }
@@ -621,26 +663,27 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     // it from here, so the sale isn't lost.
     const check = opts.plan ? await opts.plan.checkOrder() : ({ allowed: true, warning: null } as const);
     if (!check.allowed) {
-      return {
-        text: t.overLimitCustomer(opts.businessName, ref(order), money(order.totalKobo)),
-        ...(opts.ownerWaId
-          ? {
-              notify: [
-                {
-                  to: opts.ownerWaId,
-                  text: [
-                    own.wantsToOrder(name ?? own.aCustomer(), `+${waId}`, ref(order)),
-                    ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
-                    ...(order.discount ? [discountLine(order.discount, money)] : []),
-                    own.total(money(order.totalKobo)),
-                    "",
-                    own.overLimitOwner(check.limit, check.planName, ref(order)),
-                  ].join("\n"),
-                },
-              ],
-            }
-          : {}),
-      };
+      const reply: Reply = { text: t.overLimitCustomer(opts.businessName, ref(order), money(order.totalKobo)) };
+      if (!opts.ownerWaId) return reply;
+      reply.notify = [
+        {
+          to: opts.ownerWaId,
+          text: [
+            own.wantsToOrder(name ?? own.aCustomer(), `+${waId}`, ref(order)),
+            ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
+            ...(order.discount ? [discountLine(order.discount, money)] : []),
+            own.total(money(order.totalKobo)),
+          ].join("\n"),
+        },
+      ];
+      const limitText = own.overLimitOwner(check.limit, check.planName, ref(order));
+      if (opts.limitAlerts) {
+        reply.handOver = { hours: HAND_OVER_HOURS };
+        reply.notify.push(await limitNotice(`${limitText}\n\n${own.handedOver(HAND_OVER_HOURS)}`, { usedUp: true }));
+      } else {
+        reply.notify[0]!.text += `\n\n${(await limitNotice(limitText, { usedUp: true })).text}`;
+      }
+      return reply;
     }
 
     const dispatch = !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
@@ -698,11 +741,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             ...(note ? ["", note] : []),
             "",
             spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
-            ...(check.warning ? ["", check.warning] : []),
+            ...(check.warning && !opts.limitAlerts ? ["", check.warning] : []),
             ...(lowStock.length ? ["", own.lowStock(lowStock.map((l) => ({ name: l.name, left: l.left })))] : []),
           ].join("\n"),
         },
       ];
+      if (check.warning && opts.limitAlerts) reply.notify.push(await limitNotice(check.warning));
     }
     return reply;
   }
@@ -789,6 +833,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const text = (msg.text ?? "").trim();
+    if (opts.askYarnogaToCall && text === CHECK_IN_CALL) {
+      await opts.askYarnogaToCall(msg.from);
+      return { text: own.checkInCall() };
+    }
+    if (text === CHECK_IN_OK) return { text: own.checkInOk() };
     const discountReply = opts.discounts ? await discountCommand(opts.discounts, text, new Date(), money) : null;
     if (discountReply) return { text: discountReply };
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) {

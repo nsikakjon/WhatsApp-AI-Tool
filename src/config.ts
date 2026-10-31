@@ -198,6 +198,11 @@ export interface Config {
    */
   quoteAiTopUps: boolean;
   /**
+   * Limit warnings with Upgrade / Top up buttons, an 80% orders warning, and
+   * over-limit customers handed to the owner. Off unless QUOTE_LIMIT_ALERTS is true.
+   */
+  quoteLimitAlerts: boolean;
+  /**
    * Count what each number costs us in AI tokens and voice notes (migration
    * 0065), shown per shop on the dashboard. Off unless SHOP_COSTS is true.
    */
@@ -320,6 +325,22 @@ export interface Config {
   tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
   /** Payment reminders for confirmed, unpaid orders (QUOTE_PAY_REMINDERS, migration 0054). */
   quotePayReminders: boolean;
+  /**
+   * Renewal reminders and a grace period before a lapsed paid plan drops to
+   * Free (migration 0064). Only set when QUOTE_PLAN_RENEWALS is true.
+   */
+  quotePlanRenewals?: { graceDays: number };
+  /**
+   * Daily check for paying businesses whose orders or chats fell 40%+
+   * (migration 0064); `checkIn` also messages the owner. Only set when
+   * QUOTE_USAGE_DROP_ALERTS is true.
+   */
+  quoteUsageDrops?: { checkIn: boolean };
+  /**
+   * Promo code offers: LIMITUP when a monthly limit runs out, COMEBACK for
+   * quiet businesses (migration 0064). Off unless QUOTE_OFFERS is true.
+   */
+  quoteOffers: boolean;
   /** Ask customers to rate finished orders (QUOTE_RATINGS, migration 0054). */
   quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
@@ -487,6 +508,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
     quoteAiTopUps: /^(true|yes|on|1)$/i.test(env.QUOTE_AI_TOPUPS ?? ""),
+    quoteLimitAlerts: /^(true|yes|on|1)$/i.test(env.QUOTE_LIMIT_ALERTS ?? ""),
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
@@ -579,6 +601,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     planCurrencies: parsePlanCurrencies(env.PLAN_CURRENCIES),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
+    quoteOffers: /^(true|yes|on|1)$/i.test(env.QUOTE_OFFERS ?? ""),
+    quoteUsageDrops: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_ALERTS ?? "")
+      ? { checkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_CHECKIN ?? "") }
+      : undefined,
+    quotePlanRenewals: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_RENEWALS ?? "") ? { graceDays: graceDays(env.QUOTE_PLAN_GRACE_DAYS) } : undefined,
     quoteRatings: /^(true|yes|on|1)$/i.test(env.QUOTE_RATINGS ?? ""),
     tts: ttsSettings(env),
   };
@@ -590,6 +617,14 @@ function publicUrl(value: string): string {
     throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://app.yarnoga.com (got "${value}")`);
   }
   return url;
+}
+
+/** A typo here shouldn't stop the whole bot, so it falls back to 3 days with a warning. */
+function graceDays(value: string | undefined): number {
+  const days = Number(value || 3);
+  if (Number.isInteger(days) && days >= 0 && days <= 14) return days;
+  console.warn(`QUOTE_PLAN_GRACE_DAYS must be a whole number of days from 0 to 14 (got "${value}"); using 3`);
+  return 3;
 }
 
 function followUpHours(value: string | undefined): number {

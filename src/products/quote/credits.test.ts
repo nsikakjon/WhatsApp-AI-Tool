@@ -30,6 +30,7 @@ describe("AI credits", () => {
     const out = await credits.spend(); // 11
     expect(out.useAi).toBe(false);
     expect(out.ownerNotice).toContain("used all 10 AI replies");
+    expect(out.usedUp).toBe(true);
     expect(await credits.spend()).toEqual({ useAi: false, ownerNotice: null }); // 12: told once
   });
 

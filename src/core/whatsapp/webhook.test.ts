@@ -620,6 +620,20 @@ describe("owner replies from the WhatsApp Business app (coexistence)", () => {
     expect(sent).toEqual([]);
   });
 
+  it("stays out of a chat the product handed to the owner", async () => {
+    let time = new Date("2026-10-16T09:00:00Z");
+    const handing: Product = { name: "quote", handle: async () => ({ text: "The team will contact you shortly.", handOver: { hours: 24 } }) };
+    const { app, sent } = setup(handing, undefined, undefined, { now: () => time });
+    await send(app, textWebhook("wamid.h1", "yes"));
+    expect(sent).toEqual([{ to: "2348012345678", body: "The team will contact you shortly." }]);
+    time = new Date(time.getTime() + 23 * 3_600_000);
+    await send(app, textWebhook("wamid.h2", "Hello?"));
+    expect(sent).toHaveLength(1);
+    time = new Date(time.getTime() + 2 * 3_600_000);
+    await send(app, textWebhook("wamid.h3", "Hello?"));
+    expect(sent).toHaveLength(2);
+  });
+
   it("only pauses the chat the owner replied in", async () => {
     const { app, sent } = clockedSetup(60);
     await send(app, ownerEchoWebhook("wamid.o3", "Hi", "2348099999999"));

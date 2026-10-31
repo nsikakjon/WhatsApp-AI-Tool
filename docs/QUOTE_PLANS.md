@@ -105,3 +105,58 @@ The dashboard's "Plan usage this month" card shows orders, AI replies and bot
 messages against the plan's limits. At 80% of a limit the owner sees a
 warning there, with the top-up buttons for AI replies (owner only) and a
 pointer to *plan* to upgrade. Managers see the card but can't buy.
+
+## Limit alerts on WhatsApp
+
+With `QUOTE_LIMIT_ALERTS` = `true` on Railway (no migration needed):
+
+- The owner's warnings about AI replies, bot messages and orders arrive with
+  one-tap buttons: *Upgrade to Starter* (or whichever plan is next up), and
+  *Top up AI replies* for AI replies when top-ups are on.
+- There's an extra heads-up when the month's orders reach 80% of the plan's
+  limit (order 40 of 50 on Free), on top of the warnings on the last five.
+- When the orders run out, the customer is still told the team will contact
+  them, the owner gets the order details, and the bot stays out of that chat
+  for 24 hours so the owner can finish the sale without the bot talking over
+  them. When AI replies run out, the bot keeps going with menu replies as before.
+
+## Renewals and the grace period
+
+Plans are paid by Paystack link for a month or a year, so there's no saved
+card to charge again: the owner renews by paying a new link. If a card is
+declined, the owner can try again on the same Paystack page, and every
+reminder below brings fresh *Renew for a month* and *Renew for a year* buttons.
+
+With `QUOTE_PLAN_RENEWALS` = `true`:
+
+1. Three days before a paid plan ends, the owner gets a reminder.
+2. If it ends unpaid, the business keeps its plan for `QUOTE_PLAN_GRACE_DAYS`
+   more days (3 unless set) and the owner is told when it will drop to Free.
+3. On the last day of the grace period, one more reminder.
+4. After that, the business is on Free. The owner gets buttons to come back,
+   and yarnOga gets a WhatsApp alert.
+
+A renewal paid during the grace period carries on from the old end date, so
+the grace days aren't free extra time. Reminders go out between 8am and 8pm
+Lagos time. WhatsApp only lets the bot message an owner who has written to it
+in the last day; when it can't, yarnOga gets the alert instead so someone can
+call them. yarnOga's alerts go to `QUOTE_SIGNUP_ALERT_WA_ID` (from the sign-up
+number), or to `QUOTE_OWNER_WA_ID` if that isn't set.
+
+To switch it on: run `supabase/migrations/0064_quote_owner_nudges.sql`, then
+add `QUOTE_PLAN_RENEWALS` = `true` on Railway.
+
+## Usage drop warnings
+
+With `QUOTE_USAGE_DROP_ALERTS` = `true` (after migration 0064), the bot looks
+at every business on a paid plan at 10am each day. If its confirmed orders or
+its customer chats over the last 30 days are 40% or more below the 30 days
+before, yarnOga gets a WhatsApp alert with the numbers and the owner's number,
+so someone can call before they cancel. A business needs at least 10 orders
+or 20 chats in the earlier month to count, and is flagged at most once every
+30 days.
+
+With `QUOTE_USAGE_DROP_CHECKIN` = `true` as well, the owner also gets a short
+check-in from their own bot, with *All good* and *Please call me* buttons.
+*Please call me* sends yarnOga another alert. The check-in only goes when the
+owner has messaged their bot in the last day (WhatsApp's rule).
