@@ -4,6 +4,7 @@ import { createApp } from "../../app.js";
 import { echoProduct } from "../../products/echo/index.js";
 import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
+import type { UsageMeter } from "../usage.js";
 import type { BotPause, MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 import { FALLBACK_TEXT, isTransient, retryingClient } from "./webhook.js";
@@ -69,7 +70,7 @@ function setup(
   product: Product = echoProduct,
   transcriber?: Transcriber,
   route?: (msg: IncomingMessage) => Product,
-  extra: { ownerReplyPauseMinutes?: number; now?: () => Date; retryDelaysMs?: number[] } = {},
+  extra: { ownerReplyPauseMinutes?: number; now?: () => Date; retryDelaysMs?: number[]; usage?: UsageMeter } = {},
 ) {
   const sent: Array<{ to: string; body: string }> = [];
   const sentFrom: Array<string | undefined> = [];
@@ -532,7 +533,7 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
   }
 
   it("transcribes voice notes and hands the text to the product", async () => {
-    const transcriber: Transcriber = { transcribe: async () => "I need fifty flyers" };
+    const transcriber: Transcriber = { transcribe: async () => ({ text: "I need fifty flyers", seconds: 3 }) };
     const { app, sent, inboundText } = setup(echoProduct, transcriber);
     const body = voiceWebhook("wamid.voice", "media-1");
     await post(app, body, sign(body));
@@ -540,8 +541,18 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(inboundText.get("wamid.voice")).toBe("I need fifty flyers");
   });
 
+  it("counts each voice note's length against the number it came in on", async () => {
+    const counted: [string | undefined, number][] = [];
+    const usage: UsageMeter = { ai: () => {}, voice: (numberId, seconds) => counted.push([numberId, seconds]) };
+    const transcriber: Transcriber = { transcribe: async () => ({ text: "hello", seconds: 3 }) };
+    const { app } = setup(echoProduct, transcriber, undefined, { usage });
+    const body = voiceWebhook("wamid.voice3", "media-1");
+    await post(app, body, sign(body));
+    expect(counted).toEqual([[undefined, 3]]); // the sample webhook has no number id: the main number
+  });
+
   it("still answers when a voice note can't be downloaded", async () => {
-    const transcriber: Transcriber = { transcribe: async () => "never used" };
+    const transcriber: Transcriber = { transcribe: async () => ({ text: "never used", seconds: null }) };
     const { app, sent } = setup(echoProduct, transcriber);
     const body = voiceWebhook("wamid.voice2", "broken");
     const res = await post(app, body, sign(body));

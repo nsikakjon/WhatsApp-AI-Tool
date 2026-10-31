@@ -198,6 +198,11 @@ export interface Config {
    */
   quoteAiTopUps: boolean;
   /**
+   * Count what each number costs us in AI tokens and voice notes (migration
+   * 0065), shown per shop on the dashboard. Off unless SHOP_COSTS is true.
+   */
+  shopCosts: boolean;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -477,6 +482,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
     quoteAiTopUps: /^(true|yes|on|1)$/i.test(env.QUOTE_AI_TOPUPS ?? ""),
+    shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),

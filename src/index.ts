@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { createSupabaseStore } from "./core/db/store.js";
 import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
+import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
@@ -139,6 +140,12 @@ const config = loadConfig();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey, {
   auth: { persistSession: false },
 });
+
+// What each number costs us in AI and voice notes, for the dashboard (SHOP_COSTS).
+const usage = config.shopCosts
+  ? createSupabaseUsageMeter(supabase, { voiceModel: config.groq?.model ?? "whisper-large-v3" })
+  : undefined;
+const countAi = (numberId: string, model: string) => usage && ((u: AiUsage) => usage.ai(numberId, model, u));
 
 // yarnOga's own welcome and setup-tip emails to our customers (EMAILS_ENABLED,
 // docs/EMAILS.md): the bots ask for an email after a first success, and a
@@ -492,6 +499,7 @@ if (config.activeProduct === "quote" && config.quote) {
       description: config.quote.businessDescription,
       language: config.quote.language,
       currency: config.quote.currency,
+      onUsage: countAi(config.whatsapp.phoneNumberId, config.quote.model),
     }),
   });
   mainQuoteBot = quoteBot;
@@ -574,6 +582,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       description: business.description ?? undefined,
       language: business.language,
       currency: business.currency,
+      onUsage: business.phoneNumberId ? countAi(business.phoneNumberId, multi.model) : undefined,
     }),
   });
 }
@@ -635,6 +644,8 @@ if (chatSignup && quoteBusinesses) {
           description: business.description ?? undefined,
           language: business.language,
           currency: business.currency,
+          // A trial chat costs us on the sign-up number.
+          onUsage: countAi(chatSignup.phoneNumberId, quoteBusinesses.model),
         }),
       });
     },
@@ -1046,6 +1057,7 @@ const app = createApp({
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
+  usage,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;

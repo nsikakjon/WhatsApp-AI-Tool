@@ -13,7 +13,7 @@ function fakeClient(parsed: unknown, stop_reason = "end_turn") {
     messages: {
       parse: async (req: unknown) => {
         calls.push(req);
-        return { parsed_output: parsed, stop_reason };
+        return { parsed_output: parsed, stop_reason, usage: { input_tokens: 900, output_tokens: 60 } };
       },
     },
   } as unknown as Anthropic;
@@ -61,6 +61,14 @@ describe("Claude understander", () => {
     const { client } = fakeClient(null, "refusal");
     const ai = createClaudeUnderstander({ apiKey: "x", model: "m", businessName: "KahnPrints", client });
     await expect(ai.understand({ text: "hi", history: [], catalog })).rejects.toThrow();
+  });
+
+  it("reports the tokens each call used, even when the answer is unusable", async () => {
+    const seen: unknown[] = [];
+    const { client } = fakeClient(null, "refusal");
+    const ai = createClaudeUnderstander({ apiKey: "x", model: "m", businessName: "KahnPrints", client, onUsage: (u) => seen.push(u) });
+    await expect(ai.understand({ text: "hi", history: [], catalog })).rejects.toThrow();
+    expect(seen).toEqual([{ input_tokens: 900, output_tokens: 60 }]);
   });
 
   it("lists items without prices in the instructions", () => {

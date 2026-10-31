@@ -1,7 +1,13 @@
 // Turns a voice note into text using Groq's hosted Whisper model.
 
+export interface Transcription {
+  text: string;
+  /** How long the voice note was, so its cost can be counted. Null when the service didn't say. */
+  seconds: number | null;
+}
+
 export interface Transcriber {
-  transcribe(audio: Blob, mimeType: string): Promise<string>;
+  transcribe(audio: Blob, mimeType: string): Promise<Transcription>;
 }
 
 export interface GroqTranscriberOptions {
@@ -29,18 +35,19 @@ export function createGroqTranscriber(opts: GroqTranscriberOptions): Transcriber
       const form = new FormData();
       form.append("file", audio, fileNameFor(mimeType));
       form.append("model", opts.model);
-      form.append("response_format", "json");
+      // verbose_json also returns the note's length in seconds.
+      form.append("response_format", "verbose_json");
 
       const res = await doFetch("https://api.groq.com/openai/v1/audio/transcriptions", {
         method: "POST",
         headers: { Authorization: `Bearer ${opts.apiKey}` },
         body: form,
       });
-      const data = (await res.json().catch(() => ({}))) as { text?: string; error?: { message?: string } };
+      const data = (await res.json().catch(() => ({}))) as { text?: string; duration?: number; error?: { message?: string } };
       if (!res.ok) {
         throw new Error(`Groq transcription failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
       }
-      return (data.text ?? "").trim();
+      return { text: (data.text ?? "").trim(), seconds: typeof data.duration === "number" ? data.duration : null };
     },
   };
 }
