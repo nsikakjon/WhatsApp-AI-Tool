@@ -64,6 +64,46 @@ export function formatMoney(minor: number, currency: Currency = "NGN"): string {
 }
 
 /**
+ * The currencies yarnOga's own plans can be paid in. Businesses price in a
+ * Currency; a plan can also be paid in Ghana cedis, Kenyan shillings or US
+ * dollars, at fixed prices from the plan_prices table (migration 0062).
+ * Amounts are hundredths here too (pesewas, cents).
+ */
+export type PayCurrency = Currency | "GHS" | "KES" | "USD";
+
+export function isPayCurrency(value: unknown): value is PayCurrency {
+  return isCurrency(value) || value === "GHS" || value === "KES" || value === "USD";
+}
+
+/** Formats a plan payment: "₦7,000", "3 500 FCFA", "GH₵70", "KSh 850" or "$5.50". */
+export function formatPayMoney(minor: number, currency: PayCurrency): string {
+  if (isCurrency(currency)) return formatMoney(minor, currency);
+  assertKobo(minor);
+  const whole = Math.floor(minor / 100).toLocaleString("en-US");
+  const amount = minor % 100 ? `${whole}.${(minor % 100).toString().padStart(2, "0")}` : whole;
+  return currency === "GHS" ? `GH₵${amount}` : currency === "KES" ? `KSh ${amount}` : `$${amount}`;
+}
+
+// Country calling codes of the CFA franc countries: UEMOA (XOF) and CEMAC (XAF).
+const XOF_CODES = ["221", "225", "229", "228", "223", "226", "227", "245"];
+const XAF_CODES = ["237", "241", "242", "235", "236", "240"];
+
+/**
+ * The currency someone pays a plan in, going by their WhatsApp number:
+ * naira for Nigeria, the local currency in Ghana, Kenya and the CFA
+ * countries, US dollars anywhere else.
+ */
+export function payCurrencyFor(waId: string): PayCurrency {
+  const n = waId.replace(/\D/g, "");
+  if (n.startsWith("234")) return "NGN";
+  if (n.startsWith("233")) return "GHS";
+  if (n.startsWith("254")) return "KES";
+  if (XOF_CODES.some((c) => n.startsWith(c))) return "XOF";
+  if (XAF_CODES.some((c) => n.startsWith(c))) return "XAF";
+  return "USD";
+}
+
+/**
  * A price typed by a person, in the business's currency, as whole hundredths:
  * "₦1,500" or "1500.50" in naira; "5 000", "5000 FCFA" or "5.000 F" in CFA
  * francs (whole francs only). Null for anything that isn't a plain amount,

@@ -89,13 +89,51 @@ When you're happy with the test:
 - **Webhook rejected (401 in the logs)**: the secret key in Railway isn't from
   the same Paystack mode (test or live) as the webhook URL you set.
 
+## Paying for a plan outside Nigeria
+
+People outside Nigeria can pay for a quote bot or flyer plan in their own
+currency, at fixed prices (not the day's exchange rate). The bot goes by the
+payer's WhatsApp number:
+
+| Number from | Pays in | Through |
+|---|---|---|
+| Nigeria (+234) | Naira | Paystack |
+| Ghana (+233) | Cedis | Flutterwave: Mobile Money or card |
+| Kenya (+254) | Shillings | Flutterwave: M-Pesa or card |
+| CFA franc countries (Senegal, Côte d'Ivoire, Cameroon...) | CFA francs | Flutterwave: Mobile Money or card |
+| Anywhere else | US dollars | Paystack: card |
+
+The prices are in the `plan_prices` table (migration
+`0062_plan_prices.sql`), the same ones as the website's currency picker. To
+change one, change it in the table and in the website's `js/currency.js`.
+
+To switch it on:
+
+1. Run `0062_plan_prices.sql` in Supabase.
+2. **US dollars:** in the Paystack dashboard, go to Settings > Preferences and
+   ask for international payments (USD). Paystack checks the business, then
+   asks for a USD (domiciliary) account at Zenith Bank to pay dollars into.
+3. **Cedis and shillings:** ask Flutterwave support to switch on GHS
+   (Ghana Mobile Money and cards) and KES (M-Pesa and cards) collections for
+   the yarnOga Flutterwave account. CFA francs already work if
+   `FLUTTERWAVE_SECRET_KEY` is set.
+4. In Railway, set `PLAN_CURRENCIES` to the currencies that are ready, e.g.
+   `XOF,XAF` today, then `XOF,XAF,USD` once Paystack says yes, and add
+   `GHS,KES` once Flutterwave does. Any currency not listed is charged in naira,
+   so it is safe to add them one at a time.
+
+The `plan` reply still lists prices in naira; the payment link and its
+message show the amount in the payer's currency.
+
 ## For developers
 
 `src/core/payments` knows nothing about any product:
 
-- `payments.createLink({ product, waId, amountKobo, purpose, title })` saves a
-  pending payment and returns the Paystack link. The product looks the amount
-  up in the database first.
+- `payments.createLink({ product, waId, amountKobo, purpose, title, currency })`
+  saves a pending payment and returns the checkout link: Paystack for naira and
+  US dollars, Flutterwave for CFA francs, cedis and shillings. The product looks
+  the amount up in the database first; `plan-prices.ts` finds a plan's price in
+  the payer's currency.
 - Each product registers an `onPaid` handler in `src/index.ts`
   (`paidHandlers.<product>`), which gets the saved payment, including its
   `purpose`, and returns the WhatsApp messages to send. It runs once per

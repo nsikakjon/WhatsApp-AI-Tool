@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { guessLanguage } from "./i18n.js";
-import { assertKobo, formatMoney, formatNaira, parseMoney } from "./money.js";
+import { assertKobo, formatMoney, formatNaira, formatPayMoney, parseMoney, payCurrencyFor } from "./money.js";
 
 describe("formatNaira", () => {
   it("shows whole naira with thousands separators", () => {
@@ -45,6 +45,25 @@ describe("currencies", () => {
     expect(parseMoney("3500F", "XAF")).toBe(350000);
     expect(parseMoney("15k", "XOF")).toBeNull();
     expect(parseMoney("₦1,500.50", "NGN")).toBe(150050);
+  });
+});
+
+describe("plan payment currencies", () => {
+  it("goes by the country of the WhatsApp number", () => {
+    expect(payCurrencyFor("2348024777076")).toBe("NGN");
+    expect(payCurrencyFor("233241234567")).toBe("GHS");
+    expect(payCurrencyFor("254712345678")).toBe("KES");
+    expect(payCurrencyFor("2250701234567")).toBe("XOF");
+    expect(payCurrencyFor("237612345678")).toBe("XAF");
+    expect(payCurrencyFor("447700900123")).toBe("USD");
+  });
+
+  it("formats each currency the way people write it", () => {
+    expect(formatPayMoney(700_000, "NGN")).toBe("₦7,000");
+    expect(formatPayMoney(350_000, "XOF")).toBe(formatMoney(350_000, "XOF"));
+    expect(formatPayMoney(298_000, "GHS")).toBe("GH₵2,980");
+    expect(formatPayMoney(85_000, "KES")).toBe("KSh 850");
+    expect(formatPayMoney(550, "USD")).toBe("$5.50");
   });
 });
 

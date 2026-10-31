@@ -1,5 +1,6 @@
 import { isLang, type Lang } from "./core/i18n.js";
-import { isCurrency, type Currency } from "./core/money.js";
+import { isCurrency, type Currency, type PayCurrency } from "./core/money.js";
+import { parsePlanCurrencies } from "./core/payments/plan-prices.js";
 // Reads settings from environment variables (.env locally, Variables on Railway).
 // Fails fast at startup if anything required is missing, so a misconfigured
 // deploy crashes loudly instead of silently ignoring messages.
@@ -308,6 +309,12 @@ export interface Config {
   quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
   shipbubble?: { apiKey: string; contactEmail: string; categoryId?: number; itemKg: number };
+  /**
+   * Currencies besides naira that yarnOga's own plans can be paid in
+   * (PLAN_CURRENCIES, migration 0062): USD through Paystack, the rest through
+   * Flutterwave. Empty = naira only.
+   */
+  planCurrencies: PayCurrency[];
   flutterwave?: {
     secretKey: string;
     /** The secret hash set in Flutterwave > Settings > Webhooks; it proves a webhook came from Flutterwave. */
@@ -551,6 +558,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     paystack: paystackSettings(env),
     flutterwave: flutterwaveSettings(env),
+    planCurrencies: parsePlanCurrencies(env.PLAN_CURRENCIES),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
     quoteRatings: /^(true|yes|on|1)$/i.test(env.QUOTE_RATINGS ?? ""),

@@ -1,12 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
-import { assertKobo, type Currency } from "../money.js";
+import { assertKobo, type PayCurrency } from "../money.js";
 
 // Talks to Flutterwave, which takes Mobile Money (MTN MoMo, Orange Money,
 // Moov, Wave) and card payments in CFA francs for businesses in
-// French-speaking Africa. Paystack stays in charge of naira payments.
+// French-speaking Africa, and Mobile Money (Ghana) or M-Pesa (Kenya) and card
+// payments for yarnOga's own plans in cedis and shillings. Paystack stays in
+// charge of naira and US dollar payments.
 //
-// Flutterwave counts money in whole currency units (5000 means 5 000 FCFA),
-// while we keep hundredths, so amounts are divided by 100 on the way out and
+// Flutterwave counts money in currency units (5000 means 5 000 FCFA), while
+// we keep hundredths, so amounts are divided by 100 on the way out and
 // multiplied by 100 on the way back. CFA prices are always whole francs.
 
 export interface FlutterwaveConfig {
@@ -19,9 +21,9 @@ export interface FlutterwaveConfig {
 
 export interface FlutterwaveCheckout {
   reference: string;
-  /** In hundredths (centimes); must be whole francs. */
+  /** In hundredths (centimes, pesewas, cents); CFA amounts must be whole francs. */
   amountMinor: number;
-  currency: Exclude<Currency, "NGN">;
+  currency: Exclude<PayCurrency, "NGN" | "USD">;
   email: string;
   callbackUrl: string;
   description: string;
@@ -54,11 +56,20 @@ export function isValidFlutterwaveHash(header: string | undefined, secretHash: s
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function wholeUnits(minor: number): number {
+function units(minor: number, currency: FlutterwaveCheckout["currency"]): number {
   assertKobo(minor);
-  if (minor % 100 !== 0) throw new Error(`CFA amounts must be whole francs (got ${minor} centimes)`);
+  const cfa = currency === "XOF" || currency === "XAF";
+  if (cfa && minor % 100 !== 0) throw new Error(`CFA amounts must be whole francs (got ${minor} centimes)`);
   return minor / 100;
 }
+
+// The ways to pay offered first in each currency; cards work in all of them.
+const PAYMENT_OPTIONS: Record<FlutterwaveCheckout["currency"], string> = {
+  XOF: "mobilemoneyfranco,card",
+  XAF: "mobilemoneyfranco,card",
+  GHS: "mobilemoneyghana,card",
+  KES: "mpesa,card",
+};
 
 export function createFlutterwaveClient(config: FlutterwaveConfig, fetchImpl: typeof fetch = fetch): FlutterwaveClient {
   const base = (config.apiUrl ?? "https://api.flutterwave.com/v3").replace(/\/$/, "");
@@ -75,8 +86,8 @@ export function createFlutterwaveClient(config: FlutterwaveConfig, fetchImpl: ty
 
   return {
     async initialize(p) {
-      const amount = wholeUnits(p.amountMinor);
-      const fee = p.subaccount && p.platformFeeMinor ? wholeUnits(p.platformFeeMinor) : 0;
+      const amount = units(p.amountMinor, p.currency);
+      const fee = p.subaccount && p.platformFeeMinor ? units(p.platformFeeMinor, p.currency) : 0;
       const data = await call("/payments", {
         method: "POST",
         body: JSON.stringify({
@@ -84,8 +95,7 @@ export function createFlutterwaveClient(config: FlutterwaveConfig, fetchImpl: ty
           amount,
           currency: p.currency,
           redirect_url: p.callbackUrl,
-          // Mobile Money in French-speaking Africa first, then cards.
-          payment_options: "mobilemoneyfranco,card",
+          payment_options: PAYMENT_OPTIONS[p.currency],
           customer: { email: p.email, phonenumber: `+${p.waId}` },
           customizations: { title: "yarnOga", description: p.description },
           meta: { wa_id: p.waId },
