@@ -33,6 +33,17 @@ describe("AI credits", () => {
     expect(await credits.spend()).toEqual({ useAi: false, ownerNotice: null }); // 12: told once
   });
 
+  it("adds replies bought this month to the plan's, and points the owner to top-ups", async () => {
+    const store = counter(9);
+    const credits = createAiCredits({ features: features(10), store, topUps: { extra: async () => 5 } });
+    expect((await credits.spend()).useAi).toBe(true); // 10 of 15
+    for (let i = 0; i < 5; i++) await credits.spend(); // up to 15
+    const out = await credits.spend(); // 16
+    expect(out.useAi).toBe(false);
+    expect(out.ownerNotice).toContain("used all 15 AI replies");
+    expect(out.ownerNotice).toContain("Send *top up* to buy more replies");
+  });
+
   it("doesn't count when the plan has no cap", async () => {
     const store = counter();
     expect(await createAiCredits({ features: features(null), store }).spend()).toEqual({ useAi: true, ownerNotice: null });

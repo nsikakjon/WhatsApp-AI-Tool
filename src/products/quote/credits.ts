@@ -10,6 +10,7 @@ import { lagosMonthStart } from "./plan.js";
 // keyword and menu replies (fallback.ts) until the 1st of next month, so
 // quotes and orders keep working. The owner is told at 80% and when they run
 // out. A business with no plan, or a plan with no cap, isn't counted.
+// With top-ups (topups.ts), replies the owner bought this month are added on.
 
 export interface CreditStore {
   /** Adds one credit for this month (first day, YYYY-MM-DD) and returns the new total. */
@@ -31,6 +32,8 @@ export interface AiCredits {
 export interface AiCreditsOptions {
   features: PlanFeatures;
   store: CreditStore;
+  /** AI reply packs bought this month (topups.ts). Without it, the plan's replies are all there is. */
+  topUps?: { extra(month: string): Promise<number> };
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
@@ -54,25 +57,31 @@ export function createAiCredits(opts: AiCreditsOptions): AiCredits {
       const limit = included ? await opts.features.limit("ai_credits") : 0;
       if (limit == null) return { useAi: true, ownerNotice: null };
 
+      const month = lagosMonthKey(now());
       let used: number;
+      let allowed: number;
       try {
-        used = await opts.store.use(lagosMonthKey(now()));
+        [used, allowed] = await Promise.all([
+          opts.store.use(month),
+          included && opts.topUps ? opts.topUps.extra(month).then((extra) => limit + extra) : limit,
+        ]);
       } catch (err) {
         // A database hiccup shouldn't make the bot worse for the customer.
         log.error("Could not count AI credits:", err);
         return { useAi: true, ownerNotice: null };
       }
 
-      const warnAt = Math.ceil(limit * WARN_AT);
+      const warnAt = Math.ceil(allowed * WARN_AT);
+      const options = opts.topUps ? "Send *top up* to buy more replies, or *plan* to see the plans." : "Send *plan* to see how to upgrade.";
       let ownerNotice: string | null = null;
-      if (used === limit + 1) {
+      if (used === allowed + 1) {
         ownerNotice =
-          `You've used all ${limit} AI replies on your plan this month. Your bot is still taking quotes and orders, ` +
-          "but with simple menu replies (customers pick an item number) until the 1st. Send *plan* to see how to upgrade.";
-      } else if (limit > 0 && used === warnAt && warnAt < limit) {
-        ownerNotice = `Heads-up: you've used ${used} of your ${limit} AI replies this month. Send *plan* to see your options.`;
+          `You've used all ${allowed} AI replies on your plan this month. Your bot is still taking quotes and orders, ` +
+          `but with simple menu replies (customers pick an item number) until the 1st. ${options}`;
+      } else if (allowed > 0 && used === warnAt && warnAt < allowed) {
+        ownerNotice = `Heads-up: you've used ${used} of your ${allowed} AI replies this month. ${opts.topUps ? options : "Send *plan* to see your options."}`;
       }
-      return { useAi: used <= limit, ownerNotice };
+      return { useAi: used <= allowed, ownerNotice };
     },
   };
 }

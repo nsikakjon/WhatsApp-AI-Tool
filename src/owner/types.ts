@@ -9,6 +9,7 @@ import type { WhatsAppClient } from "../core/whatsapp/client.js";
 import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
 import type { ShopLookStore } from "../products/quote/shop.js";
+import type { AiPack } from "../products/quote/topups.js";
 import type { AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore } from "./store.js";
 import type { VerificationStore } from "../compliance/store.js";
 
@@ -54,6 +55,14 @@ export interface AppBusiness {
   markPaid?(orderNumber: number): Promise<boolean>;
   /** The business's own bot with test orders kept in memory, for "Test your bot". */
   testBot?(): Product;
+  /** The business's plan and its monthly order limit (null = no limit), or null when it isn't on a plan. */
+  plan?(): Promise<{ name: string; orderLimit: number | null } | null>;
+  /** AI reply packs (QUOTE_AI_TOPUPS): replies bought this month, packs on sale, and a payment link for one. */
+  topUps?: {
+    extra(month: string): Promise<number>;
+    packs(): Promise<AiPack[]>;
+    link(packCode: string, waId: string): Promise<{ url: string } | null>;
+  };
   /** Bot messages sent this month and the plan's allowance (null = no cap). */
   botMessages?(): Promise<{ sent: number; limit: number | null } | null>;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */

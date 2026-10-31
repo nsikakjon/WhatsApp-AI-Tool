@@ -193,6 +193,11 @@ export interface Config {
    */
   quotePlanFeatures: boolean;
   /**
+   * Owners can buy packs of extra AI replies by Paystack link (migration 0063).
+   * Needs QUOTE_PLAN_FEATURES and PAYSTACK_SECRET_KEY. Off unless QUOTE_AI_TOPUPS is true.
+   */
+  quoteAiTopUps: boolean;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -471,6 +476,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         }
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
+    quoteAiTopUps: /^(true|yes|on|1)$/i.test(env.QUOTE_AI_TOPUPS ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),

@@ -40,6 +40,13 @@ describe("order pay links", () => {
     await expect(handler(payment({ kind: "order", businessId: "b2" }))).rejects.toThrow("can't find");
   });
 
+  it("sends AI reply packs to the top-up handler", async () => {
+    const topUpPaid = vi.fn(async () => [{ to: "z", text: "replies added" }]);
+    const handler = withOrderPayments(vi.fn(), vi.fn(), undefined, topUpPaid);
+    expect(await handler(payment({ kind: "ai_topup", businessId: "b2", pack: "ai-1000", replies: 1000 }))).toEqual([{ to: "z", text: "replies added" }]);
+    await expect(withOrderPayments(vi.fn(), vi.fn())(payment({ kind: "ai_topup" }))).rejects.toThrow("top-ups aren't set up");
+  });
+
   it("takes the plan's fee off the business's share, never adding it to the customer's total", async () => {
     const createLink = vi.fn(async () => ({ url: "https://checkout.paystack.com/abc", amountKobo: 1_500_000, promo: null }));
     const link = orderPayLinks({

@@ -659,3 +659,35 @@ describe("counter sales", () => {
     expect(await (await get(s, "/prices/new", cookie)).text()).not.toContain("_cost");
   });
 });
+
+describe("owner app plan usage", () => {
+  const onFree = (link = vi.fn(async () => ({ url: "https://checkout.paystack.com/xyz" }))) => ({
+    features: { planCode: async () => "free", has: async () => true, limit: async () => 50 },
+    plan: async () => ({ name: "Free", orderLimit: 50 }),
+    botMessages: async () => ({ sent: 120, limit: null }),
+    topUps: { extra: async () => 0, packs: async () => [{ code: "ai-1000", name: "1,000 AI replies", replies: 1000, priceKobo: 200_000 }], link },
+  });
+
+  it("shows orders, AI replies and messages against the plan, and offers a top-up near the limit", async () => {
+    const s = setup(onFree());
+    const html = await (await get(s, "/", await login(s, OWNER))).text();
+    expect(html).toContain("2 of 50");
+    expect(html).toContain("40 of 50");
+    expect(html).toContain("No limit on your plan");
+    expect(html).toContain("used 80% of this month&#39;s AI replies");
+    expect(html).toContain("Buy 1,000 replies · ₦2,000");
+  });
+
+  it("sends the owner to Paystack for a pack, and keeps staff from buying", async () => {
+    const link = vi.fn(async () => ({ url: "https://checkout.paystack.com/xyz" }));
+    const s = setup(onFree(link));
+    const res = await s.app.request(`https://${HOST}/topup`, post({ pack: "ai-1000" }, await login(s, OWNER)));
+    expect(res.headers.get("location")).toBe("https://checkout.paystack.com/xyz");
+    expect(link).toHaveBeenCalledWith("ai-1000", OWNER);
+
+    const manager = await login(s, STAFF, "manager");
+    expect(await (await get(s, "/", manager)).text()).not.toContain("Buy 1,000 replies");
+    expect(await (await s.app.request(`https://${HOST}/topup`, post({ pack: "ai-1000" }, manager))).text()).toContain("Only the business owner");
+    expect(link).toHaveBeenCalledTimes(1);
+  });
+});

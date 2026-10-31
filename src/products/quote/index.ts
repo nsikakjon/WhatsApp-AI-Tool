@@ -106,6 +106,8 @@ export interface QuoteProductOptions {
   credits?: AiCredits;
   /** Reads messages without AI once credits run out. Normally fallback.ts. */
   simpleAi?: Understander;
+  /** AI reply packs the owner can buy with "top up" (topups.ts). Without it, the plan's replies are all there is. */
+  topUps?: { ownerCommand(text: string, ownerWaId: string): Promise<string | null>; summaryLine(): Promise<string | null> };
   /** The plan's monthly WhatsApp messages on a number yarnOga pays for (messages.ts). Without it, nothing is checked. */
   botMessages?: MessageAllowance;
   /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
@@ -790,9 +792,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const discountReply = opts.discounts ? await discountCommand(opts.discounts, text, new Date(), money) : null;
     if (discountReply) return { text: discountReply };
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) {
-      const messagesLine = opts.botMessages ? await opts.botMessages.summaryLine() : null;
-      return { text: await opts.plan.summary(messagesLine ? [messagesLine] : []) };
+      const lines = await Promise.all([opts.topUps?.summaryLine() ?? null, opts.botMessages?.summaryLine() ?? null]);
+      return { text: await opts.plan.summary(lines.filter((l): l is string => l !== null)) };
     }
+    const topUpReply = opts.topUps ? await opts.topUps.ownerCommand(text, msg.from) : null;
+    if (topUpReply) return { text: topUpReply };
     if (opts.ordersLink && /^(my )?(orders|order board|board|sales|dashboard)$/i.test(text)) return { text: await ordersReply(opts.ordersLink) };
     if (opts.referral && /^(my )?(referral|refer|invite)( code)?$/i.test(text)) return { text: await opts.referral() };
     const upgrade = text.match(/^upgrade\s+(?:to\s+)?(.+)$/i);

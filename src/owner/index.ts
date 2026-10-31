@@ -60,6 +60,7 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   shop_look_failed: { ok: false, text: "That didn't save. Please try again, and message support if it keeps happening." },
   sold: { ok: true, text: "Sale recorded. The stock has been updated." },
   sale_cancelled: { ok: true, text: "Sale cancelled. Its items are back in stock." },
+  topup_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again, or send top up to your bot." },
 };
 
 export function createOwnerApp(deps: OwnerAppDeps) {
