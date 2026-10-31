@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CheckoutLink, PaymentRequest } from "../../core/payments/payments.js";
+import { createPlanPrices } from "../../core/payments/plan-prices.js";
 import {
   CREDIT_LINE,
   createPlanGate,
@@ -158,6 +159,21 @@ describe("plan upgrades", () => {
     expect(c.requests).toEqual([
       { product: "quote", waId: "2348000000001", amountKobo: 750_000, purpose: { businessId: "b1", plan: "starter", months: 1 }, title: "yarnOga Starter, 1 month" },
     ]);
+  });
+
+  it("charges an owner outside Nigeria the plan's fixed price in their own currency", async () => {
+    const c = checkout();
+    const prices = createPlanPrices({
+      enabled: ["GHS"],
+      lookup: async (product, plan, currency) => (product === "quote" && plan === "starter" ? { currency, monthlyMinor: 7_000, monthlyPaidYearlyMinor: 6_200 } : null),
+    });
+    const gate = createPlanGate({ code: "free", store: store(0), checkout: { ...c.value, prices } });
+    expect(await gate.upgrade!("starter yearly", "233241234567")).toContain("(1 year, GH₵744)");
+    expect(c.requests[0]).toMatchObject({ amountKobo: 74_400, currency: "GHS" });
+    // Kenya isn't switched on, so a Kenyan owner pays in naira as before.
+    await gate.upgrade!("starter", "254712345678");
+    expect(c.requests[1]).toMatchObject({ amountKobo: 750_000 });
+    expect(c.requests[1]?.currency).toBeUndefined();
   });
 
   it("charges a year at the yearly price", async () => {

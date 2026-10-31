@@ -109,6 +109,7 @@ import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
 import { createSupabasePaymentStore } from "./core/payments/store.js";
 import { createSupabasePromoAdmin } from "./core/payments/promos.js";
+import { createPlanPrices, createSupabasePlanPriceLookup } from "./core/payments/plan-prices.js";
 import { createSupabaseDiscounts } from "./products/quote/discounts.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
 import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
@@ -155,11 +156,17 @@ const mainBusinessId = quoteBusinesses ? DEFAULT_BUSINESS_ID : undefined;
 const delivery = config.activeProduct === "quote" ? config.delivery : undefined;
 const trackingLinks = delivery && createTrackingLinks(config.whatsapp.appSecret, delivery.publicUrl);
 
+// Plans paid in the payer's own currency outside Nigeria (PLAN_CURRENCIES):
+// only the currencies whose provider is set up, US dollars through Paystack
+// and the rest through Flutterwave.
+const planCurrencies = config.planCurrencies.filter((c) => (c === "USD" ? config.paystack : config.flutterwave));
+const planPrices = planCurrencies.length ? createPlanPrices({ enabled: planCurrencies, lookup: createSupabasePlanPriceLookup(supabase) }) : undefined;
+
 // Paystack links for quote plan upgrades. `payments` is set up further down;
 // the link is only asked for when an owner sends "upgrade ...".
 const planCheckout = (businessId: string) =>
   config.paystack
-    ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) } }
+    ? { businessId, links: { createLink: (req: PaymentRequest) => payments!.createLink(req) }, prices: planPrices }
     : undefined;
 // Pay links on invoices (QUOTE_PAY_LINKS), for a business with a Paystack
 // subaccount: the money goes to its own bank account.
@@ -778,6 +785,7 @@ const flyerBot = flyerConfig
       sendHour: flyerConfig.sendHour,
       trial: TRIAL,
       payments,
+      planPrices,
       promos: payments ? createSupabasePromoAdmin(supabase) : undefined,
       askEmail: emailAsker
         ? ({ waId, groupId }) =>
