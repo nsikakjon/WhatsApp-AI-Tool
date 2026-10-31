@@ -4,8 +4,9 @@ import { lagosMonthKey } from "../../products/quote/credits.js";
 import { lagosMonthStart } from "../../products/quote/plan.js";
 import { columnOf, type BoardOrder, type SalesFigures } from "../../products/quote/board.js";
 import type { CounterSale, ProductRecord, SoldLine } from "../store.js";
+import type { AiPack } from "../../products/quote/topups.js";
 import type { SectionContext } from "../index.js";
-import { esc, icon, ring, stat } from "../layout.js";
+import { esc, icon, meter, stat } from "../layout.js";
 import { profitByProduct, profitSummary, signedMoney } from "./counter.js";
 import type { Env } from "../types.js";
 
@@ -34,10 +35,11 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     // Cashiers and riders see the orders, not the takings.
     const seesMoney = ctx.can(c, "money");
     const counter = biz.counter && seesMoney ? biz.counter : null;
-    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages, rated, counterSales, paidOrders] = await Promise.all([
+    const month = lagosMonthKey(at);
+    const [now, before, ai, aiLimit, chats, confirmed, top, products, open, botMessages, rated, counterSales, paidOrders, plan, aiExtra, packs] = await Promise.all([
       safe<SalesFigures>(biz.board.sales(thisMonth, at), { quotes: 0, orders: 0, paidInKobo: 0 }),
       safe<SalesFigures>(biz.board.sales(lastMonth, thisMonth), { quotes: 0, orders: 0, paidInKobo: 0 }),
-      safe<number | null>(biz.board.aiRepliesUsed(lagosMonthKey(at)), null),
+      safe<number | null>(biz.board.aiRepliesUsed(month), null),
       safe<number | null>(biz.features ? biz.features.limit("ai_credits") : Promise.resolve(null), null),
       safe<{ customers: number; inbound: number; outbound: number }>(biz.data.chatCounts(thisMonth), { customers: 0, inbound: 0, outbound: 0 }),
       safe<Date[]>(biz.data.confirmedSince(since14), []),
@@ -48,6 +50,10 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
       safe<{ count: number; average: number | null; bad: number } | null>(biz.data.ratings ? biz.data.ratings(new Date(at.getTime() - 30 * DAY)) : Promise.resolve(null), null),
       safe<CounterSale[] | null>(counter ? counter.sales(thisMonth, at) : Promise.resolve(null), null),
       safe<Array<{ discountKobo: number; lines: SoldLine[] }> | null>(counter ? counter.paidOrders(thisMonth, at) : Promise.resolve(null), null),
+      safe<{ name: string; orderLimit: number | null } | null>(seesMoney && biz.plan ? biz.plan() : Promise.resolve(null), null),
+      safe<number>(seesMoney && biz.topUps ? biz.topUps.extra(month) : Promise.resolve(0), 0),
+      // Only the owner can buy replies.
+      safe<AiPack[]>(c.get("user").role === "owner" && biz.topUps ? biz.topUps.packs() : Promise.resolve([]), []),
     ]);
 
     const n = (x: number) => x.toLocaleString("en-NG");
@@ -81,8 +87,6 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
 
     const pct = (a: number, b: number) => (b ? ((a - b) * 100) / b : null);
     const conversion = now.quotes ? Math.round((now.orders * 100) / now.quotes) : 0;
-    const aiPct = ai != null && aiLimit ? (ai * 100) / aiLimit : 0;
-    const msgPct = botMessages?.limit ? (botMessages.sent * 100) / botMessages.limit : 0;
     const bestTotal = Math.max(1, ...top.map((t) => t.totalKobo));
     const user = c.get("user");
     const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Africa/Lagos" }).format(at));
@@ -137,14 +141,7 @@ ${rated && rated.count ? stat("Customer rating", `${rated.average!.toFixed(1)} /
     <div class="cardhead"><div><h3>Orders</h3><p class="muted small" style="margin:0">Last 14 days · ${n(twoWeeks)} orders</p></div><a href="/home/orders">Order board ${icon("arrow", 16)}</a></div>
     <div class="chart" role="img" aria-label="Orders per day for the last 14 days">${chart}</div>
   </section>
-  ${seesMoney ? `<section class="card">
-    <div class="cardhead"><h3>Plan usage this month</h3>${aiLimit != null ? `<span class="tag lime">${esc((await biz.features?.planCode().catch(() => null)) ?? "")}</span>` : ""}</div>
-    <div class="rings">
-      ${ring(aiPct, ai == null ? "–" : n(ai), aiLimit != null ? `of ${n(aiLimit)} AI replies` : "AI replies")}
-      ${botMessages ? ring(msgPct, n(botMessages.sent), botMessages.limit != null ? `of ${n(botMessages.limit)} messages` : "bot messages") : ring(conversion, `${conversion}%`, "quotes to orders")}
-    </div>
-    <p class="muted small" style="margin:14px 0 0">Each customer message the AI reads counts as one AI reply.</p>
-  </section>` : ""}
+  ${seesMoney ? usageCard({ plan, orders: now.orders, ai: ai ?? 0, aiLimit, aiExtra, botMessages, packs, money }) : ""}
 </div>
 
 <div class="split even" style="margin-top:14px">
@@ -175,6 +172,22 @@ ${profitCard}
 
 <p class="muted small" style="margin-top:14px">${seesMoney ? `"Paid in" counts orders marked paid, including delivery fees. ` : ""}Numbers include any branches.</p>`;
     return ctx.render(c, "Dashboard", "/home", body);
+  });
+
+  // A pack of AI replies: off to Paystack, and the replies are added once it's paid.
+  app.post("/topup", async (c) => {
+    const denied = ctx.ownerOnly(c);
+    if (denied) return denied;
+    const biz = c.get("biz");
+    if (!biz.topUps) return c.redirect("/home", 303);
+    const pack = String((await c.req.parseBody()).pack ?? "");
+    try {
+      const made = await biz.topUps.link(pack, c.get("user").waId);
+      if (made) return c.redirect(made.url, 303);
+    } catch (err) {
+      ctx.log.error("Owner app: couldn't make an AI top-up link:", err);
+    }
+    return c.redirect("/home?msg=topup_failed", 303);
   });
 
   app.get("/status", async (c) => {
@@ -246,4 +259,77 @@ ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc
 <div class="actions">${wa}<a class="button ghost" href="mailto:${esc(s.email)}">Email ${esc(s.email)}</a><a class="button ghost" href="/home/status">Is everything working?</a></div>`,
     );
   });
+}
+
+/** Owners hear about a limit once this share of it is used. */
+const NEAR = 0.8;
+
+type Usage = { label: string; used: number; limit: number | null; note?: string };
+
+/**
+ * Orders, AI replies and bot messages this month against the plan's limits,
+ * with a nudge to top up or upgrade once one is nearly used.
+ */
+export function usageCard(u: {
+  plan: { name: string; orderLimit: number | null } | null;
+  orders: number;
+  ai: number;
+  aiLimit: number | null;
+  aiExtra: number;
+  botMessages: { sent: number; limit: number | null } | null;
+  packs: AiPack[];
+  money: (minor: number) => string;
+}): string {
+  const n = (x: number) => x.toLocaleString("en-NG");
+  const aiAllowed = u.aiLimit == null ? null : u.aiLimit + u.aiExtra;
+  const orders: Usage = { label: "Orders", used: u.orders, limit: u.plan?.orderLimit ?? null };
+  const ai: Usage = {
+    label: "AI replies",
+    used: aiAllowed == null ? u.ai : Math.min(u.ai, aiAllowed),
+    limit: aiAllowed,
+    note: u.aiExtra && u.aiLimit != null ? `${n(u.aiLimit)} on your plan + ${n(u.aiExtra)} topped up` : undefined,
+  };
+  const messages: Usage | null = u.botMessages && { label: "Bot messages", used: u.botMessages.sent, limit: u.botMessages.limit };
+  const rows = [orders, ai, ...(messages ? [messages] : [])];
+  const near = (r: Usage) => r.limit != null && r.used >= Math.ceil(r.limit * NEAR);
+
+  const row = (r: Usage) =>
+    `<li><div class="rankrow"><b>${r.label}</b><span>${n(r.used)}${r.limit != null ? ` of ${n(r.limit)}` : ""}</span></div>${
+      r.limit != null ? meter(r.used, r.limit) : ""
+    }<p class="muted small" style="margin:4px 0 0">${r.note ? esc(r.note) : r.limit == null ? "No limit on your plan" : `${n(Math.max(0, r.limit - r.used))} left`}</p></li>`;
+
+  const nudges: string[] = [];
+  if (near(ai)) {
+    nudges.push(
+      ai.used >= ai.limit!
+        ? "Your AI replies for this month are used up. Your bot is answering with a simple numbered menu until the 1st."
+        : `You've used ${Math.round((ai.used * 100) / ai.limit!)}% of this month's AI replies. After that your bot answers with a simple numbered menu until the 1st.`,
+    );
+  }
+  if (near(orders)) {
+    nudges.push(
+      orders.used >= orders.limit!
+        ? `You've taken all ${n(orders.limit!)} orders on your plan this month. New orders come to you to confirm by hand until the 1st.`
+        : `You've taken ${n(orders.used)} of the ${n(orders.limit!)} orders on your plan this month.`,
+    );
+  }
+  if (messages && near(messages)) nudges.push(`Your number has sent ${n(messages.used)} of the ${n(messages.limit!)} bot messages on your plan this month.`);
+
+  const buy =
+    near(ai) && u.packs.length
+      ? `<div class="actions">${u.packs
+          .map((p) => `<form method="post" action="/home/topup"><input type="hidden" name="pack" value="${esc(p.code)}"><button>Buy ${n(p.replies)} replies · ${esc(u.money(p.priceKobo))}</button></form>`)
+          .join("")}</div>`
+      : "";
+  const nudge = nudges.length
+    ? `<div class="flash bad" style="margin:14px 0 0">${nudges.map((t) => `<p style="margin:0 0 6px">${esc(t)}</p>`).join("")}<p style="margin:0">${
+        buy ? "Buy more AI replies for this month, or send <b>plan</b> to your bot to move up a plan." : "Send <b>plan</b> to your bot to see the plans and upgrade."
+      }</p>${buy}</div>`
+    : "";
+
+  return `<section class="card">
+    <div class="cardhead"><h3>Plan usage this month</h3>${u.plan ? `<span class="tag lime">${esc(u.plan.name)}</span>` : ""}</div>
+    <ul class="rank">${rows.map(row).join("")}</ul>${nudge}
+    <p class="muted small" style="margin:14px 0 0">Each customer message the AI reads counts as one AI reply. Limits start again on the 1st.</p>
+  </section>`;
 }

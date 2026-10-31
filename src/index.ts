@@ -40,6 +40,7 @@ import { createSupabaseDeliveryStore } from "./products/quote/delivery/store.js"
 import { createTrackingLinks } from "./products/quote/delivery/tracking.js";
 import {
   createPlanGate,
+  readBusinessPlanCode,
   createPlanPaidHandler,
   createSupabasePlanPayments,
   createSupabasePlanStore,
@@ -51,6 +52,7 @@ import { fetchSheet } from "./core/sheets.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeature, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
+import { createSupabaseTopUpLedger, createSupabaseTopUpStore, createTopUpPaidHandler, createTopUps } from "./products/quote/topups.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
@@ -274,10 +276,20 @@ const ordersLinkFor = (businessId: string) =>
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
 // A branch passes its main business's id: same plan, one pool of AI replies.
+// With QUOTE_AI_TOPUPS, the owner can buy more AI replies ("top up").
 function planFeatures(businessId: string, code?: string) {
   if (!config.quotePlanFeatures) return {};
   const features = createPlanFeatures({ code, store: createSupabaseFeatureStore(supabase, businessId) });
-  return { features, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId) }) };
+  const topUps =
+    config.quoteAiTopUps && config.paystack
+      ? createTopUps({
+          businessId,
+          features,
+          store: createSupabaseTopUpStore(supabase, businessId),
+          links: { createLink: (req: PaymentRequest) => payments!.createLink(req) },
+        })
+      : undefined;
+  return { features, topUps, credits: createAiCredits({ features, store: createSupabaseCreditStore(supabase, businessId), topUps }) };
 }
 
 // Whether a business's plan includes a feature (always yes with plan features
@@ -814,6 +826,13 @@ if (config.quote || quoteBusinesses) {
       ? (code) => rewardReferrer({ code, store: referrals, plans: planPayments, mainBusinessId: DEFAULT_BUSINESS_ID })
       : undefined,
   });
+  const topUpPaid = createTopUpPaidHandler({
+    ledger: createSupabaseTopUpLedger(supabase),
+    async planLimit(businessId) {
+      const { features } = businessId === DEFAULT_BUSINESS_ID ? planFeatures(businessId, config.quote?.plan) : planFeatures(businessId);
+      return features && (await features.has("ai_credits")) ? ((await features.limit("ai_credits")) ?? 0) : 0;
+    },
+  });
   // An order paid by pay link: that business's bot marks it paid, and its messages come from the business's number.
   paidHandlers.quote = withOrderPayments(
     planPaid,
@@ -829,6 +848,13 @@ if (config.quote || quoteBusinesses) {
       if (!found) throw new Error(`Courier fee paid for business ${businessId}, which isn't set up`);
       const notes = await copyAlerts(await found.bot.courierPaid(orderNumber), businessId, found.ownerWaId);
       return notes.map((n) => ({ ...n, fromNumberId: found.fromNumberId ?? undefined }));
+    },
+    // A pack of AI replies ("top up"). Counted even if QUOTE_AI_TOPUPS was switched off after the link went out.
+    async (payment) => {
+      const text = await topUpPaid(payment);
+      if (!text) return [];
+      const found = await quoteBotFor(payment.purpose.businessId as string);
+      return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
     },
   );
   productNumbers.quote = config.whatsapp.phoneNumberId;
@@ -890,7 +916,8 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const name = main ? config.quote!.businessName : row!.name;
           const orderPrefix = main ? config.quote!.orderPrefix : row!.orderPrefix;
           const numberId = main ? config.whatsapp.phoneNumberId : row!.phoneNumberId!;
-          const features = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan).features : undefined) : planFeatures(row!.branchOf ?? id).features;
+          const planParts = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? id);
+          const features = planParts.features;
           const branding = createSupabaseBranding(supabase, id);
           const sentNumbers = main ? [numberId, ""] : [numberId];
           const language = main ? config.quote!.language : (row!.language ?? "en");
@@ -973,6 +1000,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                   currency,
                 }),
               }),
+            // The plan the bot's order limit goes by (plan.ts): business #1 only has one with QUOTE_PLAN.
+            async plan() {
+              if (main && !config.quote!.plan) return null;
+              const plans = createSupabasePlanStore(supabase, id);
+              const code = (await readBusinessPlanCode(supabase, id)) ?? (main ? config.quote!.plan! : null);
+              const plan = code ? await plans.plan(code) : null;
+              return plan && { name: plan.name, orderLimit: plan.monthlyOrderLimit };
+            },
+            topUps: planParts.topUps,
             async botMessages() {
               if (!features) return null;
               const limit = await features.limit("bot_messages");
