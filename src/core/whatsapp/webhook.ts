@@ -2,6 +2,7 @@ import { guessLanguage } from "../i18n.js";
 import { Hono } from "hono";
 import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
+import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
 import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
@@ -16,6 +17,8 @@ export interface WebhookDeps {
   whatsapp: WhatsAppClient;
   /** Turns voice notes into text. Optional: without it, voice notes reach products with no text. */
   transcriber?: Transcriber;
+  /** Counts what each voice note costs us (SHOP_COSTS). */
+  usage?: UsageMeter;
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   /**
@@ -394,7 +397,8 @@ async function transcribeVoiceNote(
 ): Promise<IncomingMessage> {
   try {
     const audio = await deps.whatsapp.downloadMedia(msg.mediaId!, msg.businessNumberId);
-    const text = await deps.transcriber!.transcribe(audio.data, audio.mimeType);
+    const { text, seconds } = await deps.transcriber!.transcribe(audio.data, audio.mimeType);
+    if (seconds !== null) deps.usage?.voice(msg.businessNumberId, seconds);
     if (!text) return msg;
     await deps.store.setInboundText(msg.waMessageId, text);
     log.info(`Transcribed voice note ${msg.waMessageId} (${text.length} characters)`);

@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono } from "hono";
 import { renderDashboard } from "./page.js";
+import type { ShopCostSource } from "./costs.js";
+import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import type { StatsSource } from "./stats.js";
@@ -20,6 +22,10 @@ export interface DashboardDeps {
   website?: WebsiteStatsSource;
   /** Money in and out, for the profit and loss section. */
   money?: MoneyStore;
+  /** What each shop costs us against what it pays (SHOP_COSTS). */
+  costs?: ShopCostSource;
+  /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
+  plans?: PlanEditorStore;
   /** The TikTok developer app, for the one-time connect button. */
   tiktokApp?: TikTokApp;
   fetch?: typeof fetch;
@@ -40,7 +46,7 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials, website, money] = await Promise.all([
+      const [stats, socials, website, money, costs] = await Promise.all([
         deps.stats.load(now),
         deps.socials?.load(now) ?? [],
         // A website problem (say, the table isn't created yet) mustn't hide everything else.
@@ -52,9 +58,13 @@ export function createDashboard(deps: DashboardDeps) {
           log.error("Profit and loss failed to load:", err);
           return "error" as const;
         }),
+        deps.costs?.load(now).catch((err) => {
+          log.error("Shop costs failed to load:", err);
+          return "error" as const;
+        }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
-      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }));
+      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans)));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
@@ -95,6 +105,59 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToMoney("Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToMoney(), 303);
+  });
+
+  // The plan editor: one form per plan, each saved on its own.
+  const backToPlans = (anchor: string, notice: { saved?: string; problem?: string }) => {
+    const [key, value] = notice.problem ? ["problem", notice.problem] : ["saved", notice.saved ?? ""];
+    return `/dashboard/plans?${key}=${encodeURIComponent(value)}#${anchor}`;
+  };
+
+  app.get("/plans", async (c) => {
+    if (!deps.plans) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const notice = { saved: c.req.query("saved")?.slice(0, 60), problem: c.req.query("problem")?.slice(0, 200) };
+    const plans = await deps.plans.load().catch((err) => {
+      log.error("Plans failed to load:", err);
+      return "error" as const;
+    });
+    return c.html(renderPlanEditor(plans, notice));
+  });
+
+  app.post("/plans/quote/:code", async (c) => {
+    if (!deps.plans || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
+      return c.text("Not allowed.", 403);
+    }
+    const code = c.req.param("code");
+    const anchor = `quote-${code}`;
+    try {
+      const plan = (await deps.plans.load()).quote.find((p) => p.code === code);
+      if (!plan) return c.redirect(backToPlans("quote", { problem: "That plan doesn't exist any more." }), 303);
+      const edit = parseQuotePlanForm(await c.req.parseBody(), plan.features.map((f) => f.feature));
+      if ("problem" in edit) return c.redirect(backToPlans(anchor, edit), 303);
+      await deps.plans.saveQuotePlan(code, edit.plan, edit.features);
+      return c.redirect(backToPlans(anchor, { saved: plan.name }), 303);
+    } catch (err) {
+      log.error(`Couldn't save quote plan ${code}:`, err);
+      return c.redirect(backToPlans(anchor, { problem: "Couldn't save that just now. Please try again." }), 303);
+    }
+  });
+
+  app.post("/plans/flyer/:id", async (c) => {
+    if (!deps.plans || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
+      return c.text("Not allowed.", 403);
+    }
+    const id = c.req.param("id");
+    const anchor = `flyer-${id}`;
+    const edit = parseFlyerPlanForm(await c.req.parseBody());
+    if ("problem" in edit) return c.redirect(backToPlans(anchor, edit), 303);
+    try {
+      await deps.plans.saveFlyerPlan(id, edit);
+    } catch (err) {
+      log.error(`Couldn't save flyer plan ${id}:`, err);
+      return c.redirect(backToPlans(anchor, { problem: "Couldn't save that just now. Please try again." }), 303);
+    }
+    return c.redirect(backToPlans(anchor, { saved: `the ${id} flyer plan` }), 303);
   });
 
   // Connecting TikTok: send the owner to TikTok to allow access, then show the
