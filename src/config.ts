@@ -198,6 +198,11 @@ export interface Config {
    */
   quoteAiTopUps: boolean;
   /**
+   * Limit warnings with Upgrade / Top up buttons, an 80% orders warning, and
+   * over-limit customers handed to the owner. Off unless QUOTE_LIMIT_ALERTS is true.
+   */
+  quoteLimitAlerts: boolean;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -477,6 +482,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quotePlanFeatures: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_FEATURES ?? ""),
     quoteAiTopUps: /^(true|yes|on|1)$/i.test(env.QUOTE_AI_TOPUPS ?? ""),
+    quoteLimitAlerts: /^(true|yes|on|1)$/i.test(env.QUOTE_LIMIT_ALERTS ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),

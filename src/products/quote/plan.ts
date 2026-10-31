@@ -81,6 +81,8 @@ export interface PlanGate {
   summary(usage?: string[]): Promise<string>;
   /** The owner's "upgrade starter [yearly]" command: a payment link, or how to upgrade. */
   upgrade?(request: string, ownerWaId: string): Promise<string>;
+  /** The cheapest plan above this one, for an Upgrade button; null on the top plan. */
+  nextPlan?(): Promise<QuotePlan | null>;
 }
 
 export interface PlanGateOptions {
@@ -93,9 +95,14 @@ export interface PlanGateOptions {
    * With prices, owners outside Nigeria pay in their own currency.
    */
   checkout?: { links: PaymentLinks; businessId: string; prices?: PlanPrices };
+  /** QUOTE_LIMIT_ALERTS: also warn once when 80% of the month's orders are used. */
+  alertAt80?: boolean;
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
+
+/** Share of a monthly limit at which owners get the QUOTE_LIMIT_ALERTS heads-up. */
+export const ALERT_SHARE = 0.8;
 
 /** Midnight on the 1st of this month, Lagos time (UTC+1 all year). */
 export function lagosMonthStart(now: Date): Date {
@@ -161,6 +168,9 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       }
       if (used >= limit) return { allowed: false, used, limit, planName: plan.name };
       const left = limit - used - 1;
+      if (opts.alertAt80 && left >= WARN_WHEN_LEFT && used + 1 === Math.ceil(limit * ALERT_SHARE)) {
+        return { allowed: true, warning: `Heads-up: this is order ${used + 1} of ${limit} on your ${plan.name} plan this month.` };
+      }
       const warning =
         left < WARN_WHEN_LEFT
           ? `This is order ${used + 1} of ${limit} on your ${plan.name} plan this month${left === 0 ? ". Send *plan* to see how to keep taking orders." : "."}`
@@ -208,6 +218,12 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         lines.push("", opts.checkout ? "For an extra, contact yarnOga." : "To upgrade or add an extra, contact yarnOga and we'll sort it out.");
       }
       return lines.join("\n");
+    },
+
+    async nextPlan() {
+      const plan = await current();
+      if (!plan) return null;
+      return (await opts.store.paidPlans()).find((p) => p.monthlyPriceKobo > plan.monthlyPriceKobo) ?? null;
     },
 
     async upgrade(request, ownerWaId) {

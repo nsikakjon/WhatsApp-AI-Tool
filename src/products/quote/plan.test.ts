@@ -56,6 +56,21 @@ describe("plan gate", () => {
     expect(last.allowed && last.warning).toContain("Send *plan*");
   });
 
+  it("with limit alerts, also warns once at 80% of the month's orders", async () => {
+    // Order 40 of 50 is the 80% mark.
+    expect(await createPlanGate({ code: "free", store: store(39), alertAt80: true }).checkOrder()).toEqual({
+      allowed: true,
+      warning: "Heads-up: this is order 40 of 50 on your Free plan this month.",
+    });
+    expect(await createPlanGate({ code: "free", store: store(40), alertAt80: true }).checkOrder()).toEqual({ allowed: true, warning: null });
+    expect(await createPlanGate({ code: "free", store: store(39) }).checkOrder()).toEqual({ allowed: true, warning: null });
+  });
+
+  it("names the next plan up for an Upgrade button", async () => {
+    expect((await createPlanGate({ code: "free", store: store(0) }).nextPlan!())?.name).toBe("Starter");
+    expect(await createPlanGate({ code: "starter", store: store(0) }).nextPlan!()).toBeNull();
+  });
+
   it("stops at the limit", async () => {
     expect(await createPlanGate({ code: "free", store: store(50) }).checkOrder()).toEqual({
       allowed: false,

@@ -479,10 +479,12 @@ if (config.activeProduct === "quote" && config.quote) {
           // Business #1's row holds any plan it paid for in the chat.
           store: createSupabasePlanStore(supabase, DEFAULT_BUSINESS_ID),
           checkout: planCheckout(DEFAULT_BUSINESS_ID),
+          alertAt80: config.quoteLimitAlerts,
         })
       : undefined,
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...mainFeatures,
+    limitAlerts: config.quoteLimitAlerts,
     botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
     catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features, config.quote.currency),
     ai: createClaudeUnderstander({
@@ -563,7 +565,8 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
-    plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId) }),
+    plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
+    limitAlerts: config.quoteLimitAlerts,
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
     catalogue: catalogueFor(business.id, features.features, business.currency),

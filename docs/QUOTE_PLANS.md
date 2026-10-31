@@ -105,3 +105,17 @@ The dashboard's "Plan usage this month" card shows orders, AI replies and bot
 messages against the plan's limits. At 80% of a limit the owner sees a
 warning there, with the top-up buttons for AI replies (owner only) and a
 pointer to *plan* to upgrade. Managers see the card but can't buy.
+
+## Limit alerts on WhatsApp
+
+With `QUOTE_LIMIT_ALERTS` = `true` on Railway (no migration needed):
+
+- The owner's warnings about AI replies, bot messages and orders arrive with
+  one-tap buttons: *Upgrade to Starter* (or whichever plan is next up), and
+  *Top up AI replies* for AI replies when top-ups are on.
+- There's an extra heads-up when the month's orders reach 80% of the plan's
+  limit (order 40 of 50 on Free), on top of the warnings on the last five.
+- When the orders run out, the customer is still told the team will contact
+  them, the owner gets the order details, and the bot stays out of that chat
+  for 24 hours so the owner can finish the sale without the bot talking over
+  them. When AI replies run out, the bot keeps going with menu replies as before.

@@ -98,6 +98,9 @@ export interface QuoteTexts {
   proofPassedOn(ref: string, business: string): string;
   proofCheck(who: string, ref: string, total: string, file: boolean, caption: string | undefined): string;
   proofButtons: { confirm: string; notReceived: string };
+  /** QUOTE_LIMIT_ALERTS: the bot stays out of an over-limit customer's chat for this many hours. */
+  handedOver(hours: number): string;
+  limitButtons: { upgrade(plan: string): string; topUp: string; plans: string };
   notReceivedTold(ref: string, who: string): string;
   paidSoNotTold(ref: string): string;
   notReceived(ref: string, business: string): string;
@@ -220,6 +223,8 @@ const en: QuoteTexts = {
   proofCheck: (who, ref, total, file, caption) =>
     `${who} sent ${file ? "a file (open it in your chats inbox)" : "this"} as payment for ${ref} (${total}).${caption ? `\n\nTheir note: "${caption}"` : ""}\n\nCheck your bank app that the money has arrived before you confirm. Fake transfer screenshots are common.`,
   proofButtons: { confirm: "✅ Confirm paid", notReceived: "Not received" },
+  handedOver: (hours) => `I've handed this chat to you, so the bot won't answer them for the next ${hours} hours.`,
+  limitButtons: { upgrade: (plan) => `Upgrade to ${plan}`, topUp: "Top up AI replies", plans: "See plans" },
   notReceivedTold: (ref, who) => `OK. I've told ${who} the payment for ${ref} hasn't arrived yet.`,
   paidSoNotTold: (ref) => `${ref} is already marked paid, so I haven't sent the customer anything.`,
   notReceived: (ref, b) =>
@@ -352,6 +357,8 @@ const fr: QuoteTexts = {
   proofCheck: (who, ref, total, file, caption) =>
     `${who} a envoyé ${file ? "un fichier (ouvrez-le dans votre boîte de discussions)" : "ceci"} comme paiement de ${ref} (${total}).${caption ? `\n\nSon message : « ${caption} »` : ""}\n\nVérifiez dans votre application bancaire que l'argent est bien arrivé avant de confirmer. Les fausses captures de virement sont courantes.`,
   proofButtons: { confirm: "✅ Paiement reçu", notReceived: "Pas reçu" },
+  handedOver: (hours) => `Je vous passe cette discussion : le bot ne lui répondra pas pendant les ${hours} prochaines heures.`,
+  limitButtons: { upgrade: (plan) => `Passer à ${plan}`, topUp: "Plus de réponses IA", plans: "Voir les formules" },
   notReceivedTold: (ref, who) => `D'accord. J'ai prévenu ${who} que le paiement de ${ref} n'est pas encore arrivé.`,
   paidSoNotTold: (ref) => `${ref} est déjà marquée payée, je n'ai donc rien envoyé au client.`,
   notReceived: (ref, b) =>
