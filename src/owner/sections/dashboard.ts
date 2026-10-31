@@ -321,8 +321,9 @@ export function usageCard(u: {
           .map((p) => `<form method="post" action="/home/topup"><input type="hidden" name="pack" value="${esc(p.code)}"><button>Buy ${n(p.replies)} replies · ${esc(u.money(p.priceKobo))}</button></form>`)
           .join("")}</div>`
       : "";
+  const out = rows.some((r) => r.limit != null && r.used >= r.limit);
   const nudge = nudges.length
-    ? `<div class="flash bad" style="margin:14px 0 0">${nudges.map((t) => `<p style="margin:0 0 6px">${esc(t)}</p>`).join("")}<p style="margin:0">${
+    ? `<div class="flash ${out ? "bad" : "warn"}" style="margin:14px 0 0">${nudges.map((t) => `<p style="margin:0 0 6px">${esc(t)}</p>`).join("")}<p style="margin:0">${
         buy ? "Buy more AI replies for this month, or send <b>plan</b> to your bot to move up a plan." : "Send <b>plan</b> to your bot to see the plans and upgrade."
       }</p>${buy}</div>`
     : "";
