@@ -69,3 +69,39 @@ WhatsApp note at 80% and again at 100%, and their `plan` reply shows
 customers. Numbers the business connected itself are never checked, since
 Meta bills them directly. Each number (a branch included) has its own
 allowance, like Meta's free 1,000.
+
+## AI reply top-ups
+
+A business that has used its plan's AI replies for the month (for example the
+Free plan's 500) can buy a pack of extra replies instead of upgrading. The
+owner sends *top up* to their bot, or presses the button on the owner app's
+dashboard once they're at 80%, and pays by Paystack link. The replies are
+added to that month as soon as the payment goes through, and end on the last
+day of the month. If the bot had already switched to the simple menu, the
+messages it answered that way don't eat into the new pack.
+
+1. In Supabase, run `supabase/migrations/0063_quote_ai_topups.sql`.
+2. Check the pack and its price in `quote_ai_packs` (₦2,000 for 1,000
+   replies is only an example). Prices are in kobo: ₦2,000 is `200000`. To
+   change it, or add a bigger pack:
+
+   ```sql
+   insert into public.quote_ai_packs (code, name, replies, price_kobo, sort_order)
+   values ('ai-5000', '5,000 AI replies', 5000, 800000, 2)
+   on conflict (code) do update set replies = excluded.replies, price_kobo = excluded.price_kobo, name = excluded.name;
+   ```
+
+   Set `active` to false to stop selling a pack.
+3. In Railway, add `QUOTE_AI_TOPUPS` = `true`. It needs `QUOTE_PLAN_FEATURES`
+   and `PAYSTACK_SECRET_KEY` already on.
+
+Each Paystack payment is saved once under its reference, so a payment that
+Paystack reports twice never adds the replies twice. Packs are in naira for
+every business.
+
+## Usage this month (owner app)
+
+The dashboard's "Plan usage this month" card shows orders, AI replies and bot
+messages against the plan's limits. At 80% of a limit the owner sees a
+warning there, with the top-up buttons for AI replies (owner only) and a
+pointer to *plan* to upgrade. Managers see the card but can't buy.
