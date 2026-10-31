@@ -700,6 +700,24 @@ describe("quote product on a plan", () => {
     });
   });
 
+  it("passes the owner's \"Please call me\" on to yarnOga", async () => {
+    const asked: string[] = [];
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => quote },
+      askYarnogaToCall: async (waId) => {
+        asked.push(waId);
+      },
+      log: { error() {} },
+    });
+    expect((await product.handle({ ...text("yarnoga call me"), from: OWNER }, ctx))?.text).toContain("will call you soon");
+    expect(asked).toEqual([OWNER]);
+  });
+
   it("tells the owner about their bot messages, and lists them in the plan reply", async () => {
     const product = createQuoteProduct({
       businessName: "KahnPrints",

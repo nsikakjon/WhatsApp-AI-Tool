@@ -145,3 +145,18 @@ number), or to `QUOTE_OWNER_WA_ID` if that isn't set.
 
 To switch it on: run `supabase/migrations/0064_quote_owner_nudges.sql`, then
 add `QUOTE_PLAN_RENEWALS` = `true` on Railway.
+
+## Usage drop warnings
+
+With `QUOTE_USAGE_DROP_ALERTS` = `true` (after migration 0064), the bot looks
+at every business on a paid plan at 10am each day. If its confirmed orders or
+its customer chats over the last 30 days are 40% or more below the 30 days
+before, yarnOga gets a WhatsApp alert with the numbers and the owner's number,
+so someone can call before they cancel. A business needs at least 10 orders
+or 20 chats in the earlier month to count, and is flagged at most once every
+30 days.
+
+With `QUOTE_USAGE_DROP_CHECKIN` = `true` as well, the owner also gets a short
+check-in from their own bot, with *All good* and *Please call me* buttons.
+*Please call me* sends yarnOga another alert. The check-in only goes when the
+owner has messaged their bot in the last day (WhatsApp's rule).

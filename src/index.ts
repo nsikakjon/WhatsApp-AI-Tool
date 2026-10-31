@@ -30,6 +30,7 @@ import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js"
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
 import { createSupabaseRenewals, sendRenewalReminders } from "./products/quote/renewals.js";
+import { checkUsageDrops, createSupabaseUsageDrops } from "./products/quote/usage-drop.js";
 import { dailySummary, lagosDate } from "./owner/summary.js";
 import { askForRatings, createSupabaseRatings } from "./products/quote/ratings.js";
 import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
@@ -274,6 +275,14 @@ const orderBoard = config.activeProduct === "quote" ? config.quoteOrderBoard : u
 const ordersLinkFor = (businessId: string) =>
   orderBoard ? ordersLink(config.whatsapp.appSecret, orderBoard.publicUrl, businessId) : undefined;
 
+// Usage drop check-ins (QUOTE_USAGE_DROP_CHECKIN): an owner's "Please call me" reaches yarnOga.
+const usageDrops = config.activeProduct === "quote" ? config.quoteUsageDrops : undefined;
+function callMeFor(businessName: string) {
+  return usageDrops?.checkIn
+    ? (ownerWaId: string) => alertYarnoga(`${businessName}'s owner (+${ownerWaId}) tapped "Please call me" on the check-in. Please call them.`)
+    : undefined;
+}
+
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
 // A branch passes its main business's id: same plan, one pool of AI replies.
@@ -486,6 +495,7 @@ if (config.activeProduct === "quote" && config.quote) {
     // Business #1 has no plan_code to fall back on: no QUOTE_PLAN, no plan features.
     ...mainFeatures,
     limitAlerts: config.quoteLimitAlerts,
+    askYarnogaToCall: callMeFor(config.quote.businessName),
     botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
     catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features, config.quote.currency),
     ai: createClaudeUnderstander({
@@ -568,6 +578,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
+    askYarnogaToCall: callMeFor(business.name),
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
     catalogue: catalogueFor(business.id, features.features, business.currency),
@@ -1485,6 +1496,31 @@ async function alertYarnoga(text: string): Promise<void> {
   }
 }
 
+// The owner of a quote business, for a nudge from their own bot's number.
+async function ownerContact(businessId: string) {
+  const found = await quoteBotFor(businessId);
+  return found?.ownerWaId ? { waId: found.ownerWaId, fromNumberId: found.fromNumberId ?? undefined, language: found.language } : null;
+}
+
+// Usage drop warnings (QUOTE_USAGE_DROP_ALERTS, migration 0064): once a day,
+// yarnOga hears about paying businesses whose orders or chats fell by 40%+.
+if (usageDrops) {
+  const drops = createSupabaseUsageDrops(supabase, { mainBusinessId: DEFAULT_BUSINESS_ID, mainNumberId: config.whatsapp.phoneNumberId });
+  runEvery(60 * 60 * 1000, () =>
+    checkUsageDrops({
+      store: drops,
+      alertYarnoga,
+      checkIn: usageDrops.checkIn
+        ? {
+            owner: ownerContact,
+            canMessageFreely: (waId) => canMessageFreely(store, waId),
+            send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+          }
+        : undefined,
+    }),
+  );
+}
+
 // Plan renewals (QUOTE_PLAN_RENEWALS, migration 0064): reminders before and
 // after a paid plan ends, and a grace period before it drops to Free.
 const planRenewals = config.activeProduct === "quote" ? config.quotePlanRenewals : undefined;
@@ -1494,10 +1530,7 @@ if (planRenewals) {
     sendRenewalReminders({
       store: renewals,
       graceDays: planRenewals.graceDays,
-      owner: async (id) => {
-        const found = await quoteBotFor(id);
-        return found?.ownerWaId ? { waId: found.ownerWaId, fromNumberId: found.fromNumberId ?? undefined, language: found.language } : null;
-      },
+      owner: ownerContact,
       canMessageFreely: (waId) => canMessageFreely(store, waId),
       send: (note, from) => sendNotice({ store, whatsapp }, note, from),
       alertYarnoga,

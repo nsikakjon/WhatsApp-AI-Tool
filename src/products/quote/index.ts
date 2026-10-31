@@ -6,6 +6,7 @@ import { formatMoney, type Currency } from "../../core/money.js";
 import { QUOTE_TEXTS, type QuoteTexts } from "./texts.js";
 import { CREDIT_LINE } from "./plan.js";
 import type { Notice, Product, ProductContext, Reply } from "../../core/product.js";
+import { CHECK_IN_CALL, CHECK_IN_OK } from "./usage-drop.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { DeliveryCharge, Dispatch } from "./delivery/index.js";
@@ -114,6 +115,8 @@ export interface QuoteProductOptions {
    * is handed to the owner instead of getting more bot replies.
    */
   limitAlerts?: boolean;
+  /** The owner tapped "Please call me" on yarnOga's check-in (usage-drop.ts): tell yarnOga. */
+  askYarnogaToCall?: (ownerWaId: string) => Promise<void>;
   /** The plan's monthly WhatsApp messages on a number yarnOga pays for (messages.ts). Without it, nothing is checked. */
   botMessages?: MessageAllowance;
   /** Product photos and stock levels (catalogue.ts). Without it, stock isn't counted. */
@@ -814,6 +817,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const text = (msg.text ?? "").trim();
+    if (opts.askYarnogaToCall && text === CHECK_IN_CALL) {
+      await opts.askYarnogaToCall(msg.from);
+      return { text: own.checkInCall() };
+    }
+    if (text === CHECK_IN_OK) return { text: own.checkInOk() };
     const discountReply = opts.discounts ? await discountCommand(opts.discounts, text, new Date(), money) : null;
     if (discountReply) return { text: discountReply };
     if (opts.plan && /^(my )?(plan|upgrade)$/i.test(text)) {

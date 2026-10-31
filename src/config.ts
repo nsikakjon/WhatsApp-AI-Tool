@@ -320,6 +320,12 @@ export interface Config {
    * Free (migration 0064). Only set when QUOTE_PLAN_RENEWALS is true.
    */
   quotePlanRenewals?: { graceDays: number };
+  /**
+   * Daily check for paying businesses whose orders or chats fell 40%+
+   * (migration 0064); `checkIn` also messages the owner. Only set when
+   * QUOTE_USAGE_DROP_ALERTS is true.
+   */
+  quoteUsageDrops?: { checkIn: boolean };
   /** Ask customers to rate finished orders (QUOTE_RATINGS, migration 0054). */
   quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
@@ -578,6 +584,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     planCurrencies: parsePlanCurrencies(env.PLAN_CURRENCIES),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
+    quoteUsageDrops: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_ALERTS ?? "")
+      ? { checkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_CHECKIN ?? "") }
+      : undefined,
     quotePlanRenewals: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_RENEWALS ?? "") ? { graceDays: graceDays(env.QUOTE_PLAN_GRACE_DAYS) } : undefined,
     quoteRatings: /^(true|yes|on|1)$/i.test(env.QUOTE_RATINGS ?? ""),
     tts: ttsSettings(env),
