@@ -213,9 +213,8 @@ export interface Config {
    */
   planEditor: boolean;
   /**
-   * Screen shield on the owner app, staff inbox, dashboard, quote setup and
-   * compliance pages: money and phone numbers hidden behind an eye button, a
-   * name watermark, no saved copies. Off unless SCREEN_SHIELD is true.
+   * Browsers keep no saved copy of the owner app, staff inbox, dashboard,
+   * quote setup and compliance pages. Off unless SCREEN_SHIELD is true.
    */
   screenShield: boolean;
   /**
