@@ -79,6 +79,26 @@ How the figures are worked out:
 - "Pays a month" is the plan's monthly list price, not money received. A
   branch counts under its main shop. Owner test screens aren't counted.
 
+## Plan editor
+
+A page at `/dashboard/plans` (same password as the dashboard) for changing
+plans without SQL:
+
+- Sales assistant plans: monthly and yearly prices, setup fee, orders a month,
+  the line owners see when they send "plan", the "Powered by yarnOga" line,
+  whether owners are offered the plan, and each feature's on/off and limit.
+- Flyer plans: prices only (what each flyer plan includes is set in
+  `src/products/flyer/plans.ts`).
+
+Prices are typed in naira and saved in kobo. A blank limit means no limit.
+Each plan has its own **Save** button, and the bots use the new figures from
+the next message. The website and the cedi, CFA, shilling and dollar prices
+(`plan_prices`) don't change from here, so update those too when you change a
+price.
+
+To switch it on, add `PLAN_EDITOR` = `true` in Railway. No migration needed.
+An **Edit plans** link then appears in the dashboard's top bar.
+
 ## Connecting socials
 
 Each account is separate: connect them in any order. Until an account's values

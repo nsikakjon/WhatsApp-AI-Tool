@@ -17,7 +17,7 @@ const PLAN_LABELS: Record<string, string> = {
   organisation: "Organisation",
 };
 
-function esc(text: string): string {
+export function esc(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }
 
@@ -326,6 +326,7 @@ export function renderDashboard(
   website?: WebsiteStats | "error",
   profit?: ProfitView,
   costs?: ShopCosts | "error",
+  planEditor = false,
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -431,17 +432,40 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
     ["website", "Website", Boolean(website)],
     ["socials", "Socials", true],
   ];
-  const nav = jumps
-    .filter(([, , shown]) => shown)
-    .map(([id, label]) => `<a href="#${id}">${label}</a>`)
-    .join("");
+  const nav =
+    jumps
+      .filter(([, , shown]) => shown)
+      .map(([id, label]) => `<a href="#${id}">${label}</a>`)
+      .join("") + (planEditor ? `<a href="/dashboard/plans">Edit plans</a>` : "");
 
+  return pageShell({
+    title: "yarnOga analytics",
+    crumb: `Updated ${lagosTime(s.generatedAt)}, Lagos time`,
+    heading: "yarn<b>Oga</b> analytics",
+    badge: "Live from the database",
+    nav,
+    body: `${glance}
+${profitSection(profit)}
+${costsSection(costs)}
+${whatsapp}
+${flyers}
+${quotes}
+${reporter}
+${leads}
+${websiteSection(website)}
+${socials}
+<footer>Refresh the page for the latest numbers. "Last 30 days" and "this week" count back from the moment the page loaded.</footer>`,
+  });
+}
+
+/** The dashboard's look: header, jump links and styles, shared by its pages. `heading` and `nav` are HTML. */
+export function pageShell(o: { title: string; crumb: string; heading: string; badge: string; nav: string; body: string }): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0a0d0b">
-<title>yarnOga analytics</title>
+<title>${esc(o.title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;500;600&family=Schibsted+Grotesk:wght@600&display=swap" rel="stylesheet">
 <style>
@@ -547,6 +571,16 @@ button.link:hover { color:var(--red); }
 .entry h3 { grid-column:1 / -1; }
 .entry label { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--muted); }
 .entry .wide { grid-column:span 2; }
+.entry .wide-all, .entry .ticks { grid-column:1 / -1; }
+.ticks { display:flex; flex-wrap:wrap; gap:8px 24px; }
+.entry label.tick { flex-direction:row; align-items:center; gap:8px; color:var(--text); }
+.entry input[type=checkbox] { width:18px; height:18px; padding:0; accent-color:var(--lime); }
+.features { max-width:none; min-width:520px; }
+.features td { padding:6px 14px; }
+.features input:not([type=checkbox]) { width:120px; }
+form.plan + form.plan { margin-top:12px; }
+main > .problem:first-child { margin-top:24px; }
+.saved { padding:14px 18px; margin:24px 0 0; border-radius:14px; background:var(--limesoft); color:var(--lime); }
 @media (max-width:480px) { .entry .wide { grid-column:auto; } }
 .entry input, .entry select { font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line2); border-radius:10px; padding:10px; min-width:0; }
 .entry input:focus, .entry select:focus { outline:2px solid var(--lime); outline-offset:1px; border-color:transparent; }
@@ -566,23 +600,13 @@ footer { margin-top:48px; padding-top:20px; border-top:1px solid var(--line); co
 <header>
 ${mark("m", 48)}
 <div class="titles">
-<p class="crumb">Updated ${esc(lagosTime(s.generatedAt))}, Lagos time</p>
-<h1>yarn<b>Oga</b> analytics</h1>
+<p class="crumb">${esc(o.crumb)}</p>
+<h1>${o.heading}</h1>
 </div>
-<span class="fresh">Live from the database</span>
+<span class="fresh">${esc(o.badge)}</span>
 </header>
-<nav class="jump" aria-label="Sections"><div>${nav}</div></nav>
+<nav class="jump" aria-label="Sections"><div>${o.nav}</div></nav>
 <main>
-${glance}
-${profitSection(profit)}
-${costsSection(costs)}
-${whatsapp}
-${flyers}
-${quotes}
-${reporter}
-${leads}
-${websiteSection(website)}
-${socials}
-<footer>Refresh the page for the latest numbers. "Last 30 days" and "this week" count back from the moment the page loaded.</footer>
+${o.body}
 </main></body></html>`;
 }
