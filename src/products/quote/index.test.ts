@@ -687,6 +687,35 @@ describe("quote product on a plan", () => {
       expect(warning?.buttons?.buttons).toEqual([{ id: "upgrade starter", title: "Upgrade to Starter" }]);
     });
 
+    it("offers the upgrade code once the orders are used up", async () => {
+      const mem = memoryOrders();
+      let intent: Understanding = quote;
+      const product = createQuoteProduct({
+        businessName: "KahnPrints",
+        orderPrefix: "KP",
+        ownerWaId: OWNER,
+        catalog: { activeVariants: async () => variants },
+        orders: mem.store,
+        ai: { understand: async () => intent },
+        renderDocument: fakeDocuments().render,
+        plan: {
+          credit: async () => null,
+          checkOrder: async () => ({ allowed: false, used: 50, limit: 50, planName: "Free" }),
+          summary: async () => "Your plan: *Free*",
+          nextPlan: async () => ({ code: "starter", name: "Starter", monthlyPriceKobo: 700_000, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: null, showCredit: false }),
+        },
+        limitAlerts: true,
+        limitOffer: async () => ({ code: "LIMITUP", percentOff: 20 }),
+        log: { error() {} },
+      });
+      await product.handle(text("100 flyers"), ctx);
+      intent = confirm;
+      const reply = await product.handle(text("yes"), ctx);
+      const limit = reply!.notify!.at(-1)!;
+      expect(limit.buttons?.body).toContain("Upgrade now with code *LIMITUP* for 20% off your first month.");
+      expect(limit.buttons?.buttons[0]).toEqual({ id: "upgrade starter LIMITUP", title: "Upgrade to Starter" });
+    });
+
     it("hands an over-limit customer to the owner", async () => {
       const { say } = alerting({ allowed: false, used: 50, limit: 50, planName: "Free" });
       await say("100 flyers", quote);

@@ -31,6 +31,7 @@ import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarg
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
 import { createSupabaseRenewals, sendRenewalReminders } from "./products/quote/renewals.js";
 import { checkUsageDrops, createSupabaseUsageDrops } from "./products/quote/usage-drop.js";
+import { LIMIT_OFFER_CODE, WINBACK_CODE, createSupabaseWinBacks, readOffer, sendWinBacks } from "./products/quote/offers.js";
 import { dailySummary, lagosDate } from "./owner/summary.js";
 import { askForRatings, createSupabaseRatings } from "./products/quote/ratings.js";
 import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
@@ -283,6 +284,10 @@ function callMeFor(businessName: string) {
     : undefined;
 }
 
+// Offers on promo codes (QUOTE_OFFERS): only with online plan payments.
+const offersOn = config.activeProduct === "quote" && config.quoteOffers && Boolean(config.paystack);
+const limitOffer = offersOn ? () => readOffer(supabase, LIMIT_OFFER_CODE) : undefined;
+
 // Plan features (AI credits, voice notes, invoices), only with
 // QUOTE_PLAN_FEATURES on. Business #1 always counts AI use under its fixed id.
 // A branch passes its main business's id: same plan, one pool of AI replies.
@@ -496,6 +501,7 @@ if (config.activeProduct === "quote" && config.quote) {
     ...mainFeatures,
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(config.quote.businessName),
+    limitOffer,
     botMessages: botMessagesFor([config.whatsapp.phoneNumberId, ""], mainFeatures.features),
     catalogue: catalogueFor(DEFAULT_BUSINESS_ID, mainFeatures.features, config.quote.currency),
     ai: createClaudeUnderstander({
@@ -579,6 +585,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),
+    limitOffer,
     ...features,
     botMessages: business.phoneNumberId ? botMessagesFor([business.phoneNumberId], features.features) : undefined,
     catalogue: catalogueFor(business.id, features.features, business.currency),
@@ -1517,6 +1524,23 @@ if (usageDrops) {
             send: (note, from) => sendNotice({ store, whatsapp }, note, from),
           }
         : undefined,
+    }),
+  );
+}
+
+// Win-back offers (QUOTE_OFFERS, migration 0064): once a day, businesses with
+// no customers for 30 days get the COMEBACK code, or yarnOga is told.
+if (offersOn && quoteBusinesses) {
+  const winBacks = createSupabaseWinBacks(supabase, { mainBusinessId: DEFAULT_BUSINESS_ID });
+  runEvery(60 * 60 * 1000, () =>
+    sendWinBacks({
+      store: winBacks,
+      offer: () => readOffer(supabase, WINBACK_CODE),
+      entryPlan: async () => (await createSupabasePlanStore(supabase).paidPlans())[0]?.name ?? null,
+      owner: ownerContact,
+      canMessageFreely: (waId) => canMessageFreely(store, waId),
+      send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+      alertYarnoga,
     }),
   );
 }

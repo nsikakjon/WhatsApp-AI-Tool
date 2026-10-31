@@ -115,6 +115,11 @@ export interface QuoteProductOptions {
    * is handed to the owner instead of getting more bot replies.
    */
   limitAlerts?: boolean;
+  /**
+   * QUOTE_OFFERS: the owner's upgrade offer when a monthly limit runs out, a
+   * promo code row (offers.ts). Null when the code is switched off.
+   */
+  limitOffer?: () => Promise<{ code: string; percentOff: number } | null>;
   /** The owner tapped "Please call me" on yarnOga's check-in (usage-drop.ts): tell yarnOga. */
   askYarnogaToCall?: (ownerWaId: string) => Promise<void>;
   /** The plan's monthly WhatsApp messages on a number yarnOga pays for (messages.ts). Without it, nothing is checked. */
@@ -308,7 +313,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       }
       const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
       for (const notice of [credit.ownerNotice, messagesNotice]) {
-        if (notice && opts.ownerWaId) reply.notify = [...(reply.notify ?? []), await limitNotice(notice, notice === credit.ownerNotice)];
+        if (notice && opts.ownerWaId) {
+          const ai = notice === credit.ownerNotice;
+          reply.notify = [...(reply.notify ?? []), await limitNotice(notice, { aiReplies: ai, usedUp: ai && credit.usedUp === true })];
+        }
       }
       return reply;
     },
@@ -500,19 +508,27 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     };
   }
 
-  /** A limit warning for the owner; with QUOTE_LIMIT_ALERTS, under Upgrade (and, for AI replies, Top up) buttons. */
-  async function limitNotice(text: string, aiReplies = false): Promise<Notice> {
+  /**
+   * A limit warning for the owner. With QUOTE_LIMIT_ALERTS it comes under
+   * Upgrade (and, for AI replies, Top up) buttons. Once a limit is used up,
+   * QUOTE_OFFERS adds the upgrade offer code.
+   */
+  async function limitNotice(text: string, kind: { aiReplies?: boolean; usedUp?: boolean } = {}): Promise<Notice> {
     const to = opts.ownerWaId!;
-    if (!opts.limitAlerts) return { to, text };
+    const offer = kind.usedUp && opts.limitOffer ? await opts.limitOffer().catch((err) => (log.error("Couldn't read the limit offer:", err), null)) : null;
+    const body = offer ? `${text}\n\n${own.limitOffer(offer.code, offer.percentOff)}` : text;
+    if (!opts.limitAlerts) return { to, text: body };
     const next = await opts.plan?.nextPlan?.().catch((err) => {
       log.error("Couldn't find the next plan up for the Upgrade button:", err);
       return null;
     });
     const buttons = [
-      next ? { id: `upgrade ${next.name.toLowerCase()}`, title: own.limitButtons.upgrade(next.name) } : { id: "plan", title: own.limitButtons.plans },
-      ...(aiReplies && opts.topUps ? [{ id: "top up", title: own.limitButtons.topUp }] : []),
+      next
+        ? { id: `upgrade ${next.name.toLowerCase()}${offer ? ` ${offer.code}` : ""}`, title: own.limitButtons.upgrade(next.name) }
+        : { id: "plan", title: own.limitButtons.plans },
+      ...(kind.aiReplies && opts.topUps ? [{ id: "top up", title: own.limitButtons.topUp }] : []),
     ];
-    return { to, text: "", buttons: { body: text, buttons } };
+    return { to, text: "", buttons: { body, buttons } };
   }
 
   function closedReply(t: QuoteTexts): Reply {
@@ -663,9 +679,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const limitText = own.overLimitOwner(check.limit, check.planName, ref(order));
       if (opts.limitAlerts) {
         reply.handOver = { hours: HAND_OVER_HOURS };
-        reply.notify.push(await limitNotice(`${limitText}\n\n${own.handedOver(HAND_OVER_HOURS)}`));
+        reply.notify.push(await limitNotice(`${limitText}\n\n${own.handedOver(HAND_OVER_HOURS)}`, { usedUp: true }));
       } else {
-        reply.notify[0]!.text += `\n\n${limitText}`;
+        reply.notify[0]!.text += `\n\n${(await limitNotice(limitText, { usedUp: true })).text}`;
       }
       return reply;
     }

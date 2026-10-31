@@ -102,6 +102,8 @@ export interface QuoteTexts {
   handedOver(hours: number): string;
   limitButtons: { upgrade(plan: string): string; topUp: string; plans: string };
   checkInOk(): string;
+  /** QUOTE_OFFERS: a promo code for the first month of an upgrade. */
+  limitOffer(code: string, percentOff: number): string;
   checkInCall(): string;
   notReceivedTold(ref: string, who: string): string;
   paidSoNotTold(ref: string): string;
@@ -228,6 +230,7 @@ const en: QuoteTexts = {
   handedOver: (hours) => `I've handed this chat to you, so the bot won't answer them for the next ${hours} hours.`,
   limitButtons: { upgrade: (plan) => `Upgrade to ${plan}`, topUp: "Top up AI replies", plans: "See plans" },
   checkInOk: () => "Glad to hear it, thank you!",
+  limitOffer: (code, pct) => `Upgrade now with code *${code}* for ${pct}% off your first month.`,
   checkInCall: () => "Thank you. Someone from yarnOga will call you soon.",
   notReceivedTold: (ref, who) => `OK. I've told ${who} the payment for ${ref} hasn't arrived yet.`,
   paidSoNotTold: (ref) => `${ref} is already marked paid, so I haven't sent the customer anything.`,
@@ -364,6 +367,7 @@ const fr: QuoteTexts = {
   handedOver: (hours) => `Je vous passe cette discussion : le bot ne lui répondra pas pendant les ${hours} prochaines heures.`,
   limitButtons: { upgrade: (plan) => `Passer à ${plan}`, topUp: "Plus de réponses IA", plans: "Voir les formules" },
   checkInOk: () => "Ravi de l'entendre, merci !",
+  limitOffer: (code, pct) => `Passez à la formule supérieure avec le code *${code}* : ${pct} % de réduction sur le premier mois.`,
   checkInCall: () => "Merci. Quelqu'un de yarnOga va vous appeler très vite.",
   notReceivedTold: (ref, who) => `D'accord. J'ai prévenu ${who} que le paiement de ${ref} n'est pas encore arrivé.`,
   paidSoNotTold: (ref) => `${ref} est déjà marquée payée, je n'ai donc rien envoyé au client.`,

@@ -326,6 +326,11 @@ export interface Config {
    * QUOTE_USAGE_DROP_ALERTS is true.
    */
   quoteUsageDrops?: { checkIn: boolean };
+  /**
+   * Promo code offers: LIMITUP when a monthly limit runs out, COMEBACK for
+   * quiet businesses (migration 0064). Off unless QUOTE_OFFERS is true.
+   */
+  quoteOffers: boolean;
   /** Ask customers to rate finished orders (QUOTE_RATINGS, migration 0054). */
   quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
@@ -584,6 +589,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     planCurrencies: parsePlanCurrencies(env.PLAN_CURRENCIES),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
+    quoteOffers: /^(true|yes|on|1)$/i.test(env.QUOTE_OFFERS ?? ""),
     quoteUsageDrops: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_ALERTS ?? "")
       ? { checkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_USAGE_DROP_CHECKIN ?? "") }
       : undefined,
