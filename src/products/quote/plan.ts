@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatNaira } from "../../core/money.js";
+import { formatNaira, formatPayMoney } from "../../core/money.js";
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
+import type { PlanPrices } from "../../core/payments/plan-prices.js";
 import { promoAppliedText, promoRefusedText, takePromoCode } from "../../core/payments/promos.js";
 
 // Plans for the quote and order bot (Free, Starter, Pro, Growth, Enterprise).
@@ -14,7 +15,8 @@ import { promoAppliedText, promoRefusedText, takePromoCode } from "../../core/pa
 // the quote_plans table (kobo), never from code or the AI.
 //
 // Owners upgrade by sending "upgrade starter" (a month) or "upgrade starter
-// yearly" (a year at the yearly price). They get a Paystack link; once it's
+// yearly" (a year at the yearly price). They get a Paystack link, or one in
+// their own currency outside Nigeria (PLAN_CURRENCIES, migration 0062); once it's
 // paid, planPaid puts the business on the plan until a date (migration 0033).
 // When that date passes, the business drops back to the free plan. A promo
 // or referral code goes at the end: "upgrade starter DAYONES". A code given
@@ -88,8 +90,9 @@ export interface PlanGateOptions {
   /**
    * Paystack checkout links for upgrades, for this business. Without it
    * (PAYSTACK_SECRET_KEY not set), owners are asked to contact yarnOga.
+   * With prices, owners outside Nigeria pay in their own currency.
    */
-  checkout?: { links: PaymentLinks; businessId: string };
+  checkout?: { links: PaymentLinks; businessId: string; prices?: PlanPrices };
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
@@ -224,15 +227,23 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
       if (!opts.checkout) return `To move to ${plan.name}, contact yarnOga and we'll switch you over. Online payment isn't switched on yet.`;
 
       const months = yearly ? 12 : 1;
-      const amountKobo = yearly ? (plan.monthlyPricePaidYearlyKobo ?? plan.monthlyPriceKobo) * 12 : plan.monthlyPriceKobo;
       const period = yearly ? "1 year" : "1 month";
       try {
+        const local = (await opts.checkout.prices?.forPayer("quote", plan.code, ownerWaId)) ?? null;
+        const currency = local?.currency ?? "NGN";
+        const perMonth = local
+          ? (yearly ? (local.monthlyPaidYearlyMinor ?? local.monthlyMinor) : local.monthlyMinor)
+          : yearly
+            ? (plan.monthlyPricePaidYearlyKobo ?? plan.monthlyPriceKobo)
+            : plan.monthlyPriceKobo;
+        const amountKobo = perMonth * months;
         const signupCode = asked.code ? null : await savedSignupCode();
         const code = asked.code ?? signupCode;
         const request = {
           product: "quote",
           waId: ownerWaId,
           amountKobo,
+          ...(local ? { currency } : {}),
           purpose: { businessId: opts.checkout.businessId, plan: plan.code, months },
           title: `yarnOga ${plan.name}, ${period}`,
         };
@@ -241,7 +252,7 @@ export function createPlanGate(opts: PlanGateOptions): PlanGate {
         if (link.url === null && signupCode) link = await opts.checkout.links.createLink(request);
         if (link.url === null) return promoRefusedText(link.refused);
         return [
-          `Here's your payment link for *${plan.name}* (${period}, ${formatNaira(link.amountKobo)}):`,
+          `Here's your payment link for *${plan.name}* (${period}, ${formatPayMoney(link.amountKobo, currency)}):`,
           link.url,
           ...(link.promo ? ["", promoAppliedText(link.promo)] : []),
           "",
@@ -285,7 +296,7 @@ export function createPlanPaidHandler(opts: {
     }
     if (businessId !== opts.mainBusinessId) return [];
     const date = until.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" });
-    return [{ to: payment.waId, text: `✅ Payment of ${formatNaira(payment.amountKobo)} received, thank you. You're on the plan until ${date}.` }];
+    return [{ to: payment.waId, text: `✅ Payment of ${formatPayMoney(payment.amountKobo, payment.currency ?? "NGN")} received, thank you. You're on the plan until ${date}.` }];
   };
 }
 

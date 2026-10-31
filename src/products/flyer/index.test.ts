@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PlanPrices } from "../../core/payments/plan-prices.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { MonthDay } from "./dates.js";
 import {
@@ -194,7 +195,7 @@ const webFetch = (async (url: string) => {
 
 // Groups start on the plan with everything, so these tests are about the features;
 // the "plans" tests below start on Free.
-function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; trial?: Trial; payments?: PaymentLinks } = {}) {
+function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; trial?: Trial; payments?: PaymentLinks; planPrices?: PlanPrices } = {}) {
   const mem = memoryStore(opts.plan);
   const render = {
     birthday: vi.fn(async (input: { name: string; logo?: Uint8Array }) =>
@@ -231,6 +232,7 @@ function setup(opts: { openSignup?: boolean; plan?: string; now?: () => Date; tr
     now: opts.now,
     trial: opts.trial,
     payments: opts.payments,
+    planPrices: opts.planPrices,
   });
   return { bot, render, photos, ...mem };
 }
@@ -708,6 +710,17 @@ describe("flyer bot: paying online", () => {
     expect(reply?.text).toContain("you save ₦2,250");
     const again = await bot.handle(msg(OWNER, { text: "upgrade standard code oldone" }), ctx);
     expect(again?.text).toContain("already used *OLDONE*");
+  });
+
+  it("charges an admin outside Nigeria the plan's fixed price in their own currency", async () => {
+    const payments = paystack();
+    const planPrices = { forPayer: vi.fn(async () => ({ currency: "KES" as const, monthlyMinor: 55_000, monthlyPaidYearlyMinor: 30_000 })) };
+    const { bot } = await withGroup({ plan: "free", payments, planPrices });
+    const reply = await bot.handle(msg(OWNER, { text: "upgrade standard 1 year" }), ctx);
+    expect(planPrices.forPayer).toHaveBeenCalledWith("flyer", "standard", OWNER);
+    expect(payments.createLink.mock.calls[0]![0]).toMatchObject({ amountKobo: 360_000, currency: "KES" });
+    expect(reply?.text).toContain("1 year: *KSh 3,600*");
+    expect(reply?.text).toContain("Pay by M-Pesa or card here");
   });
 
   it("takes at most 12 months in one payment", async () => {

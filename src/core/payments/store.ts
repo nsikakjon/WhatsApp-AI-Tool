@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isCurrency, type Currency } from "../money.js";
+import { isPayCurrency, type PayCurrency } from "../money.js";
 
 // The payments table (migration 0032): one row per checkout link sent.
 
@@ -13,8 +13,8 @@ export interface Payment {
   status: "pending" | "paid";
   /** The promo or referral code used on it, if any (migration 0041). */
   promoCode?: string | null;
-  /** NGN through Paystack unless set (migration 0052): CFA francs go through Flutterwave. */
-  currency?: Currency;
+  /** NGN through Paystack unless set (migrations 0052, 0062): see createPayments for which provider takes which. */
+  currency?: PayCurrency;
   provider?: PaymentProvider;
 }
 
@@ -70,7 +70,7 @@ function toPayment(r: Row): Payment {
     amountKobo: Number(r.amount_kobo),
     status: r.status,
     promoCode: r.promo_code ?? null,
-    currency: isCurrency(r.currency) ? r.currency : "NGN",
+    currency: isPayCurrency(r.currency) ? r.currency : "NGN",
     provider: r.provider === "flutterwave" ? "flutterwave" : "paystack",
   };
 }
@@ -86,8 +86,8 @@ export function createSupabasePaymentStore(db: SupabaseClient): PaymentStore {
           wa_id: p.waId,
           purpose: p.purpose,
           amount_kobo: p.amountKobo,
-          // Only CFA payments name these, so naira payments work before migration 0052 is run.
-          ...(p.provider === "flutterwave" ? { currency: p.currency, provider: p.provider } : {}),
+          // Only non-naira payments name these, so naira payments work before migration 0052 is run.
+          ...(p.currency && p.currency !== "NGN" ? { currency: p.currency, provider: p.provider } : {}),
         })
         .select(COLUMNS)
         .single();
@@ -106,7 +106,7 @@ export function createSupabasePaymentStore(db: SupabaseClient): PaymentStore {
         p_code: code,
       });
       if (error) throw new Error(`create_promo_payment failed: ${error.message}`);
-      if (p.provider === "flutterwave") {
+      if (p.currency && p.currency !== "NGN") {
         const { error: e } = await db.from("payments").update({ currency: p.currency, provider: p.provider }).eq("reference", p.reference);
         if (e) throw new Error(`payment currency failed: ${e.message}`);
       }

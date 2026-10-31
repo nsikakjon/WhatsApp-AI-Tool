@@ -1,4 +1,6 @@
+import { formatPayMoney, type PayCurrency } from "../../core/money.js";
 import type { PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
+import type { PlanPrices } from "../../core/payments/plan-prices.js";
 import { promoAppliedText, promoCommand, promoRefusedText, takePromoCode, type PromoAdmin } from "../../core/payments/promos.js";
 import type { Product, Reply } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
@@ -93,6 +95,8 @@ export interface FlyerBotOptions {
   trial?: Trial;
   /** Paystack checkout links. Without them, owners take payment by hand and send "set plan". */
   payments?: PaymentLinks;
+  /** Fixed prices in other currencies, so admins outside Nigeria pay in their own (PLAN_CURRENCIES). */
+  planPrices?: PlanPrices;
   /** Promo codes (DAYONES): owners see and change them by sending "promos". */
   promos?: PromoAdmin;
 }
@@ -225,6 +229,24 @@ export function fromFrench(text: string): string {
   for (const [from, to] of rules) if (from.test(text)) return text.replace(from, to);
   return text;
 }
+
+// How the checkout link lets people pay, by currency.
+const payHow: Record<PayCurrency, string> = {
+  NGN: "Pay by card, bank transfer or USSD",
+  XOF: "Pay by Mobile Money or card",
+  XAF: "Pay by Mobile Money or card",
+  GHS: "Pay by Mobile Money or card",
+  KES: "Pay by M-Pesa or card",
+  USD: "Pay by card",
+};
+const payHowFr: Record<PayCurrency, string> = {
+  NGN: "Payez par carte ou virement",
+  XOF: "Payez par Mobile Money ou carte",
+  XAF: "Payez par Mobile Money ou carte",
+  GHS: "Payez par Mobile Money ou carte",
+  KES: "Payez par M-Pesa ou carte",
+  USD: "Payez par carte",
+};
 
 const JPEG = "image/jpeg";
 const FREE_SUMMARY = planById("free").summary;
@@ -1183,40 +1205,50 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
   /**
    * A Paystack link for the plan, priced from the database: twelve months use
-   * the paid-yearly price when there is one. Null when online payment isn't
+   * the paid-yearly price when there is one. Admins outside Nigeria are
+   * charged the plan's fixed price in their own currency when it has one. Null when online payment isn't
    * possible (switched off, price on request, Paystack down), and the owners
    * then take payment by hand.
    */
   async function checkoutReply(group: Group, plan: Plan, months: number, from: string, code?: string): Promise<Reply | null> {
     if (!opts.payments) return null;
     try {
-      const [monthly, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
-      const perMonth = (months === 12 ? yearly.get(plan.id) : null) ?? monthly.get(plan.id);
+      const local = (await opts.planPrices?.forPayer("flyer", plan.id, from)) ?? null;
+      const currency: PayCurrency = local?.currency ?? "NGN";
+      let perMonth: number | null | undefined;
+      if (local) {
+        perMonth = (months === 12 ? local.monthlyPaidYearlyMinor : null) ?? local.monthlyMinor;
+      } else {
+        const [monthly, yearly] = await Promise.all([opts.store.planPrices(), opts.store.planYearlyPrices()]);
+        perMonth = (months === 12 ? yearly.get(plan.id) : null) ?? monthly.get(plan.id);
+      }
       if (!perMonth) return null;
       const link = await opts.payments.createLink({
         product: "flyer",
         waId: from,
         amountKobo: perMonth * months,
+        ...(local ? { currency } : {}),
         purpose: { groupId: group.id, plan: plan.id, months },
         title: `${opts.brandName} ${plan.label}, ${monthsText(months)}, for ${group.name}`,
         promo: code ? { code, months } : undefined,
       });
       if (link.url === null) return { text: promoRefusedText(link.refused) };
+      const price = formatPayMoney(link.amountKobo, currency);
       if (group.language === "fr") {
         return {
           text: [
-            `*${plan.label}* pour *${group.name}*, ${monthsText(months, "fr")} : *${formatNaira(link.amountKobo)}*.`,
+            `*${plan.label}* pour *${group.name}*, ${monthsText(months, "fr")} : *${price}*.`,
             ...(link.promo ? [promoAppliedText(link.promo)] : []),
-            `Payez par carte ou virement ici :\n${link.url}`,
+            `${payHowFr[currency]} ici :\n${link.url}`,
             "Votre groupe change de formule dès que le paiement passe, et je vous écris ici.",
           ].join("\n\n"),
         };
       }
       return {
         text: [
-          `*${plan.label}* for *${group.name}*, ${monthsText(months)}: *${formatNaira(link.amountKobo)}*.`,
+          `*${plan.label}* for *${group.name}*, ${monthsText(months)}: *${price}*.`,
           ...(link.promo ? [promoAppliedText(link.promo)] : []),
-          `Pay by card, bank transfer or USSD here:\n${link.url}`,
+          `${payHow[currency]} here:\n${link.url}`,
           "Your group switches over as soon as the payment goes through, and I'll message you here.",
         ].join("\n\n"),
       };
@@ -1625,7 +1657,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       }
       const until = await extendPlan(group, plan, months!);
       log.info(`Flyer group "${group.name}" paid for ${plan.id} until ${until.toISOString()}`);
-      const paid = formatNaira(payment.amountKobo);
+      const paid = formatPayMoney(payment.amountKobo, payment.currency ?? "NGN");
       return [
         {
           to: payment.waId,

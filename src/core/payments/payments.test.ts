@@ -267,6 +267,30 @@ describe("payment routes", () => {
   });
 });
 
+describe("plans paid in other currencies", () => {
+  it("charges US dollars through Paystack and won't activate a naira payment for them", async () => {
+    const { payments, paystack, rows } = setup({ currency: "USD" });
+    await payments.createLink({ ...request, amountKobo: 350, currency: "USD" });
+    expect(rows[0]).toMatchObject({ currency: "USD", provider: "paystack" });
+    expect(paystack.initialize).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 350, currency: "USD" }));
+    expect(await payments.confirm(rows[0]!.reference)).toBe("paid");
+    const naira = setup();
+    await naira.payments.createLink({ ...request, amountKobo: 350, currency: "USD" });
+    expect(await naira.payments.confirm(naira.rows[0]!.reference)).toBe("not-paid");
+  });
+
+  it("sends cedis and shillings to Flutterwave with Mobile Money or M-Pesa first, pesewas and all", async () => {
+    const fetch = vi.fn(async () => Response.json({ status: "success", data: { link: "https://checkout.flutterwave.com/pay/x" } }));
+    const client = createFlutterwaveClient({ secretKey: "FLWSECK_TEST-abc", secretHash: "flw-secret-hash-1234567890" }, fetch as unknown as typeof globalThis.fetch);
+    const base = { reference: "r", email: "e", callbackUrl: "c", description: "d", waId: "1" };
+    await client.initialize({ ...base, amountMinor: 6_250, currency: "GHS" });
+    await client.initialize({ ...base, amountMinor: 85_000, currency: "KES" });
+    const sent = fetch.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string));
+    expect(sent[0]).toMatchObject({ amount: 62.5, currency: "GHS", payment_options: "mobilemoneyghana,card" });
+    expect(sent[1]).toMatchObject({ amount: 850, currency: "KES", payment_options: "mpesa,card" });
+  });
+});
+
 describe("Flutterwave (CFA francs)", () => {
   const HASH = "flw-secret-hash-1234567890";
 

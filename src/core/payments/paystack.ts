@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { assertKobo } from "../money.js";
 
 // Talks to Paystack, which takes card, bank transfer and USSD payments for us.
-// Paystack counts money in kobo, like we do, so amounts pass through unchanged.
+// Paystack counts money in kobo (or cents for US dollars), like we do, so
+// amounts pass through unchanged.
 
 export interface PaystackConfig {
   /** Secret key from Paystack > Settings > API Keys & Webhooks. sk_test_... or sk_live_... */
@@ -13,6 +14,8 @@ export interface PaystackConfig {
 export interface NewCheckout {
   reference: string;
   amountKobo: number;
+  /** Naira unless set. US dollars need international payments switched on in the Paystack dashboard. */
+  currency?: "NGN" | "USD";
   email: string;
   /** Where Paystack sends the payer's browser after paying. */
   callbackUrl: string;
@@ -73,7 +76,7 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
         body: JSON.stringify({
           reference: p.reference,
           amount: p.amountKobo,
-          currency: "NGN",
+          currency: p.currency ?? "NGN",
           email: p.email,
           callback_url: p.callbackUrl,
           ...(p.subaccount ? { subaccount: p.subaccount, bearer: "subaccount" } : {}),

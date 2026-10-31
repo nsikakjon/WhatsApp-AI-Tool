@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { assertKobo, type Currency } from "../money.js";
+import { assertKobo, type PayCurrency } from "../money.js";
 import type { Notice } from "../product.js";
 import type { FlutterwaveClient } from "./flutterwave.js";
 import type { PaystackClient } from "./paystack.js";
@@ -8,8 +8,9 @@ import type { Payment, PaymentProvider, PaymentStore, PromoCheck } from "./store
 // Checkout links for any product, and what happens once one is paid.
 //
 // A product asks for a link (having looked the price up in the database); we
-// save a pending payment and return a checkout link: Paystack for naira,
-// Flutterwave (Mobile Money and cards) for CFA francs. When the provider says
+// save a pending payment and return a checkout link: Paystack for naira and
+// US dollars, Flutterwave (Mobile Money and cards) for CFA francs, cedis and
+// shillings. When the provider says
 // a payment went through, we ask it ourselves whether it really was paid in
 // full, mark our payment paid (once only) and hand it to the product.
 
@@ -20,8 +21,8 @@ export interface PaymentRequest {
   waId: string;
   /** Looked up from the database by the product; never from the AI. In hundredths of `currency`. */
   amountKobo: number;
-  /** NGN (the default) goes through Paystack; XOF and XAF through Flutterwave. */
-  currency?: Currency;
+  /** NGN (the default) and USD go through Paystack; XOF, XAF, GHS and KES through Flutterwave. */
+  currency?: PayCurrency;
   /** What the payment is for, given back to the product once paid. */
   purpose: Record<string, unknown>;
   /** Shown against the payment in the Paystack dashboard. */
@@ -64,9 +65,9 @@ export interface Payments extends PaymentLinks {
 }
 
 export interface PaymentsOptions {
-  /** Naira payments; without it, naira links can't be made. */
+  /** Naira and US dollar payments; without it, those links can't be made. */
   paystack?: PaystackClient;
-  /** CFA franc payments; without it, CFA links can't be made. */
+  /** CFA franc, cedi and shilling payments; without it, those links can't be made. */
   flutterwave?: FlutterwaveClient;
   store: PaymentStore;
   /** Our thank-you page, where Paystack sends people after paying. */
@@ -89,9 +90,9 @@ export function createPayments(opts: PaymentsOptions): Payments {
       if (req.amountKobo === 0) throw new Error("Can't take a payment of nothing");
       if (!opts.onPaid[req.product]) throw new Error(`"${req.product}" has no onPaid handler`);
       const currency = req.currency ?? "NGN";
-      const provider: PaymentProvider = currency === "NGN" ? "paystack" : "flutterwave";
-      if (provider === "paystack" && !opts.paystack) throw new Error("Naira payments need Paystack (PAYSTACK_SECRET_KEY)");
-      if (provider === "flutterwave" && !opts.flutterwave) throw new Error("CFA franc payments need Flutterwave (FLUTTERWAVE_SECRET_KEY)");
+      const provider: PaymentProvider = currency === "NGN" || currency === "USD" ? "paystack" : "flutterwave";
+      if (provider === "paystack" && !opts.paystack) throw new Error(`${currency} payments need Paystack (PAYSTACK_SECRET_KEY)`);
+      if (provider === "flutterwave" && !opts.flutterwave) throw new Error(`${currency} payments need Flutterwave (FLUTTERWAVE_SECRET_KEY)`);
       const reference = `yarnoga-${req.product}-${randomUUID()}`;
       const payment = {
         reference,
@@ -99,7 +100,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
         waId: req.waId,
         purpose: req.purpose,
         amountKobo: req.amountKobo,
-        ...(provider === "flutterwave" ? { currency, provider } : {}),
+        ...(currency !== "NGN" ? { currency, provider } : {}),
       };
       let promo: AppliedPromo | null = null;
       if (req.promo) {
@@ -123,7 +124,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
         const url = await opts.flutterwave!.initialize({
           reference,
           amountMinor: amountKobo,
-          currency: currency as Exclude<Currency, "NGN">,
+          currency: currency as Exclude<PayCurrency, "NGN" | "USD">,
           email,
           callbackUrl: opts.callbackUrl,
           description: req.title,
@@ -136,6 +137,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
       const url = await opts.paystack!.initialize({
         reference,
         amountKobo,
+        currency: currency as "NGN" | "USD",
         email,
         callbackUrl: opts.callbackUrl,
         description: req.title,
