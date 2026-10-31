@@ -30,7 +30,7 @@ Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 "Paid plans are worth" is the monthly list price of the plans groups are on,
 not money received: flyer payments aren't recorded in the database yet.
 
-Nothing on the page is estimated. Every number is a count or sum of real rows.
+Nothing on the page is estimated, except the shop costs below. Every other number is a count or sum of real rows.
 The dashboard only reads, except for the profit and loss entries you add or
 remove yourself.
 
@@ -53,6 +53,31 @@ rate you paid at; the dashboard keeps both the dollar amount and its naira
 value. Monthly bills (Railway, hosting, Claude Pro) aren't added by themselves:
 add each one when it is paid, so the page never shows a cost that didn't
 happen. A wrong entry can be taken out with **Remove**.
+
+## Cost to serve each shop
+
+Shows what each quote shop costs yarnOga this month (AI replies, voice notes
+and Meta's message fees) against what its plan pays, and flags the shops and
+paid plans that will cost more than they pay by the end of the month at the
+current pace. Our other numbers (flyers, leads, site reports) are listed
+underneath for the full picture.
+
+To switch it on: run `supabase/migrations/0065_usage_costs.sql` in Supabase,
+then add `SHOP_COSTS` = `true` in Railway. Counting starts from then, so the
+first month is partial.
+
+How the figures are worked out:
+
+- AI and voice notes are priced when each one happens, at Anthropic's and
+  Groq's list prices in dollars (in `src/core/usage.ts`; change them there if
+  a provider changes its price).
+- Meta: $0.0067 for every message a number sends past its free 1,000 a month
+  (resellers' October 2026 figure for Nigeria; WhatsApp Manager > Billing has
+  the exact rate). A number a business connected itself is billed to them.
+- Dollars become naira at the latest dollar rate in your profit and loss
+  entries (₦1,370 until you add one).
+- "Pays a month" is the plan's monthly list price, not money received. A
+  branch counts under its main shop. Owner test screens aren't counted.
 
 ## Connecting socials
 
