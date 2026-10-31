@@ -3,6 +3,7 @@ import type { EmailContent } from "../../core/email/layout.js";
 import type { AccountFacts, Series } from "../../core/email/series.js";
 import { formatNaira } from "../../core/money.js";
 import { PHARMACY_WARNING, looksLikePharmacy } from "./prescription.js";
+import { planLapsed } from "./plan.js";
 
 // The quote and order bot's welcome and setup-tip emails (copy approved by
 // Jay, marketing/email/EMAILS.md). Day 0 is when the business goes live on
@@ -552,8 +553,7 @@ export function createSupabaseQuoteEmailFacts(
     if (!row) return null;
     const main = opts.main?.id === businessId ? opts.main : undefined;
     const numberId = main ? main.phoneNumberId : ((row.phone_number_id as string | null) ?? null);
-    const paidUntil = row.plan_paid_until ? new Date(row.plan_paid_until as string) : null;
-    const planCode = main ? (main.plan ?? "free") : paidUntil && paidUntil <= now() ? "free" : ((row.plan_code as string | null) ?? "free");
+    const planCode = main ? (main.plan ?? "free") : planLapsed(row, now()) ? "free" : ((row.plan_code as string | null) ?? "free");
 
     let botWaId = (row.whatsapp_number as string | null) ?? null;
     if (!botWaId && numberId) {

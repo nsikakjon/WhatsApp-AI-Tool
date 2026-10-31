@@ -29,6 +29,7 @@ import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quot
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
+import { createSupabaseRenewals, sendRenewalReminders } from "./products/quote/renewals.js";
 import { dailySummary, lagosDate } from "./owner/summary.js";
 import { askForRatings, createSupabaseRatings } from "./products/quote/ratings.js";
 import { cachedAbout, createSupabaseAbout } from "./products/quote/about.js";
@@ -1468,6 +1469,40 @@ if (payReminders) {
       }
     }
   });
+}
+
+// A WhatsApp alert for yarnOga itself: to the sign-up alert number from the
+// sign-up line, else to QUOTE_OWNER_WA_ID from the main number.
+async function alertYarnoga(text: string): Promise<void> {
+  const signupAlert = config.quoteChatSignup?.alertWaId;
+  const to = signupAlert ?? config.quote?.ownerWaId;
+  if (!to) return;
+  try {
+    await sendNotice({ store, whatsapp }, { to, text }, signupAlert ? config.quoteChatSignup!.phoneNumberId : undefined);
+  } catch (err) {
+    // Most likely that number hasn't messaged the bot in the last day.
+    console.error(`Couldn't send yarnOga the alert "${text}":`, err);
+  }
+}
+
+// Plan renewals (QUOTE_PLAN_RENEWALS, migration 0064): reminders before and
+// after a paid plan ends, and a grace period before it drops to Free.
+const planRenewals = config.activeProduct === "quote" ? config.quotePlanRenewals : undefined;
+if (planRenewals) {
+  const renewals = createSupabaseRenewals(supabase);
+  runEvery(15 * 60 * 1000, () =>
+    sendRenewalReminders({
+      store: renewals,
+      graceDays: planRenewals.graceDays,
+      owner: async (id) => {
+        const found = await quoteBotFor(id);
+        return found?.ownerWaId ? { waId: found.ownerWaId, fromNumberId: found.fromNumberId ?? undefined, language: found.language } : null;
+      },
+      canMessageFreely: (waId) => canMessageFreely(store, waId),
+      send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+      alertYarnoga,
+    }),
+  );
 }
 
 // The owner's morning summary (OWNER_APP, migration 0054): yesterday's orders,

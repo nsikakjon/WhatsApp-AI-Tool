@@ -315,6 +315,11 @@ export interface Config {
   tts?: { provider: "azure" | "google"; apiKey: string; region?: string; voices: { fr?: string; en?: string } };
   /** Payment reminders for confirmed, unpaid orders (QUOTE_PAY_REMINDERS, migration 0054). */
   quotePayReminders: boolean;
+  /**
+   * Renewal reminders and a grace period before a lapsed paid plan drops to
+   * Free (migration 0064). Only set when QUOTE_PLAN_RENEWALS is true.
+   */
+  quotePlanRenewals?: { graceDays: number };
   /** Ask customers to rate finished orders (QUOTE_RATINGS, migration 0054). */
   quoteRatings: boolean;
   /** Couriers through Shipbubble (SHIPBUBBLE_API_KEY), for addresses outside a business's own zones. */
@@ -573,6 +578,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     planCurrencies: parsePlanCurrencies(env.PLAN_CURRENCIES),
     shipbubble: shipbubbleSettings(env),
     quotePayReminders: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_REMINDERS ?? ""),
+    quotePlanRenewals: /^(true|yes|on|1)$/i.test(env.QUOTE_PLAN_RENEWALS ?? "") ? { graceDays: graceDays(env.QUOTE_PLAN_GRACE_DAYS) } : undefined,
     quoteRatings: /^(true|yes|on|1)$/i.test(env.QUOTE_RATINGS ?? ""),
     tts: ttsSettings(env),
   };
@@ -584,6 +590,14 @@ function publicUrl(value: string): string {
     throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://app.yarnoga.com (got "${value}")`);
   }
   return url;
+}
+
+/** A typo here shouldn't stop the whole bot, so it falls back to 3 days with a warning. */
+function graceDays(value: string | undefined): number {
+  const days = Number(value || 3);
+  if (Number.isInteger(days) && days >= 0 && days <= 14) return days;
+  console.warn(`QUOTE_PLAN_GRACE_DAYS must be a whole number of days from 0 to 14 (got "${value}"); using 3`);
+  return 3;
 }
 
 function followUpHours(value: string | undefined): number {
