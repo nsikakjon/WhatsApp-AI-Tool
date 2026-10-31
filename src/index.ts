@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { createSupabaseStore } from "./core/db/store.js";
 import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
+import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
@@ -106,6 +107,8 @@ import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabaseShopCosts } from "./dashboard/costs.js";
+import { createSupabasePlanEditor } from "./dashboard/plans.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
@@ -139,6 +142,12 @@ const config = loadConfig();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey, {
   auth: { persistSession: false },
 });
+
+// What each number costs us in AI and voice notes, for the dashboard (SHOP_COSTS).
+const usage = config.shopCosts
+  ? createSupabaseUsageMeter(supabase, { voiceModel: config.groq?.model ?? "whisper-large-v3" })
+  : undefined;
+const countAi = (numberId: string, model: string) => usage && ((u: AiUsage) => usage.ai(numberId, model, u));
 
 // yarnOga's own welcome and setup-tip emails to our customers (EMAILS_ENABLED,
 // docs/EMAILS.md): the bots ask for an email after a first success, and a
@@ -492,6 +501,7 @@ if (config.activeProduct === "quote" && config.quote) {
       description: config.quote.businessDescription,
       language: config.quote.language,
       currency: config.quote.currency,
+      onUsage: countAi(config.whatsapp.phoneNumberId, config.quote.model),
     }),
   });
   mainQuoteBot = quoteBot;
@@ -574,6 +584,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       description: business.description ?? undefined,
       language: business.language,
       currency: business.currency,
+      onUsage: business.phoneNumberId ? countAi(business.phoneNumberId, multi.model) : undefined,
     }),
   });
 }
@@ -635,6 +646,8 @@ if (chatSignup && quoteBusinesses) {
           description: business.description ?? undefined,
           language: business.language,
           currency: business.currency,
+          // A trial chat costs us on the sign-up number.
+          onUsage: countAi(chatSignup.phoneNumberId, quoteBusinesses.model),
         }),
       });
     },
@@ -1040,12 +1053,18 @@ const routes = {
   main: answering(product),
 };
 
+const dashboardNumbers = [
+  ...numbers,
+  ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
+];
+
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
   appSecret: config.whatsapp.appSecret,
   store,
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
+  usage,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
@@ -1056,12 +1075,16 @@ const app = createApp({
 }, config.dashboard
   ? {
       password: config.dashboard.password,
-      stats: createSupabaseStats(supabase, [
-        ...numbers,
-        ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
-      ]),
+      stats: createSupabaseStats(supabase, dashboardNumbers),
+      costs: config.shopCosts
+        ? createSupabaseShopCosts(supabase, {
+            numbers: dashboardNumbers,
+            mainBusiness: config.quote ? { id: DEFAULT_BUSINESS_ID, plan: config.quote.plan ?? null } : undefined,
+          })
+        : undefined,
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
+      plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,

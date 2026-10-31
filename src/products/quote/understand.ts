@@ -101,6 +101,8 @@ export function createClaudeUnderstander(opts: {
   /** The business's currency and language: where it is, and the language to use when the customer's isn't clear. */
   currency?: Currency;
   language?: Lang;
+  /** Told the tokens each reply used, to count what this shop costs us. */
+  onUsage?: (usage: Anthropic.Usage) => void;
   client?: Anthropic;
 }): Understander {
   const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
@@ -122,6 +124,7 @@ export function createClaudeUnderstander(opts: {
         messages,
         output_config: { effort: "low", format: zodOutputFormat(OutputSchema) },
       });
+      opts.onUsage?.(response.usage);
 
       const parsed = response.parsed_output;
       if (response.stop_reason === "refusal" || !parsed) {
