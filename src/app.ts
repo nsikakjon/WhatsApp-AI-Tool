@@ -15,6 +15,8 @@ import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
 import { createEmailRoutes } from "./core/email/routes.js";
 import { createShopPage, type ShopDeps } from "./products/quote/shop.js";
+import { screenShield } from "./core/security/shield.js";
+import type { AppUser } from "./owner/store.js";
 
 export function createApp(
   deps: WebhookDeps,
@@ -39,9 +41,25 @@ export function createApp(
     emails?: Parameters<typeof createEmailRoutes>[0];
     /** Each quote business's public shop page at /shop/<name> (QUOTE_SHOP). */
     shop?: ShopDeps;
+    /** Blur, hidden numbers, watermark and no saved copies on private pages (SCREEN_SHIELD). */
+    screenShield?: boolean;
   } = {},
 ) {
   const app = new Hono();
+
+  if (more.screenShield) {
+    // Pages with customer details or money on them, and the watermark name
+    // used when nobody is logged in as a named person.
+    const pages: Array<[string, string]> = [["/home", "yarnOga"], ["/inbox", "Staff inbox"], ["/dashboard", "yarnOga dashboard"], ["/quote-setup", "Quote setup"], ["/compliance", "Compliance"]];
+    for (const [path, label] of pages) {
+      const shield = screenShield((c) => {
+        const user = c.get("user" as never) as AppUser | undefined;
+        return user ? `${user.name || "Staff"} ···${user.waId.slice(-4)}` : label;
+      });
+      app.use(path, shield);
+      app.use(`${path}/*`, shield);
+    }
+  }
 
   // Simple "is it running?" check for Railway and for you in a browser, plus
   // the full checks and status page when they're set up.
