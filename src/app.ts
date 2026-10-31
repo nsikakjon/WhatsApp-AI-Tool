@@ -41,7 +41,7 @@ export function createApp(
     emails?: Parameters<typeof createEmailRoutes>[0];
     /** Each quote business's public shop page at /shop/<name> (QUOTE_SHOP). */
     shop?: ShopDeps;
-    /** Blur, hidden numbers, watermark and no saved copies on private pages (SCREEN_SHIELD). */
+    /** Hidden numbers behind an eye button, watermark and no saved copies on private pages (SCREEN_SHIELD). */
     screenShield?: boolean;
   } = {},
 ) {

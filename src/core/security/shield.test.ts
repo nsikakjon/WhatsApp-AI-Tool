@@ -2,19 +2,22 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { screenShield, shieldHtml } from "./shield.js";
 
+/** The watermark's text, decoded from its SVG background. */
+const mark = (html: string) => decodeURIComponent(html.match(/data:image\/svg\+xml,([^']*)/)![1]!);
+
 const page = "<!doctype html><html><head><title>Orders</title></head><body><p>Total ₦12,500</p></body></html>";
 
 describe("shieldHtml", () => {
   it("adds the styles to the head and the watermark and script before the body ends", () => {
     const html = shieldHtml(page, "Ada ···4567", new Date("2026-10-31T18:05:00Z"));
-    expect(html).toMatch(/<style>[^<]*shield-away[^<]*<\/style><\/head>/);
+    expect(html).toMatch(/<style>[^<]*shield-eye[^<]*<\/style><\/head>/);
     expect(html).toMatch(/id="shield-mark"[\s\S]*<script>[\s\S]*<\/script><\/body><\/html>$/);
     // Lagos is an hour ahead of UTC.
-    expect(decodeURIComponent(html)).toContain("Ada ···4567 · 31 Oct 2026, 19:05");
+    expect(mark(html)).toContain("Ada ···4567 · 31 Oct 2026, 19:05");
   });
 
   it("escapes the viewer's name inside the watermark", () => {
-    const html = decodeURIComponent(shieldHtml(page, "<b>Tolu</b>"));
+    const html = mark(shieldHtml(page, "<b>Tolu</b>"));
     expect(html).not.toContain("<b>Tolu</b>");
     expect(html).toContain("&#60;b&#62;Tolu");
   });
@@ -41,7 +44,7 @@ describe("screenShield", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
     expect(html).toContain("₦12,500");
-    expect(decodeURIComponent(html)).toContain("Bisi · ");
+    expect(mark(html)).toContain("Bisi · ");
   });
 
   it("leaves downloads as they are but still asks for no saved copy", async () => {
