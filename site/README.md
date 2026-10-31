@@ -54,5 +54,6 @@ on 30 October 2026), not live exchange rates, and live in a small table at the
 top of `js/currency.js` in the site zip. The page picks a first currency from
 the visitor's time zone and remembers their choice. Without JavaScript it shows
 naira. The picker's styles are in the main `styles.css` (version `20261030a`).
-The terms page says the same under Plans and payment: fixed prices, paid by
-invoice in a currency other than naira.
+Picking another currency shows a line saying the bot's payment link comes in
+that currency (docs/PAYMENTS.md, `PLAN_CURRENCIES`), and the terms page names
+Paystack and Flutterwave under Plans and payment.
