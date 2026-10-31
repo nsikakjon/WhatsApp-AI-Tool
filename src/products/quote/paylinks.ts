@@ -77,16 +77,21 @@ export function orderPayLinks(opts: {
 }
 
 /**
- * Quote payments are plan upgrades, orders paid by pay link, or a courier fee
- * an owner paid by link ("courier KP-1001").
+ * Quote payments are plan upgrades, orders paid by pay link, a courier fee
+ * an owner paid by link ("courier KP-1001"), or a pack of AI replies (topups.ts).
  */
 export function withOrderPayments(
   planPaid: PaidHandler,
   orderPaid: (businessId: string, orderNumber: number, feeKobo: number, courierKobo: number) => Promise<OutgoingNote[]>,
   courierPaid?: (businessId: string, orderNumber: number) => Promise<OutgoingNote[]>,
+  aiTopUpPaid?: PaidHandler,
 ): PaidHandler {
   return async (payment) => {
     const kind = payment.purpose.kind;
+    if (kind === "ai_topup") {
+      if (!aiTopUpPaid) throw new Error(`Payment ${payment.reference} is an AI top-up, but top-ups aren't set up`);
+      return aiTopUpPaid(payment);
+    }
     if (kind !== "order" && kind !== "courier") return planPaid(payment);
     const { businessId, orderNumber, feeKobo, courierKobo } = payment.purpose as { businessId?: unknown; orderNumber?: unknown; feeKobo?: unknown; courierKobo?: unknown };
     if (typeof businessId !== "string" || !Number.isInteger(orderNumber)) {

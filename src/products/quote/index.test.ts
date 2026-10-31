@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct, safeMessage } from "./index.js";
 import type { QuoteLine, Variant } from "./pricing.js";
@@ -653,6 +653,28 @@ describe("quote product on a plan", () => {
     expect(reply?.notify).toEqual([{ to: OWNER, text: "Heads-up: your WhatsApp number has sent 800 of the 1000 bot messages" }]);
     const plan = await product.handle({ ...text("plan"), from: OWNER }, ctx);
     expect(plan?.text).toBe("Your plan: *Starter*\nBot messages this month: 800 of 1000");
+  });
+
+  it("answers the owner's top up, and lists AI replies in the plan reply", async () => {
+    const ownerCommand = vi.fn(async (t: string) => (/^top up$/i.test(t) ? "Here's your payment link" : null));
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => quote },
+      plan: {
+        credit: async () => null,
+        checkOrder: async () => ({ allowed: true, warning: null }),
+        summary: async (usage = []) => ["Your plan: *Free*", ...usage].join("\n"),
+      },
+      topUps: { ownerCommand, summaryLine: async () => "AI replies this month: 420 of 500. Send *top up* for more." },
+      log: { error() {} },
+    });
+    expect((await product.handle({ ...text("top up"), from: OWNER }, ctx))?.text).toBe("Here's your payment link");
+    expect(ownerCommand).toHaveBeenCalledWith("top up", OWNER);
+    expect((await product.handle({ ...text("plan"), from: OWNER }, ctx))?.text).toBe("Your plan: *Free*\nAI replies this month: 420 of 500. Send *top up* for more.");
   });
 
   it("hands the order to the owner instead of confirming it once the month's orders are used up", async () => {
