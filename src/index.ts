@@ -1278,6 +1278,7 @@ const app = createApp({
   compliance: complianceDeps,
   emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
   shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
+  screenShield: config.screenShield,
 });
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.

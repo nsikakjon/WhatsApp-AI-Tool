@@ -213,6 +213,12 @@ export interface Config {
    */
   planEditor: boolean;
   /**
+   * Screen shield on the owner app, staff inbox, dashboard, quote setup and
+   * compliance pages: blur when the page loses focus, money and phone numbers
+   * hidden until tapped, a name watermark, no saved copies. Off unless SCREEN_SHIELD is true.
+   */
+  screenShield: boolean;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -511,6 +517,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteLimitAlerts: /^(true|yes|on|1)$/i.test(env.QUOTE_LIMIT_ALERTS ?? ""),
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
+    screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),
