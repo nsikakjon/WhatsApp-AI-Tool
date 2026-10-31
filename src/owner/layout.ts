@@ -434,7 +434,7 @@ td details>summary{white-space:nowrap}
 .hours .short{display:none}@media(max-width:600px){.hours .long{display:none}.hours .short{display:inline}.hours input[type=time]{font-size:.85rem}}
 .who{display:flex;gap:10px;align-items:center}.avatar.sm{width:32px;height:32px;font-size:.72rem}
 /* The live riders view. */
-.livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden}
+.livemap{height:340px;border-radius:var(--r);border:1px solid var(--line);margin-top:12px;overflow:hidden;isolation:isolate}
 .livelist{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
 .live .livehead{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .leaflet-tooltip{font:600 .78rem/1.2 var(--body)}
