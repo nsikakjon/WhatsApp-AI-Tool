@@ -162,6 +162,8 @@ export interface Config {
     phoneNumberId: string;
     /** Gets a WhatsApp message for each new sign-up. */
     alertWaId?: string;
+    /** Demo visitors sign up after the delivery question to finish their order. Off unless QUOTE_DEMO_SIGNUP_GATE is true. */
+    signUpToContinue: boolean;
   };
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
@@ -482,6 +484,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
           alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
+          signUpToContinue: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_SIGNUP_GATE ?? ""),
         }
       : undefined,
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")

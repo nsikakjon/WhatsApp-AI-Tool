@@ -196,7 +196,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (msg.location && ["asking", "needs_fee", "proposed", "pickup"].includes(d.status)) {
       const { latitude: lat, longitude: lng, name, address } = msg.location;
       const label = [name, address].filter(Boolean).join(", ") || null;
-      return place(order, d, { address: label, lat, lng }, zoneForPin(await store.zones(), { lat, lng }), c);
+      return chosen(await place(order, d, { address: label, lat, lng }, zoneForPin(await store.zones(), { lat, lng }), c));
     }
     if ((d.status === "proposed" || d.status === "pickup") && CHANGE.test(text)) {
       await store.update(d.id, ["proposed", "pickup"], { status: "asking" });
@@ -207,7 +207,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     if (PICKUP.test(text)) {
       const updated = await store.update(d.id, ["asking"], { status: "pickup", feeKobo: null, zoneName: null });
       if (!updated || !(await store.setQuoteTotal(order.id, itemsAfterDiscount(order)))) return null;
-      return {
+      return chosen({
         text: [c.collectFrom(opts.pickup), "", c.total(money(itemsAfterDiscount(order)))].join("\n"),
         buttons: {
           body: c.tapConfirm,
@@ -216,11 +216,16 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
             { id: "deliver instead", title: c.deliverInstead },
           ],
         },
-      };
+      });
     }
     // Short replies and questions go to the normal chat, not into the address.
     if (text.length < 8 || text.endsWith("?") || NOT_AN_ADDRESS.test(text)) return null;
-    return place(order, d, { address: text, lat: null, lng: null }, zoneForAddress(await store.zones(), text), c);
+    return chosen(await place(order, d, { address: text, lat: null, lng: null }, zoneForAddress(await store.zones(), text), c));
+  }
+
+  /** The customer has just picked delivery or pickup (the demo shop asks them to sign up here). */
+  function chosen(reply: Reply | null): Reply | null {
+    return reply && { ...reply, stage: "delivery_chosen" };
   }
 
   async function place(

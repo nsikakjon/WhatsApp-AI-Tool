@@ -143,6 +143,12 @@ simply at the full price.
 Everyone else on the number gets the demo shop, and a first-time visitor's
 first reply ends with an invitation to send "sign up".
 
+With `QUOTE_DEMO_SIGNUP_GATE=true`, a visitor who gets as far as choosing
+delivery or pickup on a demo order sees **Sign up free** instead of **Confirm
+order**. Their demo order waits while they sign up; afterwards they send
+**yes** to finish it and see the invoice. The demo shop needs delivery on for
+this (`QUOTE_DELIVERY`), since the question only comes up there.
+
 Limits, so nobody can run up the AI bill or flood the list: one business per
 WhatsApp number, 30 AI drafts and test replies per person a day, 200 drafts a
 day overall, and 30 new businesses a day (any more are told the yarnOga team
