@@ -148,7 +148,7 @@ Other commands:
 • a photo captioned *photo Ada Okafor*: add or change Ada's photo
 • *brighter*, *darker*, *warmer*, *black and white*, *plain background*, *closer*, *rotate* or *original*: touch up the last photo you added (or add a name, e.g. *rotate Ada*)
 • *change amadi to Amadi*: fix a name, a date (*change date to 30 October*), the group name or an event flyer's words, then I'll remake the flyer
-• *add admin 08012345678*: let someone else manage this group
+• *add admin 08012345678*: let someone else manage this group (or share their contact and reply *add admin*)
 • *colour gold* (or a code like #1a7f37): change the highlight colour; *colour reset* to undo
 • *background*: send a picture with this caption to use it behind your birthday flyers; *background off* to undo
 • *groups*: your groups; *switch 2* to change group; *new group* to add one
@@ -178,7 +178,7 @@ Autres commandes :
 • une photo avec la légende *photo Awa Diallo* : ajouter ou changer la photo d'Awa
 • *plus clair*, *plus sombre*, *plus chaud*, *noir et blanc*, *fond uni*, *plus près*, *pivoter* ou *originale* : retoucher la dernière photo ajoutée (ou ajoutez un nom, par exemple *pivoter Awa*)
 • *changer awa en Awa* : corriger un nom, une date (*changer la date en 30 octobre*), le nom du groupe ou les mots d'un flyer d'événement, puis je refais le flyer
-• *ajouter admin +225 07 12 34 56 78* : laisser quelqu'un d'autre gérer ce groupe
+• *ajouter admin +225 07 12 34 56 78* : laisser quelqu'un d'autre gérer ce groupe (ou partagez son contact et répondez *ajouter admin*)
 • *couleur or* (ou un code comme #1a7f37) : changer la couleur ; *couleur par défaut* pour annuler
 • *fond* : envoyez une image avec cette légende pour l'utiliser derrière vos flyers ; *sans fond* pour annuler
 • *groupes* : vos groupes ; *changer 2* pour changer de groupe ; *nouveau groupe* pour en ajouter un
@@ -341,6 +341,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
   const lastPhoto = new Map<string, string>();
   /** Each admin's last event flyer, so its words can be corrected. Forgotten on restart. */
   const lastEvent = new Map<string, { groupId: string; photo: Uint8Array; caption: string }>();
+  /** The contact card each admin last shared, so "add admin" on its own knows who. Forgotten on restart. */
+  const sharedCard = new Map<string, { name?: string; number: string }>();
   /** The language each number last wrote in, for people without a group yet. Forgotten on restart. */
   const spoken = new Map<string, Lang>();
   const owners = new Set(opts.owners);
@@ -1055,10 +1057,20 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       return { text: tr(lang, `Removed ${found[0]!.name} from ${group.name}.`, `${found[0]!.name} a été retiré(e) de ${group.name}.`, `I don remove ${found[0]!.name} from ${group.name}.`) };
     }
 
-    const addAdmin = text.match(/^add admin\s+(.+)$/i);
+    const addAdmin = text.match(/^add (?:as |them as )?admins?(?:\s+(.+))?$/i);
     if (addAdmin) {
-      const number = normalizeNumber(addAdmin[1]!);
-      if (!number) return { text: tr(lang, "Please send their WhatsApp number, e.g. add admin 08012345678", "Envoyez son numéro WhatsApp, par exemple ajouter admin +225 07 12 34 56 78") };
+      const card = sharedCard.get(from);
+      const number = addAdmin[1] ? normalizeNumber(addAdmin[1]) : card?.number;
+      if (!number) {
+        return {
+          text: tr(
+            lang,
+            "Please send their WhatsApp number, e.g. add admin 08012345678, or share their contact (📎 > Contact) and reply add admin.",
+            "Envoyez son numéro WhatsApp, par exemple ajouter admin +225 07 12 34 56 78, ou partagez son contact (📎 > Contact) et répondez ajouter admin.",
+            "Abeg send their WhatsApp number, like add admin 08012345678, or share their contact (📎 > Contact) and reply add admin.",
+          ),
+        };
+      }
       const maxAdmins = planOf(group).maxAdmins;
       if (maxAdmins !== null && (await opts.store.adminCount(group.id)) >= maxAdmins) {
         return needsPlan(
@@ -1068,11 +1080,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         );
       }
       await opts.store.addAdmin(group.id, number);
+      sharedCard.delete(from);
+      const who = card?.number === number && card.name ? `${card.name} (${number})` : number;
       return {
         text: tr(
           lang,
-          `Done. ${number} can now manage ${group.name}. Ask them to send "hi" to this number so I can send them birthday flyers.`,
-          `C'est fait. ${number} peut maintenant gérer ${group.name}. Demandez-lui d'envoyer « bonjour » à ce numéro pour que je puisse lui envoyer les flyers d'anniversaire.`,
+          `Done. ${who} can now manage ${group.name}. Ask them to send "hi" to this number so I can send them birthday flyers.`,
+          `C'est fait. ${who} peut maintenant gérer ${group.name}. Demandez-lui d'envoyer « bonjour » à ce numéro pour que je puisse lui envoyer les flyers d'anniversaire.`,
+          `E don set. ${who} fit manage ${group.name} now. Tell dem make dem send "hi" to this number so I fit send dem birthday flyers.`,
         ),
       };
     }
@@ -1634,6 +1649,21 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           };
         }
         return handlePicture(group, text, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType }, msg.from);
+      }
+      if (msg.sharedContacts?.length) {
+        const card = msg.sharedContacts[0]!;
+        const number = card.phone ? normalizeNumber(card.phone) : null;
+        if (!number) return { text: tr(lang, "That contact has no phone number I can use. Send add admin and their number instead.", "Ce contact n'a pas de numéro utilisable. Envoyez plutôt ajouter admin et son numéro.", "That contact no get phone number wey I fit use. Send add admin and their number instead.") };
+        sharedCard.set(msg.from, { name: card.name, number });
+        const who = card.name ? `${card.name} (${number})` : number;
+        return {
+          text: tr(
+            lang,
+            `Got ${who}. Reply *add admin* to let them manage ${group.name}.`,
+            `J'ai bien ${who}. Répondez *ajouter admin* pour qu'il ou elle gère ${group.name}.`,
+            `I don see ${who}. Reply *add admin* make dem fit manage ${group.name}.`,
+          ),
+        };
       }
       if (!text) return { text: `*${group.name}*\n\n${helpText(lang)}` };
 

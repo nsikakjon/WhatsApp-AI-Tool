@@ -37,6 +37,8 @@ export interface IncomingMessage {
    * bots: live location arrives as type "unsupported" with no coordinates.
    */
   location?: { latitude: number; longitude: number; name?: string; address?: string };
+  /** Contact cards the sender shared (attach > Contact): each person's name and first phone number. */
+  sharedContacts?: Array<{ name?: string; phone?: string }>;
   /** Unix time (seconds) WhatsApp says the message was sent. */
   timestamp: number;
   /** The original message object from Meta, kept for logging and storage. */

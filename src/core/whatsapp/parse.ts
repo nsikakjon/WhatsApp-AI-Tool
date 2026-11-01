@@ -47,6 +47,10 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           caption: media?.caption || undefined,
           mediaId: media?.id,
           location: pin(msg.location),
+          sharedContacts: msg.contacts?.map((c) => ({
+            name: c.name?.formatted_name || undefined,
+            phone: c.phones?.find((p) => p.wa_id)?.wa_id ?? c.phones?.[0]?.phone,
+          })),
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -140,4 +144,5 @@ interface WebhookMessage {
   interactive?: InteractiveReply;
   button?: { text?: string; payload?: string };
   location?: { latitude?: number | string; longitude?: number | string; name?: string; address?: string };
+  contacts?: Array<{ name?: { formatted_name?: string }; phones?: Array<{ phone?: string; wa_id?: string }> }>;
 }

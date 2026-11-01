@@ -287,6 +287,20 @@ describe("flyer bot: setup", () => {
     expect(helped?.text).toContain("Unilag Class of 2010");
   });
 
+  it("adds another admin from a shared contact card", async () => {
+    const { bot } = await withGroup();
+    const card = msg(OWNER, { type: "contacts", sharedContacts: [{ name: "Kalu David", phone: "0800 000 0002" }] });
+    expect((await bot.handle(card, ctx))?.text).toContain("Got Kalu David (2348000000002). Reply *add admin*");
+    const reply = await bot.handle(msg(OWNER, { text: "Add admin" }), ctx);
+    expect(reply?.text).toContain("Kalu David (2348000000002) can now manage");
+    expect((await bot.handle(msg(ADMIN, { text: "hi" }), ctx))?.text).toContain("Unilag Class of 2010");
+  });
+
+  it("asks for a number when add admin has none and no contact was shared", async () => {
+    const { bot } = await withGroup();
+    expect((await bot.handle(msg(OWNER, { text: "add admin" }), ctx))?.text).toContain("share their contact");
+  });
+
   it("switches between groups", async () => {
     const { bot } = await withGroup();
     await bot.handle(msg(OWNER, { text: "new group Lekki Crew" }), ctx);

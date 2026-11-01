@@ -514,6 +514,22 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     });
   });
 
+  it("passes a shared contact card to the product", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.card", timestamp: "1", type: "contacts",
+          contacts: [{ name: { formatted_name: "Kalu David" }, phones: [{ phone: "+234 803 111 2222", wa_id: "2348031112222", type: "CELL" }] }] }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({ type: "contacts", sharedContacts: [{ name: "Kalu David", phone: "2348031112222" }] });
+  });
+
   function voiceWebhook(id: string, mediaId: string) {
     return JSON.stringify({
       object: "whatsapp_business_account",
