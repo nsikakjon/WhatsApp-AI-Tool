@@ -217,6 +217,7 @@ describe("delivery before the order", () => {
     const reply = await product.handle(say("12 Allen Avenue, Ikeja"), ctx());
     expect(reply?.text).toBe("Delivery to 12 Allen Avenue, Ikeja (Ikeja): ₦2,000\nItems: ₦15,000\n*Total: ₦17,000*");
     expect(reply?.buttons?.buttons.map((b) => b.id)).toEqual(["yes", "change address"]);
+    expect(reply?.stage).toBe("delivery_chosen");
     expect(orders[0]?.totalKobo).toBe(1_700_000);
     expect(seen).not.toContain("12 Allen Avenue, Ikeja");
   });
@@ -258,6 +259,7 @@ describe("delivery before the order", () => {
     const reply = await product.handle(say("pickup"), ctx());
     expect(reply?.text).toContain("you'll collect it from:\n12 Allen Avenue, Ikeja");
     expect(reply?.text).toContain("*Total: ₦15,000*");
+    expect(reply?.stage).toBe("delivery_chosen");
     const confirmed = await product.handle(say("yes"), ctx());
     expect(confirmed?.text).toContain("let you know when it's ready");
     expect(confirmed?.notify?.[0]?.text).toContain("The customer will collect it.");

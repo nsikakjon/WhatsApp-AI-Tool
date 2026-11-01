@@ -174,6 +174,61 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.rows.get(OWNER)).toMatchObject({ step: "done", businessId: "biz-1", draftCsv: null });
   });
 
+  describe("asking demo visitors to sign up after the delivery question", () => {
+    const placed: string[] = [];
+    const shop: Product = {
+      name: "quote",
+      async handle(m) {
+        if (m.text === "pickup") {
+          return {
+            text: "No problem, you'll collect it.\n\n*Total: ₦50,000*",
+            buttons: { body: "Tap *Confirm order* to place it.", buttons: [{ id: "yes", title: "Confirm order" }, { id: "deliver instead", title: "Deliver instead" }] },
+            stage: "delivery_chosen",
+          };
+        }
+        if (m.text === "yes") {
+          placed.push(m.from);
+          return { text: "Order DEMO-1001 confirmed." };
+        }
+        return { text: "Demo shop here." };
+      },
+    };
+    const gated = (on = true) => {
+      placed.length = 0;
+      const mem = memoryStore();
+      const bot = withChatSignup(shop, { numberId: NUMBER, store: mem.store, setup: memorySetup().setup, drafter: drafter(CUPCAKES).d, signUpToContinue: on });
+      return { mem, say: async (text: string) => (await bot.handle(msg(text), ctx()))! };
+    };
+
+    it("swaps Confirm order for Sign up free, keeping the total and Deliver instead", async () => {
+      const { say } = gated();
+      const reply = await say("pickup");
+      expect(reply.text).toContain("*Total: ₦50,000*");
+      expect(reply.buttons?.body).toMatch(/sign up free first/);
+      expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["sign up", "deliver instead"]);
+      expect(reply.stage).toBeUndefined();
+    });
+
+    it("holds the order until they've signed up, then YES finishes it", async () => {
+      const { say } = gated();
+      await say("pickup");
+      expect((await say("yes")).buttons?.buttons.map((b) => b.id)).toEqual(["sign up"]);
+      expect(placed).toEqual([]);
+
+      await signUpToPrices(say);
+      await say("Cupcakes 600");
+      expect((await say("YES")).text).toMatch(/send \*yes\* to finish it and see the invoice/);
+      expect((await say("yes")).text).toBe("Order DEMO-1001 confirmed.");
+      expect(placed).toEqual([OWNER]);
+    });
+
+    it("lets the order through when the switch is off", async () => {
+      const { say } = gated(false);
+      expect((await say("pickup")).buttons?.buttons.map((b) => b.id)).toEqual(["yes", "deliver instead"]);
+      expect((await say("yes")).text).toBe("Order DEMO-1001 confirmed.");
+    });
+  });
+
   it("ends the sign-up by asking for an email, when emails are on", async () => {
     const asked: Array<{ waId: string; businessId: string }> = [];
     const { say } = setUp(CUPCAKES, {

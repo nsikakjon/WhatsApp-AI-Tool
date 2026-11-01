@@ -28,6 +28,8 @@ export interface Reply {
   notify?: Notice[];
   /** Hands this chat to the owner: the bot stays quiet in it for this many hours, as if the owner had replied from their phone. */
   handOver?: { hours: number };
+  /** Which step of an order this reply answers, for wrappers around the product. Never sent. */
+  stage?: "delivery_chosen";
 }
 
 /** A message to someone other than the sender: the text, then any pictures, then any buttons. */

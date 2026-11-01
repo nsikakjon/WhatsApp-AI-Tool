@@ -635,6 +635,7 @@ if (chatSignup && quoteBusinesses) {
     setup: createSupabaseSetup(supabase),
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
+    signUpToContinue: chatSignup.signUpToContinue,
     sheets: sheetSync,
     askEmail: emailAsker
       ? ({ waId, businessId }) =>

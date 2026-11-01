@@ -32,6 +32,10 @@ import { welcomeAsk } from "./welcome.js";
 //
 // Afterwards the owner can send "try" to chat with their own bot as a
 // customer (test orders are not saved) and "prices" to change the list.
+//
+// With signUpToContinue on, a visitor trying the demo shop is asked to sign up
+// right after choosing delivery or pickup, before the order is placed. Once
+// they've signed up, YES finishes the demo order and shows its invoice.
 
 export type SignupStep = "name" | "about" | "referral" | "prices" | "done";
 
@@ -79,6 +83,8 @@ export interface ChatSignupOptions {
   alertWaId?: string;
   /** Asks a new owner for their email for setup tips; null when not to ask. Off when not given. */
   askEmail?: (a: { waId: string; businessId: string }) => Promise<string | null>;
+  /** QUOTE_DEMO_SIGNUP_GATE: demo visitors sign up after the delivery question to finish their order. */
+  signUpToContinue?: boolean;
   now?: () => Date;
   fetchSheet?: (link: string) => Promise<string>;
   log?: Pick<Console, "error">;
@@ -115,6 +121,9 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   const fetchSheet = opts.fetchSheet ?? defaultFetchSheet;
   const drafts = { day: "", count: 0 };
   const tryBots = new Map<string, Product>();
+  // Visitors asked to sign up with a demo order waiting. Kept in memory: after
+  // a restart their YES simply places the demo order.
+  const waiting = new Set<string>();
 
   return {
     name: next.name,
@@ -151,7 +160,13 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
           };
         }
+        const gate = opts.signUpToContinue && !signup?.businessId;
+        if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
         const reply = await next.handle(msg, ctx);
+        if (gate && reply?.stage === "delivery_chosen") {
+          waiting.add(msg.from);
+          return askToSignUp(reply);
+        }
         const ask = welcomeAsk(text);
         const welcome = ask === "greeting" || ask === "help";
         if (signup?.businessId && welcome && reply) return addNote(reply, AFTER);
@@ -320,6 +335,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     await opts.setup.replacePriceList(businessId, items);
     if (opts.sheets && signup.sheetUrl) await opts.sheets.remember(businessId, signup.sheetUrl);
     await opts.store.save(waId, { step: "done", draftCsv: null, signedUpAt: now() });
+    const demoOrder = waiting.delete(waId);
     const emailAsk = opts.askEmail ? await opts.askEmail({ waId, businessId }) : null;
     return {
       text: [
@@ -329,6 +345,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         AFTER,
         "",
         "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
+        ...(demoOrder ? ["", "Your demo order is still here: send *yes* to finish it and see the invoice your customers get."] : []),
         ...(emailAsk ? ["", emailAsk] : []),
       ].join("\n"),
       ...alert(
@@ -384,6 +401,16 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   function alert(text: string): Pick<Reply, "notify"> {
     return opts.alertWaId ? { notify: [{ to: opts.alertWaId, text }] } : {};
   }
+}
+
+const SIGN_UP_FIRST =
+  "That's how your customers will order from you. To finish this order and see the invoice and payment link, sign up free first. It takes about 5 minutes, right here in this chat.";
+const SIGN_UP_BUTTON = { id: "sign up", title: "Sign up free" };
+
+/** The delivery or pickup answer, with Sign up free in place of Confirm order. Change address stays. */
+function askToSignUp({ stage: _, ...reply }: Reply): Reply {
+  const keep = reply.buttons?.buttons.filter((b) => b.id !== "yes") ?? [];
+  return { ...reply, buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON, ...keep] } };
 }
 
 const INVITE = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
