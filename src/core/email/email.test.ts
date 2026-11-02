@@ -51,7 +51,7 @@ describe("email layout", () => {
     expect(html).toContain("Hi &lt;Ada&gt;, send <b>prices</b>.");
     expect(html).toContain("Nsikak John");
     expect(html).toContain('href="https://app.yarnoga.com/email/unsubscribe/x"');
-    expect(html).toContain("RC 1601716. Photo from Pexels.");
+    expect(html).toContain("BN 9980032. Photo from Pexels.");
     expect(text).toContain("Hi <Ada>, send prices.");
     expect(text).toContain("1. Check: your list");
     expect(text).toContain("Open your yarnOga app: https://app.yarnoga.com/home");

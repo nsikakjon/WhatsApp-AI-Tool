@@ -205,7 +205,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
 </main>
 <footer>
   <div class="shell">
-    <p>yarnOga is a product of Kahn Digital Company Ltd, Lagos.</p>
+    <p>yarnOga is a product of YarnOga Africa Ventures, Lagos.</p>
     <nav aria-label="Policies">
       <a href="${SITE}/privacy.html">Privacy</a>
       <a href="${SITE}/terms.html">Terms</a>
