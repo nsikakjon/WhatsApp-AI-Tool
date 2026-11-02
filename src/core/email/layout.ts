@@ -99,7 +99,7 @@ ${button}
 <tr><td bgcolor="${DARK}" style="background-color:${DARK};border-radius:0 0 8px 8px;padding:22px 28px;font:13px/1.6 ${FONT};color:#a9b0a8">
 Questions? Reply to this email or write to <a href="mailto:support@yarnoga.com" style="color:${NEON}">support@yarnoga.com</a>. A person reads every message.<br><br>
 You're getting this because you asked for yarnOga tips. <a href="${esc(opts.unsubscribeUrl)}" style="color:#f3f1e6">Unsubscribe</a> or send <b style="color:#f3f1e6">stop emails</b> to your yarnOga number.<br>
-yarnOga is a product of Kahn Digital Company Ltd, RC 1601716.${e.hero ? " Photo from Pexels." : ""}
+yarnOga is a product of YarnOga Africa Ventures, BN 9980032.${e.hero ? " Photo from Pexels." : ""}
 </td></tr></table></td></tr></table></body></html>`;
 
   const text = [
@@ -109,7 +109,7 @@ yarnOga is a product of Kahn Digital Company Ltd, RC 1601716.${e.hero ? " Photo 
     "---",
     "Questions? Reply to this email or write to support@yarnoga.com. A person reads every message.",
     `You're getting this because you asked for yarnOga tips. Unsubscribe: ${opts.unsubscribeUrl} or send "stop emails" to your yarnOga number.`,
-    "yarnOga is a product of Kahn Digital Company Ltd, RC 1601716.",
+    "yarnOga is a product of YarnOga Africa Ventures, BN 9980032.",
   ].join("\n\n");
   return { html, text };
 }
