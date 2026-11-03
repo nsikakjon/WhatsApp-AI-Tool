@@ -14,6 +14,7 @@ import { registerInbox } from "./sections/inbox.js";
 import { registerOrders } from "./sections/orders.js";
 import { registerPrices } from "./sections/prices.js";
 import { registerDelivery } from "./sections/delivery.js";
+import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTools } from "./sections/tools.js";
 import { registerVerify } from "./sections/verify.js";
@@ -60,6 +61,16 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   shop_look_failed: { ok: false, text: "That didn't save. Please try again, and message support if it keeps happening." },
   sold: { ok: true, text: "Sale recorded. The stock has been updated." },
   sale_cancelled: { ok: true, text: "Sale cancelled. Its items are back in stock." },
+  pay_sent: { ok: true, text: "Sent. Paystack has paid it into their account." },
+  pay_pending: { ok: true, text: "Sent to Paystack. Their bank is still processing it; this page shows when it lands." },
+  pay_failed: { ok: false, text: "That payment didn't go through. The money is back on your payout balance." },
+  pay_unsure: { ok: false, text: "Paystack didn't answer clearly. Don't send it again: tap Check again on the payment below in a few minutes." },
+  pay_otp: { ok: false, text: "Paystack is asking for a code before it sends. yarnOga support has been alerted to switch that off; the money is held until then." },
+  pay_low: { ok: false, text: "Your payout balance is too low for that. Add money first." },
+  pay_expired: { ok: false, text: "That confirm screen was open for over 10 minutes, so nothing was sent. Please start again." },
+  pay_gone: { ok: false, text: "That payment was already sent or cancelled. Check the list below before trying again." },
+  pay_twice: { ok: false, text: "That delivery has already been paid." },
+  bank_saved: { ok: true, text: "Bank details saved and checked with the bank." },
   topup_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again, or send top up to your bot." },
 };
 
@@ -261,6 +272,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             userName: user.name ?? ROLE_LABEL[user.role],
             role: user.role,
             counter: Boolean(c.get("biz").counter),
+            payouts: Boolean(c.get("biz").payouts),
             others: c.get("others"),
             flash,
           },
@@ -290,6 +302,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerCustomers(app, ctx);
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
+  registerPay(app, ctx);
   registerTools(app, ctx);
   registerVerify(app, ctx);
   registerSettings(app, ctx);

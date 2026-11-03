@@ -1,5 +1,5 @@
 import type { Lang } from "./core/i18n.js";
-import type { Currency } from "./core/money.js";
+import { formatNaira, type Currency } from "./core/money.js";
 import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
@@ -123,7 +123,8 @@ import { createSupabaseReferrals, referralReply, rewardReferrer } from "./produc
 import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
 import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
-import { createPaystackBanks } from "./core/payments/paystack.js";
+import { createPaystackBanks, createPaystackTransfers } from "./core/payments/paystack.js";
+import { createPayouts, createSupabasePayoutLookup, createSupabasePayoutStore } from "./owner/payouts.js";
 import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
 import { createAzureSpeaker, createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
 import type { OwnerAppDeps } from "./owner/index.js";
@@ -896,6 +897,46 @@ if (config.quote || quoteBusinesses) {
   productNumbers.quote = config.whatsapp.phoneNumberId;
 }
 
+// Paying riders and staff from the owner app (QUOTE_PAYOUTS, migration 0066).
+// A shop adds money to its payout balance by Paystack link; Paystack's charge
+// comes off what it adds. Each payment out is a Paystack Transfer.
+const payoutTransfers = config.quotePayouts && paystackConfig && payments ? createPaystackTransfers(paystackConfig) : undefined;
+function payoutsFor(businessId: string, businessName: string) {
+  return createPayouts({
+    store: createSupabasePayoutStore(supabase, businessId),
+    transfers: payoutTransfers!,
+    businessName,
+    async tellPayee(waId, text) {
+      const found = await quoteBotFor(businessId);
+      await sendNotice({ store, whatsapp }, { to: waId, text }, found?.fromNumberId ?? undefined);
+    },
+  });
+}
+if (payoutTransfers) {
+  paidHandlers.payouts = async (payment, paid) => {
+    const businessId = payment.purpose.businessId;
+    if (typeof businessId !== "string") throw new Error(`Payout top-up ${payment.reference} has no business`);
+    const fees = paid?.feesKobo ?? 0;
+    const added = payment.amountKobo - fees;
+    const balance = createSupabasePayoutStore(supabase, businessId);
+    if (!(await balance.credit(payment.reference, added))) return [];
+    const found = await quoteBotFor(businessId);
+    const text = `${formatNaira(added)} added to your payout balance${fees ? ` (Paystack kept ${formatNaira(fees)})` : ""}. Balance now: ${formatNaira(await balance.balance())}.`;
+    return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
+  };
+  productNumbers.payouts = config.whatsapp.phoneNumberId;
+}
+const payoutWebhook = payoutTransfers
+  ? {
+      async confirm(reference: string) {
+        const found = await createSupabasePayoutLookup(supabase).byReference(reference);
+        if (!found) return "unknown";
+        const name = (await quoteBotFor(found.businessId))?.name ?? "Your employer";
+        return (await payoutsFor(found.businessId, name).check(found.id)) ?? "unknown";
+      },
+    }
+  : undefined;
+
 // Our WhatsApp numbers as the staff inbox labels them, main number first.
 const numbers = [
   { id: config.whatsapp.phoneNumberId, label: config.activeProduct === "quote" ? "Sales" : "Main" },
@@ -1051,6 +1092,18 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               const sent = await createSupabaseSentStore(supabase, sentNumbers).sent(lagosMonthKey(new Date()));
               return { sent, limit };
             },
+            payouts:
+              payoutTransfers && currency === "NGN"
+                ? {
+                    service: payoutsFor(id, name),
+                    async topUpLink(waId: string, amountKobo: number) {
+                      const link = await payments!.createLink({ product: "payouts", waId, amountKobo, purpose: { businessId: id }, title: `${name} payout balance` });
+                      if (!link.url) throw new Error("No payout top-up link");
+                      return link.url;
+                    },
+                    recipient: (accountName: string, accountNumber: string, bankCode: string) => payoutTransfers.recipient({ name: accountName, accountNumber, bankCode }),
+                  }
+                : undefined,
             payLinks: {
               on: Boolean(
                 config.quotePayLinks &&
@@ -1178,7 +1231,7 @@ const app = createApp({
       whatsapp,
       numbers,
     }
-  : undefined, payments ? { payments, secretKey: paystackConfig?.secretKey, flutterwaveHash: flutterwaveConfig?.secretHash } : undefined, config.quoteSetup
+  : undefined, payments ? { payments, secretKey: paystackConfig?.secretKey, flutterwaveHash: flutterwaveConfig?.secretHash, transfers: payoutWebhook } : undefined, config.quoteSetup
   ? {
       password: config.quoteSetup.password,
       businesses: createSupabaseBusinesses(supabase),

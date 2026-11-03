@@ -36,6 +36,8 @@ export interface PaystackTransaction {
   status: string;
   amountKobo: number;
   currency: string;
+  /** Paystack's charge on it, when it says. */
+  feesKobo?: number;
 }
 
 export interface PaystackClient {
@@ -102,6 +104,7 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
         status: String(data.status ?? ""),
         amountKobo: Number(data.amount ?? 0),
         currency: String(data.currency ?? ""),
+        ...(Number.isInteger(data.fees) ? { feesKobo: data.fees as number } : {}),
       };
     },
   };
@@ -134,6 +137,73 @@ export function createPaystackBanks(config: PaystackConfig, fetchImpl: typeof fe
       });
       const body = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { account_name?: string } };
       return res.ok && body.status === true && body.data?.account_name ? body.data.account_name : null;
+    },
+  };
+}
+
+/** What Paystack says about a transfer. "success", "pending", "otp", "failed", "reversed", and a few in-between ones. */
+export interface PaystackTransfer {
+  status: string;
+  transferCode: string | null;
+  failure: string | null;
+}
+
+export interface PaystackTransfers {
+  /** Saves a bank account to send to, and returns Paystack's recipient code (RCP_...). */
+  recipient(p: { name: string; accountNumber: string; bankCode: string }): Promise<string>;
+  /** Sends naira from our Paystack balance. Paystack refuses a second transfer with the same reference. */
+  send(p: { reference: string; amountKobo: number; recipientCode: string; reason: string }): Promise<PaystackTransfer>;
+  /** Null when Paystack has no transfer with this reference. */
+  verify(reference: string): Promise<PaystackTransfer | null>;
+}
+
+/**
+ * Paystack Transfers: paying bank accounts from our Paystack balance. Has to
+ * be switched on for the account (Paystack > Settings > Preferences), with
+ * the OTP for transfers turned off so they go without a code.
+ */
+export function createPaystackTransfers(config: PaystackConfig, fetchImpl: typeof fetch = fetch): PaystackTransfers {
+  const base = (config.apiUrl ?? "https://api.paystack.co").replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${config.secretKey}`, "Content-Type": "application/json" };
+
+  async function call(path: string, init: RequestInit = {}): Promise<{ status: number; ok: boolean; message: string; data: Record<string, unknown> }> {
+    const res = await fetchImpl(`${base}${path}`, { ...init, headers, signal: AbortSignal.timeout(20_000) });
+    const body = (await res.json().catch(() => ({}))) as { status?: boolean; message?: string; data?: Record<string, unknown> };
+    return { status: res.status, ok: res.ok && body.status === true, message: body.message ?? "no message", data: body.data ?? {} };
+  }
+  const read = (data: Record<string, unknown>): PaystackTransfer => ({
+    status: String(data.status ?? ""),
+    transferCode: typeof data.transfer_code === "string" ? data.transfer_code : null,
+    failure: typeof data.failures === "string" ? data.failures : typeof data.reason === "string" && data.status === "failed" ? data.reason : null,
+  });
+
+  return {
+    async recipient(p) {
+      const r = await call("/transferrecipient", {
+        method: "POST",
+        body: JSON.stringify({ type: "nuban", name: p.name, account_number: p.accountNumber, bank_code: p.bankCode, currency: "NGN" }),
+      });
+      if (!r.ok || typeof r.data.recipient_code !== "string") throw new Error(`Paystack /transferrecipient failed (${r.status}): ${r.message}`);
+      return r.data.recipient_code;
+    },
+
+    async send(p) {
+      assertKobo(p.amountKobo);
+      const r = await call("/transfer", {
+        method: "POST",
+        body: JSON.stringify({ source: "balance", amount: p.amountKobo, currency: "NGN", recipient: p.recipientCode, reference: p.reference, reason: p.reason.slice(0, 100) }),
+      });
+      // A clear "no" from Paystack (a 4xx) means nothing was sent. Anything else is unknown until verify says.
+      if (!r.ok && r.status >= 400 && r.status < 500) return { status: "failed", transferCode: null, failure: r.message };
+      if (!r.ok) throw new Error(`Paystack /transfer failed (${r.status}): ${r.message}`);
+      return read(r.data);
+    },
+
+    async verify(reference) {
+      const r = await call(`/transfer/verify/${encodeURIComponent(reference)}`);
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`Paystack /transfer/verify failed (${r.status}): ${r.message}`);
+      return read(r.data);
     },
   };
 }

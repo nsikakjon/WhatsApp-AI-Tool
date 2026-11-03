@@ -5,6 +5,8 @@ import type { ConfirmResult, Payments } from "./payments.js";
 
 export interface PaymentRoutesDeps {
   payments: Payments;
+  /** Paystack's transfer events (paying riders and staff, QUOTE_PAYOUTS): checks the transfer and records it. */
+  transfers?: { confirm(reference: string): Promise<string> };
   /** Paystack's secret key, which signs its webhooks. Unset: the Paystack webhook is off. */
   secretKey?: string;
   /** Flutterwave's secret hash (FLUTTERWAVE_SECRET_HASH). Unset: the Flutterwave webhook is off. */
@@ -13,6 +15,8 @@ export interface PaymentRoutesDeps {
 }
 
 const REFERENCE = /^yarnoga-[a-z]+-[0-9a-f-]{36}$/;
+export const TRANSFER_REFERENCE = /^yarnoga-pay-[0-9a-f-]{36}$/;
+const TRANSFER_EVENTS = new Set(["transfer.success", "transfer.failed", "transfer.reversed"]);
 
 /**
  * POST /webhooks/paystack: Paystack tells us a payment went through.
@@ -38,6 +42,15 @@ export function createPaymentRoutes(deps: PaymentRoutesDeps) {
       return c.text("Invalid JSON", 400);
     }
     const reference = body.data?.reference;
+    if (deps.transfers && reference && TRANSFER_EVENTS.has(body.event ?? "") && TRANSFER_REFERENCE.test(reference)) {
+      try {
+        log.info(`Paystack ${body.event} for ${reference}: ${await deps.transfers.confirm(reference)}`);
+        return c.text("OK", 200);
+      } catch (err) {
+        log.error(`Paystack ${body.event} for ${reference} failed:`, err);
+        return c.text("Try again", 500);
+      }
+    }
     if (body.event !== "charge.success" || !reference) return c.text("OK", 200);
 
     try {
