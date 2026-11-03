@@ -54,8 +54,8 @@ export interface PaymentLinks {
 /** A WhatsApp message about a payment; from the product's own number unless fromNumberId says otherwise. */
 export type OutgoingNote = Notice & { fromNumberId?: string };
 
-/** A product's reaction to a paid payment: the WhatsApp messages to send. */
-export type PaidHandler = (payment: Payment) => Promise<OutgoingNote[]>;
+/** A product's reaction to a paid payment: the WhatsApp messages to send. `feesKobo` is Paystack's charge, when it says. */
+export type PaidHandler = (payment: Payment, paid?: { feesKobo?: number }) => Promise<OutgoingNote[]>;
 
 export type ConfirmResult = "paid" | "already-paid" | "not-paid" | "unknown";
 
@@ -175,7 +175,7 @@ export function createPayments(opts: PaymentsOptions): Payments {
 
       let notes: OutgoingNote[];
       try {
-        notes = await opts.onPaid[payment.product]!(payment);
+        notes = await opts.onPaid[payment.product]!(payment, { feesKobo: "feesKobo" in tx ? tx.feesKobo : undefined });
       } catch (err) {
         // Back to pending so Paystack's retry (or the thank-you page) can try again.
         await opts.store.markPending(payment.id);
