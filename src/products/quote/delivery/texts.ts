@@ -1,7 +1,7 @@
 import type { Lang } from "../../../core/i18n.js";
 
 // Everything the delivery steps say, in English and French, and what the
-// customer sees in Nigerian Pidgin too (riders and owners get English).
+// customer sees in Nigerian Pidgin and Hausa too (riders and owners get English).
 // Amounts arrive already formatted in the business's currency; nothing here
 // works out money.
 
@@ -323,4 +323,18 @@ const pcm: DeliveryTexts = {
   courierComing: (c, l, b, link) => `${c} go deliver your order ${l} from ${b}.${link ? ` Follow am here: ${link}` : ""}`,
 };
 
-export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr, pcm };
+const ha: DeliveryTexts = {
+  ...en,
+  confirmingFee: (b) => `${b} suna tabbatar da kudin kawo kaya zuwa adireshinku. Za ku ga sabuwar jimilla a nan ba da jimawa ba.`,
+  askAddress:
+    "Ina za mu kawo muku? Danna *Send location* don tura wurin da kuke, ko ku rubuta cikakken adireshi tare da unguwa (misali: 12 Zoo Road, Kano). Ku amsa da *PICKUP* idan za ku zo ku karba da kanku.",
+  collectFrom: (p) => `Ba matsala, za ku zo ku karba${p ? ` a:\n${p}` : "."}`,
+  tapConfirm: "Danna *Confirm order* don yin odar.",
+  tapConfirmOrChange: "Danna *Confirm order* don yin odar, ko ku canza adireshin.",
+  willConfirmFee: (b) => `Mun gode! ${b} za su tabbatar da kudin kawo kaya zuwa wannan adireshin, su turo muku sabuwar jimilla a nan.`,
+  riderComing: (r, l, b, link) => `${r} ne zai kawo muku odarku ${l} daga ${b}. Ku bi diddiginta a nan: ${link}`,
+  deliveryCancelled: (l, b) => `An soke kawo odarku ${l}. ${b} za su tuntube ku.`,
+  courierComing: (c, l, b, link) => `${c} ne zai kawo muku odarku ${l} daga ${b}.${link ? ` Ku bi diddiginta a nan: ${link}` : ""}`,
+};
+
+export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr, pcm, ha };

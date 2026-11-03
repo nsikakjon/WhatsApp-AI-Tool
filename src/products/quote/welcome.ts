@@ -8,18 +8,19 @@ import type { Reply } from "../../core/product.js";
 // the business sells: the product cards when they're on, else the welcome.
 
 const GREETING =
-  /^(hi+|hello+|hel+o|hey+|hiya|howdy|yo|good (morning|afternoon|evening|day)|morning|evening|how far|how are you|bonjour|bonsoir|salut|coucou|bjr|bsr|cc|allo|all[oô]|ça va|ca va)( (there|sir|ma|madam|boss|team|o|oh|all|monsieur|madame|à tous|a tous|l équipe))?$/;
-const HELP = /^(help|start|options|commands|what can you do|aide|démarrer|commencer|que pouvez vous faire)$/;
+  /^(hi+|hello+|hel+o|hey+|hiya|howdy|yo|good (morning|afternoon|evening|day)|morning|evening|how far|how are you|sannu|sannu da zuwa|ina kwana|ina wuni|barka da (safiya|safe|rana|yamma|dare)|bonjour|bonsoir|salut|coucou|bjr|bsr|cc|allo|all[oô]|ça va|ca va)( (there|sir|ma|madam|boss|team|o|oh|all|monsieur|madame|à tous|a tous|l équipe))?$/;
+const HELP = /^(help|start|options|commands|what can you do|taimako|aide|démarrer|commencer|que pouvez vous faire)$/;
 const LIST =
   "(food |drinks? |bar |cocktail |lunch |dinner |breakfast |today s |todays |daily )?(menu|menus|specials|list)" +
   "|(price|product|drinks?|wine|cocktail|service|item)s? ?list|pricelist|prices|rates|rate ?card|tariffs?" +
   "|catalog(ue)?s?|products|services|flavou?rs|combos|packages|bill of fare|whats on the menu|what s on the menu" +
   "|what (do|can) (you|u|una) (sell|have|offer|make)|what (you|u) (sell|have|got)|whats available|what s available" +
   "|wetin (you|u|una) (get|dey sell|sell|dey)" +
+  "|jerin farashi|me (kuke|kuka|kake|kike) (sayarwa|siyarwa|da shi)|me ke akwai|me kuke da shi" +
   "|carte|la carte|liste des prix|liste de prix|vos prix|tarifs?|catalogue produits|vos produits|vos articles|qu est ce que vous vendez|que vendez vous";
 const CATALOGUE = new RegExp(
-  `^(abeg |please |pls |plz |kindly |svp |s il vous plaît |s il vous plait )?((can|may) (i|we) (see|have|get) |(send|show|share|give|drop|i want|i need|i d like)( me| us)? |(envoyez|montrez|donnez)( moi| nous)? |je (veux|voudrais) (voir )?|(puis je|pouvez vous m envoyer) )?` +
-    `(your |ur |the |una |ya |a |la |le |les |votre |vos )?(${LIST})( please| pls| abeg| biko| svp| s il vous plaît| s il vous plait)?$`,
+  `^(abeg |please |pls |plz |kindly |don allah |dan allah |svp |s il vous plaît |s il vous plait )?((can|may) (i|we) (see|have|get) |(send|show|share|give|drop|i want|i need|i d like)( me| us)? |(envoyez|montrez|donnez)( moi| nous)? |je (veux|voudrais) (voir )?|(puis je|pouvez vous m envoyer) )?` +
+    `(your |ur |the |una |ya |a |la |le |les |votre |vos )?(${LIST})( please| pls| abeg| biko| don allah| svp| s il vous plaît| s il vous plait)?$`,
 );
 
 const PRODUCTS_SHOWN = 8;
@@ -57,6 +58,7 @@ export function customerWelcome(w: CustomerWelcome): Reply {
   const firstName = w.customerName?.trim().split(/\s+/)[0];
   if (w.lang === "fr") return frenchWelcome(w, products, first, firstName);
   if (w.lang === "pcm") return pidginWelcome(w, products, first, firstName);
+  if (w.lang === "ha") return hausaWelcome(w, products, first, firstName);
   const example = first ? `${Math.max(first.minQuantity, 10)} ${productName(first.name)}` : "what you need";
   const body = [
     `Hi${firstName ? ` ${firstName}` : ""}! Welcome to ${w.businessName}.`,
@@ -124,6 +126,30 @@ function pidginWelcome(w: CustomerWelcome, products: string[], first: CustomerWe
     buttons: {
       body,
       buttons: [{ id: QUOTE_CHOICE, title: "Get quote" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Talk to person" }] : [])],
+    },
+  };
+}
+
+function hausaWelcome(w: CustomerWelcome, products: string[], first: CustomerWelcome["items"][number] | undefined, firstName: string | undefined): Reply {
+  const example = first ? `${productName(first.name)} guda ${Math.max(first.minQuantity, 10)}` : "abin da kuke bukata";
+  const body = [
+    `Sannu${firstName ? ` ${firstName}` : ""}! Barka da zuwa ${w.businessName}.`,
+    ...(products.length ? [`Muna da: ${products.slice(0, PRODUCTS_SHOWN).join(", ")}${products.length > PRODUCTS_SHOWN ? " da sauransu" : ""}.`] : []),
+    "",
+    "Yadda ake oda:",
+    `1. Ku fada min abin da kuke bukata da yawansa, misali *${example}*${w.voiceNotes ? ". Kuna iya rubutawa ko ku turo sakon murya" : ""}.`,
+    "2. Zan turo muku farashi tare da jimilla.",
+    "3. Ku amsa da *YES* don yin oda, ko ku fada min abin da za a canza. *Cancel* zai soke farashin.",
+    ...(w.delivery ? ["4. Ku fada min inda za a kawo, ko ku ce *pickup* idan za ku zo ku karba."] : []),
+    ...(w.invoices ? [`${w.delivery ? 5 : 4}. Za ku sami invoice dinku a nan.`] : []),
+    "",
+    w.catalogue ? "Ku turo *menu* don ganin duk abin da muke sayarwa, da *help* don sake ganin wannan." : "Ku turo *help* kowane lokaci don sake ganin wannan.",
+  ].join("\n");
+  return {
+    text: "",
+    buttons: {
+      body,
+      buttons: [{ id: QUOTE_CHOICE, title: "Nemi farashi" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Yi magana da mutum" }] : [])],
     },
   };
 }

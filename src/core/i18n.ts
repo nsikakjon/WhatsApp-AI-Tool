@@ -1,20 +1,20 @@
 // Languages the bots speak. Each business (and flyer group) picks English or
 // French for its fixed messages, documents and flyers. A customer who writes
 // in another language gets answers in theirs when the AI (or the quick guess
-// below) can tell. Nigerian Pidgin ("pcm") is only ever a chat language:
-// invoices, receipts, flyers and messages to the owner stay in the business's
-// own language.
+// below) can tell. Nigerian Pidgin ("pcm") and Hausa ("ha") are only ever
+// chat languages: invoices, receipts, flyers and messages to the owner stay in
+// the business's own language.
 
-export type Lang = "en" | "fr" | "pcm";
+export type Lang = "en" | "fr" | "pcm" | "ha";
 /** The languages a business or flyer group can choose. */
 export const LANGS: Lang[] = ["en", "fr"];
 
-/** True for a language a business or group can choose (not Pidgin, which follows the customer). */
+/** True for a language a business or group can choose (not Pidgin or Hausa, which follow the customer). */
 export function isLang(value: unknown): value is Lang {
   return value === "en" || value === "fr";
 }
 
-/** The language for things that are written down: Pidgin chats get English documents and flyers. */
+/** The language for things that are written down: Pidgin and Hausa chats get English documents and flyers. */
 export function writtenLang(lang: Lang | undefined): "en" | "fr" {
   return lang === "fr" ? "fr" : "en";
 }
@@ -29,6 +29,11 @@ const ENGLISH =
 const PIDGIN =
   /\b(abeg|wetin|dey|una|wahala|oya|abi|sef|sha|shey|wey|dem|don (do|finish|reach|pay|send|come)|i wan|we wan|you wan|u wan|make i|make una|make you|how far|how much e be|how much (na|be) (am|e|this|that|di)|na (im|so|how|wetin|why)|e (don|dey|go|no)|i go (pay|take|come|buy|send)|no vex|no wahala|pikin|comot|chop|waka|ehn|biko|o jare|jare|wan buy|fit (send|do|deliver|bring)|i no (fit|get|sabi|know|wan)|sabi|kuku|nawa|abeg o)\b/i;
 
+// Hausa as people type it on WhatsApp, usually without the hooked letters
+// (ɓ ɗ ƙ ƴ), which give it away on their own when they are used.
+const HAUSA =
+  /\b(sannu|barka da|ina kwana|ina wuni|yaya dai|nagode|na gode|mun gode|don allah|dan allah|nawa|farashin|kudin|ina so|ina son|ina bukata|muna so|muna son|akwai|ba matsala|shikenan|madalla|yanzu|gobe|zan biya|zan zo|zan karba|kuna da|kuke da|kuke sayarwa|guda|turo min|kawo min|aiko min|ranka ya dade)\b/i;
+
 /**
  * A quick guess at the language of a short message, for replies made before
  * (or without) the AI, like the welcome. Null when it can't tell.
@@ -36,6 +41,7 @@ const PIDGIN =
 export function guessLanguage(text: string | null | undefined): Lang | null {
   if (!text) return null;
   const t = text.toLowerCase();
+  if (HAUSA.test(t) || /[ɓɗƙƴ]/.test(t)) return "ha";
   if (PIDGIN.test(t)) return "pcm";
   const fr = FRENCH.test(t) || /[àâçéèêëîïôûùüÿœ]/.test(t);
   const en = ENGLISH.test(t);
@@ -46,5 +52,5 @@ export function guessLanguage(text: string | null | undefined): Lang | null {
 
 /** "fr" -> "French": for telling the AI which language to use. */
 export function languageName(lang: Lang): string {
-  return lang === "fr" ? "French" : lang === "pcm" ? "Nigerian Pidgin" : "English";
+  return { en: "English", fr: "French", pcm: "Nigerian Pidgin", ha: "Hausa" }[lang];
 }

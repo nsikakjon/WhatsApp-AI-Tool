@@ -9,17 +9,20 @@ import type { Product, Reply } from "../product.js";
 
 export interface Speaker {
   /** The text read aloud as an OGG/Opus voice note. */
-  speak(text: string, lang: Lang): Promise<Uint8Array>;
+  speak(text: string, lang: SpokenLang): Promise<Uint8Array>;
 }
 
 export interface GoogleSpeakerOptions {
   apiKey: string;
   /** Voice names, e.g. fr-FR-Neural2-A. Defaults suit French-speaking Africa and Nigeria. */
-  voices?: Partial<Record<Lang, string>>;
+  voices?: Partial<Record<SpokenLang, string>>;
   fetch?: typeof fetch;
 }
 
-const DEFAULT_VOICES: Record<Lang, string> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A", pcm: "en-GB-Neural2-A" };
+// Neither Google nor Azure has a Hausa voice yet, so Hausa chats get text only.
+type SpokenLang = Exclude<Lang, "ha">;
+
+const DEFAULT_VOICES: Record<SpokenLang, string> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A", pcm: "en-GB-Neural2-A" };
 
 export function createGoogleSpeaker(opts: GoogleSpeakerOptions): Speaker {
   const doFetch = opts.fetch ?? fetch;
@@ -49,11 +52,11 @@ export interface AzureSpeakerOptions {
   /** The resource's region, e.g. westeurope. */
   region: string;
   /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice and a Nigerian English one (which also reads Pidgin). */
-  voices?: Partial<Record<Lang, string>>;
+  voices?: Partial<Record<SpokenLang, string>>;
   fetch?: typeof fetch;
 }
 
-const AZURE_VOICES: Record<Lang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural", pcm: "en-NG-EzinneNeural" };
+const AZURE_VOICES: Record<SpokenLang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural", pcm: "en-NG-EzinneNeural" };
 
 /** Text made safe to put inside the SSML Azure reads. */
 function xml(text: string): string {
@@ -125,6 +128,7 @@ export function withVoiceReplies(
       try {
         // The bot answers in the customer's language, so that comes first.
         const lang = guessLanguage(msg.text) ?? guessLanguage(said) ?? opts.language ?? "en";
+        if (lang === "ha") return reply;
         return { ...reply, audio: { data: await opts.speaker.speak(said, lang), mimeType: "audio/ogg" } };
       } catch (err) {
         (opts.log ?? console).error("Voice reply failed; sending text only:", err);

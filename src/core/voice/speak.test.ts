@@ -21,6 +21,15 @@ describe("voice replies", () => {
     expect((await withVoiceReplies(bot, { speaker, enabled: () => false }).handle(voiceNote, ctx))?.audio).toBeUndefined();
   });
 
+  it("sends a Hausa chat its reply as text only, since there's no Hausa voice", async () => {
+    const speaker = { speak: vi.fn(async () => new Uint8Array([1, 2])) };
+    const hausa = { name: "quote", handle: vi.fn(async () => ({ text: "Ga farashinku (KP-1001):" })) };
+    const reply = await withVoiceReplies(hausa, { speaker, enabled: () => true }).handle({ ...voiceNote, text: "Sannu, ina son flyers guda 100" }, ctx);
+    expect(reply?.text).toContain("Ga farashinku");
+    expect(reply?.audio).toBeUndefined();
+    expect(speaker.speak).not.toHaveBeenCalled();
+  });
+
   it("still sends the text when speaking fails", async () => {
     const speaker = { speak: vi.fn(async () => Promise.reject(new Error("down"))) };
     const reply = await withVoiceReplies(bot, { speaker, enabled: () => true, log: { error() {} } }).handle(voiceNote, ctx);

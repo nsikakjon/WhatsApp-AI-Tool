@@ -1171,6 +1171,25 @@ describe("Pidgin", () => {
   });
 });
 
+describe("Hausa", () => {
+  it("answers a Hausa customer in Hausa, with the price from the price list", async () => {
+    const { product, seen, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null, language: "ha" });
+    const reply = await product.handle(text("Sannu, nawa ne business card guda 200?"), ctx);
+    expect(seen[0]?.language).toBe("ha");
+    expect(reply?.text).toContain("Ga farashinku (KP-1001)");
+    expect(reply?.text).toContain("₦10,000");
+    expect(reply?.text).toContain("Ku amsa da YES");
+    expect(orders[0]?.totalKobo).toBe(1_000_000);
+  });
+
+  it("welcomes a Hausa greeting in Hausa", async () => {
+    const { product } = setup({ intent: "other", items: [], message: null });
+    const hi = await product.handle(text("Sannu"), ctx);
+    expect(hi?.buttons?.body).toContain("Barka da zuwa KahnPrints");
+    expect(hi?.buttons?.buttons.map((b) => b.title)).toEqual(["Nemi farashi", "Yi magana da mutum"]);
+  });
+});
+
 describe("payment reminders", () => {
   it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
     const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });

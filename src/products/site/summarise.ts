@@ -35,7 +35,7 @@ const OutputSchema = z.object({
   nextSteps: z.array(z.string()),
 });
 
-export const SYSTEM_PROMPT = `You write the end-of-day progress report for a construction site in Nigeria. Site staff send short WhatsApp updates during the day: typed messages, photo captions and voice note transcripts. They often write in Pidgin or informal English; write the report in clear, simple English for the site manager.
+export const SYSTEM_PROMPT = `You write the end-of-day progress report for a construction site in Nigeria. Site staff send short WhatsApp updates during the day: typed messages, photo captions and voice note transcripts. They often write in Pidgin, Hausa or informal English; write the report in clear, simple English for the site manager.
 
 Fill in:
 - overview: two or three sentences on how the day went.

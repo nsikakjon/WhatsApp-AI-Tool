@@ -139,7 +139,7 @@ export function quoteEmails(
               "In your app, open Test your bot and type what your customers really send. For example:",
               { list: ['"How much for 50 pieces?"', '"Do you deliver to Ikeja?"', '"Abeg how much be this one" with a photo', "A voice note in Pidgin or Yoruba"] },
               "You see the exact reply a customer would get. Nothing is sent and nothing is saved, so try as many as you like (60 a day).",
-              "A customer who writes in Pidgin gets the answer in Pidgin, with the same prices. Invoices and receipts stay in English.",
+              "A customer who writes in Pidgin or Hausa gets the answer in Pidgin or Hausa, with the same prices. Invoices and receipts stay in English.",
               "If an answer looks wrong, the fix is almost always in the price list: a missing size, a minimum order, or an item with two names. Change it and ask again.",
             ],
             button: { label: "Test your bot", href: app("/test") },
