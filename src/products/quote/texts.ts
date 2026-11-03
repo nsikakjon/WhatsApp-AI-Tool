@@ -2,14 +2,14 @@ import type { Lang } from "../../core/i18n.js";
 import type { Currency } from "../../core/money.js";
 
 // Every fixed message the quote bot sends, in English and French, and the
-// customer messages in Nigerian Pidgin too. Messages to a customer follow the
+// customer messages in Nigerian Pidgin and Hausa too. Messages to a customer follow the
 // customer's language (see index.ts); messages to the owner use the
 // business's language. Amounts arrive already written out (formatMoney), so
 // nothing here works out a price.
 //
 // To change a wording, change it in English and French (TypeScript refuses a
-// language that is missing a message), and in Pidgin if a customer sees it.
-// A message missing from Pidgin goes out in English.
+// language that is missing a message), and in Pidgin and Hausa if a customer
+// sees it. A message missing from those goes out in English.
 
 export interface QuoteTexts {
   // Customers
@@ -449,4 +449,70 @@ const pcm: QuoteTexts = {
   defaultHelp: (names) => `I fit give you quote for: ${names}. Tell me wetin you need and how many.`,
 };
 
-export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr, pcm };
+// Hausa as it's written on WhatsApp: plain letters, and the polite "ku" to a
+// customer whether it's a man or a woman.
+const ha: QuoteTexts = {
+  ...en,
+  voiceNotOnLine: () => "Yi hakuri, ba zan iya sauraron sakon murya a wannan layin ba. Don Allah ku rubuta abin da kuke bukata (misali: A5 flyers guda 100).",
+  voiceUnclear: () => "Yi hakuri, ban ji sakon muryar nan sosai ba. Za ku iya rubuta abin da kuke bukata (misali: A5 flyers guda 100)?",
+  sendRequest: () => "Don Allah ku turo abin da kuke bukata a rubuce ko da sakon murya (misali: A5 flyers guda 100).",
+  stopReminders: () => "To shikenan, ba zan sake tura muku tunatarwar farashi ba. Ku turo sako kowane lokaci kuke son farashi.",
+  ratingAsk: (b, ref) => `Yaya muka yi da odarku ${ref}? Amsarku za ta taimaka wa ${b} su kara inganta hidimarsu.`,
+  orderAgainButton: "🔁 Sake yin oda",
+  lastTime: (items) => `A karon da ya gabata kun yi odar: ${items}. Danna *Sake yin oda* don samun sabon farashi na abu iri daya.`,
+  noLastOrder: "Ban ga wata oda da kuka yi a baya ba. Ku fada min abin da kuke bukata, zan turo muku farashi.",
+  someGone: (items) => `Wasu daga cikin odarku ta karshe ba sa cikin jerin farashi yanzu (${items}), don haka na cire su.`,
+  ratingButtons: { great: "😀 Mai kyau sosai", ok: "🙂 Ba laifi", bad: "🙁 Ba kyau" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Mun gode! 🙏 Muna farin ciki da ya yi muku dadi. Idan kun san wani da zai so ${b}, don Allah ku ba shi lambarmu.`
+      : stars >= 3
+        ? "Mun gode da kuka fada mana. Idan akwai abin da za mu iya gyarawa, ku amsa a nan kawai."
+        : `Muna ba da hakuri da bai yi daidai ba. Na sanar da ma'aikatan ${b}, wani zai tuntube ku don gyara shi.`,
+  ratingAlready: "Mun gode, mun riga mun karbi amsarku game da wannan odar. 🙏",
+  noPriceList: (b) => `Mun gode da kuka turo wa ${b} sako! Jerin farashinmu bai hau intanet ba tukuna, don haka wani daga cikin ma'aikata zai amsa muku.`,
+  didntCatch: () => "Yi hakuri, ban gane sosai ba. Me kuke so, kuma guda nawa?",
+  teamNotified: (b) => `Na sanar da ma'aikatan ${b}. Wani zai amsa muku a nan ba da jimawa ba.`,
+  closedNow: (when) => `🕗 Mun rufe yanzu${when ? `, za mu sake budewa ${when}` : ""}. Kuna iya yin oda a nan; ma'aikata za su karba idan mun bude.`,
+  closed: (b) => `Yi hakuri, ${b} ba sa karbar sabuwar oda yanzu. Don Allah ku tambayi daya daga cikin ma'aikata.`,
+  minimum: (item, min) => `${item}: mafi karancin oda guda ${min} ne.`,
+  teamWillPrice: (items) => `Ma'aikata za su turo muku farashin: ${items}.`,
+  thanks: (note) => `Mun gode! ${note}`,
+  quoteHeader: (ref) => `Ga farashinku (${ref}):`,
+  quoteTotal: (total) => `*Jimilla: ${total}*`,
+  replyYes: () => "Ku amsa da YES don yin wannan odar, ko ku fada min abin da za a canza.",
+  noQuoteWaiting: () => "Babu farashin da ke jiran tabbatarwa. Ku fada min abin da kuke so, zan turo muku.",
+  overLimitCustomer: (b, ref, total) => `Mun gode! Ma'aikatan ${b} za su tuntube ku ba da jimawa ba don kammala oda ${ref} (jimilla ${total}).`,
+  payLine: (url, currency) =>
+    currency === "NGN" ? `Ku biya ta intanet da kati, tura kudi ta banki ko USSD: ${url}` : `Ku biya ta intanet da Mobile Money (MTN MoMo, Orange Money) ko kati: ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Sannu! Karamar tunatarwa daga ${b}: odarku ${ref} (${total}) tana jiran biya.`
+        : `Sannu kuma daga ${b}: har yanzu muna ajiye muku odarku ${ref} (${total}).`,
+      how ?? "",
+      n === 1 ? "Kun riga kun biya? Mun gode, don Allah ku yi watsi da wannan." : "Wannan ce tunatarwarmu ta karshe. Idan kun canza ra'ayi, ku amsa kawai ku sanar da mu.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  nextWalkInLink: () => "Ku biya da link din, sannan ku nuna QR code na rasit dinku idan kun zo karba.",
+  nextWalkInCounter: (ref) => `Don Allah ku biya a wurin biya (counter), ku ba su lambar odarku, ${ref}.`,
+  nextDeliveryLink: () => "Da zarar mai kawo kaya ya kama hanya, za mu turo muku link don ku bi diddigin kayanku.",
+  nextReady: (b) => `Ma'aikatan ${b} za su sanar da ku idan ya shirya.`,
+  nextContactDelivery: (b) => `Ma'aikatan ${b} za su tuntube ku ba da jimawa ba game da kawo kaya.`,
+  confirmedInvoice: (ref, total, next) => `Mun gode! An tabbatar da oda ${ref}. Ga invoice dinku na ${total}. ${next}`,
+  confirmedTotal: (ref, total, next) => `Mun gode! An tabbatar da oda ${ref} (jimilla ${total}). ${next}`,
+  confirmedContact: (ref, total, b, withDelivery) =>
+    `Mun gode! An tabbatar da oda ${ref} (jimilla ${total}). Ma'aikatan ${b} za su tuntube ku ba da jimawa ba game da biya${withDelivery ? " da kawo kaya" : ""}.`,
+  paymentThanks: (ref, total, b) => `An karbi kudin oda ${ref} (${total}). Mun gode da kuka zabi ${b}!`,
+  pickupAtTable: (table) => `Za mu kawo muku shi a ${table}.`,
+  pickupWhenReady: () => "Za mu turo muku sako idan ya shirya don karba.",
+  pickupShowQr: () => "Ku nuna QR code na wannan rasit idan kun zo karba.",
+  pickupShowCode: (code) => `Ku nuna wannan sakon idan kun zo karba. Lambarku ita ce ${code}.`,
+  hereIsReceipt: () => "Ga rasit dinku:",
+  noProblem: () => "Ba matsala. Ku sanar da ni idan kuna bukatar wani abu.",
+  cancelledQuote: (ref) => `Ba matsala, na soke farashi ${ref}. Ku turo sako kowane lokaci kuke son sabo.`,
+  defaultHelp: (names) => `Zan iya ba ku farashin: ${names}. Ku fada min abin da kuke bukata da yawansa.`,
+};
+
+export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr, pcm, ha };

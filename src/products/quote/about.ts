@@ -21,6 +21,7 @@ const DAY_NAMES: Record<Lang, Record<Day, string>> = {
   en: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
   fr: { sun: "dimanche", mon: "lundi", tue: "mardi", wed: "mercredi", thu: "jeudi", fri: "vendredi", sat: "samedi" },
   pcm: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
+  ha: { sun: "Lahadi", mon: "Litinin", tue: "Talata", wed: "Laraba", thu: "Alhamis", fri: "Juma'a", sat: "Asabar" },
 };
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -64,7 +65,7 @@ export function openState(hours: OpeningHours | null, now: Date): { open: true; 
 /** "Monday to Friday 08:00–18:00; Saturday 10:00–16:00; Sunday closed". */
 export function hoursText(hours: OpeningHours, lang: Lang = "en"): string {
   const names = DAY_NAMES[lang];
-  const closed = lang === "fr" ? "fermé" : "closed";
+  const closed = lang === "fr" ? "fermé" : lang === "ha" ? "a rufe" : "closed";
   const order: Day[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
   const groups: Array<{ from: Day; to: Day; slot: string }> = [];
   for (const d of order) {
@@ -73,7 +74,7 @@ export function hoursText(hours: OpeningHours, lang: Lang = "en"): string {
     if (last && last.slot === slot) last.to = d;
     else groups.push({ from: d, to: d, slot });
   }
-  const to = lang === "fr" ? "au" : "to";
+  const to = lang === "fr" ? "au" : lang === "ha" ? "zuwa" : "to";
   return groups.map((g) => `${g.from === g.to ? cap(names[g.from], lang) : `${cap(names[g.from], lang)} ${to} ${names[g.to]}`} ${g.slot}`).join("; ");
 }
 
@@ -84,6 +85,7 @@ function cap(word: string, lang: Lang): string {
 /** When it next opens, in words: "at 08:00 tomorrow", "on Monday at 08:00". */
 export function nextOpenText(next: { day: Day; time: string; today: boolean; tomorrow: boolean }, lang: Lang = "en"): string {
   if (lang === "fr") return next.today ? `aujourd'hui à ${next.time}` : next.tomorrow ? `demain à ${next.time}` : `${DAY_NAMES.fr[next.day]} à ${next.time}`;
+  if (lang === "ha") return next.today ? `yau da karfe ${next.time}` : next.tomorrow ? `gobe da karfe ${next.time}` : `ranar ${DAY_NAMES.ha[next.day]} da karfe ${next.time}`;
   if (lang === "pcm") return next.today ? `today by ${next.time}` : next.tomorrow ? `tomorrow by ${next.time}` : `on ${DAY_NAMES.pcm[next.day]} by ${next.time}`;
   return next.today ? `today at ${next.time}` : next.tomorrow ? `tomorrow at ${next.time}` : `on ${DAY_NAMES.en[next.day]} at ${next.time}`;
 }
