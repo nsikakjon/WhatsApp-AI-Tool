@@ -147,6 +147,30 @@ describe("payments", () => {
   });
 });
 
+describe("saved card charges", () => {
+  const card = { code: "AUTH_abc", email: "ada@example.com", label: "Visa ••4081" };
+
+  it("confirms a charge that goes through, so onPaid runs once", async () => {
+    const { payments, paystack, rows, handler } = setup({ card });
+    const chargeCard = vi.fn(async () => "success" as const);
+    Object.assign(paystack, { chargeCard });
+    expect(await payments.chargeCard({ ...request, card, subaccount: "ACCT_abc", platformFeeKobo: 11_250 })).toBe("paid");
+    expect(chargeCard).toHaveBeenCalledWith(expect.objectContaining({ amountKobo: 450000, card, subaccount: "ACCT_abc", transactionChargeKobo: 11_250, reference: rows[0]!.reference }));
+    expect(rows[0]!.status).toBe("paid");
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ reference: rows[0]!.reference }), expect.objectContaining({ card }));
+    expect(await payments.confirm(rows[0]!.reference)).toBe("already-paid");
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs nothing for a declined card", async () => {
+    const { payments, paystack, handler, rows } = setup();
+    Object.assign(paystack, { chargeCard: vi.fn(async () => "failed" as const) });
+    expect(await payments.chargeCard({ ...request, card })).toBe("failed");
+    expect(rows[0]!.status).toBe("pending");
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe("paystack", () => {
   it("checks the webhook signature against the raw body", () => {
     const body = '{"event":"charge.success"}';
@@ -192,6 +216,37 @@ describe("paystack", () => {
     });
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ amount: 13200000, subaccount: "ACCT_abc123", bearer: "subaccount" });
+  });
+
+  it("reads a reusable card off a verified payment, and only a reusable card", async () => {
+    const tx = (authorization: Record<string, unknown>) =>
+      vi.fn(async () => Response.json({ status: true, data: { id: 9, reference: "r", status: "success", amount: 100, currency: "NGN", customer: { email: "ada@example.com" }, authorization } }));
+    const reusable = createPaystackClient({ secretKey: SECRET }, tx({ authorization_code: "AUTH_1", reusable: true, channel: "card", brand: "visa", last4: "4081" }) as unknown as typeof fetch);
+    expect((await reusable.verify("r")).card).toEqual({ code: "AUTH_1", email: "ada@example.com", label: "Visa ••4081" });
+    const transfer = createPaystackClient({ secretKey: SECRET }, tx({ authorization_code: "AUTH_2", reusable: false, channel: "bank_transfer" }) as unknown as typeof fetch);
+    expect((await transfer.verify("r")).card).toBeUndefined();
+  });
+
+  it("charges a saved card on the store's subaccount and treats a refusal as declined", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ status: true, data: { status: "success" } }))
+      .mockResolvedValueOnce(Response.json({ status: false, message: "Insufficient funds" }, { status: 400 }));
+    const client = createPaystackClient({ secretKey: SECRET }, fetchImpl as unknown as typeof fetch);
+    const charge = {
+      reference: "yarnoga-monthly-1",
+      amountKobo: 1_500_000,
+      description: "Gym monthly",
+      waId: "2348011111111",
+      card: { code: "AUTH_1", email: "ada@example.com", label: "Visa ••4081" },
+      subaccount: "ACCT_abc123",
+      transactionChargeKobo: 37_500,
+    };
+    expect(await client.chargeCard!(charge)).toBe("success");
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.paystack.co/transaction/charge_authorization");
+    expect(JSON.parse(String(init.body))).toMatchObject({ authorization_code: "AUTH_1", email: "ada@example.com", amount: 1_500_000, subaccount: "ACCT_abc123", bearer: "subaccount", transaction_charge: 37_500 });
+    expect(await client.chargeCard!(charge)).toBe("failed");
   });
 
   it("keeps yarnOga's fee on the main account when a split payment carries one", async () => {

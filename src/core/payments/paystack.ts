@@ -38,12 +38,32 @@ export interface PaystackTransaction {
   currency: string;
   /** Paystack's charge on it, when it says. */
   feesKobo?: number;
+  /** The card it was paid with, when Paystack lets us charge it again (reusable card payments only). */
+  card?: SavedCard;
 }
+
+/** A card Paystack lets us charge again without the payer (charge_authorization). */
+export interface SavedCard {
+  /** Paystack's AUTH_... code. */
+  code: string;
+  /** The email the card was saved under; Paystack only charges it with the same email. */
+  email: string;
+  /** e.g. "Visa ••4081", to show the payer and the owner. */
+  label: string;
+}
+
+/** A charge on a saved card, same fields as a checkout apart from the card. */
+export type SavedCardCharge = Omit<NewCheckout, "callbackUrl" | "email"> & { card: SavedCard };
 
 export interface PaystackClient {
   /** Starts a transaction and returns the checkout link to send the payer. */
   initialize(p: NewCheckout): Promise<string>;
   verify(reference: string): Promise<PaystackTransaction>;
+  /**
+   * Charges a saved card. "success" and "failed" are final; anything else
+   * (e.g. "pending") is settled later by the charge.success webhook.
+   */
+  chargeCard?(p: SavedCardCharge): Promise<"success" | "failed" | "pending">;
 }
 
 /**
@@ -98,6 +118,7 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
 
     async verify(reference) {
       const data = await call(`/transaction/verify/${encodeURIComponent(reference)}`);
+      const card = savedCard(data);
       return {
         id: String(data.id),
         reference: String(data.reference ?? ""),
@@ -105,9 +126,45 @@ export function createPaystackClient(config: PaystackConfig, fetchImpl: typeof f
         amountKobo: Number(data.amount ?? 0),
         currency: String(data.currency ?? ""),
         ...(Number.isInteger(data.fees) ? { feesKobo: data.fees as number } : {}),
+        ...(card ? { card } : {}),
       };
     },
+
+    async chargeCard(p) {
+      assertKobo(p.amountKobo);
+      const res = await fetchImpl(`${base}/transaction/charge_authorization`, {
+        method: "POST",
+        headers,
+        signal: AbortSignal.timeout(30_000),
+        body: JSON.stringify({
+          reference: p.reference,
+          authorization_code: p.card.code,
+          email: p.card.email,
+          amount: p.amountKobo,
+          currency: p.currency ?? "NGN",
+          ...(p.subaccount ? { subaccount: p.subaccount, bearer: "subaccount" } : {}),
+          ...(p.subaccount && p.transactionChargeKobo ? { transaction_charge: p.transactionChargeKobo } : {}),
+          metadata: { wa_id: p.waId, custom_fields: [{ display_name: "For", variable_name: "description", value: p.description }] },
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { status?: boolean; message?: string; data?: { status?: string } };
+      // A clear "no" (a declined card, an expired authorization) charged nothing.
+      if (res.status >= 400 && res.status < 500) return "failed";
+      if (!res.ok || body.status !== true) throw new Error(`Paystack /transaction/charge_authorization failed (${res.status}): ${body.message ?? "no message"}`);
+      const status = body.data?.status;
+      return status === "success" ? "success" : status === "failed" ? "failed" : "pending";
+    },
   };
+}
+
+/** The card on a verified transaction, if Paystack says it can be charged again. */
+function savedCard(data: Record<string, unknown>): SavedCard | undefined {
+  const auth = data.authorization as Record<string, unknown> | undefined;
+  const customer = data.customer as Record<string, unknown> | undefined;
+  if (!auth || auth.reusable !== true || auth.channel !== "card" || typeof auth.authorization_code !== "string" || typeof customer?.email !== "string") return undefined;
+  const brand = typeof auth.brand === "string" && auth.brand.trim() ? auth.brand.trim() : "Card";
+  const last4 = typeof auth.last4 === "string" ? auth.last4 : "";
+  return { code: auth.authorization_code, email: customer.email, label: `${brand[0]!.toUpperCase()}${brand.slice(1)}${last4 ? ` ••${last4}` : ""}` };
 }
 
 /**
