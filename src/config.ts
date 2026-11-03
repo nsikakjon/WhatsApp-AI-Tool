@@ -223,6 +223,11 @@ export interface Config {
    */
   screenShield: boolean;
   /**
+   * The "₦X processed through yarnOga" line on the website, shown once paid
+   * naira payments reach this many kobo. Off unless PROCESSED_COUNTER_MIN_NAIRA is set.
+   */
+  processedCounterMinKobo?: number;
+  /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
    */
@@ -524,6 +529,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
+    processedCounterMinKobo: env.PROCESSED_COUNTER_MIN_NAIRA?.trim()
+      ? wholeNumber(env, "PROCESSED_COUNTER_MIN_NAIRA", 1) * 100
+      : undefined,
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),
