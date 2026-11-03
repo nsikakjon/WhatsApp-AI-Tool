@@ -293,6 +293,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       switch (understanding.intent) {
         case "quote":
           reply = walkIn.paused ? closedReply(t) : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t);
+          if (!understanding.items.length) reply.stage = "unclear";
           break;
         case "confirm":
           reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang);
@@ -309,7 +310,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           break;
         default:
           // The simple replies are written in code, not by the AI, so they can list items freely.
-          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t) };
+          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t), stage: "unclear" };
       }
       const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
       for (const notice of [credit.ownerNotice, messagesNotice]) {

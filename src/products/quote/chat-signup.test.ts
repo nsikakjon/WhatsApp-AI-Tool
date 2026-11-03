@@ -140,15 +140,88 @@ describe("chat sign-up on the quotes number", () => {
     expect((await bot.handle(msg("And mugs?"), ctx(3)))?.text).toBe("Demo shop here.");
   });
 
-  it("invites visitors who say hi to sign up, with a button under the demo shop's welcome", async () => {
-    const welcome: Product = {
+  describe("guiding a visitor from hi to sign-up", () => {
+    const shop: Product = {
       name: "quote",
-      handle: async () => ({ text: "", buttons: { body: "Welcome to the demo shop.", buttons: [{ id: "get a quote", title: "Get a quote" }] } }),
+      async handle(m) {
+        if (m.text === "hi") return { text: "", buttons: { body: "Welcome to the demo shop.", buttons: [{ id: "get a quote", title: "Get a quote" }] } };
+        if (m.text === "20 T-shirts") return { text: "Quote DEMO-1: ₦50,000" };
+        return { text: "Which item do you want?", stage: "unclear" };
+      },
     };
-    const bot = withChatSignup(welcome, { numberId: NUMBER, store: memoryStore().store, setup: memorySetup().setup, drafter: drafter(CUPCAKES).d });
-    const reply = (await bot.handle(msg("Hi"), ctx(5)))!;
-    expect(reply.buttons?.body).toMatch(/Welcome to the demo shop\.\n\n.*sign up/);
-    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["get a quote", "sign up"]);
+    const guest = () => {
+      const mem = memoryStore();
+      let day = "2026-11-03";
+      const bot = withChatSignup(shop, {
+        numberId: NUMBER,
+        store: mem.store,
+        setup: memorySetup().setup,
+        drafter: drafter(CUPCAKES).d,
+        now: () => new Date(`${day}T12:00:00Z`),
+      });
+      const say = async (text: string, history = 3) => (await bot.handle(msg(text, { contactName: "Sulaiman Soja" }), ctx(history)))!;
+      return { mem, say, nextDay: () => (day = "2026-11-04") };
+    };
+    const ids = (r: { buttons?: { buttons: Array<{ id: string }> } }) => r.buttons?.buttons.map((b) => b.id);
+
+    it("meets hi with yarnOga and asks what they sell, not with the demo shop", async () => {
+      const { say } = guest();
+      const reply = await say("Hi");
+      expect(reply.buttons?.body).toMatch(/^Hi Sulaiman! This is yarnOga\. We give your business a WhatsApp assistant.*\n\nWhat do you sell\?$/s);
+      expect(ids(reply)).toEqual(["sign up", "see it as a customer"]);
+    });
+
+    it("pitches in their words, then signs up without asking what they sell again", async () => {
+      const { say, mem } = guest();
+      await say("hello");
+      const pitch = await say("I sell cakes and small chops.");
+      expect(pitch.buttons?.body).toMatch(/^For \*cakes and small chops\*, your assistant answers "how much\?" with your own prices/);
+      expect(ids(pitch)).toEqual(["sign up", "see it as a customer"]);
+
+      await say("sign up");
+      expect((await say("Mama Cakes")).text).toBe("Thanks, *Mama Cakes* it is.\n\nDo you have a referral code? Send it now, or send *no* to carry on.");
+      expect(mem.rows.get(OWNER)).toMatchObject({ step: "referral", businessName: "Mama Cakes", description: "cakes and small chops" });
+    });
+
+    it("asks again when the answer can't be a trade, and sends the sign-up message on the second", async () => {
+      const { say } = guest();
+      await say("hi");
+      expect((await say("Okay")).text).toMatch(/few words what your business sells/);
+      const nudge = await say("40000");
+      expect(nudge.buttons?.body).toMatch(/^It looks like you may be here for your own business/);
+      expect(ids(nudge)).toEqual(["sign up", "see it as a customer"]);
+    });
+
+    it("opens the demo shop for See it as a customer, and passes shop questions straight to it", async () => {
+      const { say } = guest();
+      await say("hi");
+      const demo = await say("see it as a customer");
+      expect(demo.buttons?.body).toMatch(/^You're now a customer of the yarnOga Demo Shop\..*\n\nWelcome to the demo shop\.$/s);
+      await say("hi");
+      expect((await say("Do you have mugs?")).stage).toBeUndefined();
+    });
+
+    it("sends the sign-up message after two messages in a row the shop can't use, once a day", async () => {
+      const { say, nextDay } = guest();
+      expect((await say("Okay")).text).toBe("Which item do you want?");
+      expect((await say("Moni")).buttons?.body).toMatch(/your own business/);
+      expect((await say("20000")).text).toBe("Which item do you want?");
+      expect((await say("Hmm")).text).toBe("Which item do you want?");
+      nextDay();
+      expect((await say("lol")).buttons?.body).toMatch(/your own business/);
+    });
+
+    it("starts the count again after a message the shop understood", async () => {
+      const { say } = guest();
+      await say("Okay");
+      await say("20 T-shirts");
+      expect((await say("Moni")).text).toBe("Which item do you want?");
+    });
+
+    it("shows the intro when a first message can't be used", async () => {
+      const { say } = guest();
+      expect((await say("Good morning o, I'm not feeling fine", 0)).buttons?.body).toMatch(/This is yarnOga.*What do you sell\?$/s);
+    });
   });
 
   it("walks an owner from sign up to a saved business on the Free plan", async () => {

@@ -33,6 +33,14 @@ import { welcomeAsk } from "./welcome.js";
 // Afterwards the owner can send "try" to chat with their own bot as a
 // customer (test orders are not saved) and "prices" to change the list.
 //
+// Someone who isn't signed up and says hi meets yarnOga first, not the demo
+// shop: what it does for a business, and "what do you sell?". Their answer
+// gets a short pitch in their own words, with Sign up free and See it as a
+// customer (the demo shop). The answer is kept, so sign-up skips that question.
+// Two messages in a row the bot can't use get the sign-up message instead of
+// another guess, at most once a day. All kept in memory: a restart only means
+// a visitor may see the intro again.
+//
 // With signUpToContinue on, a visitor trying the demo shop is asked to sign up
 // right after choosing delivery or pickup, before the order is placed. Once
 // they've signed up, YES finishes the demo order and shows its invoice.
@@ -124,6 +132,12 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   // Visitors asked to sign up with a demo order waiting. Kept in memory: after
   // a restart their YES simply places the demo order.
   const waiting = new Set<string>();
+  const visitors = new Map<string, Visitor>();
+  const visitor = (waId: string): Visitor => {
+    let v = visitors.get(waId);
+    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null }));
+    return v;
+  };
 
   return {
     name: next.name,
@@ -155,24 +169,56 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           }
         }
         if (SIGN_UP.test(text)) {
-          await opts.store.save(msg.from, { step: "name", businessName: null, description: null, referralCode: null, draftCsv: null, trying: false });
+          const sells = visitors.get(msg.from)?.sells ?? null;
+          visitors.delete(msg.from);
+          await opts.store.save(msg.from, { step: "name", businessName: null, description: sells, referralCode: null, draftCsv: null, trying: false });
           return {
             text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
           };
         }
         const gate = opts.signUpToContinue && !signup?.businessId;
         if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
+        const ask = welcomeAsk(text);
+        const guest = !signup?.businessId;
+        if (guest && text.toLowerCase() === SEE_DEMO) {
+          visitor(msg.from).askedSells = false;
+          const shop = await next.handle({ ...msg, text: "hi" }, ctx);
+          return shop ? withoutStage(addNote(shop, DEMO_NOTE, true)) : { text: DEMO_NOTE };
+        }
+        if (guest && ask === "greeting") {
+          visitor(msg.from).askedSells = true;
+          return intro(msg.contactName);
+        }
+        if (guest && visitor(msg.from).askedSells) {
+          const answer = whatTheySell(msg, text);
+          if (answer) {
+            Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
+            return pitch(answer);
+          }
+          if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN };
+          visitor(msg.from).askedSells = false;
+        }
+
         const reply = await next.handle(msg, ctx);
         if (gate && reply?.stage === "delivery_chosen") {
           waiting.add(msg.from);
           return askToSignUp(reply);
         }
-        const ask = welcomeAsk(text);
+        if (guest && reply) {
+          if (reply.stage !== "unclear") visitor(msg.from).unclear = 0;
+          else if (ctx.history.length === 0) {
+            visitor(msg.from).askedSells = true;
+            return intro(msg.contactName);
+          } else {
+            const nudge = unclear(msg.from);
+            if (nudge) return nudge;
+          }
+        }
         const welcome = ask === "greeting" || ask === "help";
-        if (signup?.businessId && welcome && reply) return addNote(reply, AFTER);
-        if (signup || (ctx.history.length > 0 && !welcome)) return reply;
+        if (signup?.businessId && welcome && reply) return withoutStage(addNote(reply, AFTER));
+        if (signup || (ctx.history.length > 0 && !welcome)) return reply && withoutStage(reply);
         if (!reply) return { text: INVITE };
-        const invited = addNote(reply, INVITE);
+        const invited = withoutStage(addNote(reply, INVITE));
         if (invited.buttons && invited.buttons.buttons.length < 3) {
           invited.buttons.buttons = [...invited.buttons.buttons, { id: "sign up", title: "Get my own bot" }];
         }
@@ -193,6 +239,12 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           const name = text.replace(/\s+/g, " ");
           if (SIGN_UP.test(name)) return { text: "What's your business called?" };
           if (name.length < 2 || name.length > 80) return { text: "Please type your business name (80 letters at most)." };
+          if (signup.description) {
+            // They told us what they sell before signing up.
+            await opts.store.save(msg.from, { step: "referral", businessName: name });
+            const thanks = `Thanks, *${name}* it is.`;
+            return { text: looksLikePharmacy(name, signup.description) ? `${thanks}\n\n${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : `${thanks}\n\n${ASK_REFERRAL}` };
+          }
           await opts.store.save(msg.from, { step: "about", businessName: name });
           return { text: `Thanks. In a few words, what does *${name}* sell? For example: _cakes and pastries_ or _printed T-shirts and mugs_.` };
         }
@@ -398,6 +450,16 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return true;
   }
 
+  /** Counts a message the bot couldn't use; the second in a row gets the sign-up message, once a day. */
+  function unclear(waId: string): Reply | null {
+    const v = visitor(waId);
+    v.unclear++;
+    const today = now().toISOString().slice(0, 10);
+    if (v.unclear < 2 || v.nudgedOn === today) return null;
+    Object.assign(v, { unclear: 0, nudgedOn: today, askedSells: false });
+    return { text: "", buttons: { body: NUDGE, buttons: GUEST_BUTTONS } };
+  }
+
   function alert(text: string): Pick<Reply, "notify"> {
     return opts.alertWaId ? { notify: [{ to: opts.alertWaId, text }] } : {};
   }
@@ -413,12 +475,69 @@ function askToSignUp({ stage: _, ...reply }: Reply): Reply {
   return { ...reply, buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON, ...keep] } };
 }
 
+interface Visitor {
+  /** The intro asked what they sell and the answer hasn't come yet. */
+  askedSells: boolean;
+  sells: string | null;
+  /** Messages in a row the bot couldn't use. */
+  unclear: number;
+  nudgedOn: string | null;
+}
+
+const SEE_DEMO = "see it as a customer";
+const GUEST_BUTTONS = [SIGN_UP_BUTTON, { id: SEE_DEMO, title: "See it as a customer" }];
+const WHAT_IT_DOES =
+  "yarnOga gives your business a WhatsApp assistant that answers your customers, sends quotes and invoices, takes orders and payments, and keeps every order in one place.";
+const ASK_SELLS_AGAIN = "Tell me in a few words what your business sells, for example _cakes_, _shoes_ or _printing_.";
+const NUDGE = `It looks like you may be here for your own business. ${WHAT_IT_DOES}\n\nSign up free in about 5 minutes, right here in this chat, or see what your customers would see first.`;
+const DEMO_NOTE = "You're now a customer of the yarnOga Demo Shop. Order something to see what your customers will see, and send *sign up* when you're ready for your own.";
+const FILLER = /^(ok+a*y*|k+|yes|yeah|yea|no|nope|thanks?|thank you|tnx|hmm+|lol|alright|fine|sure|good|nice|cool|wow|moni|morning|noted|really|what|why|who)$/;
+
+function intro(contactName: string | undefined): Reply {
+  const first = contactName?.trim().split(/\s+/)[0];
+  return { text: "", buttons: { body: `Hi${first ? ` ${first}` : ""}! This is yarnOga. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\nWhat do you sell?`, buttons: GUEST_BUTTONS } };
+}
+
+function pitch(sells: string): Reply {
+  return {
+    text: "",
+    buttons: {
+      body:
+        `For *${sells}*, your assistant answers "how much?" with your own prices, sends the quote, takes the order and delivery address, sends the invoice with a pay link, and puts every order on your dashboard. ` +
+        "Your customers do it all in WhatsApp, where they already chat with you.\n\nIt's free to start. Sign up here in about 5 minutes, or see it as your customer would first.",
+      buttons: GUEST_BUTTONS,
+    },
+  };
+}
+
+/**
+ * The answer to "what do you sell?": the trade in their words, null when it
+ * can't be one ("okay", "40000"), undefined when it's a question for the shop.
+ */
+function whatTheySell(msg: IncomingMessage, text: string): string | null | undefined {
+  if (msg.type !== "text" && msg.type !== "audio") return null;
+  if (text.includes("?") || text.length > 60) return undefined;
+  const sells = text
+    .replace(/^(i|we)\s+(sell|make|do|deal in|bake|print)\s+/i, "")
+    .replace(/^(selling|into)\s+/i, "")
+    .replace(/[.!]+$/, "")
+    .trim();
+  const plain = sells.toLowerCase().replace(/[^\p{L}\s]/gu, "").trim();
+  if ((plain.match(/\p{L}/gu) ?? []).length < 3 || FILLER.test(plain)) return null;
+  return sells;
+}
+
+function withoutStage({ stage: _, ...reply }: Reply): Reply {
+  return reply;
+}
+
 const INVITE = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";
 
-/** Adds a paragraph to the end of a reply, inside its buttons message if it has one. */
-function addNote(reply: Reply, note: string): Reply {
-  if (reply.buttons) return { ...reply, buttons: { ...reply.buttons, body: `${reply.buttons.body}\n\n${note}` } };
-  return { ...reply, text: reply.text ? `${reply.text}\n\n${note}` : note };
+/** Adds a paragraph to the end (or start) of a reply, inside its buttons message if it has one. */
+function addNote(reply: Reply, note: string, first = false): Reply {
+  const join = (body: string) => (!body ? note : first ? `${note}\n\n${body}` : `${body}\n\n${note}`);
+  if (reply.buttons && !(first && reply.text)) return { ...reply, buttons: { ...reply.buttons, body: join(reply.buttons.body) } };
+  return { ...reply, text: join(reply.text) };
 }
 
 const AFTER = "Send *try* to chat with your bot as a customer would, or *prices* to change your price list.";
