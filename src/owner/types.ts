@@ -65,6 +65,16 @@ export interface AppBusiness {
   };
   /** Bot messages sent this month and the plan's allowance (null = no cap). */
   botMessages?(): Promise<{ sent: number; limit: number | null } | null>;
+  /**
+   * Paying its riders and staff (QUOTE_PAYOUTS, naira only): the payout
+   * balance, Paystack Transfers, and a Paystack link to add money.
+   */
+  payouts?: {
+    service: import("./payouts.js").Payouts;
+    topUpLink(waId: string, amountKobo: number): Promise<string>;
+    /** Paystack's recipient code for a bank account (it checks the account first). */
+    recipient(accountName: string, accountNumber: string, bankCode: string): Promise<string>;
+  };
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
   payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }

@@ -3,7 +3,8 @@
 //
 //   owner    everything
 //   manager  runs the shop day to day: everything except Settings, Export
-//            and Verify business (bank accounts, alert numbers, the team)
+//            and Verify business (bank accounts, alert numbers, the team).
+//            Can pay riders and staff, but only the owner sets their bank details.
 //   cashier  chats and orders: Inbox, Orders (can mark paid), Customers,
 //            counter sales and the price list to read. No takings, totals,
 //            cost prices, profit or settings.
@@ -29,11 +30,12 @@ export type Permission =
   | "see_prices" // the price list, read only
   | "counter" // ring up a walk-in shopper's sale (QUOTE_COUNTER_SALES)
   | "edit_prices" // add and change products, prices and stock
-  | "tools"; // test the bot (each test is an AI cost) and QR posters
+  | "tools" // test the bot (each test is an AI cost) and QR posters
+  | "pay_out"; // pay riders and staff from the payout balance (QUOTE_PAYOUTS); bank details stay owner-only
 
 const GRANTS: Record<Role, ReadonlySet<Permission>> = {
-  owner: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices", "counter", "edit_prices", "tools"]),
-  manager: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices", "counter", "edit_prices", "tools"]),
+  owner: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices", "counter", "edit_prices", "tools", "pay_out"]),
+  manager: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices", "counter", "edit_prices", "tools", "pay_out"]),
   cashier: new Set<Permission>(["inbox", "take_payment", "customers", "see_prices", "counter"]),
   rider: new Set<Permission>([]),
 };
