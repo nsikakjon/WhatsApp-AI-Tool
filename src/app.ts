@@ -15,6 +15,7 @@ import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
 import { createEmailRoutes } from "./core/email/routes.js";
 import { createShopPage, type ShopDeps } from "./products/quote/shop.js";
+import { createProcessedCounter, type ProcessedCounterDeps } from "./core/payments/processed.js";
 import { screenShield } from "./core/security/shield.js";
 import type { AppUser } from "./owner/store.js";
 
@@ -43,6 +44,8 @@ export function createApp(
     shop?: ShopDeps;
     /** Hidden numbers behind an eye button, watermark and no saved copies on private pages (SCREEN_SHIELD). */
     screenShield?: boolean;
+    /** The money processed figure for yarnoga.com at /processed (PROCESSED_COUNTER_MIN_NAIRA). */
+    processed?: ProcessedCounterDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -117,6 +120,8 @@ export function createApp(
   if (more.emails) app.route("/email", createEmailRoutes(more.emails));
 
   if (more.shop) app.route("/", createShopPage(more.shop));
+
+  if (more.processed) app.route("/processed", createProcessedCounter(more.processed));
 
   return app;
 }

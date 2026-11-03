@@ -108,6 +108,7 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
@@ -1333,6 +1334,9 @@ const app = createApp({
   emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
   shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
   screenShield: config.screenShield,
+  processed: config.processedCounterMinKobo
+    ? { totalKobo: createSupabaseProcessedTotal(supabase), minKobo: config.processedCounterMinKobo }
+    : undefined,
 });
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.
