@@ -10,11 +10,13 @@ import { createQuoteSetup, type QuoteSetupDeps } from "./products/quote/setup.js
 import { createTracking, type TrackingDeps } from "./products/quote/delivery/tracking.js";
 import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
+import { createDoorScreens, type DoorDeps } from "./products/quote/tickets/door.js";
 import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
 import { createEmailRoutes } from "./core/email/routes.js";
 import { createShopPage, type ShopDeps } from "./products/quote/shop.js";
+import { createProcessedCounter, type ProcessedCounterDeps } from "./core/payments/processed.js";
 import { screenShield } from "./core/security/shield.js";
 import type { AppUser } from "./owner/store.js";
 
@@ -41,8 +43,12 @@ export function createApp(
     emails?: Parameters<typeof createEmailRoutes>[0];
     /** Each quote business's public shop page at /shop/<name> (QUOTE_SHOP). */
     shop?: ShopDeps;
+    /** The door screen and ticket pages for event tickets (QUOTE_EVENT_TICKETS). */
+    door?: DoorDeps;
     /** Hidden numbers behind an eye button, watermark and no saved copies on private pages (SCREEN_SHIELD). */
     screenShield?: boolean;
+    /** The money processed figure for yarnoga.com at /processed (PROCESSED_COUNTER_MIN_NAIRA). */
+    processed?: ProcessedCounterDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -98,6 +104,9 @@ export function createApp(
   // Kitchen and bar screens and receipt QR codes for walk-in orders; only when QUOTE_WALK_IN is on.
   if (walkInScreens) app.route("/", createWalkInScreens(walkInScreens));
 
+  // The door screen and ticket QR codes for event tickets; only when QUOTE_EVENT_TICKETS is on.
+  if (more.door) app.route("/", createDoorScreens(more.door));
+
   // The owners' and staff web app (app.yarnoga.com), only when OWNER_APP is on.
   if (more.ownerApp) {
     app.get("/home/", (c) => c.redirect("/home", 301));
@@ -117,6 +126,8 @@ export function createApp(
   if (more.emails) app.route("/email", createEmailRoutes(more.emails));
 
   if (more.shop) app.route("/", createShopPage(more.shop));
+
+  if (more.processed) app.route("/processed", createProcessedCounter(more.processed));
 
   return app;
 }

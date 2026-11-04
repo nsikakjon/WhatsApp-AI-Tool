@@ -3,6 +3,7 @@ import { formatMoney, type Currency } from "../../core/money.js";
 import { quoteLine, quoteTotal, type QuoteLine } from "../../products/quote/pricing.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
+import { BARCODE_KEY_JS, barcodeKey, scannerBox } from "../scanner.js";
 import { PAID_BY, type CounterSale, type PaidBy, type ProductOption, type ProductRecord, type SoldLine } from "../store.js";
 import type { AppContext, Env } from "../types.js";
 import { lagosMidnight } from "./tools.js";
@@ -12,12 +13,41 @@ import { lagosMidnight } from "./tools.js";
 // stock in one step, so the stock count stays right when not every sale comes
 // through WhatsApp. Prices come from the price list, worked out by the same
 // code as the bot's quotes. Cost prices on the price list give each sale its
-// profit.
+// profit. With QUOTE_BARCODES, scanning a product's barcode (phone camera, or
+// a plug-in scanner typing into the search box) adds one of it.
 
 const UUID = /^[0-9a-f-]{36}$/;
 const MAX_QUANTITY = 100_000;
 
 export const PAID_BY_LABEL: Record<PaidBy, string> = { cash: "Cash", transfer: "Transfer", pos: "POS" };
+
+/**
+ * Scanning on the counter screen: each barcode read adds one of its option,
+ * through the same + button staff tap. Runs inside the screen's script.
+ */
+const SCAN_SCRIPT = `${BARCODE_KEY_JS}
+  var scan = document.getElementById("scan"), said = document.getElementById("scanned");
+  var added = function (code) {
+    var key = barcodeKey(code);
+    var row = Array.prototype.find.call(form.querySelectorAll(".sellable[data-barcode]"), function (r) { return r.dataset.barcode === key; });
+    if (!row) { said.textContent = "Barcode " + code + " isn't on your price list."; return; }
+    var plus = row.querySelector('[data-step="1"]');
+    if (plus.disabled) { said.textContent = row.querySelector("b").textContent + " is sold out."; return; }
+    plus.click();
+    row.hidden = false;
+    said.textContent = "Added " + row.querySelector("b").textContent + " (" + row.querySelector(".qty input").value + ")";
+  };
+  scan.addEventListener("click", function () { scanBarcodes(added, true); });
+  // A plug-in scanner types the code and presses Enter.
+  find.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!find.value.trim()) return;
+    added(find.value);
+    find.value = "";
+    filter();
+  });
+`;
 
 /** A price list option that can be rung up: it has a price. */
 interface Sellable {
@@ -156,7 +186,8 @@ export function registerCounter(app: Hono<Env>, ctx: SectionContext) {
         const price = o.tiers.map((t, i) => (i === 0 ? `${money(t.unitPriceKobo)} each` : `${money(t.unitPriceKobo)} from ${t.minQuantity}`)).join(", ");
         const soldOut = o.stock === 0;
         const notes = [price, o.minQuantity > 1 ? `smallest sale ${o.minQuantity}` : "", o.stock !== null ? (soldOut ? "sold out" : `${o.stock} left`) : ""].filter(Boolean);
-        return `<div class="sellable" data-name="${esc(s.name.toLowerCase())}"><div style="min-width:0"><b>${esc(s.name)}</b><p class="muted small" style="margin:0">${esc(notes.join(" · "))}</p></div>
+        const code = biz.barcodes && o.barcode ? ` data-barcode="${esc(barcodeKey(o.barcode))}"` : "";
+        return `<div class="sellable" data-name="${esc(s.name.toLowerCase())}"${code}><div style="min-width:0"><b>${esc(s.name)}</b><p class="muted small" style="margin:0">${esc(notes.join(" · "))}</p></div>
 <div class="qty"><button type="button" class="ghost small" data-step="-1" aria-label="One less"${soldOut ? " disabled" : ""}>${icon("minus", 16)}</button><input name="q_${s.variantId}" inputmode="numeric" value="${picked.get(s.variantId) ?? ""}" aria-label="How many ${esc(s.name)}"${soldOut ? " disabled" : ""}><button type="button" class="small" data-step="1" aria-label="One more"${soldOut ? " disabled" : ""}>${icon("plus", 16)}</button></div></div>`;
       })
       .join("");
@@ -167,7 +198,12 @@ export function registerCounter(app: Hono<Env>, ctx: SectionContext) {
 ${
   items.length
     ? `<form method="post" action="/home/counter/check">
-<input type="search" id="find" placeholder="Search products" aria-label="Search products" autocomplete="off">
+${
+  biz.barcodes
+    ? `<div style="display:flex;gap:8px"><input type="search" id="find" placeholder="Search or scan a barcode" aria-label="Search products or scan a barcode" autocomplete="off" style="flex:1;min-width:0"><button type="button" class="ghost" id="scan">${icon("barcode", 18)}Scan</button></div>
+<p class="muted small" id="scanned" aria-live="polite" style="margin:6px 0">${items.some((s) => s.option.barcode) ? "" : `No barcodes on your price list yet.${ctx.can(c, "edit_prices") ? ` Add them on the <a href="/home/prices">price list</a>.` : ""}`}</p>${scannerBox()}`
+    : `<input type="search" id="find" placeholder="Search products" aria-label="Search products" autocomplete="off">`
+}
 <div class="sellables">${rows}</div>
 <p style="margin:16px 0 6px"><b>Paid by</b></p><div style="display:flex;gap:20px;flex-wrap:wrap">${paid}</div>
 <div class="actions"><button>Check the total</button><span class="muted small" id="picked"></span></div>
@@ -189,10 +225,13 @@ ${
     });
   });
   form.addEventListener("input", count);
-  document.getElementById("find").addEventListener("input", function (e) {
-    var q = e.target.value.trim().toLowerCase();
+  var find = document.getElementById("find");
+  function filter() {
+    var q = find.value.trim().toLowerCase();
     form.querySelectorAll(".sellable").forEach(function (row) { row.hidden = q !== "" && row.dataset.name.indexOf(q) < 0; });
-  });
+  }
+  find.addEventListener("input", filter);
+  ${biz.barcodes ? SCAN_SCRIPT : ""}
   count();
 })();
 </script>`

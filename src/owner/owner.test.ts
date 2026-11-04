@@ -5,7 +5,8 @@ import type { BoardOrder, BoardStore } from "../products/quote/board.js";
 import { checkPassword, hashPassword, hashToken, normaliseWaId, passwordProblem } from "./auth.js";
 import { csvCell, koboToPlainNaira, ordersCsv } from "./exports.js";
 import { createOwnerApp } from "./index.js";
-import { readProductForm } from "./sections/prices.js";
+import { barcodesTaken, readProductForm } from "./sections/prices.js";
+import { barcodeKey } from "./scanner.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import { taxCsv, taxMonths, taxTotal, vatInside, yearMonths } from "./sections/tax.js";
@@ -658,6 +659,86 @@ describe("counter sales", () => {
     expect(await (await get(s, "/", cookie)).text()).not.toContain("/home/counter");
     expect((await get(s, "/counter", cookie)).status).toBe(404);
     expect(await (await get(s, "/prices/new", cookie)).text()).not.toContain("_cost");
+  });
+});
+
+describe("barcodes at the counter", () => {
+  const TIN = "44444444-4444-4444-4444-000000000001";
+  const milk = (barcode: string | null = "5000159484695"): ProductRecord => ({
+    id: "22222222-2222-2222-2222-000000000001",
+    name: "Peak milk",
+    description: null,
+    category: null,
+    unit: null,
+    leadTimeDays: null,
+    active: true,
+    photoPath: null,
+    options: [{ id: TIN, name: "Tin", minQuantity: 1, stock: 5, barcode, tiers: [{ minQuantity: 1, unitPriceKobo: 50_000 }] }],
+  });
+  const counter: CounterStore = {
+    sell: vi.fn(),
+    void: vi.fn(),
+    sales: async () => [],
+    paidOrders: async () => [],
+  };
+  function withBarcodes(on = true) {
+    const s = setup({ counter, barcodes: on });
+    s.prices.all.push(milk());
+    return s;
+  }
+
+  it("treats a UPC-A code and its EAN-13 form as the same barcode", () => {
+    expect(barcodeKey("012345678905")).toBe(barcodeKey("0012345678905"));
+    expect(barcodeKey(" abc-12 ")).toBe("ABC-12");
+    expect(barcodeKey("0")).toBe("0");
+  });
+
+  it("reads a barcode on the product form, and refuses a bad or repeated one", () => {
+    const form = { name: "Bournvita", o0_name: "Tin", o0_p0: "2500", o0_barcode: " 6156000 01234 5 " };
+    expect(readProductForm(form).input.options[0]!.barcode).toBe("6156000012345");
+    expect(readProductForm({ ...form, o0_barcode: "" }).input.options[0]!.barcode).toBeNull();
+    expect("barcode" in readProductForm({ name: "Bournvita", o0_name: "Tin", o0_p0: "2500" }).input.options[0]!).toBe(false);
+    expect(readProductForm({ ...form, o0_barcode: "<b>" }).problems[0]).toContain("isn't a barcode");
+    expect(readProductForm({ ...form, o1_name: "Refill", o1_p0: "2000", o1_barcode: "06156000012345" }).problems).toEqual(["Two options have the same barcode."]);
+    const taken = barcodesTaken([milk()], null, [{ name: "Tin", minQuantity: 1, stock: null, barcode: "05000159484695", tiers: [] }]);
+    expect(taken).toEqual(["Barcode 05000159484695 is already on Peak milk: Tin. Each barcode can be on one option only."]);
+    expect(barcodesTaken([milk()], milk().id, milk().options)).toEqual([]);
+  });
+
+  it("puts a Scan button and each option's barcode on the counter screen", async () => {
+    const s = withBarcodes();
+    const cookie = await login(s, OWNER);
+    const screen = await (await get(s, "/counter", cookie)).text();
+    expect(screen).toContain('data-barcode="5000159484695"');
+    expect(screen).toContain('id="scan"');
+    expect(screen).toContain("scanBarcodes");
+    expect(await (await get(s, `/prices/${milk().id}`, cookie)).text()).toContain('name="o0_barcode" maxlength="60" autocomplete="off" value="5000159484695"');
+  });
+
+  it("won't save a barcode another product already has", async () => {
+    const s = withBarcodes();
+    const cookie = await login(s, OWNER);
+    const res = await s.app.request(`https://${HOST}/prices/new`, post({ name: "Bournvita", o0_name: "Tin", o0_p0: "2500", o0_barcode: "5000159484695" }, cookie));
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("already on Peak milk: Tin");
+    expect(s.prices.all).toHaveLength(1);
+  });
+
+  it("stays off without the switch", async () => {
+    const s = withBarcodes(false);
+    const cookie = await login(s, OWNER);
+    const screen = await (await get(s, "/counter", cookie)).text();
+    expect(screen).not.toContain("data-barcode");
+    expect(screen).not.toContain('id="scan"');
+    expect(await (await get(s, "/prices/new", cookie)).text()).not.toContain("_barcode");
+  });
+
+  it("serves the scanner for phones without a built-in one, zipped", async () => {
+    const s = setup();
+    const res = await s.app.request(`https://${HOST}/assets/zxing.js`, { headers: { "accept-encoding": "gzip, br" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    expect(res.headers.get("cache-control")).toContain("max-age");
   });
 });
 

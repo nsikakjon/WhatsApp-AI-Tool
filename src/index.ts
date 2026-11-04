@@ -13,7 +13,8 @@ import type { Product } from "./core/product.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
-import { orderPayLinks, withOrderPayments } from "./products/quote/paylinks.js";
+import { DEFAULT_FEE_CAP, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
+import { createMonthly, createSupabaseMonthlyStore, type Monthly } from "./products/quote/monthly.js";
 import {
   createSupabaseBranding,
   createSupabaseBusinesses,
@@ -73,6 +74,9 @@ import {
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
+import { createEventTickets } from "./products/quote/tickets/index.js";
+import { createTicketLinks } from "./products/quote/tickets/links.js";
+import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -108,6 +112,7 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
@@ -377,6 +382,14 @@ const walkInFor = (businessId: string, orderPrefix: string, features?: PlanFeatu
     ? createWalkIn({ businessId, orderPrefix, store: createSupabaseWalkInStore(supabase, businessId), links: walkInLinks, features })
     : undefined;
 
+// Event tickets, their QR codes and the door screen (QUOTE_EVENT_TICKETS).
+const ticketsConfig = config.activeProduct === "quote" ? config.quoteEventTickets : undefined;
+const ticketLinks = ticketsConfig && createTicketLinks(config.whatsapp.appSecret, ticketsConfig.publicUrl);
+const ticketsFor = (businessId: string, businessName: string, orderPrefix: string, language: Lang, features?: PlanFeatures) =>
+  ticketLinks
+    ? createEventTickets({ businessId, businessName, orderPrefix, language, store: createSupabaseTicketStore(supabase, businessId), links: ticketLinks, features })
+    : undefined;
+
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
 async function numbersAllowed(mainId: string): Promise<number | null> {
   const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
@@ -498,6 +511,7 @@ if (config.activeProduct === "quote" && config.quote) {
     ),
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
+    tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features),
     sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
@@ -594,6 +608,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
+    tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),
@@ -927,6 +942,48 @@ if (payoutTransfers) {
   };
   productNumbers.payouts = config.whatsapp.phoneNumberId;
 }
+// Monthly payments from a business's regular customers (QUOTE_MONTHLY_PAYMENTS,
+// migration 0069): naira businesses with a Paystack subaccount, as the money
+// goes to the business's own bank. yarnOga's fee is the plan's transaction
+// fee, as on invoice pay links.
+async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
+  if (!config.quoteMonthly || !payments || !config.paystack) return undefined;
+  const main = businessId === DEFAULT_BUSINESS_ID;
+  const row = main ? null : quoteBusinesses ? await createSupabaseBusinesses(supabase).get(businessId) : null;
+  if (main ? !config.quote : !row) return undefined;
+  const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
+  const subaccount = main ? config.quote!.paystackSubaccount : row!.paystackSubaccount;
+  const found = await quoteBotFor(businessId);
+  if (currency !== "NGN" || !subaccount || !found) return undefined;
+  const { features } = main ? (config.quote!.plan ? planFeatures(businessId, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? businessId);
+  return createMonthly({
+    store: createSupabaseMonthlyStore(supabase, businessId),
+    payments,
+    businessId,
+    businessName: found.name,
+    subaccount,
+    async feeKobo(amountKobo) {
+      if (!features || !(await features.has("transaction_fee"))) return 0;
+      const cap = (await features.limit("transaction_fee_cap_ngn").catch(() => null)) ?? DEFAULT_FEE_CAP.NGN;
+      return transactionFeeKobo(amountKobo, (await features.limit("transaction_fee")) ?? 0, cap);
+    },
+    canMessageFreely: (waId) => canMessageFreely(store, waId),
+    template: config.quoteMonthly.template,
+    send: (note) => sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined),
+    ownerWaId: found.ownerWaId,
+  });
+}
+if (config.quoteMonthly && payments) {
+  paidHandlers.monthly = async (payment, paid) => {
+    const businessId = payment.purpose.businessId;
+    const monthly = typeof businessId === "string" ? await monthlyFor(businessId) : undefined;
+    if (!monthly) throw new Error(`Monthly payment ${payment.reference} is for a business without monthly payments set up`);
+    const found = await quoteBotFor(businessId as string);
+    return (await monthly.paid(payment, paid?.card)).map((n) => ({ ...n, fromNumberId: found?.fromNumberId ?? undefined }));
+  };
+  productNumbers.monthly = config.whatsapp.phoneNumberId;
+}
+
 const payoutWebhook = payoutTransfers
   ? {
       async confirm(reference: string) {
@@ -1023,10 +1080,11 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             includeUnnumbered: main,
             features,
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
-            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales }),
+            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes }),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
+            barcodes: config.quoteBarcodes,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
               : undefined,
@@ -1106,6 +1164,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                     recipient: (accountName: string, accountNumber: string, bankCode: string) => payoutTransfers.recipient({ name: accountName, accountNumber, bankCode }),
                   }
                 : undefined,
+            monthly: await monthlyFor(id),
             payLinks: {
               on: Boolean(
                 config.quotePayLinks &&
@@ -1333,8 +1392,20 @@ const app = createApp({
   ownerApp: ownerAppDeps,
   compliance: complianceDeps,
   emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
+  door: ticketsConfig
+    ? {
+        secret: config.whatsapp.appSecret,
+        async business(id) {
+          const found = await quoteBotFor(id);
+          return found ? { name: found.name, orderPrefix: found.orderPrefix, store: createSupabaseTicketStore(supabase, id) } : null;
+        },
+      }
+    : undefined,
   shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
   screenShield: config.screenShield,
+  processed: config.processedCounterMinKobo
+    ? { totalKobo: createSupabaseProcessedTotal(supabase), minKobo: config.processedCounterMinKobo }
+    : undefined,
 });
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.
@@ -1569,6 +1640,22 @@ if (payReminders) {
   });
 }
 
+// Monthly payments (QUOTE_MONTHLY_PAYMENTS): every 15 minutes, months that
+// have come due are charged to the saved card or sent as a link, and unpaid
+// ones are reminded, in the daytime only.
+if (config.quoteMonthly && payments) {
+  runEvery(15 * 60 * 1000, async () => {
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !b.phoneNumberId)) continue;
+      try {
+        await (await monthlyFor(b.id))?.run();
+      } catch (err) {
+        console.error(`Monthly payments failed for ${b.name}:`, err);
+      }
+    }
+  });
+}
+
 // A WhatsApp alert for yarnOga itself: to the sign-up alert number from the
 // sign-up line, else to QUOTE_OWNER_WA_ID from the main number.
 async function alertYarnoga(text: string): Promise<void> {
@@ -1736,6 +1823,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

@@ -12,7 +12,7 @@ import { isPhoneNumber } from "../../core/whatsapp/ids.js";
 
 const fontDir = fileURLToPath(new URL("../../../assets/fonts/", import.meta.url));
 let fontsLoaded = false;
-function loadFonts() {
+export function loadFonts() {
   if (fontsLoaded) return;
   // Inter, because it has the naira sign (₦); the flyer fonts don't.
   GlobalFonts.registerFromPath(`${fontDir}Inter-Regular.otf`, "Inter");
@@ -290,19 +290,8 @@ const QR_SIZE = 320;
 function drawPickup(ctx: SKRSContext2D, pickup: Pickup, top: number, w: (typeof WORDS)["en"]) {
   ctx.fillStyle = SHADE;
   ctx.fillRect(MARGIN, top, WIDTH - 2 * MARGIN, PICKUP_HEIGHT - 50);
-  const qr = QRCode.create(pickup.qrText, { errorCorrectionLevel: "M" }).modules;
-  const quiet = 4;
-  const cell = Math.floor(QR_SIZE / (qr.size + 2 * quiet));
   const qrX = MARGIN + 25;
-  const qrY = top + 25;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(qrX, qrY, cell * (qr.size + 2 * quiet), cell * (qr.size + 2 * quiet));
-  ctx.fillStyle = "#000000";
-  for (let r = 0; r < qr.size; r++) {
-    for (let c = 0; c < qr.size; c++) {
-      if (qr.get(r, c)) ctx.fillRect(qrX + (c + quiet) * cell, qrY + (r + quiet) * cell, cell, cell);
-    }
-  }
+  drawQr(ctx, pickup.qrText, qrX, top + 25, QR_SIZE);
 
   const x = qrX + QR_SIZE + 50;
   const textWidth = WIDTH - MARGIN - 24 - x;
@@ -327,8 +316,23 @@ function drawPickup(ctx: SKRSContext2D, pickup: Pickup, top: number, w: (typeof 
   }
 }
 
+/** A QR code in black on a white square of `size` pixels (quiet edge included), top left at x, y. */
+export function drawQr(ctx: SKRSContext2D, text: string, x: number, y: number, size: number) {
+  const qr = QRCode.create(text, { errorCorrectionLevel: "M" }).modules;
+  const quiet = 4;
+  const cell = Math.floor(size / (qr.size + 2 * quiet));
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, cell * (qr.size + 2 * quiet), cell * (qr.size + 2 * quiet));
+  ctx.fillStyle = "#000000";
+  for (let r = 0; r < qr.size; r++) {
+    for (let c = 0; c < qr.size; c++) {
+      if (qr.get(r, c)) ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell, cell);
+    }
+  }
+}
+
 /** Splits text into lines that fit `maxWidth` in the current font. */
-function wrap(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
+export function wrap(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";

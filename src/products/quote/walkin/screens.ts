@@ -50,7 +50,7 @@ const COLLECTED_SHOWN_MS = 20 * 60_000;
 const UUID = /^[0-9a-f-]{36}$/;
 
 let jsQr: string | undefined;
-function jsQrSource(): string {
+export function jsQrSource(): string {
   jsQr ??= readFileSync(createRequire(import.meta.url).resolve("jsqr/dist/jsQR.js"), "utf8");
   return jsQr;
 }
@@ -253,12 +253,12 @@ export function createWalkInScreens(deps: ScreenDeps) {
   return app;
 }
 
-function clock(at: Date): string {
+export function clock(at: Date): string {
   return at.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Africa/Lagos" });
 }
 
 function screenScript(token: string): string {
-  return `<script src="/screen/assets/jsQR.js" defer></script><script>
+  return `<script>
 (() => {
   const list = document.getElementById("list");
   setInterval(async () => {
@@ -268,18 +268,29 @@ function screenScript(token: string): string {
       if (res.ok) list.innerHTML = await res.text();
     } catch {}
   }, 8000);
+})();
+</script>${scannerScript("/screen/assets/jsQR.js")}`;
+}
 
+/**
+ * The camera for the "Scan QR" button: puts what it reads into the #code box
+ * and sends the #find form. Needs #scan, #camera, #video and #stop on the page.
+ * `autoStart` opens the camera straight away (the door's "Scan next").
+ */
+export function scannerScript(jsQrPath: string, autoStart = false): string {
+  return `<script src="${jsQrPath}" defer></script><script>
+(() => {
   const form = document.getElementById("find"), code = document.getElementById("code");
   const camera = document.getElementById("camera"), video = document.getElementById("video");
   let stream = null;
   const stop = () => { if (stream) stream.getTracks().forEach((t) => t.stop()); stream = null; camera.hidden = true; };
   const found = (text) => { stop(); code.value = text; form.submit(); };
   document.getElementById("stop").onclick = stop;
-  document.getElementById("scan").onclick = async () => {
+  const scan = async () => {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     } catch {
-      alert("The camera didn't open. Allow camera use for this page, or type the order number and code.");
+      alert("The camera didn't open. Allow camera use for this page, or type the code.");
       return;
     }
     camera.hidden = false;
@@ -304,11 +315,12 @@ function screenScript(token: string): string {
     };
     look();
   };
+  document.getElementById("scan").onclick = scan;${autoStart ? " scan();" : ""}
 })();
 </script>`;
 }
 
-function page(title: string, body: string, script = ""): string {
+export function page(title: string, body: string, script = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><title>${esc(title)}</title>
 <style>
@@ -334,6 +346,6 @@ button.quiet{background:#2e302f;color:#f3f4ef}
 ${body}</main>${script}</body></html>`;
 }
 
-function esc(text: string): string {
+export function esc(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }

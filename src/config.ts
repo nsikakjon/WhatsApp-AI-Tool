@@ -129,16 +129,26 @@ export interface Config {
    * receipts, pickup screens, table numbers. Only set when QUOTE_WALK_IN is true.
    */
   quoteWalkIn?: { publicUrl: string };
+  /** Event tickets with a QR code each and a door screen (migration 0068). Only set when QUOTE_EVENT_TICKETS is true. */
+  quoteEventTickets?: { publicUrl: string };
   /** Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true. */
   quoteShop?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
   /** Counter sales and cost prices in the owner app (migration 0060). */
   quoteCounterSales: boolean;
+  /** Barcodes on the price list and a Scan button on the counter sale screen (migration 0067). Only with quoteCounterSales. */
+  quoteBarcodes: boolean;
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
   /** Monthly sales totals for VAT and the presumptive tax in the owner app. Off unless QUOTE_TAX_SUMMARY is true. */
   quoteTaxSummary: boolean;
+  /**
+   * Monthly payments from a business's regular customers (migration 0069).
+   * Only set when QUOTE_MONTHLY_PAYMENTS is true. `template` is an approved
+   * WhatsApp template for customers who haven't messaged in the last day.
+   */
+  quoteMonthly?: { template?: { name: string; language: string } };
   /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
   quoteDiscountCodes: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
@@ -224,6 +234,11 @@ export interface Config {
    * name watermark, no saved copies. Off unless SCREEN_SHIELD is true.
    */
   screenShield: boolean;
+  /**
+   * The "₦X processed through yarnOga" line on the website, shown once paid
+   * naira payments reach this many kobo. Off unless PROCESSED_COUNTER_MIN_NAIRA is set.
+   */
+  processedCounterMinKobo?: number;
   /**
    * The owner setup screen at /quote-setup (businesses and price lists for
    * the quote bot). Only set when QUOTE_SETUP_PASSWORD is.
@@ -479,8 +494,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
+    quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
     quoteTaxSummary: /^(true|yes|on|1)$/i.test(env.QUOTE_TAX_SUMMARY ?? ""),
+    quoteMonthly: /^(true|yes|on|1)$/i.test(env.QUOTE_MONTHLY_PAYMENTS ?? "")
+      ? {
+          template: env.QUOTE_MONTHLY_TEMPLATE_NAME
+            ? { name: env.QUOTE_MONTHLY_TEMPLATE_NAME, language: env.QUOTE_MONTHLY_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
+        }
+      : undefined,
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
@@ -497,6 +520,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
     quoteWalkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_WALK_IN ?? "")
+      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
+    quoteEventTickets: /^(true|yes|on|1)$/i.test(env.QUOTE_EVENT_TICKETS ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
     quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "")
@@ -527,6 +553,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
+    processedCounterMinKobo: env.PROCESSED_COUNTER_MIN_NAIRA?.trim()
+      ? wholeNumber(env, "PROCESSED_COUNTER_MIN_NAIRA", 1) * 100
+      : undefined,
     quoteSetup: env.QUOTE_SETUP_PASSWORD
       ? {
           password: longPassword(env, "QUOTE_SETUP_PASSWORD"),

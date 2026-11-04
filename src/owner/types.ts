@@ -40,6 +40,8 @@ export interface AppBusiness {
   };
   /** Counter sales and cost prices (QUOTE_COUNTER_SALES); without it both are hidden. */
   counter?: CounterStore;
+  /** Barcodes on the price list and scanning on the counter sale screen (QUOTE_BARCODES, needs counter). */
+  barcodes?: boolean;
   /** Riders and zones (QUOTE_DELIVERY); without it the page explains how to switch delivery on. */
   delivery?: DeliverySetupStore;
   /**
@@ -77,6 +79,8 @@ export interface AppBusiness {
   };
   /** Monthly sales for VAT and the presumptive tax (QUOTE_TAX_SUMMARY); without it the page is hidden. */
   tax?: TaxSalesStore;
+  /** Monthly payments from regular customers (QUOTE_MONTHLY_PAYMENTS, naira, needs a Paystack subaccount). */
+  monthly?: import("../products/quote/monthly.js").Monthly;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
   payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }

@@ -29,9 +29,11 @@ const ICONS: Record<string, string> = {
   more: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   logout: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  barcode: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/>',
   minus: '<path d="M5 12h14"/>',
   till: '<rect x="3" y="10" width="18" height="10" rx="2"/><path d="M6 10V4h9v6M9 7h3M7 15h2M11 15h2M15 15h2"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1V7Z"/><path d="M4 7l11-3v3"/><path d="M16 13.5h.01"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
@@ -62,6 +64,8 @@ export interface NavItem {
   payouts?: boolean;
   /** Only when the tax summary is switched on (QUOTE_TAX_SUMMARY). */
   tax?: boolean;
+  /** Only when monthly payments are on for this business (QUOTE_MONTHLY_PAYMENTS). */
+  monthly?: boolean;
 }
 
 export const NAV: NavItem[] = [
@@ -73,6 +77,7 @@ export const NAV: NavItem[] = [
   { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
   { href: "/home/pay", label: "Pay people", icon: "wallet", need: "pay_out", payouts: true },
+  { href: "/home/monthly", label: "Monthly payments", icon: "repeat", need: "money", monthly: true },
   { href: "/home/test", label: "Test your bot", icon: "test", need: "tools" },
   { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools" },
   { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
@@ -95,6 +100,8 @@ export interface Shell {
   payouts?: boolean;
   /** The tax summary is on for this business. */
   tax?: boolean;
+  /** Monthly payments are on for this business. */
+  monthly?: boolean;
   /** Other businesses this person can switch to. */
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
@@ -108,7 +115,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.tax || s.tax));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");

@@ -55,6 +55,8 @@ export interface ProductOption {
   stock: number | null;
   /** What one piece costs the business, for profit (QUOTE_COUNTER_SALES). Null: not entered; missing: not read. */
   costKobo?: number | null;
+  /** The number under its barcode, for scanning at the counter (QUOTE_BARCODES). Null: none; missing: not read. */
+  barcode?: string | null;
   /** Price per piece from each quantity up. Empty: priced by the team. */
   tiers: PriceTier[];
 }
@@ -398,6 +400,7 @@ type ProductRow = {
     min_quantity: number;
     stock?: number | null;
     cost_kobo?: number | string | null;
+    barcode?: string | null;
     active: boolean;
     created_at: string;
     quote_price_tiers: Array<{ min_quantity: number; unit_price_kobo: number | string }>;
@@ -424,6 +427,7 @@ function toProduct(p: ProductRow): ProductRecord {
         minQuantity: v.min_quantity,
         stock: v.stock ?? null,
         ...(v.cost_kobo !== undefined ? { costKobo: v.cost_kobo === null ? null : Number(v.cost_kobo) } : {}),
+        ...(v.barcode !== undefined ? { barcode: v.barcode } : {}),
         tiers: v.quote_price_tiers
           .map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) }))
           .sort((a, b) => a.minQuantity - b.minQuantity),
@@ -432,12 +436,15 @@ function toProduct(p: ProductRow): ProductRecord {
 }
 
 // Every product column, so more_photos is read once migration 0061 is run.
-const productSelect = (costs: boolean) =>
-  `*, quote_variants(id, name, min_quantity, stock,${costs ? " cost_kobo," : ""} active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))`;
+const productSelect = (opts: { costs?: boolean; barcodes?: boolean }) =>
+  `*, quote_variants(id, name, min_quantity, stock,${opts.costs ? " cost_kobo," : ""}${opts.barcodes ? " barcode," : ""} active, created_at, quote_price_tiers(min_quantity, unit_price_kobo))`;
 
-/** `costs`: read and save cost prices too (migration 0060 adds the column). */
-export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean } = {}): PriceStore {
-  const PRODUCT_SELECT = productSelect(Boolean(opts.costs));
+/**
+ * `costs`: read and save cost prices too (migration 0060 adds the column).
+ * `barcodes`: the same for barcodes (migration 0067).
+ */
+export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean; barcodes?: boolean } = {}): PriceStore {
+  const PRODUCT_SELECT = productSelect(opts);
   async function product(id: string): Promise<ProductRecord | null> {
     const { data, error } = await db.from("quote_products").select(PRODUCT_SELECT).eq("business_id", businessId).eq("id", id).maybeSingle();
     const row = one(data, error, "product");
@@ -504,6 +511,7 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string, opt
           min_quantity: o.minQuantity,
           stock: o.stock,
           ...(opts.costs && o.costKobo !== undefined ? { cost_kobo: o.costKobo } : {}),
+          ...(opts.barcodes && o.barcode !== undefined ? { barcode: o.barcode } : {}),
           active: true,
           updated_at: now,
         };

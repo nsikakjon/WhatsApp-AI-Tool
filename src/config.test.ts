@@ -114,6 +114,14 @@ describe("loadConfig", () => {
     });
   });
 
+  it("keeps event tickets off unless QUOTE_EVENT_TICKETS is true, and then needs the public address", () => {
+    expect(loadConfig(base).quoteEventTickets).toBeUndefined();
+    expect(() => loadConfig({ ...base, QUOTE_EVENT_TICKETS: "true" })).toThrow("PUBLIC_URL");
+    expect(loadConfig({ ...base, QUOTE_EVENT_TICKETS: "true", PUBLIC_URL: "https://bot.example.com" }).quoteEventTickets).toEqual({
+      publicUrl: "https://bot.example.com",
+    });
+  });
+
   it("keeps delivery off unless QUOTE_DELIVERY is true, and then needs the public address", () => {
     expect(loadConfig(base).delivery).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true" })).toThrow("PUBLIC_URL");

@@ -10,6 +10,8 @@ import type { Dispatch } from "./delivery/index.js";
 import { createWalkIn } from "./walkin/index.js";
 import { BUSINESS, links, memoryWalkIn } from "./walkin/testing.js";
 import { welcomeAsk } from "./welcome.js";
+import { createEventTickets } from "./tickets/index.js";
+import { links as ticketLinks, memoryTickets } from "./tickets/testing.js";
 
 const variants: Variant[] = [
   {
@@ -1092,6 +1094,74 @@ describe("quote product with walk-in orders", () => {
     const notes = await product.orderPaid(1001, { how: "counter" });
     expect(notes[1]?.text).toContain("KP-1001 was paid at the counter");
     expect(await product.orderPaid(1001, { how: "counter" })).toEqual([]);
+  });
+});
+
+describe("quote product with event tickets", () => {
+  function ticketBot() {
+    const mem = memoryOrders();
+    const tix = memoryTickets();
+    const deliveryAsked: string[] = [];
+    const delivery = {
+      handle: async () => null,
+      beforeConfirm: async (order: SavedOrder) => {
+        deliveryAsked.push(order.id);
+        return { text: "Where should we deliver?" };
+      },
+      charge: async () => null,
+      ownerNote: async () => null,
+    } as unknown as Dispatch;
+    const catalog: Variant[] = [
+      { id: "v-vip", name: "Element House: VIP", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 5_000_000 }] },
+      { id: "v-tee", name: "T-shirt", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_000_000 }] },
+    ];
+    let wanted = [{ variantId: "v-vip", quantity: 2 }];
+    const product = createQuoteProduct({
+      businessName: "Element House",
+      orderPrefix: "EH",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => catalog },
+      orders: mem.store,
+      ai: {
+        understand: async ({ text }) => (/^yes$/i.test(text) ? { intent: "confirm", items: [], message: null } : { intent: "quote", items: wanted, message: null }),
+      },
+      delivery,
+      renderDocument: fakeDocuments().render,
+      tickets: createEventTickets({
+        businessId: BUSINESS,
+        businessName: "Element House",
+        orderPrefix: "EH",
+        store: tix.store,
+        links: ticketLinks,
+        draw: () => Buffer.from([0xff, 0xd8]),
+      }),
+      log: { error() {} },
+    });
+    return { product, tix, deliveryAsked, want: (w: typeof wanted) => (wanted = w) };
+  }
+
+  it("skips delivery for a tickets-only order and sends the tickets once paid", async () => {
+    const { product, tix, deliveryAsked } = ticketBot();
+    await product.handle(text("2 VIP tickets"), ctx);
+    const reply = await product.handle(text("YES"), ctx);
+    expect(deliveryAsked).toEqual([]);
+    expect(reply?.text).toContain("your tickets come here on WhatsApp");
+    expect(reply?.text).toContain("₦100,000");
+
+    tix.addOrder("o1", 1001);
+    const notes = await product.orderPaid(1001, { how: "online", feeKobo: 0 });
+    const sent = notes.find((n) => n.text.includes("Your 2 tickets for Element House"));
+    expect(sent?.images).toHaveLength(2);
+    expect(notes.find((n) => n.to === OWNER)?.text).toContain("I've sent them 2 tickets");
+    expect(tix.tickets).toHaveLength(2);
+  });
+
+  it("still asks about delivery when the order has more than tickets in it", async () => {
+    const { product, deliveryAsked, want } = ticketBot();
+    want([{ variantId: "v-vip", quantity: 1 }, { variantId: "v-tee", quantity: 1 }]);
+    await product.handle(text("1 VIP and a T-shirt"), ctx);
+    expect((await product.handle(text("YES"), ctx))?.text).toBe("Where should we deliver?");
+    expect(deliveryAsked).toEqual(["o1"]);
   });
 });
 

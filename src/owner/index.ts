@@ -1,3 +1,4 @@
+import { registerScannerAssets } from "./scanner.js";
 import { registerCounter } from "./sections/counter.js";
 import { registerCustomers } from "./sections/customers.js";
 import { readFileSync } from "node:fs";
@@ -14,6 +15,7 @@ import { registerInbox } from "./sections/inbox.js";
 import { registerOrders } from "./sections/orders.js";
 import { registerPrices } from "./sections/prices.js";
 import { registerDelivery } from "./sections/delivery.js";
+import { registerMonthly } from "./sections/monthly.js";
 import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTax } from "./sections/tax.js";
@@ -125,6 +127,8 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     if (!file) return c.notFound();
     return c.body(file as unknown as ArrayBuffer, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=604800" });
   });
+
+  registerScannerAssets(app);
 
   // ---- Logging in ----
 
@@ -275,6 +279,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             counter: Boolean(c.get("biz").counter),
             payouts: Boolean(c.get("biz").payouts),
             tax: Boolean(c.get("biz").tax),
+            monthly: Boolean(c.get("biz").monthly),
             others: c.get("others"),
             flash,
           },
@@ -305,6 +310,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
   registerPay(app, ctx);
+  registerMonthly(app, ctx);
   registerTools(app, ctx);
   registerTax(app, ctx);
   registerVerify(app, ctx);
