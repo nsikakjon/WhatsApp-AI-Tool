@@ -124,7 +124,7 @@ export function createInbox(deps: InboxDeps) {
     const [messages, pause, canReply] = await Promise.all([
       deps.inbox.chatMessages(chat.contactId, chat.number.id, chat.number.id === mainNumber, MESSAGES_SHOWN),
       deps.messages.botPause(chat.contactId, chat.number.id),
-      canMessageFreely(deps.messages, chat.contact.waId, now()),
+      canMessageFreely(deps.messages, chat.contact.waId, chat.number.id, now()),
     ]);
     const botPaused = isPauseActive(pause, now());
     return c.html(
@@ -148,7 +148,7 @@ export function createInbox(deps: InboxDeps) {
     const form = await c.req.parseBody();
     const text = (typeof form.text === "string" ? form.text : "").trim().slice(0, MAX_REPLY);
     if (!text) return c.redirect(`${chat.base}?error=empty`, 303);
-    if (!(await canMessageFreely(deps.messages, chat.contact.waId, now()))) return c.redirect(`${chat.base}?error=window`, 303);
+    if (!(await canMessageFreely(deps.messages, chat.contact.waId, chat.number.id, now()))) return c.redirect(`${chat.base}?error=window`, 303);
 
     // A person is answering, so the bot steps back from this chat first.
     await deps.messages.pauseBot(chat.contactId, chat.number.id, null, "inbox");

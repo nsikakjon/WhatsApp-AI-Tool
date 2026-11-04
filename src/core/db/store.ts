@@ -41,11 +41,12 @@ export interface MessageStore {
    */
   recentHistory(contactId: string, limit: number, excludeWaMessageId?: string): Promise<HistoryEntry[]>;
   /**
-   * When this person last messaged us, or null if never. WhatsApp only lets us
-   * send them ordinary messages within 24 hours of that; after that, only
+   * When this person last messaged us (on `businessNumberId`, when given), or
+   * null if never. WhatsApp only lets us send them ordinary messages within 24
+   * hours of that, counted separately for each of our numbers; after that, only
    * pre-approved template messages get through.
    */
-  lastInboundAt(waId: string): Promise<Date | null>;
+  lastInboundAt(waId: string, businessNumberId?: string): Promise<Date | null>;
   /**
    * Saves a message the owner sent from the WhatsApp Business app. Returns
    * "duplicate" if we've already saved it (Meta re-sent the webhook, or it is
@@ -167,12 +168,14 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
         .map((row) => ({ direction: row.direction as HistoryEntry["direction"], text: row.body as string }));
     },
 
-    async lastInboundAt(waId) {
-      const { data, error } = await db
+    async lastInboundAt(waId, businessNumberId) {
+      let query = db
         .from("messages")
         .select("created_at, contacts!inner(wa_id)")
         .eq("contacts.wa_id", waId)
-        .eq("direction", "inbound")
+        .eq("direction", "inbound");
+      if (businessNumberId) query = query.eq("business_number_id", businessNumberId);
+      const { data, error } = await query
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();

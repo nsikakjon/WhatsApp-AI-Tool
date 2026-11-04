@@ -68,7 +68,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
     if (!chat) return ctx.render(c, "Chat not found", "/home/inbox", `<p>That chat isn't here. <a href="/home/inbox">Back to the inbox</a></p>`, 404);
     const [pause, canReply] = await Promise.all([
       chat.inbox.messages.botPause(chat.contactId, chat.numberId),
-      canMessageFreely(chat.inbox.messages, chat.contact.waId, ctx.now()),
+      canMessageFreely(chat.inbox.messages, chat.contact.waId, chat.numberId, ctx.now()),
     ]);
     const paused = isPauseActive(pause, ctx.now());
     const bubbles = chat.messages
@@ -97,7 +97,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
     const form = await c.req.parseBody();
     const text = (typeof form.text === "string" ? form.text : "").trim().slice(0, MAX_REPLY);
     if (!text) return c.redirect(`${chat.base}?msg=bad`, 303);
-    if (!(await canMessageFreely(chat.inbox.messages, chat.contact.waId, ctx.now()))) return c.redirect(`${chat.base}?msg=window`, 303);
+    if (!(await canMessageFreely(chat.inbox.messages, chat.contact.waId, chat.numberId, ctx.now()))) return c.redirect(`${chat.base}?msg=window`, 303);
     await chat.inbox.messages.pauseBot(chat.contactId, chat.numberId, null, "inbox");
     try {
       const sent = await chat.inbox.whatsapp.sendText(chat.contact.waId, text, chat.numberId);
