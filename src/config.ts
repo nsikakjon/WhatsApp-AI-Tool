@@ -194,7 +194,7 @@ export interface Config {
      * /quote-setup/numbers (migration 0071). Only set when QUOTE_NUMBER_QUEUE is true.
      * publicUrl (PUBLIC_URL) puts a link to the steps in staff alerts.
      */
-    numberQueue?: { publicUrl?: string };
+    numberQueue?: { publicUrl?: string; staffPassword?: string };
   };
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
@@ -257,6 +257,12 @@ export interface Config {
    * name watermark, no saved copies. Off unless SCREEN_SHIELD is true.
    */
   screenShield: boolean;
+  /**
+   * Broadcasts and quote follow-ups go through Meta's Marketing Messages API
+   * for numbers whose account has accepted its terms. Off unless
+   * MARKETING_MESSAGES_API is true.
+   */
+  marketingMessagesApi: boolean;
   /**
    * The "₦X processed through yarnOga" line on the website, shown once paid
    * naira payments reach this many kobo. Off unless PROCESSED_COUNTER_MIN_NAIRA is set.
@@ -543,7 +549,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
           signUpToContinue: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_SIGNUP_GATE ?? ""),
           numberQueue: /^(true|yes|on|1)$/i.test(env.QUOTE_NUMBER_QUEUE ?? "")
-            ? { publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined }
+            ? {
+                publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined,
+                staffPassword: env.QUOTE_NUMBERS_PASSWORD ? longPassword(env, "QUOTE_NUMBERS_PASSWORD") : undefined,
+              }
             : undefined,
         }
       : undefined,
@@ -585,6 +594,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adLeads: /^(true|yes|on|1)$/i.test(env.AD_LEADS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
+    marketingMessagesApi: /^(true|yes|on|1)$/i.test(env.MARKETING_MESSAGES_API ?? ""),
     processedCounterMinKobo: env.PROCESSED_COUNTER_MIN_NAIRA?.trim()
       ? wholeNumber(env, "PROCESSED_COUNTER_MIN_NAIRA", 1) * 100
       : undefined,

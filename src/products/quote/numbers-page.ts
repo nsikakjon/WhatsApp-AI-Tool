@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { isLimitedLogin } from "../../core/security/guard.js";
 import { localNumber } from "./emails.js";
 import { isOpen, phoneFromText, staffAlert, type NumberQueueStore, type NumberRequest, type NumberStatus } from "./numbers.js";
 import { esc, page } from "./setup.js";
@@ -46,6 +47,7 @@ export function createNumberQueuePage(deps: NumberQueueDeps) {
   const log = deps.log ?? console;
 
   app.get("/", async (c) => {
+    const admin = !isLimitedLogin(c);
     const [requests, staff] = await Promise.all([deps.store.list(), deps.store.staff()]);
     const name = (id: string | null) => staff.find((s) => s.id === id)?.name ?? '<span class="warn">nobody</span>';
     const row = (r: NumberRequest) => `<tr><td><a href="/quote-setup/numbers/${r.businessId}">${esc(r.businessName)}</a></td>
@@ -65,19 +67,16 @@ export function createNumberQueuePage(deps: NumberQueueDeps) {
 <h2>To do (${open.length})</h2>${table(open, "Waiting")}
 <h2>Waiting for the owner's number</h2>${table(requests.filter((r) => r.status === "no_number"), "")}
 <h2>Live</h2>${table(requests.filter((r) => r.status === "live").slice(0, 30), "Live since")}
-<h2>Who connects numbers</h2>
-${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><td>+${esc(s.waId)}</td><td><form method="post" action="/quote-setup/numbers/staff/${s.id}/remove"><button type="submit">Remove</button></form></td></tr>`).join("")}</tbody></table>` : `<p class="warn">Nobody yet, so new numbers aren't assigned. Add the people who will connect them.</p>`}
-<p class="muted">Each person should send <b>hi</b> to the sign-up number once, so WhatsApp lets the bot message them.</p>
-<form method="post" action="/quote-setup/numbers/staff" class="stack">
-<label>Name<input name="name" required maxlength="60"></label>
-<label>WhatsApp number <small>e.g. 0803 123 4567 or 2348031234567</small><input name="waId" required inputmode="tel"></label>
-<p><button type="submit">Add</button></p>
-</form>`,
+${admin ? staffSection(staff) : ""}`,
+        nav(c),
       ),
     );
   });
 
+  // Only the main setup password changes who connects numbers.
+  app.use("/staff/*", async (c, next) => (isLimitedLogin(c) ? c.text("Ask the yarnOga owner to change the staff list.", 403) : next()));
   app.post("/staff", async (c) => {
+    if (isLimitedLogin(c)) return c.text("Ask the yarnOga owner to change the staff list.", 403);
     const body = await c.req.parseBody();
     const name = String(body.name ?? "").trim().replace(/\s+/g, " ").slice(0, 60);
     const waId = phoneFromText(String(body.waId ?? ""));
@@ -95,7 +94,7 @@ ${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><
   app.get("/:id", async (c) => {
     const r = await found(c.req.param("id"));
     if (!r) return c.notFound();
-    return c.html(await detail(r, c.req.query("done") ?? null, []));
+    return c.html(await detail(c, r, c.req.query("done") ?? null, []));
   });
 
   app.post("/:id/assign", async (c) => {
@@ -129,21 +128,21 @@ ${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><
     const body = await c.req.parseBody();
     const phoneNumberId = String(body.phoneNumberId ?? "").replace(/\s/g, "");
     const byHand = body.byHand === "on";
-    if (!/^\d{5,20}$/.test(phoneNumberId)) return c.html(await detail(r, null, ['The Phone number ID is the long number WhatsApp Manager shows under the number (digits only), not the phone number.']), 400);
-    if (deps.reservedNumberIds.includes(phoneNumberId)) return c.html(await detail(r, null, ["That Phone number ID is one of yarnOga's own numbers."]), 400);
+    if (!/^\d{5,20}$/.test(phoneNumberId)) return c.html(await detail(c, r, null, ['The Phone number ID is the long number WhatsApp Manager shows under the number (digits only), not the phone number.']), 400);
+    if (deps.reservedNumberIds.includes(phoneNumberId)) return c.html(await detail(c, r, null, ["That Phone number ID is one of yarnOga's own numbers."]), 400);
     const other = await deps.businesses.findByPhoneNumberId(phoneNumberId);
-    if (other && other.id !== r.businessId) return c.html(await detail(r, null, [`That Phone number ID already answers for ${other.name}.`]), 400);
+    if (other && other.id !== r.businessId) return c.html(await detail(c, r, null, [`That Phone number ID already answers for ${other.name}.`]), 400);
 
     let shown: string | null;
     try {
       shown = await deps.meta.displayNumber(phoneNumberId);
     } catch (err) {
       log.error(`Couldn't read Phone number ID ${phoneNumberId}:`, err);
-      return c.html(await detail(r, null, ["WhatsApp doesn't know that Phone number ID in our account. Check you copied it from the right number."]), 400);
+      return c.html(await detail(c, r, null, ["WhatsApp doesn't know that Phone number ID in our account. Check you copied it from the right number."]), 400);
     }
     const digits = (shown ?? "").replace(/\D/g, "");
     if (r.number && digits && digits !== r.number) {
-      return c.html(await detail(r, null, [`That Phone number ID belongs to ${shown}, not ${localNumber(r.number)}.`]), 400);
+      return c.html(await detail(c, r, null, [`That Phone number ID belongs to ${shown}, not ${localNumber(r.number)}.`]), 400);
     }
     let pin: string | null = null;
     if (!byHand) {
@@ -153,7 +152,7 @@ ${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><
       } catch (err) {
         log.error(`Registering ${phoneNumberId} failed:`, err);
         const message = err instanceof Error ? err.message : String(err);
-        return c.html(await detail(r, null, [`WhatsApp didn't register it: ${message}. Read the message before trying again: WhatsApp allows 10 tries in 3 days.`]), 502);
+        return c.html(await detail(c, r, null, [`WhatsApp didn't register it: ${message}. Read the message before trying again: WhatsApp allows 10 tries in 3 days.`]), 502);
       }
     }
     await deps.store.update(r.businessId, { status: "registered", phoneNumberId, ...(pin ? { pin } : {}) });
@@ -163,14 +162,14 @@ ${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><
   app.post("/:id/live", async (c) => {
     const r = await found(c.req.param("id"));
     if (!r) return c.notFound();
-    if (r.status !== "registered" || !r.phoneNumberId) return c.html(await detail(r, null, ["Register the number first."]), 400);
+    if (r.status !== "registered" || !r.phoneNumberId) return c.html(await detail(c, r, null, ["Register the number first."]), 400);
     const business = await deps.businesses.get(r.businessId);
     if (!business) return c.notFound();
     const { id: _, updatedAt: __, ...settings } = business;
     try {
       await deps.setup.updateBusiness(business.id, { ...settings, phoneNumberId: r.phoneNumberId, active: true });
     } catch (err) {
-      if (err instanceof NumberTakenError) return c.html(await detail(r, null, ["Another business already uses that Phone number ID."]), 400);
+      if (err instanceof NumberTakenError) return c.html(await detail(c, r, null, ["Another business already uses that Phone number ID."]), 400);
       throw err;
     }
     await deps.store.update(r.businessId, { status: "live", liveAt: new Date(), note: null });
@@ -190,7 +189,7 @@ ${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><
     }
   }
 
-  async function detail(r: NumberRequest, done: string | null, problems: string[]): Promise<string> {
+  async function detail(c: Context, r: NumberRequest, done: string | null, problems: string[]): Promise<string> {
     const staff = await deps.store.staff();
     const step = (n: number, title: string, isDone: boolean, body: string) =>
       `<section class="notice"><h2>${isDone ? "✓" : n}. ${title}</h2>${isDone ? "" : body}</section>`;
@@ -237,8 +236,8 @@ ${step(
 }
 ${r.status === "live" ? `<p>Live${r.liveAt ? ` since ${day(r.liveAt)}` : ""}. To test: send a price question to ${r.number ? esc(localNumber(r.number)) : "the number"} from a phone that isn't the bot's.</p>` : ""}
 <form method="post" action="/quote-setup/numbers/${r.businessId}/note" class="stack"><label>Note <small>anything holding it up, so others can see</small><textarea name="note" rows="2" maxlength="300">${esc(r.note ?? "")}</textarea></label><p><button type="submit">Save note</button></p></form>
-<p><a href="/quote-setup/b/${r.businessId}">Business settings</a> · <a href="/quote-setup/numbers">All numbers</a></p>`;
-    return page(r.businessName, body);
+<p>${isLimitedLogin(c) ? "" : `<a href="/quote-setup/b/${r.businessId}">Business settings</a> · `}<a href="/quote-setup/numbers">All numbers</a></p>`;
+    return page(r.businessName, body, nav(c));
   }
 
   return app;
@@ -254,6 +253,22 @@ export function liveMessage(businessName: string, number: string): string {
 }
 
 const UUID = /^[0-9a-f-]{36}$/i;
+
+/** Staff with the numbers password can't open the other setup pages, so they get no link to them. */
+function nav(c: Context): string {
+  return isLimitedLogin(c) ? `<a href="/quote-setup/numbers">All numbers</a>` : `<a href="/quote-setup">All businesses</a><a href="/quote-setup/numbers">All numbers</a>`;
+}
+
+function staffSection(staff: Array<{ id: string; name: string; waId: string }>): string {
+  return `<h2>Who connects numbers</h2>
+${staff.length ? `<table><tbody>${staff.map((s) => `<tr><td>${esc(s.name)}</td><td>+${esc(s.waId)}</td><td><form method="post" action="/quote-setup/numbers/staff/${s.id}/remove"><button type="submit">Remove</button></form></td></tr>`).join("")}</tbody></table>` : `<p class="warn">Nobody yet, so new numbers aren't assigned. Add the people who will connect them.</p>`}
+<p class="muted">Each person should send <b>hi</b> to the sign-up number once, so WhatsApp lets the bot message them. Give them the staff password (QUOTE_NUMBERS_PASSWORD on Railway): it opens only this page.</p>
+<form method="post" action="/quote-setup/numbers/staff" class="stack">
+<label>Name<input name="name" required maxlength="60"></label>
+<label>WhatsApp number <small>e.g. 0803 123 4567 or 2348031234567</small><input name="waId" required inputmode="tel"></label>
+<p><button type="submit">Add</button></p>
+</form>`;
+}
 
 function day(d: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });

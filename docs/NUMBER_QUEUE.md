@@ -62,8 +62,16 @@ voice call tomorrow"), and shows on the list.
 2. Set `QUOTE_NUMBER_QUEUE=true`. It needs `QUOTE_SIGNUP_PHONE_NUMBER_ID`,
    `QUOTE_MULTI_BUSINESS=true` and `QUOTE_SETUP_PASSWORD`. `PUBLIC_URL` puts a
    link to each page in staff messages.
-3. Open `/quote-setup/numbers` and add the people who connect numbers. Each of
+3. Optional but recommended: set `QUOTE_NUMBERS_PASSWORD` (12+ characters).
+   Give staff this one: it opens only the numbers pages, not the businesses or
+   price lists, and they can't change the staff list. You keep using
+   `QUOTE_SETUP_PASSWORD`.
+4. Open `/quote-setup/numbers` and add the people who connect numbers. Each of
    them should send **hi** to the sign-up number once.
+
+Staff can bookmark `https://app.yarnoga.com/quote-setup/numbers`, and each
+WhatsApp alert links straight to that business's page. You also have a
+**Numbers to connect** link at the top of the analytics dashboard.
 
 ## Messages outside the 24 hours
 
