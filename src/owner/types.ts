@@ -40,6 +40,8 @@ export interface AppBusiness {
   };
   /** Counter sales and cost prices (QUOTE_COUNTER_SALES); without it both are hidden. */
   counter?: CounterStore;
+  /** Barcodes on the price list and scanning on the counter sale screen (QUOTE_BARCODES, needs counter). */
+  barcodes?: boolean;
   /** Riders and zones (QUOTE_DELIVERY); without it the page explains how to switch delivery on. */
   delivery?: DeliverySetupStore;
   /**
