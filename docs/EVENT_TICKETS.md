@@ -52,7 +52,7 @@ owner app.
 
 ## Switching it on
 
-1. In Supabase, run `supabase/migrations/0067_quote_event_tickets.sql` (SQL
+1. In Supabase, run `supabase/migrations/0068_quote_event_tickets.sql` (SQL
    Editor > New query > paste > Run). Running it again is safe.
 2. In Railway, set `QUOTE_EVENT_TICKETS=true`. It needs `PUBLIC_URL` (already
    set for pay links).

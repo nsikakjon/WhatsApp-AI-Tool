@@ -9,7 +9,7 @@ import { renderTicketCard } from "./card.js";
 import type { TicketLinks } from "./links.js";
 import type { EventTicket, TicketStore } from "./store.js";
 
-// Event tickets (QUOTE_EVENT_TICKETS, migration 0067), on the plans that
+// Event tickets (QUOTE_EVENT_TICKETS, migration 0068), on the plans that
 // include event_tickets.
 //
 // 1. The owner adds the tickets to the price list like any product

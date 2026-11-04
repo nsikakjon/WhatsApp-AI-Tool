@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Event tickets in the database (migration 0067): which price list products
+// Event tickets in the database (migration 0068): which price list products
 // are tickets, and one row per ticket sold.
 
 export interface EventTicket {

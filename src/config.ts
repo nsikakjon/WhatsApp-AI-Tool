@@ -129,7 +129,7 @@ export interface Config {
    * receipts, pickup screens, table numbers. Only set when QUOTE_WALK_IN is true.
    */
   quoteWalkIn?: { publicUrl: string };
-  /** Event tickets with a QR code each and a door screen (migration 0067). Only set when QUOTE_EVENT_TICKETS is true. */
+  /** Event tickets with a QR code each and a door screen (migration 0068). Only set when QUOTE_EVENT_TICKETS is true. */
   quoteEventTickets?: { publicUrl: string };
   /** Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true. */
   quoteShop?: { publicUrl: string };
