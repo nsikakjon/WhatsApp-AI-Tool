@@ -1241,6 +1241,7 @@ const app = createApp({
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
+      numberQueue: Boolean(numberQueue && config.quoteSetup),
       socials: createSocials({
         meta: config.dashboard.meta && { ...config.dashboard.meta, graphApiVersion: config.whatsapp.graphApiVersion },
         youtube: config.dashboard.youtube,
@@ -1335,6 +1336,7 @@ const app = createApp({
         ? {
             store: numberQueue,
             publicUrl: config.quoteChatSignup?.numberQueue?.publicUrl,
+            staffPassword: config.quoteChatSignup?.numberQueue?.staffPassword,
             // With our own system-user token, so staff never handle it.
             meta: {
               displayNumber: async (id) => (await phoneDetails(fetch, config.whatsapp, id, config.whatsapp.accessToken)).displayNumber ?? null,

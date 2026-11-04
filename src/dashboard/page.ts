@@ -327,6 +327,7 @@ export function renderDashboard(
   profit?: ProfitView,
   costs?: ShopCosts | "error",
   planEditor = false,
+  numberQueue = false,
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -436,7 +437,9 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
     jumps
       .filter(([, , shown]) => shown)
       .map(([id, label]) => `<a href="#${id}">${label}</a>`)
-      .join("") + (planEditor ? `<a href="/dashboard/plans">Edit plans</a>` : "");
+      .join("") +
+    (planEditor ? `<a href="/dashboard/plans">Edit plans</a>` : "") +
+    (numberQueue ? `<a href="/quote-setup/numbers">Numbers to connect</a>` : "");
 
   return pageShell({
     title: "yarnOga analytics",
