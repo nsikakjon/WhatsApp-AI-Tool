@@ -10,7 +10,7 @@ import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
 import type { ShopLookStore } from "../products/quote/shop.js";
 import type { AiPack } from "../products/quote/topups.js";
-import type { AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore } from "./store.js";
+import type { AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore, TaxSalesStore } from "./store.js";
 import type { VerificationStore } from "../compliance/store.js";
 
 /** One quote business as the app sees it. Built by the server for whoever is logged in. */
@@ -75,6 +75,8 @@ export interface AppBusiness {
     /** Paystack's recipient code for a bank account (it checks the account first). */
     recipient(accountName: string, accountNumber: string, bankCode: string): Promise<string>;
   };
+  /** Monthly sales for VAT and the presumptive tax (QUOTE_TAX_SUMMARY); without it the page is hidden. */
+  tax?: TaxSalesStore;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
   payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }
