@@ -1,3 +1,4 @@
+import { pageShell } from "../../core/admin-page.js";
 import { guardedBasicAuth } from "../../core/security/guard.js";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -576,25 +577,30 @@ function sameSite(c: Context): boolean {
 }
 
 export function page(title: string, body: string, nav = `<a href="/quote-setup">All businesses</a>`): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow"><title>${esc(title)} · yarnOga</title>
-<style>
-body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#0c0d0d;color:#f3f4ef}
-main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
-h1{font-size:1.5rem;margin:.2em 0 .8em}h2{font-size:1.15rem;margin-top:2em}
-a{color:#c6ff1f}small,.muted{color:#9a9d97}small{display:block;font-size:.85rem}
-table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.95rem}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #2e302f;vertical-align:top}
-.stack label{display:block;margin:14px 0;font-weight:600}
-input:not([type=checkbox]),textarea,select{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:10px;border-radius:8px;border:1px solid #2e302f;background:#191a1a;color:inherit;font:inherit}
-.check{font-weight:400!important}button,.button{display:inline-block;background:#c6ff1f;color:#0c0d0d;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
-.error{color:#ff8a80}.ok{color:#c6ff1f}.warn{color:#ffd166}
-.notice{background:#191a1a;border:1px solid #2e302f;border-radius:8px;padding:10px 12px}
-.tag{font-size:.75rem;border:1px solid #2e302f;border-radius:6px;padding:1px 6px;color:#9a9d97}
-nav{font-size:.9rem;margin-bottom:8px}[hidden]{display:none!important}
-</style></head><body><main><nav>${nav}</nav><h1>${esc(title)}</h1>
-${body}</main></body></html>`;
+  return pageShell({ title: `${title} · yarnOga`, crumb: "Quote bot setup", heading: esc(title), nav, body: `<div class="setup">${body}</div>`, css: SETUP_CSS });
 }
+
+// Forms, tables and notes on the setup pages, on top of the shared look.
+const SETUP_CSS = `
+.setup { margin-top:24px; max-width:820px; }
+.setup p { max-width:72ch; }
+.setup h2 { margin:32px 0 8px; }
+.setup table { max-width:none; margin:12px 0; background:var(--glass),var(--surface); border:1px solid var(--line); border-radius:14px; border-collapse:separate; border-spacing:0; overflow:hidden; }
+.setup td { vertical-align:top; }
+.setup small, .setup .muted { color:var(--dim); }
+.setup small { display:block; font-size:12.5px; font-weight:400; }
+.stack label { display:block; margin:14px 0; color:var(--muted); font-size:13px; font-weight:600; }
+.stack input:not([type=checkbox]), .stack textarea, .stack select { display:block; width:100%; margin-top:6px; padding:10px; font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line2); border-radius:10px; }
+.stack input:focus, .stack textarea:focus, .stack select:focus { outline:2px solid var(--lime); outline-offset:1px; border-color:transparent; }
+.stack label.check { display:flex; align-items:center; gap:8px; color:var(--text); font-weight:400; }
+.setup input[type=checkbox] { width:18px; height:18px; accent-color:var(--lime); }
+.setup button, .setup .button { display:inline-block; font:600 15px/1 var(--accent); background:var(--lime); color:var(--limeink); border:0; border-radius:10px; padding:12px 20px; text-decoration:none; cursor:pointer; }
+.setup td button { padding:8px 14px; font-size:13px; background:var(--surface3); color:var(--text); }
+.notice { padding:14px 18px; margin:16px 0; background:var(--glass),var(--surface); border:1px solid var(--line); border-radius:14px; }
+.notice h2 { margin-top:4px; }
+.error { color:var(--red); } .ok { color:var(--lime); } .warn { color:#ffd166; }
+.tag { margin-left:6px; padding:1px 8px; border-radius:99px; border:1px solid var(--line2); color:var(--dim); font-size:11.5px; }
+[hidden] { display:none!important; }`;
 
 export function esc(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
