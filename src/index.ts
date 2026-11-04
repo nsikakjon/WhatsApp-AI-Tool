@@ -112,7 +112,7 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
-import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createConnectionAccounts, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
@@ -740,8 +740,16 @@ const leadQualifier = leadsConfig
   : undefined;
 
 const store = createSupabaseStore(supabase);
+// MARKETING_MESSAGES_API: each number's WhatsApp Business Account, from Meta's
+// webhooks or, for numbers connected on /signup, the database.
+const numberAccounts = new Map<string, string>();
+const connectionAccounts = config.marketingMessagesApi ? createConnectionAccounts(supabase) : undefined;
 // Numbers connected on /signup send with their own business's key.
-const whatsapp = createWhatsAppClient({ ...config.whatsapp, tokenFor: createConnectionTokens(supabase) });
+const whatsapp = createWhatsAppClient({
+  ...config.whatsapp,
+  tokenFor: createConnectionTokens(supabase),
+  marketingAccountFor: connectionAccounts && (async (id) => numberAccounts.get(id) ?? (await connectionAccounts(id))),
+});
 
 // Problems reach Jay: every logged error goes to Sentry and (at most every
 // 30 minutes) to ALERT_WA_ID on WhatsApp and ALERT_EMAIL by email.
@@ -1207,6 +1215,7 @@ const app = createApp({
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   usage,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
+  seenAccount: config.marketingMessagesApi ? (number, account) => numberAccounts.set(number, account) : undefined,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
     if (routes.leads && msg.businessNumberId === leadsConfig?.phoneNumberId) return routes.leads;
