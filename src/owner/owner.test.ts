@@ -775,6 +775,7 @@ describe("counter sales", () => {
       const owner = await login(s, OWNER);
       const counter = await (await get(s, "/counter", owner)).text();
       expect(counter).toContain('href="/home/till"');
+      expect(counter).toContain("Till (works offline)");
       expect(counter).toContain("offline till");
       expect(counter).toContain("sold 2 more than the stock showed");
       expect(counter).toContain("charged ₦480 each; the price list says ₦500");
@@ -785,7 +786,9 @@ describe("counter sales", () => {
       expect((await get(s, "/till/data", await login(s, "2348044444444", "rider"))).status).toBe(403);
       const off = withCounter();
       expect((await off.app.request("/till")).status).not.toBe(200);
-      expect(await (await get(off, "/counter", await login(off, OWNER))).text()).not.toContain("/home/till");
+      const offPage = await (await get(off, "/counter", await login(off, OWNER))).text();
+      expect(offPage).not.toContain("/home/till");
+      expect(offPage).not.toContain("Till (works offline)");
     });
   });
 

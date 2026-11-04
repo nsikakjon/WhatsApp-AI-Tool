@@ -247,7 +247,7 @@ ${
 </script>`
     : `<p class="muted">Nothing on your price list has a price yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices">Add prices</a> first.` : ""}</p>`
 }
-${biz.counter?.sellOffline ? `<p class="muted small" style="margin-top:16px">Internet not steady? Use the <a href="/home/till">till</a>: it keeps working offline and sends the sales when the connection is back.</p>` : ""}
+${biz.counter?.sellOffline ? `<div class="card" style="margin-top:16px"><p style="margin:0 0 10px"><b>Internet not steady?</b> The till keeps selling with no internet and sends the sales when the connection is back. Install it on this computer or phone.</p><a class="button small" href="/home/till">${icon("till", 16)}Open the till</a></div>` : ""}
 ${await todaysSales(c)}`;
     return ctx.render(c, "Counter sale", "/home/counter", body, problems.length ? 400 : 200);
   }
