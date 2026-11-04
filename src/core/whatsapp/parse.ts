@@ -1,4 +1,4 @@
-import type { IncomingMessage, OwnerReply } from "./types.js";
+import type { AdReferral, IncomingMessage, OwnerReply } from "./types.js";
 
 // Meta's webhook body looks like:
 // { object: "whatsapp_business_account",
@@ -26,6 +26,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
         const from = msg.from || msg.from_user_id;
         if (!msg.id || !from || !msg.type) continue;
         const media = msg.audio ?? msg.image ?? msg.document ?? msg.video;
+        const referral = adReferral(msg.referral);
         result.push({
           waMessageId: msg.id,
           from,
@@ -51,6 +52,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
             name: c.name?.formatted_name || undefined,
             phone: c.phones?.find((p) => p.wa_id)?.wa_id ?? c.phones?.[0]?.phone,
           })),
+          ...(referral ? { referral } : {}),
           timestamp: Number(msg.timestamp ?? 0),
           raw: msg,
         });
@@ -58,6 +60,22 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
     }
   }
   return result;
+}
+
+function adReferral(r: WebhookMessage["referral"]): AdReferral | undefined {
+  if (!r?.source_id) return undefined;
+  const text = (v: string | undefined) => v?.trim() || undefined;
+  const out: AdReferral = { sourceType: text(r.source_type) ?? "ad", sourceId: r.source_id };
+  for (const [key, value] of [
+    ["sourceUrl", r.source_url],
+    ["headline", r.headline],
+    ["body", r.body],
+    ["mediaType", r.media_type],
+    ["ctwaClid", r.ctwa_clid],
+  ] as const) {
+    if (text(value)) out[key] = text(value);
+  }
+  return out;
 }
 
 function pin(location: WebhookMessage["location"]): IncomingMessage["location"] {
@@ -145,4 +163,13 @@ interface WebhookMessage {
   button?: { text?: string; payload?: string };
   location?: { latitude?: number | string; longitude?: number | string; name?: string; address?: string };
   contacts?: Array<{ name?: { formatted_name?: string }; phones?: Array<{ phone?: string; wa_id?: string }> }>;
+  referral?: {
+    source_url?: string;
+    source_id?: string;
+    source_type?: string;
+    headline?: string;
+    body?: string;
+    media_type?: string;
+    ctwa_clid?: string;
+  };
 }
