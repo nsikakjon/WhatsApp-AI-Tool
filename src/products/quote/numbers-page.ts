@@ -256,7 +256,7 @@ const UUID = /^[0-9a-f-]{36}$/i;
 
 /** Staff with the numbers password can't open the other setup pages, so they get no link to them. */
 function nav(c: Context): string {
-  return isLimitedLogin(c) ? `<a href="/quote-setup/numbers">All numbers</a>` : `<a href="/quote-setup">All businesses</a> · <a href="/quote-setup/numbers">All numbers</a>`;
+  return isLimitedLogin(c) ? `<a href="/quote-setup/numbers">All numbers</a>` : `<a href="/quote-setup">All businesses</a><a href="/quote-setup/numbers">All numbers</a>`;
 }
 
 function staffSection(staff: Array<{ id: string; name: string; waId: string }>): string {
