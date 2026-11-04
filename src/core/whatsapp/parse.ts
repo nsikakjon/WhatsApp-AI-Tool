@@ -60,6 +60,21 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
   return result;
 }
 
+/**
+ * Which WhatsApp Business Account each of our numbers belongs to: every
+ * webhook entry's id is the account, and its changes name the number.
+ */
+export function extractNumberAccounts(payload: unknown): Array<{ phoneNumberId: string; accountId: string }> {
+  const body = payload as WebhookBody;
+  if (body?.object !== "whatsapp_business_account") return [];
+  return (body.entry ?? []).flatMap((entry) =>
+    (entry.changes ?? []).flatMap((change) => {
+      const phoneNumberId = change.value?.metadata?.phone_number_id;
+      return entry.id && phoneNumberId ? [{ phoneNumberId, accountId: entry.id }] : [];
+    }),
+  );
+}
+
 function pin(location: WebhookMessage["location"]): IncomingMessage["location"] {
   const latitude = Number(location?.latitude);
   const longitude = Number(location?.longitude);
@@ -118,6 +133,7 @@ interface InteractiveReply {
 interface WebhookBody {
   object?: string;
   entry?: Array<{
+    id?: string;
     changes?: Array<{
       field?: string;
       value?: {

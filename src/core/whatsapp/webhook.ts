@@ -6,7 +6,7 @@ import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
 import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
-import { extractMessages, extractOwnerReplies } from "./parse.js";
+import { extractMessages, extractNumberAccounts, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
 
@@ -19,6 +19,8 @@ export interface WebhookDeps {
   transcriber?: Transcriber;
   /** Counts what each voice note costs us (SHOP_COSTS). */
   usage?: UsageMeter;
+  /** Told which WhatsApp Business Account each number belongs to, as webhooks arrive. */
+  seenAccount?: (phoneNumberId: string, accountId: string) => void;
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   /**
@@ -81,6 +83,10 @@ export function createWhatsAppWebhook(webhookDeps: WebhookDeps) {
       payload = JSON.parse(rawBody);
     } catch {
       return c.text("Invalid JSON", 400);
+    }
+
+    if (deps.seenAccount) {
+      for (const { phoneNumberId, accountId } of extractNumberAccounts(payload)) deps.seenAccount(phoneNumberId, accountId);
     }
 
     // Owner replies first, so a customer message in the same batch already
