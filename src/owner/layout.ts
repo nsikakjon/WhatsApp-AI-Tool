@@ -1,5 +1,6 @@
 import { mark } from "../core/brand.js";
 import { can, ROLE_LABEL, type Permission, type Role } from "./roles.js";
+import { tour } from "./tour.js";
 
 // The owner app's look: yarnOga black and lime, glassy cards with a soft lime
 // glow, a menu down the side on a laptop and a tab bar at the bottom on a
@@ -94,6 +95,8 @@ export interface Shell {
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
   flash?: { ok: boolean; text: string } | null;
+  /** The first-time tour (OWNER_APP_TOUR); `start` plays it even if it's been seen. */
+  tour?: { userId: string; start: boolean };
 }
 
 /** "KahnPrints" -> "K", "Ada Okafor" -> "AO". */
@@ -137,7 +140,7 @@ export function page(s: Shell, body: string): string {
   <details class="moretab${moreActive ? " on" : ""}"><summary>${icon("more")}<span>More</span></summary>
   <div class="sheet"><p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${items.filter((n) => !n.tab).map(link).join("")}${switcher}${logout}</div></details>
 </nav>
-</div>`,
+</div>${s.tour ? tour(items, s.tour.userId, s.tour.start) : ""}`,
   );
 }
 

@@ -47,6 +47,8 @@ export interface Config {
     /** Where the app's Help page sends people: SUPPORT_EMAIL and SUPPORT_WA_ID. */
     supportEmail: string;
     supportWaId?: string;
+    /** A first-time tour of the app's menu (OWNER_APP_TOUR). */
+    tour: boolean;
   };
   /**
    * Welcome and setup-tip emails to our own customers through Resend
@@ -434,6 +436,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           publicUrl: publicUrl(env.OWNER_APP_URL || required(env, "PUBLIC_URL")),
           supportEmail: env.SUPPORT_EMAIL?.trim() || "support@yarnoga.com",
           supportWaId: env.SUPPORT_WA_ID?.replace(/\D/g, "") || undefined,
+          tour: /^(true|yes|on|1)$/i.test(env.OWNER_APP_TOUR ?? ""),
         }
       : undefined,
     emails: emailSettings(env),

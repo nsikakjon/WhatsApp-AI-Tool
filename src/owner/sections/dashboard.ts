@@ -234,7 +234,8 @@ ${profitCard}
       c,
       "Help and how it works",
       "/home/help",
-      `<h2>How it works</h2>
+      `${ctx.deps.tour ? `<div class="actions"><a class="button" href="/home?tour=1">Show me around</a></div>` : ""}
+<h2>How it works</h2>
 <ol class="steps">
 <li><b>Customers message your WhatsApp number</b>, typed or as a voice note: "500 A5 flyers, both sides".</li>
 <li><b>The AI understands what they want</b> and matches it to your price list. It never sees or sets prices.</li>

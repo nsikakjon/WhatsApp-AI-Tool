@@ -117,6 +117,8 @@ export interface OwnerAppDeps {
   };
   /** Test questions each business may ask a day (each is a small AI cost). Default 60. */
   botTestsPerDay?: number;
+  /** A first-time tour of the menu on the dashboard (OWNER_APP_TOUR). */
+  tour?: boolean;
   now?: () => Date;
   log?: Pick<Console, "info" | "warn" | "error">;
 }

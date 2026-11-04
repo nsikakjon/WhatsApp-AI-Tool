@@ -156,7 +156,7 @@ const order: BoardOrder = {
   movedAt: new Date(),
 };
 
-function setup(extra: Partial<AppBusiness> = {}) {
+function setup(extra: Partial<AppBusiness> = {}, more: Partial<OwnerAppDeps> = {}) {
   const users = memoryUsers();
   const prices = memoryPrices();
   const board: BoardStore = {
@@ -191,6 +191,7 @@ function setup(extra: Partial<AppBusiness> = {}) {
     support: { email: "support@example.com" },
     verification: { store: kyb.store, onSubmitted },
     log: quiet,
+    ...more,
   };
   const app = createOwnerApp(deps);
   return { app, users, prices, board, biz, markPaid, kyb, onSubmitted };
@@ -432,6 +433,31 @@ describe("verify your business", () => {
     const s = setup();
     const cookie = await login(s, STAFF, "manager");
     expect(await (await get(s, "/verify", cookie)).text()).toContain("Only the business owner");
+  });
+});
+
+describe("first-time tour", () => {
+  it("is off unless switched on", async () => {
+    const s = setup();
+    expect(await (await get(s, "/", await login(s, OWNER))).text()).not.toContain('id="tour"');
+    expect(await (await get(s, "/help", await login(s, OWNER))).text()).not.toContain("Show me around");
+  });
+
+  it("shows on the dashboard only, with steps for what the person can see", async () => {
+    const s = setup({}, { tour: true });
+    const owner = await login(s, OWNER);
+    const dash = await (await get(s, "/", owner)).text();
+    expect(dash).toContain('id="tour"');
+    expect(dash).toContain('"start":false');
+    expect(dash).toContain('"href":"/home/settings"');
+    expect(await (await get(s, "/orders", owner)).text()).not.toContain('id="tour"');
+    expect(await (await get(s, "/help", owner)).text()).toContain('href="/home?tour=1"');
+    expect(await (await get(s, "/?tour=1", owner)).text()).toContain('"start":true');
+
+    const rider = await (await get(s, "/", await login(s, "2348044444444", "rider"))).text();
+    expect(rider).toContain('"href":"/home/orders"');
+    expect(rider).not.toContain('"href":"/home/inbox"');
+    expect(rider).not.toContain('"href":"/home/settings"');
   });
 });
 
