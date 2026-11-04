@@ -6,7 +6,7 @@ import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
 import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
-import { extractMessages, extractOwnerReplies } from "./parse.js";
+import { extractFailedDeliveries, extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
 
@@ -103,6 +103,15 @@ export function createWhatsAppWebhook(webhookDeps: WebhookDeps) {
         // a message that will fail the same way every time.
         log.error(`Failed to handle message ${msg.waMessageId}:`, err);
       }
+    }
+
+    // WhatsApp accepts a message first and only reports later, in a receipt
+    // like this, that it couldn't deliver it (131047: the person hasn't
+    // written in 24 hours and it wasn't a template).
+    for (const failed of extractFailedDeliveries(payload)) {
+      log.warn(
+        `WhatsApp couldn't deliver message ${failed.waMessageId} to ${mask(failed.to)} from number ${failed.businessNumberId ?? "?"}: ${failed.code ?? ""} ${failed.reason}`,
+      );
     }
 
     return c.text("OK", 200);
