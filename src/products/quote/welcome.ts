@@ -166,6 +166,7 @@ export interface OwnerMenu {
   referral: boolean;
   delivery: boolean;
   walkIn?: boolean;
+  tickets?: boolean;
   shop?: boolean;
 }
 
@@ -183,6 +184,7 @@ export function ownerMenu(m: OwnerMenu): string {
       ...(m.catalogue ? ["• *stock* : ce qu'il reste de chaque article, et *stock 3 25* pour le changer", "• une photo avec la légende *photo T-shirts* : une photo de produit pour les devis"] : []),
       ...(m.delivery ? ["• *delivery* : livreurs et livraison"] : []),
       ...(m.walkIn ? ["• *walk-in* : commandes sur place, écrans de retrait et fermeture des commandes"] : []),
+      ...(m.tickets ? ["• *tickets* : vendre des billets avec code QR, et *door* pour l'écran d'entrée"] : []),
       ...(m.plan ? ["• *plan* : votre formule, l'utilisation du mois et les changements de formule"] : []),
       ...(m.referral ? ["• *referral* : votre code de parrainage"] : []),
       "• *app* : un lien pour ouvrir votre appli yarnOga",
@@ -200,6 +202,7 @@ export function ownerMenu(m: OwnerMenu): string {
     ...(m.catalogue ? ["• *stock*: what's left of each item, and *stock 3 25* to set it", "• a photo captioned *photo T-shirts*: a product photo for quotes"] : []),
     ...(m.delivery ? ["• *delivery*: riders and delivery commands"] : []),
     ...(m.walkIn ? ["• *walk-in*: walk-in orders, pickup screens and closing orders"] : []),
+    ...(m.tickets ? ["• *tickets*: sell event tickets with QR codes, and *door* for the check-in screen"] : []),
     ...(m.plan ? ["• *plan*: your plan, this month's use and upgrades"] : []),
     ...(m.referral ? ["• *referral*: your referral code"] : []),
     "• *app*: a link to open your yarnOga app",

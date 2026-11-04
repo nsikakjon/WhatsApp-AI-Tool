@@ -73,6 +73,7 @@ const FEATURES: Record<string, { label: string; limit?: string }> = {
   sales_dashboard: { label: "Sales dashboard" },
   catalogue: { label: "Catalogue photos and stock" },
   walk_in: { label: "Walk-in orders" },
+  event_tickets: { label: "Event tickets" },
   customers_page: { label: "Customers page" },
   daily_summary: { label: "Morning summary" },
   pay_reminders: { label: "Payment reminders" },

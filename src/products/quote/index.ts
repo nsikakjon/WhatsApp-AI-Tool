@@ -24,6 +24,7 @@ import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder 
 import type { Understander } from "./understand.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
+import type { EventTickets } from "./tickets/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
 
 // The quote and order bot. Any business can use it with its own price list
@@ -140,6 +141,8 @@ export interface QuoteProductOptions {
   payLink?: (order: SavedOrder, waId: string) => Promise<string>;
   /** Walk-in orders for restaurants, bars and events (walkin/). Without it, every order is delivered or arranged by the team. */
   walkIn?: WalkIn;
+  /** Event tickets with a QR code each, checked in at the door (tickets/). */
+  tickets?: EventTickets;
   /** The language of the business's fixed messages (default English). Customers who write in the other language get theirs. */
   language?: Lang;
   /** What the price list is in (default naira). Amounts are always whole hundredths: kobo or centimes. */
@@ -203,6 +206,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (venue.on) {
         const spotReply = await opts.walkIn!.customerMessage(msg, ctx.contactId);
         if (spotReply) return spotReply;
+      }
+      if (opts.tickets) {
+        const ticketReply = await opts.tickets.customerMessage(msg, ctx.contactId, lang);
+        if (ticketReply) return ticketReply;
       }
       const walkIn = venue.on && (await walkInChat(ctx.contactId)) ? venue : WALK_IN_OFF;
       if (!walkIn.on && opts.delivery && (await deliveryOnPlan())) {
@@ -337,6 +344,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       // The courier fee came with the payment: book the courier straight away.
       const booked = via.how === "online" && (via.courierKobo ?? 0) > 0 && opts.delivery ? await opts.delivery.bookCourier(orderNumber) : [];
       const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup, own);
+      const tickets = await ticketsPaid(order);
       const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
       const total = money(order.totalKobo);
       const how =
@@ -347,7 +355,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             : own.paidOnline(label, total, who, via.feeKobo > 0 ? money(via.feeKobo) : null, opts.payProvider ?? "Paystack");
       return [
         receiptNote(order, label, receipt, pickup, own),
-        ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (note ? `\n\n${note}` : "")),
+        ...(tickets ? [tickets] : []),
+        ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") + (note ? `\n\n${note}` : "")),
         ...booked,
       ];
     },
@@ -687,7 +696,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       return reply;
     }
 
-    const dispatch = !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
+    // A tickets-only order has nothing to deliver or collect: the tickets come in the chat.
+    const ticketsOnly = await isTicketsOnly(order);
+    const dispatch = !ticketsOnly && !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
     if (dispatch) {
       const ask = await dispatch.beforeConfirm(order, { waId, name }, lang);
       if (ask) return ask;
@@ -695,7 +706,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
     const lowStock = (await opts.catalogue?.confirmed(order.id, order.lines)) ?? [];
     let spot: { code: string; table: string | null } | null = null;
-    if (walkIn.on) {
+    if (walkIn.on && !ticketsOnly) {
       try {
         spot = await opts.walkIn!.confirmed(order, contactId);
       } catch (err) {
@@ -708,7 +719,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const payUrl = await payLinkFor(order, waId);
     const payLine = payUrl ? t.payLine(payUrl, opts.currency ?? "NGN") : null;
     if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
-    const next = spot
+    const next = ticketsOnly
+      ? t.nextTickets(!!payUrl, opts.businessName)
+      : spot
       ? payUrl
         ? t.nextWalkInLink()
         : t.nextWalkInCounter(ref(order))
@@ -721,7 +734,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const reply: Reply = {
       text: invoice
         ? t.confirmedInvoice(ref(order), total, next)
-        : payLine || spot
+        : payLine || spot || ticketsOnly
           ? `${t.confirmedTotal(ref(order), total, next)}${payLine ? `\n\n${payLine}` : ""}`
           : t.confirmedContact(ref(order), total, opts.businessName, !dispatch),
       ...(invoice ? { images: [invoice] } : {}),
@@ -817,6 +830,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (catalogueReply) return catalogueReply;
     const walkInReply = opts.walkIn ? await opts.walkIn.ownerCommand(msg) : null;
     if (walkInReply) return walkInReply;
+    const ticketReply = opts.tickets ? await opts.tickets.ownerCommand(msg) : null;
+    if (ticketReply) return ticketReply;
     const shopReply = opts.shop ? await opts.shop.ownerCommand(msg) : null;
     if (shopReply) return { text: shopReply };
     const caption = (msg.caption ?? "").trim();
@@ -865,6 +880,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           referral: !!opts.referral,
           delivery: !!opts.delivery && (await deliveryOnPlan()),
           walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
+          tickets: !!opts.tickets && (opts.features ? await opts.features.has("event_tickets") : true),
           shop: !!opts.shop,
         }),
       };
@@ -917,6 +933,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
     const pickup = await walkInPaid(order);
     const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup);
+    const tickets = await ticketsPaid(order);
     const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
     const who = order.customerName ?? showWaId(order.customerWaId);
     return {
@@ -924,10 +941,32 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         (receipt
           ? own.markedPaidSent(label, money(order.totalKobo), who)
           : own.markedPaidTold(label, money(order.totalKobo), who, await documentsIncluded())) +
+        (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") +
         (note ? `\n\n${note}` : ""),
       ...(receipt ? { images: [receipt] } : {}),
-      notify: [receiptNote(order, label, receipt, pickup, own)],
+      notify: [receiptNote(order, label, receipt, pickup, own), ...(tickets ? [tickets] : [])],
     };
+  }
+
+  async function isTicketsOnly(order: SavedOrder): Promise<boolean> {
+    if (!opts.tickets) return false;
+    try {
+      return await opts.tickets.ticketsOnly(order.lines);
+    } catch (err) {
+      log.error(`Couldn't check whether ${ref(order)} is all tickets:`, err);
+      return false;
+    }
+  }
+
+  /** The tickets in a paid order, sent to the customer. Null when it has none, or if making them fails (the owner can ask the customer to send "my tickets" later). */
+  async function ticketsPaid(order: OrderDetails): Promise<Notice | null> {
+    if (!opts.tickets) return null;
+    try {
+      return await opts.tickets.paid(order);
+    } catch (err) {
+      log.error(`Couldn't make the tickets for ${ref(order)}:`, err);
+      return null;
+    }
   }
 
   async function walkInPickup(order: SavedOrder): Promise<Pickup | null> {
