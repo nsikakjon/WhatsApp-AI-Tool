@@ -229,6 +229,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (!msg.text) {
         return {
           text: msg.type === "audio" ? t.voiceUnclear() : t.sendRequest(),
+          stage: "unclear",
         };
       }
 

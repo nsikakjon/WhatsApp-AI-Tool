@@ -10,6 +10,7 @@ import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
+import { withUnclearLimit } from "./core/unclear-limit.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
@@ -1189,7 +1190,8 @@ const routes = {
   site: siteReporter && answering(siteReporter),
   leads: leadQualifier && answering(leadQualifier),
   flyer: flyerBot && answering(flyerBot),
-  main: answering(product),
+  // Two replies at most to messages with no clear request, then quiet in that chat for 6 hours.
+  main: answering(withUnclearLimit(product)),
 };
 
 const dashboardNumbers = [
