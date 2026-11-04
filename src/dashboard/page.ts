@@ -117,7 +117,7 @@ function adsSection(ads: AdsReport | "error" | undefined): string {
   if (!ads) return "";
   const intro = `People who messaged a number by tapping a Click-to-WhatsApp ad, per ad, over the last ${AD_REPORT_DAYS} days. Each chat is free for 72 hours after the first reply, templates included.`;
   if (ads === "error") {
-    return section("ads", "Leads from ads", intro, `<p class="problem">Ad leads couldn't load. Check that migration 0071 has been run in Supabase.</p>`);
+    return section("ads", "Leads from ads", intro, `<p class="problem">Ad leads couldn't load. Check that migration 0072 has been run in Supabase.</p>`);
   }
   const total = (k: "leads" | "leads7" | "leads30" | "freeNow") => ads.ads.reduce((sum, a) => sum + a[k], 0);
   const rows = ads.ads

@@ -230,7 +230,7 @@ export interface Config {
   /**
    * Save which Click-to-WhatsApp ad started each chat, show leads per ad on the
    * dashboard and in the owner app, and count Meta's free 72-hour window
-   * (migration 0071). Off unless AD_LEADS is true.
+   * (migration 0072). Off unless AD_LEADS is true.
    */
   adLeads: boolean;
   /**

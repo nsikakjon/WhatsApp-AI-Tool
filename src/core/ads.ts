@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
-// Leads from WhatsApp ads (AD_LEADS, migration 0071). The first message
+// Leads from WhatsApp ads (AD_LEADS, migration 0072). The first message
 // someone sends after tapping a Click-to-WhatsApp ad carries the ad's details;
 // it is saved per number, so every number (ours and our clients') gets its
 // own leads. The database opens Meta's 72-hour free window when the first

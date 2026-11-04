@@ -33,7 +33,7 @@ People who message from WhatsApp Web or the desktop app don't open a window.
 
 ## Switching it on
 
-1. Run `supabase/migrations/0071_ad_leads.sql` in Supabase (SQL Editor > New
+1. Run `supabase/migrations/0072_ad_leads.sql` in Supabase (SQL Editor > New
    query > paste > Run). Running it again is safe.
 2. On Railway, set `AD_LEADS=true`.
 
