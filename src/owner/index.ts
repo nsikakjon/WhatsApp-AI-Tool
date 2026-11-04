@@ -1,3 +1,4 @@
+import { registerScannerAssets } from "./scanner.js";
 import { registerCounter } from "./sections/counter.js";
 import { registerCustomers } from "./sections/customers.js";
 import { readFileSync } from "node:fs";
@@ -124,6 +125,8 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     if (!file) return c.notFound();
     return c.body(file as unknown as ArrayBuffer, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=604800" });
   });
+
+  registerScannerAssets(app);
 
   // ---- Logging in ----
 
