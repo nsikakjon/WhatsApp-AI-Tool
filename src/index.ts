@@ -8,6 +8,7 @@ import { createSupabaseStore } from "./core/db/store.js";
 import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
+import { createSupabaseAdLeads } from "./core/ads.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { withUnclearLimit } from "./core/unclear-limit.js";
@@ -1206,6 +1207,7 @@ const app = createApp({
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   usage,
+  adLeads: config.adLeads ? createSupabaseAdLeads(supabase) : undefined,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
