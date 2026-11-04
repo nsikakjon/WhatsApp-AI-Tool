@@ -8,6 +8,9 @@ const GEM = "33333333-3333-3333-3333-333333333333";
 const auth = { Authorization: `Basic ${Buffer.from(`staff:${PASSWORD}`).toString("base64")}` };
 const sameSite = { ...auth, Origin: "https://bot.example.com", Host: "bot.example.com" };
 
+const STAFF_PASSWORD = "numbers only please";
+const staffAuth = { Authorization: `Basic ${Buffer.from(`tolu:${STAFF_PASSWORD}`).toString("base64")}` };
+
 function setUp(meta: { shows?: string | null; registerFails?: boolean } = {}) {
   const q = memoryQueue([{ id: "s1", name: "Tolu", waId: "2348022222222" }]);
   const list: QuoteBusiness[] = [
@@ -48,6 +51,7 @@ function setUp(meta: { shows?: string | null; registerFails?: boolean } = {}) {
     numbers: {
       store: q.store,
       publicUrl: "https://app.yarnoga.com",
+      staffPassword: STAFF_PASSWORD,
       meta: {
         displayNumber: async () => (meta.shows === undefined ? "+234 803 123 4567" : meta.shows),
         async register(id, pin) {
@@ -135,5 +139,25 @@ describe("numbers to connect", () => {
     const res = await app.request("/numbers/staff", { method: "POST", headers: sameSite, body: new URLSearchParams({ name: "Ada", waId: "0803 333 3333" }) });
     expect(res.status).toBe(303);
     expect(q.team.at(-1)).toMatchObject({ name: "Ada", waId: "2348033333333" });
+  });
+
+  it("lets staff with their own password open only the numbers, not the staff list or businesses", async () => {
+    const { app, q } = await withNumber();
+    const list = await app.request("/numbers", { headers: staffAuth });
+    expect(list.status).toBe(200);
+    const html = await list.text();
+    expect(html).toContain("Glittering Gem");
+    expect(html).not.toContain("Who connects numbers");
+    expect(html).not.toContain('href="/quote-setup"');
+    expect((await app.request(`/numbers/${GEM}`, { headers: staffAuth })).status).toBe(200);
+    expect((await app.request("/", { headers: staffAuth })).status).toBe(401);
+    expect((await app.request(`/b/${GEM}`, { headers: staffAuth })).status).toBe(401);
+    const staffHere = { ...staffAuth, Origin: "https://bot.example.com", Host: "bot.example.com" };
+    const add = await app.request("/numbers/staff", { method: "POST", headers: staffHere, body: new URLSearchParams({ name: "Eve", waId: "08034444444" }) });
+    expect(add.status).toBe(403);
+    expect((await app.request("/numbers/staff/s1/remove", { method: "POST", headers: staffHere })).status).toBe(403);
+    expect(q.team).toHaveLength(1);
+    const added = await app.request(`/numbers/${GEM}/added`, { method: "POST", headers: staffHere });
+    expect(added.status).toBe(303);
   });
 });

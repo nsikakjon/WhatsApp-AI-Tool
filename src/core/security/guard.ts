@@ -86,11 +86,22 @@ export function createGuard(name: string, opts: GuardOptions = {}) {
   };
 }
 
+// Requests let in with a limited password (see guardedBasicAuth).
+const limitedLogins = new WeakSet<Request>();
+
+/** True when this request came in with the limited password, not the main one. */
+export function isLimitedLogin(c: Context): boolean {
+  return limitedLogins.has(c.req.raw);
+}
+
 /**
  * The browser's own password box (HTTP Basic auth), with guessing slowed down.
- * Any username is accepted; only the password counts.
+ * Any username is accepted; only the password counts. `limited` is a second
+ * password that only opens the pages it allows, e.g. staff on the number queue.
  */
-export function guardedBasicAuth(opts: GuardOptions & { password: string; realm: string }): MiddlewareHandler {
+export function guardedBasicAuth(
+  opts: GuardOptions & { password: string; realm: string; limited?: { password: string; allows(c: Context): boolean } },
+): MiddlewareHandler {
   const guard = createGuard(opts.realm, opts);
   const challenge = (c: Context, status: 401 | 429, text: string) => {
     c.header("WWW-Authenticate", `Basic realm="${opts.realm.replace(/"/g, "")}"`);
@@ -105,9 +116,15 @@ export function guardedBasicAuth(opts: GuardOptions & { password: string; realm:
       c.header("Retry-After", "900");
       return c.text("Too many wrong passwords. Wait 15 minutes and try again.", 429);
     }
-    if (!samePassword(given, opts.password)) {
+    const main = samePassword(given, opts.password);
+    const limited = !main && opts.limited !== undefined && samePassword(given, opts.limited.password);
+    if (!main && !limited) {
       await guard.failed(ip);
       return challenge(c, 401, "That password isn't right.");
+    }
+    if (limited) {
+      if (!opts.limited!.allows(c)) return challenge(c, 401, "That password only opens the numbers to connect.");
+      limitedLogins.add(c.req.raw);
     }
     guard.succeeded(ip);
     await next();
