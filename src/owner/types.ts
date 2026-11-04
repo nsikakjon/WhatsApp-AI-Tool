@@ -123,6 +123,8 @@ export interface OwnerAppDeps {
   botTestsPerDay?: number;
   /** A first-time tour of the menu on the dashboard (OWNER_APP_TOUR). */
   tour?: boolean;
+  /** The offline till at /home/till (OWNER_APP_OFFLINE); each business also needs counter sales. */
+  offline?: boolean;
   now?: () => Date;
   log?: Pick<Console, "info" | "warn" | "error">;
 }

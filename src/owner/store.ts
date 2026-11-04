@@ -110,6 +110,24 @@ export interface CounterSale {
   totalKobo: number;
   voided: boolean;
   lines: SoldLine[];
+  /** Rung up on the offline till: when it arrived, and what to check (OWNER_APP_OFFLINE). */
+  offline?: {
+    syncedAt: Date;
+    /** Sold more than the stock showed (another till sold some too). */
+    short: Array<{ name: string; by: number }>;
+    /** The price list changed while the till was offline: what was charged, and the list price now. */
+    repriced: Array<{ name: string; chargedKobo: number; listKobo: number }>;
+  };
+}
+
+/** A sale from the offline till, priced there from its copy of the price list. */
+export interface OfflineSale {
+  key: string;
+  userId: string;
+  paidBy: PaidBy;
+  /** When the till sold it. */
+  soldAt: Date;
+  lines: Array<QuoteLine & { listPriceKobo: number | null }>;
 }
 
 export type SaleResult =
@@ -125,6 +143,11 @@ export interface CounterStore {
   void(saleId: string, userId: string): Promise<boolean>;
   /** Sales made in [from, to), newest first, cancelled ones included. */
   sales(from: Date, to: Date): Promise<CounterSale[]>;
+  /**
+   * Records a sale from the offline till (migration 0070). Never refused for
+   * stock: the goods have already gone. "unknown": an item isn't this business's.
+   */
+  sellOffline?(sale: OfflineSale): Promise<{ ok: true; saleId: string; duplicate: boolean } | { ok: false; reason: "unknown" }>;
   /** WhatsApp orders paid in [from, to): their lines and any discount. */
   paidOrders(from: Date, to: Date): Promise<Array<{ discountKobo: number; lines: SoldLine[] }>>;
 }
@@ -554,7 +577,7 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string, opt
 }
 
 /** `businessIds` are the business and its branches, for the figures; sales are rung up on `businessId`. */
-export function createSupabaseCounter(db: SupabaseClient, businessId: string, businessIds: string[]): CounterStore {
+export function createSupabaseCounter(db: SupabaseClient, businessId: string, businessIds: string[], opts: { offline?: boolean } = {}): CounterStore {
   const soldLine = (r: { name: string; quantity: number; total_kobo: number | string; unit_cost_kobo: number | string | null }): SoldLine => ({
     name: r.name,
     quantity: Number(r.quantity),
@@ -576,6 +599,29 @@ export function createSupabaseCounter(db: SupabaseClient, businessId: string, bu
       if (row?.result === "short") return { ok: false, reason: "short", item: row.item ?? "", left: row.left_in_stock ?? 0 };
       return { ok: false, reason: "unknown" };
     },
+    sellOffline: opts.offline
+      ? async ({ key, userId, paidBy, soldAt, lines }) => {
+          for (const l of lines) assertKobo(l.totalKobo, "line total");
+          const { data, error } = await db.rpc("quote_counter_sale_offline", {
+            p_business_id: businessId,
+            p_sale_key: key,
+            p_sold_by: userId,
+            p_paid_by: paidBy,
+            p_sold_at: soldAt.toISOString(),
+            p_lines: lines.map((l) => ({
+              variant_id: l.variantId,
+              name: l.name,
+              quantity: l.quantity,
+              unit_price_kobo: l.unitPriceKobo,
+              total_kobo: l.totalKobo,
+              list_price_kobo: l.listPriceKobo,
+            })),
+          });
+          const row = (one(data, error, "offline counter sale") ?? [])[0] as { result: string; sale_id: string | null } | undefined;
+          if (row?.result === "ok" || row?.result === "duplicate") return { ok: true, saleId: row.sale_id!, duplicate: row.result === "duplicate" };
+          return { ok: false, reason: "unknown" };
+        }
+      : undefined,
     async void(saleId, userId) {
       const { data, error } = await db.rpc("quote_counter_void", { p_business_id: businessId, p_sale_id: saleId, p_voided_by: userId });
       return one(data, error, "cancel counter sale") === true;
@@ -583,7 +629,11 @@ export function createSupabaseCounter(db: SupabaseClient, businessId: string, bu
     async sales(from, to) {
       const { data, error } = await db
         .from("quote_counter_sales")
-        .select("id, created_at, paid_by, total_kobo, voided_at, app_users!quote_counter_sales_sold_by_fkey(name, role), quote_counter_sale_items(name, quantity, total_kobo, unit_cost_kobo)")
+        .select(
+          opts.offline
+            ? "id, created_at, synced_at, paid_by, total_kobo, voided_at, app_users!quote_counter_sales_sold_by_fkey(name, role), quote_counter_sale_items(name, quantity, total_kobo, unit_cost_kobo, unit_price_kobo, short_by, list_price_kobo)"
+            : "id, created_at, paid_by, total_kobo, voided_at, app_users!quote_counter_sales_sold_by_fkey(name, role), quote_counter_sale_items(name, quantity, total_kobo, unit_cost_kobo)",
+        )
         .in("business_id", businessIds)
         .gte("created_at", from.toISOString())
         .lt("created_at", to.toISOString())
@@ -595,8 +645,11 @@ export function createSupabaseCounter(db: SupabaseClient, businessId: string, bu
         paid_by: PaidBy;
         total_kobo: number | string;
         voided_at: string | null;
+        synced_at?: string | null;
         app_users: { name: string | null; role: string } | null;
-        quote_counter_sale_items: Array<Parameters<typeof soldLine>[0]>;
+        quote_counter_sale_items: Array<
+          Parameters<typeof soldLine>[0] & { unit_price_kobo?: number | string; short_by?: number | null; list_price_kobo?: number | string | null }
+        >;
       };
       return ((one(data, error, "counter sales") ?? []) as unknown as Row[]).map((r) => ({
         id: r.id,
@@ -606,6 +659,15 @@ export function createSupabaseCounter(db: SupabaseClient, businessId: string, bu
         totalKobo: Number(r.total_kobo),
         voided: r.voided_at !== null,
         lines: r.quote_counter_sale_items.map(soldLine),
+        offline: r.synced_at
+          ? {
+              syncedAt: new Date(r.synced_at),
+              short: r.quote_counter_sale_items.filter((i) => i.short_by).map((i) => ({ name: i.name, by: Number(i.short_by) })),
+              repriced: r.quote_counter_sale_items
+                .filter((i) => i.list_price_kobo != null)
+                .map((i) => ({ name: i.name, chargedKobo: Number(i.unit_price_kobo), listKobo: Number(i.list_price_kobo) })),
+            }
+          : undefined,
       }));
     },
     async paidOrders(from, to) {

@@ -20,6 +20,9 @@ changes between checking and confirming, the app shows the new total before
 recording anything. Pressing Confirm twice records the sale once, and two
 phones can't both sell the last tin: the second is told how many are left.
 
+Internet not steady? The offline till (docs/OFFLINE_TILL.md) does the same
+with no connection and sends the sales when it's back.
+
 Who can do what:
 
 - **Owner and manager**: ring up sales, see today's takings split by cash,

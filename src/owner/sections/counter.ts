@@ -16,8 +16,8 @@ import { lagosMidnight } from "./tools.js";
 // profit. With QUOTE_BARCODES, scanning a product's barcode (phone camera, or
 // a plug-in scanner typing into the search box) adds one of it.
 
-const UUID = /^[0-9a-f-]{36}$/;
-const MAX_QUANTITY = 100_000;
+export const UUID = /^[0-9a-f-]{36}$/;
+export const MAX_QUANTITY = 100_000;
 
 export const PAID_BY_LABEL: Record<PaidBy, string> = { cash: "Cash", transfer: "Transfer", pos: "POS" };
 
@@ -50,13 +50,13 @@ const SCAN_SCRIPT = `${BARCODE_KEY_JS}
 `;
 
 /** A price list option that can be rung up: it has a price. */
-interface Sellable {
+export interface Sellable {
   variantId: string;
   name: string;
   option: ProductOption;
 }
 
-function sellables(products: ProductRecord[]): Sellable[] {
+export function sellables(products: ProductRecord[]): Sellable[] {
   return products.flatMap((p) =>
     p.options.filter((o) => o.id && o.tiers.length).map((o) => ({ variantId: o.id!, name: `${p.name}: ${o.name}`, option: o })),
   );
@@ -156,6 +156,16 @@ export function signedMoney(minor: number, currency: Currency): string {
   return minor < 0 ? `-${formatMoney(-minor, currency)}` : formatMoney(minor, currency);
 }
 
+/** What the owner should check on a sale from the offline till. */
+export function offlineNotes(s: CounterSale, currency: Currency): string {
+  if (!s.offline) return "";
+  const notes = [
+    ...s.offline.short.map((x) => `${x.name}: sold ${x.by} more than the stock showed. Count the shelf and fix the stock.`),
+    ...s.offline.repriced.map((x) => `${x.name}: charged ${formatMoney(x.chargedKobo, currency)} each; the price list says ${formatMoney(x.listKobo, currency)}.`),
+  ];
+  return ` <span class="tag blue" title="Sent ${esc(lagosTime(s.offline.syncedAt))}">offline till</span>${notes.map((n) => `<br><span class="small" style="color:var(--amber)">${esc(n)}</span>`).join("")}`;
+}
+
 const lagosToday = (at: Date) => lagosMidnight(new Date(at.getTime() + 3_600_000).toISOString().slice(0, 10))!;
 const lagosTime = (at: Date) => at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
 
@@ -237,6 +247,7 @@ ${
 </script>`
     : `<p class="muted">Nothing on your price list has a price yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices">Add prices</a> first.` : ""}</p>`
 }
+${biz.counter?.sellOffline ? `<p class="muted small" style="margin-top:16px">Internet not steady? Use the <a href="/home/till">till</a>: it keeps working offline and sends the sales when the connection is back.</p>` : ""}
 ${await todaysSales(c)}`;
     return ctx.render(c, "Counter sale", "/home/counter", body, problems.length ? 400 : 200);
   }
@@ -258,7 +269,7 @@ ${await todaysSales(c)}`;
       .map((s) => {
         const p = saleProfit(s.lines);
         const items = s.lines.map((l) => `${l.quantity} x ${l.name}`).join(", ");
-        return `<tr${s.voided ? ' class="muted" style="text-decoration:line-through"' : ""}><td>${lagosTime(s.at)}</td><td>${esc(items)}${s.voided ? ' <span class="tag red">cancelled</span>' : ""}</td><td>${PAID_BY_LABEL[s.paidBy]}</td><td>${money(s.totalKobo)}</td>${
+        return `<tr${s.voided ? ' class="muted" style="text-decoration:line-through"' : ""}><td>${lagosTime(s.at)}</td><td>${esc(items)}${s.voided ? ' <span class="tag red">cancelled</span>' : ""}${offlineNotes(s, biz.currency)}</td><td>${PAID_BY_LABEL[s.paidBy]}</td><td>${money(s.totalKobo)}</td>${
           seesMoney ? `<td>${p === null ? '<span class="muted small">no cost price</span>' : signedMoney(p, biz.currency)}</td>` : ""
         }<td class="muted small">${esc(s.soldBy ?? "")}</td>${
           seesMoney ? `<td>${s.voided ? "" : `<form method="post" action="/home/counter/${s.id}/cancel" onsubmit="return confirm('Cancel this sale and put its items back in stock?')"><button class="danger small">Cancel</button></form>`}</td>` : ""

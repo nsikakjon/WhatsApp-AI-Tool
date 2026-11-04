@@ -1028,6 +1028,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         users: appUsers,
         support: { email: ownerApp.supportEmail, waNumber: ownerApp.supportWaId },
         tour: ownerApp.tour,
+        offline: ownerApp.offline && config.quoteCounterSales,
         inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
         health: () => runChecks(health),
         healthLabels: health.labels,
@@ -1083,7 +1084,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
             prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes }),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
-            counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids) : undefined,
+            counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
             barcodes: config.quoteBarcodes,
             delivery: delivery

@@ -1,6 +1,7 @@
 import { registerScannerAssets } from "./scanner.js";
 import { registerCounter } from "./sections/counter.js";
 import { registerCustomers } from "./sections/customers.js";
+import { registerTill, registerTillAssets } from "./sections/till.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -129,6 +130,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   });
 
   registerScannerAssets(app);
+  if (deps.offline) registerTillAssets(app);
 
   // ---- Logging in ----
 
@@ -307,6 +309,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerInbox(app, ctx);
   registerOrders(app, ctx);
   registerCounter(app, ctx);
+  if (deps.offline) registerTill(app, ctx);
   registerCustomers(app, ctx);
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
@@ -334,7 +337,7 @@ export type SectionContext = {
   relogin(c: AppContext, user: AppUser): Promise<void>;
 };
 
-const BRAND_FILES = new Set(["logo-96.png", "mark-128.png", "mark-64.png", "mark-32.png"]);
+const BRAND_FILES = new Set(["logo-96.png", "mark-128.png", "mark-64.png", "mark-32.png", "app-192.png", "app-512.png"]);
 const brandDir = fileURLToPath(new URL("../../assets/brand/web/", import.meta.url));
 const brandCache = new Map<string, Uint8Array | null>();
 function brandFile(name: string): Uint8Array | null {

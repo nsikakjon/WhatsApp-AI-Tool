@@ -49,6 +49,8 @@ export interface Config {
     supportWaId?: string;
     /** A first-time tour of the app's menu (OWNER_APP_TOUR). */
     tour: boolean;
+    /** The offline till for counter sales (OWNER_APP_OFFLINE, migration 0070). Only with quoteCounterSales. */
+    offline: boolean;
   };
   /**
    * Welcome and setup-tip emails to our own customers through Resend
@@ -447,6 +449,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           supportEmail: env.SUPPORT_EMAIL?.trim() || "support@yarnoga.com",
           supportWaId: env.SUPPORT_WA_ID?.replace(/\D/g, "") || undefined,
           tour: /^(true|yes|on|1)$/i.test(env.OWNER_APP_TOUR ?? ""),
+          offline: /^(true|yes|on|1)$/i.test(env.OWNER_APP_OFFLINE ?? ""),
         }
       : undefined,
     emails: emailSettings(env),
