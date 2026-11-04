@@ -9,6 +9,7 @@ import { barcodesTaken, readProductForm } from "./sections/prices.js";
 import { barcodeKey } from "./scanner.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
+import { taxCsv, taxMonths, taxTotal, vatInside, yearMonths } from "./sections/tax.js";
 import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
 import { customersCsv } from "./sections/customers.js";
 import type { AppUser, BusinessData, CounterSale, CounterStore, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
@@ -770,5 +771,53 @@ describe("owner app plan usage", () => {
     expect(await (await get(s, "/", manager)).text()).not.toContain("Buy 1,000 replies");
     expect(await (await s.app.request(`https://${HOST}/topup`, post({ pack: "ai-1000" }, manager))).text()).toContain("Only the business owner");
     expect(link).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("tax summary", () => {
+  const at = (iso: string) => new Date(iso);
+  const takings = [
+    // 31 Oct 23:30 UTC is already 1 November in Lagos.
+    { at: at("2026-10-31T23:30:00Z"), totalKobo: 10_750_000, kind: "order" as const },
+    { at: at("2026-10-05T10:00:00Z"), totalKobo: 2_150_000, kind: "order" as const },
+    { at: at("2026-10-06T10:00:00Z"), totalKobo: 2_150_000, kind: "counter" as const },
+    { at: at("2025-12-20T10:00:00Z"), totalKobo: 1_500_000_000, kind: "order" as const },
+  ];
+  const withTax = (currency: "NGN" | "XOF" = "NGN") => setup({ currency, tax: { takings: vi.fn(async () => takings) } });
+
+  it("adds up each Lagos month, with the VAT inside and 1%", () => {
+    const rows = taxMonths(takings, ["2026-10", "2026-11"]);
+    expect(rows[0]).toMatchObject({ month: "2026-10", ordersKobo: 2_150_000, orders: 1, counterKobo: 2_150_000, counter: 1, salesKobo: 4_300_000, vatKobo: 300_000, presumptiveKobo: 43_000 });
+    expect(rows[1]).toMatchObject({ salesKobo: 10_750_000, vatKobo: 750_000, presumptiveKobo: 107_500 });
+    expect(taxTotal(rows).salesKobo).toBe(15_050_000);
+    expect(vatInside(10_750)).toBe(750);
+    expect(yearMonths(2026, at("2026-11-03T12:00:00Z"))).toHaveLength(11);
+    expect(yearMonths(2025, at("2026-11-03T12:00:00Z"))).toHaveLength(12);
+    expect(taxCsv(rows).split("\r\n")[3]).toBe("Total,129000.00,21500.00,150500.00,10500.00,1505.00");
+  });
+
+  it("shows the owner the year, the last 12 months against the tax lines, and a CSV", async () => {
+    const s = withTax();
+    const cookie = await login(s, OWNER);
+    const html = await (await get(s, "/tax?year=2026", cookie)).text();
+    expect(html).toContain("Tax summary");
+    expect(html).toContain("₦150,500");
+    expect(html).toContain("not tax advice");
+    // ₦15,150,500 in the last 12 months: over the ₦12 million line, under ₦50 million.
+    expect(html).toContain("₦15,150,500");
+    expect(html.match(/You&#39;re over|You're over/g)).toHaveLength(1);
+    const csv = await get(s, "/tax/sales-2026.csv", cookie);
+    expect(csv.headers.get("content-disposition")).toContain("sales-for-tax-2026.csv");
+    expect(await csv.text()).toContain("2026-10,21500.00,21500.00,43000.00,3000.00,430.00");
+  });
+
+  it("is for owners, naira businesses, and only when switched on", async () => {
+    const s = withTax();
+    expect(await (await get(s, "/tax", await login(s, STAFF, "manager"))).text()).toContain("Only the business owner");
+    expect(await (await get(withTax("XOF"), "/tax", await login(withTax("XOF"), OWNER))).text()).not.toContain("<table");
+    const off = setup();
+    const cookie = await login(off, OWNER);
+    expect((await get(off, "/tax", cookie)).status).toBe(404);
+    expect(await (await get(off, "/", cookie)).text()).not.toContain("/home/tax");
   });
 });

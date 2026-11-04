@@ -141,6 +141,8 @@ export interface Config {
   quoteBarcodes: boolean;
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
+  /** Monthly sales totals for VAT and the presumptive tax in the owner app. Off unless QUOTE_TAX_SUMMARY is true. */
+  quoteTaxSummary: boolean;
   /**
    * Monthly payments from a business's regular customers (migration 0069).
    * Only set when QUOTE_MONTHLY_PAYMENTS is true. `template` is an approved
@@ -494,6 +496,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
     quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
+    quoteTaxSummary: /^(true|yes|on|1)$/i.test(env.QUOTE_TAX_SUMMARY ?? ""),
     quoteMonthly: /^(true|yes|on|1)$/i.test(env.QUOTE_MONTHLY_PAYMENTS ?? "")
       ? {
           template: env.QUOTE_MONTHLY_TEMPLATE_NAME
