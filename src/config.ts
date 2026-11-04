@@ -135,6 +135,8 @@ export interface Config {
   quoteCatalogue: boolean;
   /** Counter sales and cost prices in the owner app (migration 0060). */
   quoteCounterSales: boolean;
+  /** Barcodes on the price list and a Scan button on the counter sale screen (migration 0067). Only with quoteCounterSales. */
+  quoteBarcodes: boolean;
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
   /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
@@ -482,6 +484,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
+    quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),

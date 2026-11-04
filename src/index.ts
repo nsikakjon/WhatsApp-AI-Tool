@@ -1023,9 +1023,10 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             includeUnnumbered: main,
             features,
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
-            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales }),
+            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes }),
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids) : undefined,
+            barcodes: config.quoteBarcodes,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
               : undefined,

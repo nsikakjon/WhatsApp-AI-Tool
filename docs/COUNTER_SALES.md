@@ -56,3 +56,38 @@ cashiers don't.
 
 It works for every quote business at once. Stock only goes down for items
 whose stock is counted (QUOTE_CATALOGUE); the rest are still recorded.
+
+## Scanning barcodes
+
+With `QUOTE_BARCODES` on as well, staff can scan products instead of finding
+them in the list.
+
+- **Add the barcodes once.** On the price list, each option gets a
+  **Barcode** box. Type the numbers printed under the bars, or tap **Scan**
+  next to the box and point the phone camera at the product. Each barcode can
+  be on one option only; the app says if it's already on another product.
+- **Scan at the counter.** On Counter sale, tap **Scan** and point the camera
+  at each item. Every scan adds one, and the camera stays open for the next
+  item. The same barcode is taken once every 2 seconds, so holding a tin in
+  front of the camera doesn't add five. For several of the same item, scan one
+  and tap **+** for the rest.
+- **Plug-in scanners work too.** A USB or Bluetooth barcode scanner types the
+  code into the search box and presses Enter, and the item is added.
+
+The price still comes from the price list: a barcode only says which item it
+is. A code that isn't on the list, or an item that's sold out, shows a note
+and adds nothing. Codes printed as UPC (12 digits) and EAN (13 digits) match
+either way.
+
+Android phones read barcodes with Chrome's built-in reader. iPhones and other
+browsers download a small scanner (about 100 KB, once a week) the first time
+someone taps Scan. The page asks for camera permission the first time.
+
+To switch it on:
+
+1. Supabase > SQL Editor > New query: paste all of
+   `supabase/migrations/0067_quote_barcodes.sql` and press Run. It's safe to
+   run twice.
+2. Railway > Variables: add `QUOTE_BARCODES` = `true` (counter sales must be
+   on too).
+3. Add barcodes on the price list.

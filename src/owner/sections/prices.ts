@@ -3,12 +3,13 @@ import { prescriptionNote } from "../../products/quote/prescription.js";
 import { currencyName, currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
+import { BARCODE, barcodeKey, scannerBox } from "../scanner.js";
 import { DuplicateProductError, type ProductInput, type ProductOption, type ProductRecord } from "../store.js";
 import type { AppContext, Env } from "../types.js";
 
 // The price list, one product at a time: photo, name, description, category,
 // unit, production time, and its options, each with a minimum order, stock,
-// a cost price (with counter sales on) and prices that can drop as the
+// a cost price (with counter sales on), a barcode (with QUOTE_BARCODES) and prices that can drop as the
 // quantity goes up. Prices are typed in naira and saved in kobo; the bot
 // quotes from exactly these numbers.
 
@@ -42,8 +43,9 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
     const stockText = field(form, `o${i}_stock`, 9);
     // Only on the form when counter sales are on; left out, the saved cost stays as it is.
     const costText = `o${i}_cost` in form ? field(form, `o${i}_cost`, 20) : undefined;
+    const barcodeText = `o${i}_barcode` in form ? field(form, `o${i}_barcode`, 60).replace(/\s+/g, "") : undefined;
     const tiersText = Array.from({ length: TIERS }, (_, j) => [field(form, `o${i}_f${j}`, 9), field(form, `o${i}_p${j}`, 20)] as const);
-    const blank = !optName && !minText && !stockText && !costText && tiersText.every(([f, p]) => !f && !p);
+    const blank = !optName && !minText && !stockText && !costText && !barcodeText && tiersText.every(([f, p]) => !f && !p);
     if (blank) continue;
     const label = optName || `Option ${i + 1}`;
     if (!optName) problems.push(`${label}: give it a name, e.g. "Standard" or "A5, both sides".`);
@@ -56,6 +58,7 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       costKobo = parseMoney(costText, currency);
       if (costKobo === null) problems.push(`${label}: "${costText}" isn't a cost price. Type it in ${currencyName(currency)}, or leave it empty.`);
     }
+    if (barcodeText && !BARCODE.test(barcodeText)) problems.push(`${label}: "${barcodeText}" isn't a barcode. Type the numbers under the bars, or scan it.`);
     const tiers: ProductOption["tiers"] = [];
     tiersText.forEach(([fromText, priceText], j) => {
       if (!priceText && !fromText) return;
@@ -78,11 +81,13 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       problems.push(`${label}: the first price must start at the minimum order (${min}) or lower, so every allowed quantity has a price.`);
     }
     const id = field(form, `o${i}_id`, 36);
-    options.push({ ...(UUID.test(id) ? { id } : {}), name: optName, minQuantity: min, stock, ...(costKobo !== undefined ? { costKobo } : {}), tiers });
+    options.push({ ...(UUID.test(id) ? { id } : {}), name: optName, minQuantity: min, stock, ...(costKobo !== undefined ? { costKobo } : {}), ...(barcodeText !== undefined ? { barcode: barcodeText || null } : {}), tiers });
   }
   if (!options.length) problems.push("Add at least one option with a price (call it \"Standard\" if there's only one).");
   const names = options.map((o) => o.name.toLowerCase());
   if (new Set(names).size !== names.length) problems.push("Two options have the same name.");
+  const codes = options.flatMap((o) => (o.barcode ? [barcodeKey(o.barcode)] : []));
+  if (new Set(codes).size !== codes.length) problems.push("Two options have the same barcode.");
 
   return {
     input: {
@@ -96,6 +101,19 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
     },
     problems,
   };
+}
+
+/** Barcodes on these options that another product already has. */
+export function barcodesTaken(products: ProductRecord[], productId: string | null, options: ProductOption[]): string[] {
+  const owners = new Map<string, string>();
+  for (const p of products) {
+    if (p.id === productId) continue;
+    for (const o of p.options) if (o.barcode) owners.set(barcodeKey(o.barcode), `${p.name}: ${o.name}`);
+  }
+  return options.flatMap((o) => {
+    const owner = o.barcode ? owners.get(barcodeKey(o.barcode)) : undefined;
+    return owner ? [`Barcode ${o.barcode} is already on ${owner}. Each barcode can be on one option only.`] : [];
+  });
 }
 
 /** True when the bytes really are a JPEG or PNG (not just named like one). */
@@ -164,6 +182,7 @@ ${o?.id ? `<input type="hidden" name="o${i}_id" value="${o.id}">` : ""}
 <label>Name <span class="muted">e.g. "A5, both sides", "Large", "Standard"</span><input name="o${i}_name" value="${v(o?.name ?? (i === 0 && !product ? "Standard" : ""))}"></label>
 <div class="row"><label>Minimum order<input name="o${i}_min" inputmode="numeric" value="${v(o?.minQuantity ?? "")}" placeholder="1"></label>
 <label>In stock <span class="muted">(empty: not counted)</span><input name="o${i}_stock" inputmode="numeric" value="${v(o?.stock)}"></label>
+${biz.barcodes ? `<label>Barcode <span class="muted">(optional, for scanning at the counter)</span><span style="display:flex;gap:6px"><input name="o${i}_barcode" maxlength="60" autocomplete="off" value="${v(o?.barcode)}" style="flex:1;min-width:0">${readOnly ? "" : `<button type="button" class="ghost small" data-scan-into="o${i}_barcode" aria-label="Scan the barcode with the camera">Scan</button>`}</span></label>` : ""}
 ${costs ? `<label>Cost each <span class="muted">(what one costs you, for profit)</span><input name="o${i}_cost" inputmode="decimal" value="${o?.costKobo != null ? v(naira(o.costKobo)) : ""}" placeholder="${currencySign(biz.currency)}"></label>` : ""}</div>
 <p style="margin:12px 0 4px"><b>Price each</b> <span class="muted small">Cheaper for bigger orders? Add a second price from a higher quantity.</span></p>
 <table class="tiers"><tr><th>From quantity</th><th>Price each (${currencySign(biz.currency)})</th></tr>${tiers}</table></fieldset>`;
@@ -193,10 +212,15 @@ ${product?.morePhotos.length ? `<label><input type="checkbox" name="nomore"> Tak
 <label>Sold per <span class="muted">(optional)</span><input name="unit" maxlength="30" value="${v(p?.unit)}" placeholder="e.g. piece, pack of 100"></label>
 <label>Production time <span class="muted">(days)</span><input name="lead" inputmode="numeric" value="${v(p?.leadTimeDays)}" placeholder="e.g. 2"></label></div>
 ${photo}
-<h2>Options and prices</h2>${optionRows}
+<h2>Options and prices</h2>${biz.barcodes && !readOnly ? scannerBox() : ""}${optionRows}
 ${readOnly ? `<div class="actions"><a class="button ghost" href="/home/prices">Back to the price list</a></div>` : `<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>
 <p class="muted small">Leave an option's prices empty if your team prices it case by case: the bot then tells the customer someone will confirm the price.</p>`}
 </fieldset></form>
+${biz.barcodes && !readOnly ? `<script>
+document.querySelectorAll("[data-scan-into]").forEach((b) => {
+  b.addEventListener("click", () => scanBarcodes((code) => { document.querySelector('[name="' + b.dataset.scanInto + '"]').value = code; }, false));
+});
+</script>` : ""}
 ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
       problems.length ? 400 : 200,
     );
@@ -241,6 +265,7 @@ ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}
         else more.push({ data, mimeType: type });
       }
     }
+    if (biz.barcodes && input.options.some((o) => o.barcode)) problems.push(...barcodesTaken(await biz.prices.products(), id, input.options));
     if (problems.length) return formPage(c, existing, input, problems, 0);
     let productId: string;
     try {
