@@ -193,7 +193,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
             return pitch(answer);
           }
-          if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN };
+          if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN, stage: "unclear" };
           visitor(msg.from).askedSells = false;
         }
 
@@ -513,7 +513,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     const today = now().toISOString().slice(0, 10);
     if (v.unclear < 2 || v.nudgedOn === today) return null;
     Object.assign(v, { unclear: 0, nudgedOn: today, askedSells: false });
-    return { text: "", buttons: { body: NUDGE, buttons: GUEST_BUTTONS } };
+    return { text: "", buttons: { body: NUDGE, buttons: GUEST_BUTTONS }, stage: "unclear" };
   }
 
   function alert(text: string): Pick<Reply, "notify"> {
@@ -606,8 +606,9 @@ function whatTheySell(msg: IncomingMessage, text: string): string | null | undef
   return isTrade(sells) ? sells : null;
 }
 
-function withoutStage({ stage: _, ...reply }: Reply): Reply {
-  return reply;
+/** Drops the order stage. "unclear" stays, for the limit on replies to messages with no clear request. */
+function withoutStage({ stage, ...reply }: Reply): Reply {
+  return stage === "unclear" ? { ...reply, stage } : reply;
 }
 
 const INVITE = "Want a WhatsApp bot like this for your own business? Send *sign up* and I'll set it up with you here.";

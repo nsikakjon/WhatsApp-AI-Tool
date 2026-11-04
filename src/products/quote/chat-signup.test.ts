@@ -186,9 +186,12 @@ describe("chat sign-up on the quotes number", () => {
     it("asks again when the answer can't be a trade, and sends the sign-up message on the second", async () => {
       const { say } = guest();
       await say("hi");
-      expect((await say("Hmm")).text).toMatch(/few words what your business sells/);
+      const again = await say("Hmm");
+      expect(again.text).toMatch(/few words what your business sells/);
       const nudge = await say("40000");
       expect(nudge.buttons?.body).toMatch(/^It looks like you may be here for your own business/);
+      // Both count towards the two replies a chat gets to messages with no clear request.
+      expect([again.stage, nudge.stage]).toEqual(["unclear", "unclear"]);
       expect(ids(nudge)).toEqual(["sign up", "see it as a customer"]);
     });
 
@@ -198,7 +201,7 @@ describe("chat sign-up on the quotes number", () => {
       const demo = await say("see it as a customer");
       expect(demo.buttons?.body).toMatch(/^You're now a customer of the yarnOga Demo Shop\..*\n\nWelcome to the demo shop\.$/s);
       await say("hi");
-      expect((await say("Do you have mugs?")).stage).toBeUndefined();
+      expect((await say("Do you have mugs?")).text).toBe("Which item do you want?");
     });
 
     it("sends the sign-up message after two messages in a row the shop can't use, once a day", async () => {
