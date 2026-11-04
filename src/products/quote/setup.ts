@@ -14,6 +14,7 @@ import {
   type DraftImageType,
   type PriceListDrafter,
 } from "./drafter.js";
+import { createNumberQueuePage, type NumberQueueDeps } from "./numbers-page.js";
 import { PAYSTACK_SUBACCOUNT } from "./paylinks.js";
 import { prescriptionNote } from "./prescription.js";
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, compareLists, priceListCsv, readPriceList, type PriceListItem, type PriceListProblem } from "./pricelist.js";
@@ -57,6 +58,8 @@ export interface QuoteSetupDeps {
   sheets?: { url(businessId: string): Promise<string | null>; remember(businessId: string, url: string | null): Promise<void> };
   /** Pay links on invoices (QUOTE_PAY_LINKS, migration 0045): each business's Paystack subaccount is set here. */
   payLinks?: boolean;
+  /** The "Numbers to connect" queue at /quote-setup/numbers (QUOTE_NUMBER_QUEUE, migration 0071). */
+  numbers?: Omit<NumberQueueDeps, "businesses" | "setup" | "reservedNumberIds" | "log">;
   log?: Pick<Console, "error">;
 }
 
@@ -90,6 +93,13 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
     return c.html(page("Something went wrong", `<p>The page couldn't load just now. If you've just switched this on, check that migrations 0020 and 0023 have been run in Supabase.</p><p><a href="/quote-setup">Back</a></p>`), 500);
   });
 
+  if (deps.numbers) {
+    app.route(
+      "/numbers",
+      createNumberQueuePage({ ...deps.numbers, businesses: deps.businesses, setup: deps.setup, reservedNumberIds: deps.reservedNumberIds, log }),
+    );
+  }
+
   app.get("/", async (c) => {
     const list = await deps.businesses.list();
     const rows = list
@@ -105,7 +115,7 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
         "Quote bot businesses",
         `${deps.multiBusinessOn ? "" : `<p class="notice">QUOTE_MULTI_BUSINESS is off on Railway, so only the main number's business answers customers. You can still set businesses up here first.</p>`}
 <table><thead><tr><th>Business</th><th>WhatsApp number ID</th><th>Answering</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-<p><a class="button" href="/quote-setup/new">Add a business</a></p>`,
+<p><a class="button" href="/quote-setup/new">Add a business</a>${deps.numbers ? ` <a class="button" href="/quote-setup/numbers">Numbers to connect</a>` : ""}</p>`,
       ),
     );
   });
@@ -555,7 +565,7 @@ function sameSite(c: Context): boolean {
   }
 }
 
-function page(title: string, body: string): string {
+export function page(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><title>${esc(title)} · yarnOga</title>
 <style>
@@ -576,7 +586,7 @@ nav{font-size:.9rem;margin-bottom:8px}[hidden]{display:none!important}
 ${body}</main></body></html>`;
 }
 
-function esc(text: string): string {
+export function esc(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }
 
