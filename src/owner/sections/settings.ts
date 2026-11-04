@@ -164,10 +164,14 @@ ${feeNote}
 <p class="muted">Staff log in by sending <b>app</b> to your business number from their own WhatsApp. What they see depends on their role:</p>
 <ul class="muted">${STAFF_ROLES.map((r) => `<li><b>${ROLE_LABEL[r]}</b>: ${ROLE_HELP[r]}.</li>`).join("")}</ul>
 <div class="scroll"><table><tr><th>Name</th><th>WhatsApp</th><th>Role</th><th>Last login</th><th></th></tr>${teamRows}</table></div>
-<form method="post" action="/home/settings/team" class="card" style="margin-top:12px"><div class="row">
+${
+  biz.staffLogins === false
+    ? `<p class="card" style="margin-top:12px">Staff logins come with Starter and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`
+    : `<form method="post" action="/home/settings/team" class="card" style="margin-top:12px"><div class="row">
 <label>Name<input name="name" required maxlength="60"></label><label>WhatsApp number<input name="wa" inputmode="tel" required placeholder="0801 234 5678"></label>
 <label>Role${roleSelect("cashier", "Role")}</label></div>
-<div class="actions"><button>Add staff member</button></div></form>
+<div class="actions"><button>Add staff member</button></div></form>`
+}
 
 <h2 id="password">Your password</h2>
 <p class="muted">${user.passwordHash ? "You have a password. Setting a new one logs out your other logins." : "Set one to log in with your number and password, without WhatsApp."}</p>
@@ -333,6 +337,7 @@ ${feeNote}
     const role = form.role;
     if (!name || !waId || !isStaffRole(role)) return done(c, "bad", "#team");
     const biz = c.get("biz");
+    if (biz.staffLogins === false) return done(c, "staff_plan", "#team");
     // Adding the owner's own number again would make them staff.
     if ((await ctx.deps.users.team(biz.id)).some((m) => m.waId === waId && m.role === "owner")) return done(c, "is_owner", "#team");
     try {
@@ -347,6 +352,7 @@ ${feeNote}
   app.post("/settings/team/:id/role", async (c) => {
     const role = (await c.req.parseBody()).role;
     if (!UUID.test(c.req.param("id")) || !isStaffRole(role)) return done(c, "bad", "#team");
+    if (c.get("biz").staffLogins === false) return done(c, "staff_plan", "#team");
     try {
       await ctx.deps.users.setRole(c.get("biz").id, c.req.param("id"), role);
     } catch (err) {

@@ -79,6 +79,13 @@ const FEATURES: Record<string, { label: string; limit?: string }> = {
   pay_reminders: { label: "Payment reminders" },
   ratings: { label: "Ratings" },
   order_again: { label: "Order again" },
+  barcodes: { label: "Barcode scanning" },
+  offline_till: { label: "Offline till" },
+  tax_summary: { label: "Tax summary" },
+  staff_roles: { label: "Staff logins" },
+  payouts: { label: "Pay riders and staff" },
+  monthly_payments: { label: "Monthly customer payments" },
+  ad_leads: { label: "Ads page" },
 };
 
 type Form = Record<string, unknown>;

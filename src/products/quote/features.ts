@@ -54,7 +54,16 @@ export type PlanFeature =
   | "order_again"
   /** the morning summary and the Customers page from Pro. */
   | "daily_summary"
-  | "customers_page";
+  | "customers_page"
+  /** Owner app parts locked to a plan (migration 0073, owner/plan-locks.ts): Starter and up, */
+  | "barcodes"
+  | "offline_till"
+  | "tax_summary"
+  | "staff_roles"
+  /** and Pro and up. */
+  | "payouts"
+  | "monthly_payments"
+  | "ad_leads";
 
 export interface FeatureRow {
   included: boolean;
