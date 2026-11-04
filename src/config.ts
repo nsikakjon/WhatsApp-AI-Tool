@@ -137,6 +137,8 @@ export interface Config {
   quoteCounterSales: boolean;
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
+  /** Monthly sales totals for VAT and the presumptive tax in the owner app. Off unless QUOTE_TAX_SUMMARY is true. */
+  quoteTaxSummary: boolean;
   /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
   quoteDiscountCodes: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
@@ -478,6 +480,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
+    quoteTaxSummary: /^(true|yes|on|1)$/i.test(env.QUOTE_TAX_SUMMARY ?? ""),
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
