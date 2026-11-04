@@ -13,7 +13,8 @@ import type { Product } from "./core/product.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
-import { orderPayLinks, withOrderPayments } from "./products/quote/paylinks.js";
+import { DEFAULT_FEE_CAP, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
+import { createMonthly, createSupabaseMonthlyStore, type Monthly } from "./products/quote/monthly.js";
 import {
   createSupabaseBranding,
   createSupabaseBusinesses,
@@ -926,6 +927,48 @@ if (payoutTransfers) {
   };
   productNumbers.payouts = config.whatsapp.phoneNumberId;
 }
+// Monthly payments from a business's regular customers (QUOTE_MONTHLY_PAYMENTS,
+// migration 0067): naira businesses with a Paystack subaccount, as the money
+// goes to the business's own bank. yarnOga's fee is the plan's transaction
+// fee, as on invoice pay links.
+async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
+  if (!config.quoteMonthly || !payments || !config.paystack) return undefined;
+  const main = businessId === DEFAULT_BUSINESS_ID;
+  const row = main ? null : quoteBusinesses ? await createSupabaseBusinesses(supabase).get(businessId) : null;
+  if (main ? !config.quote : !row) return undefined;
+  const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
+  const subaccount = main ? config.quote!.paystackSubaccount : row!.paystackSubaccount;
+  const found = await quoteBotFor(businessId);
+  if (currency !== "NGN" || !subaccount || !found) return undefined;
+  const { features } = main ? (config.quote!.plan ? planFeatures(businessId, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? businessId);
+  return createMonthly({
+    store: createSupabaseMonthlyStore(supabase, businessId),
+    payments,
+    businessId,
+    businessName: found.name,
+    subaccount,
+    async feeKobo(amountKobo) {
+      if (!features || !(await features.has("transaction_fee"))) return 0;
+      const cap = (await features.limit("transaction_fee_cap_ngn").catch(() => null)) ?? DEFAULT_FEE_CAP.NGN;
+      return transactionFeeKobo(amountKobo, (await features.limit("transaction_fee")) ?? 0, cap);
+    },
+    canMessageFreely: (waId) => canMessageFreely(store, waId),
+    template: config.quoteMonthly.template,
+    send: (note) => sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined),
+    ownerWaId: found.ownerWaId,
+  });
+}
+if (config.quoteMonthly && payments) {
+  paidHandlers.monthly = async (payment, paid) => {
+    const businessId = payment.purpose.businessId;
+    const monthly = typeof businessId === "string" ? await monthlyFor(businessId) : undefined;
+    if (!monthly) throw new Error(`Monthly payment ${payment.reference} is for a business without monthly payments set up`);
+    const found = await quoteBotFor(businessId as string);
+    return (await monthly.paid(payment, paid?.card)).map((n) => ({ ...n, fromNumberId: found?.fromNumberId ?? undefined }));
+  };
+  productNumbers.monthly = config.whatsapp.phoneNumberId;
+}
+
 const payoutWebhook = payoutTransfers
   ? {
       async confirm(reference: string) {
@@ -1104,6 +1147,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                     recipient: (accountName: string, accountNumber: string, bankCode: string) => payoutTransfers.recipient({ name: accountName, accountNumber, bankCode }),
                   }
                 : undefined,
+            monthly: await monthlyFor(id),
             payLinks: {
               on: Boolean(
                 config.quotePayLinks &&
@@ -1562,6 +1606,22 @@ if (payReminders) {
         });
       } catch (err) {
         console.error(`Payment reminders failed for business ${businessId}:`, err);
+      }
+    }
+  });
+}
+
+// Monthly payments (QUOTE_MONTHLY_PAYMENTS): every 15 minutes, months that
+// have come due are charged to the saved card or sent as a link, and unpaid
+// ones are reminded, in the daytime only.
+if (config.quoteMonthly && payments) {
+  runEvery(15 * 60 * 1000, async () => {
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !b.phoneNumberId)) continue;
+      try {
+        await (await monthlyFor(b.id))?.run();
+      } catch (err) {
+        console.error(`Monthly payments failed for ${b.name}:`, err);
       }
     }
   });
