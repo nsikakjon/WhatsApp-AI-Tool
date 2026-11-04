@@ -59,7 +59,10 @@ export interface QuoteSetupDeps {
   /** Pay links on invoices (QUOTE_PAY_LINKS, migration 0045): each business's Paystack subaccount is set here. */
   payLinks?: boolean;
   /** The "Numbers to connect" queue at /quote-setup/numbers (QUOTE_NUMBER_QUEUE, migration 0071). */
-  numbers?: Omit<NumberQueueDeps, "businesses" | "setup" | "reservedNumberIds" | "log">;
+  numbers?: Omit<NumberQueueDeps, "businesses" | "setup" | "reservedNumberIds" | "log"> & {
+    /** QUOTE_NUMBERS_PASSWORD: opens only /quote-setup/numbers, for staff. */
+    staffPassword?: string;
+  };
   log?: Pick<Console, "error">;
 }
 
@@ -74,7 +77,14 @@ export function createQuoteSetup(deps: QuoteSetupDeps) {
 
   app.use(
     "*",
-    guardedBasicAuth({ password: deps.password, realm: "yarnOga quote bot setup" }),
+    guardedBasicAuth({
+      password: deps.password,
+      realm: "yarnOga quote bot setup",
+      // Staff who connect numbers get a password that only opens the queue.
+      limited: deps.numbers?.staffPassword
+        ? { password: deps.numbers.staffPassword, allows: (c) => /^(\/quote-setup)?\/numbers(\/|$)/.test(c.req.path) }
+        : undefined,
+    }),
   );
 
   // The browser sends the password with every request, so a form on another
@@ -565,7 +575,7 @@ function sameSite(c: Context): boolean {
   }
 }
 
-export function page(title: string, body: string): string {
+export function page(title: string, body: string, nav = `<a href="/quote-setup">All businesses</a>`): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><title>${esc(title)} · yarnOga</title>
 <style>
@@ -582,7 +592,7 @@ input:not([type=checkbox]),textarea,select{display:block;width:100%;box-sizing:b
 .notice{background:#191a1a;border:1px solid #2e302f;border-radius:8px;padding:10px 12px}
 .tag{font-size:.75rem;border:1px solid #2e302f;border-radius:6px;padding:1px 6px;color:#9a9d97}
 nav{font-size:.9rem;margin-bottom:8px}[hidden]{display:none!important}
-</style></head><body><main><nav><a href="/quote-setup">All businesses</a></nav><h1>${esc(title)}</h1>
+</style></head><body><main><nav>${nav}</nav><h1>${esc(title)}</h1>
 ${body}</main></body></html>`;
 }
 

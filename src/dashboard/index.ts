@@ -26,6 +26,8 @@ export interface DashboardDeps {
   costs?: ShopCostSource;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
+  /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
+  numberQueue?: boolean;
   /** The TikTok developer app, for the one-time connect button. */
   tiktokApp?: TikTokApp;
   fetch?: typeof fetch;
@@ -64,7 +66,7 @@ export function createDashboard(deps: DashboardDeps) {
         }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
-      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans)));
+      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans), deps.numberQueue));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);

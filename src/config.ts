@@ -194,7 +194,7 @@ export interface Config {
      * /quote-setup/numbers (migration 0071). Only set when QUOTE_NUMBER_QUEUE is true.
      * publicUrl (PUBLIC_URL) puts a link to the steps in staff alerts.
      */
-    numberQueue?: { publicUrl?: string };
+    numberQueue?: { publicUrl?: string; staffPassword?: string };
   };
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
@@ -537,7 +537,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
           signUpToContinue: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_SIGNUP_GATE ?? ""),
           numberQueue: /^(true|yes|on|1)$/i.test(env.QUOTE_NUMBER_QUEUE ?? "")
-            ? { publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined }
+            ? {
+                publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined,
+                staffPassword: env.QUOTE_NUMBERS_PASSWORD ? longPassword(env, "QUOTE_NUMBERS_PASSWORD") : undefined,
+              }
             : undefined,
         }
       : undefined,
