@@ -49,6 +49,8 @@ export interface QuoteTexts {
   nextDeliveryLink(): string;
   nextReady(business: string): string;
   nextContactDelivery(business: string): string;
+  /** A tickets-only order: where the tickets come once paid (tickets/). */
+  nextTickets(payLink: boolean, business: string): string;
   confirmedInvoice(ref: string, total: string, next: string): string;
   confirmedTotal(ref: string, total: string, next: string): string;
   confirmedContact(ref: string, total: string, business: string, withDelivery: boolean): string;
@@ -80,6 +82,7 @@ export interface QuoteTexts {
   paidApp(ref: string, total: string, who: string): string;
   paidOnline(ref: string, total: string, who: string, fee: string | null, provider: string): string;
   onPickupScreens(stations: string[]): string;
+  ticketsSent(count: number): string;
   ownerHint(): string;
   logoHint(catalogue: boolean): string;
   logoCantSave(): string;
@@ -169,6 +172,8 @@ const en: QuoteTexts = {
   nextDeliveryLink: () => "We'll send you a link to follow your delivery once a rider is on the way.",
   nextReady: (b) => `The ${b} team will let you know when it's ready.`,
   nextContactDelivery: (b) => `The ${b} team will contact you shortly about delivery.`,
+  nextTickets: (link, b) =>
+    `${link ? "Pay with the link and your tickets" : `Once ${b} confirms your payment, your tickets`} come here on WhatsApp, one QR code per person.`,
   confirmedInvoice: (ref, total, next) => `Thank you! Order ${ref} is confirmed. Here's your invoice for ${total}. ${next}`,
   confirmedTotal: (ref, total, next) => `Thank you! Order ${ref} is confirmed (total ${total}). ${next}`,
   confirmedContact: (ref, total, b, withDelivery) =>
@@ -205,6 +210,7 @@ const en: QuoteTexts = {
     `💰 ${ref} paid online (${total}) by ${who}. I've sent them their receipt, and ${provider} pays the money into your account` +
     (fee ? `, less the yarnOga fee (${fee}) and ${provider}'s fee.` : "."),
   onPickupScreens: (stations) => `It's on your pickup ${stations.length > 1 ? "screens" : "screen"}: ${stations.join(", ")}.`,
+  ticketsSent: (n) => `🎟 I've sent them ${n === 1 ? "their ticket" : `${n} tickets`}, each with its own QR code for the door.`,
   ownerHint: () => "You're the owner: send *menu* for your commands.",
   logoHint: (catalogue) =>
     "To use this picture as the logo on your invoices and receipts, send it again with the caption *logo*." +
@@ -306,6 +312,8 @@ const fr: QuoteTexts = {
   nextDeliveryLink: () => "Nous vous enverrons un lien pour suivre la livraison dès qu'un livreur sera en route.",
   nextReady: (b) => `L'équipe de ${b} vous préviendra quand ce sera prêt.`,
   nextContactDelivery: (b) => `L'équipe de ${b} va vous contacter très vite pour la livraison.`,
+  nextTickets: (link, b) =>
+    `${link ? "Payez avec le lien et vos billets" : `Dès que ${b} confirme votre paiement, vos billets`} arrivent ici sur WhatsApp, un code QR par personne.`,
   confirmedInvoice: (ref, total, next) => `Merci ! La commande ${ref} est confirmée. Voici votre facture de ${total}. ${next}`,
   confirmedTotal: (ref, total, next) => `Merci ! La commande ${ref} est confirmée (total ${total}). ${next}`,
   confirmedContact: (ref, total, b, withDelivery) =>
@@ -342,6 +350,7 @@ const fr: QuoteTexts = {
     `💰 ${ref} payée en ligne (${total}) par ${who}. Je lui ai envoyé son reçu, et ${provider} verse l'argent sur votre compte` +
     (fee ? `, moins les frais yarnOga (${fee}) et les frais ${provider}.` : "."),
   onPickupScreens: (stations) => `Elle est sur ${stations.length > 1 ? "vos écrans" : "votre écran"} de retrait : ${stations.join(", ")}.`,
+  ticketsSent: (n) => `🎟 Je lui ai envoyé ${n === 1 ? "son billet" : `${n} billets`}, chacun avec son code QR pour l'entrée.`,
   ownerHint: () => "Vous êtes le propriétaire : envoyez *menu* pour voir vos commandes.",
   logoHint: (catalogue) =>
     "Pour mettre cette image en logo sur vos factures et reçus, renvoyez-la avec la légende *logo*." +
@@ -434,6 +443,8 @@ const pcm: QuoteTexts = {
   nextDeliveryLink: () => "Once rider don start to come, we go send you link to follow your delivery.",
   nextReady: (b) => `The ${b} team go tell you when e ready.`,
   nextContactDelivery: (b) => `The ${b} team go reach you soon about delivery.`,
+  nextTickets: (link, b) =>
+    `${link ? "Pay with the link and your tickets" : `Once ${b} confirm your payment, your tickets`} go land here for WhatsApp, one QR code for each person.`,
   confirmedInvoice: (ref, total, next) => `Thank you! Order ${ref} don confirm. See your invoice for ${total}. ${next}`,
   confirmedTotal: (ref, total, next) => `Thank you! Order ${ref} don confirm (total ${total}). ${next}`,
   confirmedContact: (ref, total, b, withDelivery) =>
@@ -500,6 +511,8 @@ const ha: QuoteTexts = {
   nextDeliveryLink: () => "Da zarar mai kawo kaya ya kama hanya, za mu turo muku link don ku bi diddigin kayanku.",
   nextReady: (b) => `Ma'aikatan ${b} za su sanar da ku idan ya shirya.`,
   nextContactDelivery: (b) => `Ma'aikatan ${b} za su tuntube ku ba da jimawa ba game da kawo kaya.`,
+  nextTickets: (link, b) =>
+    `${link ? "Ku biya da link din, tikitinku" : `Da zarar ${b} sun tabbatar da biyan ku, tikitinku`} za su zo nan a WhatsApp, QR code daya ga kowane mutum.`,
   confirmedInvoice: (ref, total, next) => `Mun gode! An tabbatar da oda ${ref}. Ga invoice dinku na ${total}. ${next}`,
   confirmedTotal: (ref, total, next) => `Mun gode! An tabbatar da oda ${ref} (jimilla ${total}). ${next}`,
   confirmedContact: (ref, total, b, withDelivery) =>
