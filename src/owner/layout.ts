@@ -62,6 +62,8 @@ export interface NavItem {
   tab?: boolean;
   /** Only when counter sales are switched on (QUOTE_COUNTER_SALES). */
   counter?: boolean;
+  /** Only when the offline till is switched on (OWNER_APP_OFFLINE). */
+  till?: boolean;
   /** Only when paying riders and staff is switched on (QUOTE_PAYOUTS). */
   payouts?: boolean;
   /** Only when the tax summary is switched on (QUOTE_TAX_SUMMARY). */
@@ -77,6 +79,7 @@ export const NAV: NavItem[] = [
   { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true, need: "inbox" },
   { href: "/home/orders", label: "Orders", icon: "orders", tab: true },
   { href: "/home/counter", label: "Counter sale", icon: "till", need: "counter", counter: true },
+  { href: "/home/till", label: "Till (works offline)", icon: "till", need: "counter", till: true },
   { href: "/home/prices", label: "Price list", icon: "prices", tab: true, need: "see_prices" },
   { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
@@ -101,6 +104,8 @@ export interface Shell {
   role: Role;
   /** Counter sales are on for this business. */
   counter?: boolean;
+  /** The offline till is on for this business. */
+  till?: boolean;
   /** Paying riders and staff is on for this business. */
   payouts?: boolean;
   /** The tax summary is on for this business. */
@@ -124,7 +129,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.till || s.till) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");

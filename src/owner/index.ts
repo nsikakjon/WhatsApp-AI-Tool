@@ -280,6 +280,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             userName: user.name ?? ROLE_LABEL[user.role],
             role: user.role,
             counter: Boolean(c.get("biz").counter),
+            till: Boolean(c.get("biz").counter?.sellOffline),
             payouts: Boolean(c.get("biz").payouts),
             tax: Boolean(c.get("biz").tax),
             ads: Boolean(c.get("biz").ads),
