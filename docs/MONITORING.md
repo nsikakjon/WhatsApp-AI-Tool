@@ -54,13 +54,15 @@ missing. With an approved template they always arrive:
 2. Body:
 
    ```
-   New alert from your yarnOga assistant: {{1}}
+   There is an update on your yarnOga shop account: {{1}}
 
-   Reply here to get the next alerts as normal messages.
+   Reply to this message to see the details.
    ```
 
    For the sample value of `{{1}}` use something like
-   `New order KP-1042 from Ada (+2348012345678), 50 flyers, ₦25,000.`
+   `Order DEMO-1042 needs a delivery fee. Reply fee DEMO-1042 2500 to set it.`
+   (no prices or promotions: Meta otherwise suggests Marketing, which it may
+   hold back and charges more for).
 3. Do this in each WhatsApp account that has a bot number (templates belong
    to one account), and submit. Approval usually takes minutes.
 4. On Railway set `OWNER_ALERT_TEMPLATE_NAME=owner_alert` (and
