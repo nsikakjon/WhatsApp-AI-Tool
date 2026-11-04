@@ -105,6 +105,7 @@ import {
   canMessageFreely,
   sendAndRecord,
   sendImageAndRecord,
+  asTemplateValue,
   sendNotice,
   sendTemplateAndRecord,
 } from "./core/whatsapp/outbox.js";
@@ -115,6 +116,8 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { phoneDetails, registerNumber } from "./signup/meta.js";
+import { createNumberCollector, createSupabaseNumberQueue } from "./products/quote/numbers.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
@@ -650,6 +653,8 @@ if (quoteBusinesses) {
 
 // Business owners sign up by chatting to the yarnOga quotes number (QUOTE_SIGNUP_PHONE_NUMBER_ID).
 const chatSignup = config.quoteChatSignup;
+// Their new SIM's number goes on the staff queue at /quote-setup/numbers (QUOTE_NUMBER_QUEUE).
+const numberQueue = chatSignup?.numberQueue && quoteBusinesses ? createSupabaseNumberQueue(supabase) : undefined;
 if (chatSignup && quoteBusinesses) {
   const businesses = createSupabaseBusinesses(supabase);
   product = withChatSignup(product, {
@@ -659,6 +664,9 @@ if (chatSignup && quoteBusinesses) {
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
     signUpToContinue: chatSignup.signUpToContinue,
+    numbers: numberQueue
+      ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl })
+      : undefined,
     sheets: sheetSync,
     askEmail: emailAsker
       ? ({ waId, businessId }) =>
@@ -747,6 +755,13 @@ const leadQualifier = leadsConfig
 const store = createSupabaseStore(supabase);
 // Numbers connected on /signup send with their own business's key.
 const whatsapp = createWhatsAppClient({ ...config.whatsapp, tokenFor: createConnectionTokens(supabase) });
+// What notices (owner alerts and the like) are sent with.
+const outbox = {
+  store,
+  whatsapp,
+  noticeTemplate: config.ownerAlertTemplate,
+  defaultNumberId: config.whatsapp.phoneNumberId,
+};
 
 // Problems reach Jay: every logged error goes to Sentry and (at most every
 // 30 minutes) to ALERT_WA_ID on WhatsApp and ALERT_EMAIL by email.
@@ -759,8 +774,7 @@ const alerter = createAlerter({
           {
             to: alertConfig.waId!,
             text,
-            // Template values can't hold line breaks.
-            template: alertConfig.template && { ...alertConfig.template, bodyParams: [text.replace(/\s*\n+\s*/g, " · ").slice(0, 900)] },
+            template: alertConfig.template && { ...alertConfig.template, bodyParams: [asTemplateValue(text)] },
           },
         )
     : undefined,
@@ -839,7 +853,7 @@ const payments = paymentSite
         ? async (waId) => (await emailStore.byWaId(waId)).find((c) => c.email && c.receiptsAt && !c.unsubscribedAt)?.email ?? undefined
         : undefined,
       onPaid: paidHandlers,
-      send: (product, note) => sendNotice({ store, whatsapp }, note, note.fromNumberId ?? productNumbers[product]),
+      send: (product, note) => sendNotice(outbox, note, note.fromNumberId ?? productNumbers[product]),
     })
   : undefined;
 
@@ -930,7 +944,7 @@ function payoutsFor(businessId: string, businessName: string) {
     businessName,
     async tellPayee(waId, text) {
       const found = await quoteBotFor(businessId);
-      await sendNotice({ store, whatsapp }, { to: waId, text }, found?.fromNumberId ?? undefined);
+      await sendNotice(outbox, { to: waId, text }, found?.fromNumberId ?? undefined);
     },
   });
 }
@@ -973,9 +987,9 @@ async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
       const cap = (await features.limit("transaction_fee_cap_ngn").catch(() => null)) ?? DEFAULT_FEE_CAP.NGN;
       return transactionFeeKobo(amountKobo, (await features.limit("transaction_fee")) ?? 0, cap);
     },
-    canMessageFreely: (waId) => canMessageFreely(store, waId),
+    canMessageFreely: (waId) => canMessageFreely(store, waId, found.fromNumberId ?? config.whatsapp.phoneNumberId),
     template: config.quoteMonthly.template,
-    send: (note) => sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined),
+    send: (note) => sendNotice(outbox, note, found.fromNumberId ?? undefined),
     ownerWaId: found.ownerWaId,
   });
 }
@@ -1021,7 +1035,7 @@ const complianceDeps: ComplianceDeps | undefined = config.compliance
       async notifyOwner(businessId, text) {
         const found = await quoteBotFor(businessId);
         if (!found?.ownerWaId) return;
-        await sendNotice({ store, whatsapp }, { to: found.ownerWaId, text }, found.fromNumberId ?? undefined);
+        await sendNotice(outbox, { to: found.ownerWaId, text }, found.fromNumberId ?? undefined);
       },
     }
   : undefined;
@@ -1118,7 +1132,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               }
               for (const note of await copyAlerts(notes, id, found.ownerWaId)) {
                 try {
-                  await sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined);
+                  await sendNotice(outbox, note, found.fromNumberId ?? undefined);
                 } catch (err) {
                   console.error(`Owner app: receipt or alert for ${orderPrefix}-${orderNumber} not sent:`, err);
                 }
@@ -1215,6 +1229,7 @@ const app = createApp({
   usage,
   adLeads: config.adLeads ? createSupabaseAdLeads(supabase) : undefined,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
+  noticeTemplate: config.ownerAlertTemplate,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
     if (routes.leads && msg.businessNumberId === leadsConfig?.phoneNumberId) return routes.leads;
@@ -1325,6 +1340,18 @@ const app = createApp({
       branches: config.quoteBranches ? { limit: numbersAllowed } : undefined,
       sheets: sheetSync && sheetStore ? { url: async (id) => (await sheetStore.sheet(id)).url, remember: sheetSync.remember } : undefined,
       payLinks: config.quotePayLinks && Boolean(config.paystack),
+      numbers: numberQueue
+        ? {
+            store: numberQueue,
+            publicUrl: config.quoteChatSignup?.numberQueue?.publicUrl,
+            // With our own system-user token, so staff never handle it.
+            meta: {
+              displayNumber: async (id) => (await phoneDetails(fetch, config.whatsapp, id, config.whatsapp.accessToken)).displayNumber ?? null,
+              register: (id, pin) => registerNumber(fetch, config.whatsapp, id, config.whatsapp.accessToken, pin),
+            },
+            send: (to, text) => sendNotice({ store, whatsapp }, { to, text }, config.quoteChatSignup!.phoneNumberId),
+          }
+        : undefined,
     }
   : undefined, delivery
   ? {
@@ -1342,7 +1369,7 @@ const app = createApp({
       send: async (notices, fromNumberId) => {
         for (const note of notices) {
           try {
-            await sendNotice({ store, whatsapp }, note, fromNumberId ?? undefined);
+            await sendNotice(outbox, note, fromNumberId ?? undefined);
           } catch (err) {
             console.error(`Failed to send a delivery update to ...${note.to.slice(-4)}:`, err);
           }
@@ -1393,7 +1420,7 @@ const app = createApp({
       send: async (notices, fromNumberId) => {
         for (const note of notices) {
           try {
-            await sendNotice({ store, whatsapp }, note, fromNumberId ?? undefined);
+            await sendNotice(outbox, note, fromNumberId ?? undefined);
           } catch (err) {
             console.error(`Failed to send a walk-in update to ...${note.to.slice(-4)}:`, err);
           }
@@ -1472,7 +1499,7 @@ if (sheetSync && sheetStore) {
       store: sheetStore,
       now: new Date(),
       fallbackNumberId: chatSignup?.phoneNumberId,
-      notify: (to, text, from) => sendNotice({ store, whatsapp }, { to, text }, from),
+      notify: (to, text, from) => sendNotice(outbox, { to, text }, from),
     }),
   );
 }
@@ -1519,10 +1546,10 @@ if (flyerBot && flyerConfig) {
   const template = flyerConfig.template;
   runEvery(5 * 60 * 1000, () =>
     flyerBot.sendDueBirthdays(new Date(), {
-      canReach: async (to) => template !== undefined || (await canMessageFreely(store, to)),
+      canReach: async (to) => template !== undefined || (await canMessageFreely(store, to, from)),
       send: async (d) => {
         const image = { data: d.flyer, mimeType: "image/jpeg" };
-        if (await canMessageFreely(store, d.to)) {
+        if (await canMessageFreely(store, d.to, from)) {
           await sendImageAndRecord(deps, d.to, { ...image, caption: d.wish }, from);
           await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName, d.lang), from);
         } else if (template) {
@@ -1603,7 +1630,7 @@ if (ratings) {
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
         await askForRatings(b.id, {
           store: ratings,
-          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId, numberId),
           isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
           optedOut: followUps ? (contactId) => followUps.optedOut(b.id, contactId) : undefined,
           send: (to, orderNumber) => sendNotice(deps, { to, ...found.bot.ratingAsk(orderNumber) }, found.fromNumberId ?? undefined),
@@ -1640,7 +1667,7 @@ if (payReminders) {
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
         await sendPayReminders(businessId, {
           store: payReminders,
-          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId, numberId),
           isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
           optedOut: followUps ? (contactId) => followUps.optedOut(businessId, contactId) : undefined,
           remind: (orderNumber, n) => found.bot.paymentReminder(orderNumber, n),
@@ -1676,7 +1703,7 @@ async function alertYarnoga(text: string): Promise<void> {
   const to = signupAlert ?? config.quote?.ownerWaId;
   if (!to) return;
   try {
-    await sendNotice({ store, whatsapp }, { to, text }, signupAlert ? config.quoteChatSignup!.phoneNumberId : undefined);
+    await sendNotice(outbox, { to, text }, signupAlert ? config.quoteChatSignup!.phoneNumberId : undefined);
   } catch (err) {
     // Most likely that number hasn't messaged the bot in the last day.
     console.error(`Couldn't send yarnOga the alert "${text}":`, err);
@@ -1701,7 +1728,7 @@ if (usageDrops) {
         ? {
             owner: ownerContact,
             canMessageFreely: (waId) => canMessageFreely(store, waId),
-            send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+            send: (note, from) => sendNotice(outbox, note, from),
           }
         : undefined,
     }),
@@ -1719,7 +1746,7 @@ if (offersOn && quoteBusinesses) {
       entryPlan: async () => (await createSupabasePlanStore(supabase).paidPlans())[0]?.name ?? null,
       owner: ownerContact,
       canMessageFreely: (waId) => canMessageFreely(store, waId),
-      send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+      send: (note, from) => sendNotice(outbox, note, from),
       alertYarnoga,
     }),
   );
@@ -1736,7 +1763,7 @@ if (planRenewals) {
       graceDays: planRenewals.graceDays,
       owner: ownerContact,
       canMessageFreely: (waId) => canMessageFreely(store, waId),
-      send: (note, from) => sendNotice({ store, whatsapp }, note, from),
+      send: (note, from) => sendNotice(outbox, note, from),
       alertYarnoga,
     }),
   );
@@ -1756,7 +1783,7 @@ if (ownerAppDeps) {
       if (b.dailySummaryOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!b.active || !b.phoneNumberId))) continue;
       try {
         const found = await quoteBotFor(b.id);
-        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId))) continue;
+        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId, found.fromNumberId ?? config.whatsapp.phoneNumberId))) continue;
         if (!(await onPlan(b, "daily_summary"))) continue;
         const biz = await ownerAppDeps.business(b.id);
         const summary = biz ? await dailySummary(biz, now, ownerAppDeps.publicUrl) : null;

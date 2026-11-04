@@ -43,7 +43,7 @@ export async function subscribeApp(doFetch: typeof fetch, app: MetaApp, wabaId: 
 /** The number as people see it and its display name, for the confirmation screen. */
 export async function phoneDetails(
   doFetch: typeof fetch,
-  app: MetaApp,
+  app: Pick<MetaApp, "graphApiVersion">,
   phoneNumberId: string,
   token: string,
 ): Promise<{ displayNumber?: string; verifiedName?: string }> {
@@ -60,7 +60,7 @@ export async function phoneDetails(
  * Business app (coexistence) must skip this. The PIN becomes the number's
  * two-step verification PIN.
  */
-export async function registerNumber(doFetch: typeof fetch, app: MetaApp, phoneNumberId: string, token: string, pin: string) {
+export async function registerNumber(doFetch: typeof fetch, app: Pick<MetaApp, "graphApiVersion">, phoneNumberId: string, token: string, pin: string) {
   const res = await doFetch(`https://graph.facebook.com/${app.graphApiVersion}/${encodeURIComponent(phoneNumberId)}/register`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },

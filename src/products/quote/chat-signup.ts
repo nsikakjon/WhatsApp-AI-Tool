@@ -15,6 +15,7 @@ import {
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
+import { NEW_SIM_STEPS, type createNumberCollector } from "./numbers.js";
 import { starterList } from "./starter-lists.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
@@ -96,6 +97,8 @@ export interface ChatSignupOptions {
   alertWaId?: string;
   /** Asks a new owner for their email for setup tips; null when not to ask. Off when not given. */
   askEmail?: (a: { waId: string; businessId: string }) => Promise<string | null>;
+  /** QUOTE_NUMBER_QUEUE: new owners are asked for a new SIM's number, which goes on the staff queue. */
+  numbers?: ReturnType<typeof createNumberCollector>;
   /** QUOTE_DEMO_SIGNUP_GATE: demo visitors sign up after the delivery question to finish their order. */
   signUpToContinue?: boolean;
   now?: () => Date;
@@ -168,6 +171,9 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         if (signup?.businessId) {
           const sheetReply = opts.sheets ? await opts.sheets.ownerCommand(signup.businessId, msg) : null;
           if (sheetReply) return sheetReply;
+          const owner = { businessId: signup.businessId, businessName: signup.businessName ?? "your business", ownerWaId: msg.from };
+          const numberReply = opts.numbers ? await opts.numbers.received(owner, text) : null;
+          if (numberReply) return numberReply;
           if (SIGN_UP.test(text)) return { text: `You've already signed up as *${signup.businessName}*.\n\n${AFTER}` };
           if (TRY.test(text)) return startTrying(signup, msg);
           if (PRICES.test(text)) {
@@ -408,6 +414,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     await opts.setup.replacePriceList(businessId, items);
     if (opts.sheets && signup.sheetUrl) await opts.sheets.remember(businessId, signup.sheetUrl);
     await opts.store.save(waId, { step: "done", draftCsv: null, signedUpAt: now() });
+    if (opts.numbers) await opts.numbers.opened(businessId);
     const demoOrder = waiting.delete(waId);
     const emailAsk = opts.askEmail ? await opts.askEmail({ waId, businessId }) : null;
     return {
@@ -417,12 +424,17 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         "",
         AFTER,
         "",
-        "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
+        opts.numbers
+          ? NEW_SIM_STEPS
+          : "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
         ...(demoOrder ? ["", "Your demo order is still here: send *yes* to finish it and see the invoice your customers get."] : []),
         ...(emailAsk ? ["", emailAsk] : []),
       ].join("\n"),
       ...alert(
-        `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items${signup.referralCode ? `, code ${signup.referralCode}` : ""}. It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on.`,
+        `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items${signup.referralCode ? `, code ${signup.referralCode}` : ""}. ` +
+          (opts.numbers
+            ? "It's switched off until their new number is connected. They've been asked for it, and it will show on /quote-setup/numbers."
+            : "It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on."),
       ),
     };
   }

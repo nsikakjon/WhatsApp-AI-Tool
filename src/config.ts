@@ -24,6 +24,13 @@ export interface Config {
    */
   ownerReplyPauseMinutes: number;
   /**
+   * Approved WhatsApp template with one value ({{1}} = the alert), used for
+   * alerts to business owners and staff (new orders, sign-ups, "talk to
+   * someone") when they haven't messaged that number in the last day.
+   * OWNER_ALERT_TEMPLATE_NAME; without it those alerts only arrive inside the day.
+   */
+  ownerAlertTemplate?: { name: string; language: string };
+  /**
    * Who hears about problems (errors, a check failing, the server not
    * answering) and how. Each part is optional; with none set nobody is told.
    */
@@ -182,6 +189,12 @@ export interface Config {
     alertWaId?: string;
     /** Demo visitors sign up after the delivery question to finish their order. Off unless QUOTE_DEMO_SIGNUP_GATE is true. */
     signUpToContinue: boolean;
+    /**
+     * New owners are asked for a new SIM's number, and staff connect it from
+     * /quote-setup/numbers (migration 0071). Only set when QUOTE_NUMBER_QUEUE is true.
+     * publicUrl (PUBLIC_URL) puts a link to the steps in staff alerts.
+     */
+    numberQueue?: { publicUrl?: string };
   };
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
@@ -448,6 +461,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       serviceRoleKey: required(env, "SUPABASE_SERVICE_ROLE_KEY"),
     },
     ownerReplyPauseMinutes: pauseMinutes,
+    ownerAlertTemplate: env.OWNER_ALERT_TEMPLATE_NAME?.trim()
+      ? { name: env.OWNER_ALERT_TEMPLATE_NAME.trim(), language: env.OWNER_ALERT_TEMPLATE_LANGUAGE?.trim() || "en" }
+      : undefined,
     alerts: alertSettings(env),
     ownerApp: /^(true|yes|on|1)$/i.test(env.OWNER_APP ?? "")
       ? {
@@ -526,6 +542,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
           alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
           signUpToContinue: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_SIGNUP_GATE ?? ""),
+          numberQueue: /^(true|yes|on|1)$/i.test(env.QUOTE_NUMBER_QUEUE ?? "")
+            ? { publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined }
+            : undefined,
         }
       : undefined,
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")

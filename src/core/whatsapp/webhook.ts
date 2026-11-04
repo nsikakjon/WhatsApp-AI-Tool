@@ -7,7 +7,7 @@ import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
 import type { OutgoingButtons, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
-import { extractMessages, extractOwnerReplies } from "./parse.js";
+import { extractFailedDeliveries, extractMessages, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
 
@@ -22,6 +22,8 @@ export interface WebhookDeps {
   usage?: UsageMeter;
   /** Saves the ad behind a chat started from a Click-to-WhatsApp ad (AD_LEADS). */
   adLeads?: AdLeadStore;
+  /** Template for notices (e.g. owner alerts) to someone outside WhatsApp's 24-hour window. See sendNotice. */
+  noticeTemplate?: { name: string; language: string };
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   /**
@@ -106,6 +108,15 @@ export function createWhatsAppWebhook(webhookDeps: WebhookDeps) {
       }
     }
 
+    // WhatsApp accepts a message first and only reports later, in a receipt
+    // like this, that it couldn't deliver it (131047: the person hasn't
+    // written in 24 hours and it wasn't a template).
+    for (const failed of extractFailedDeliveries(payload)) {
+      log.warn(
+        `WhatsApp couldn't deliver message ${failed.waMessageId} to ${mask(failed.to)} from number ${failed.businessNumberId ?? "?"}: ${failed.code ?? ""} ${failed.reason}`,
+      );
+    }
+
     return c.text("OK", 200);
   });
 
@@ -168,7 +179,7 @@ async function handleMessage(
         log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
       }
     },
-    canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, now(deps)),
+    canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, fromNumber, now(deps)),
   };
 
   // The bot itself failed (e.g. the AI didn't answer in time): try once more
