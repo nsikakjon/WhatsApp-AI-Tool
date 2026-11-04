@@ -186,7 +186,7 @@ describe("chat sign-up on the quotes number", () => {
     it("asks again when the answer can't be a trade, and sends the sign-up message on the second", async () => {
       const { say } = guest();
       await say("hi");
-      expect((await say("Okay")).text).toMatch(/few words what your business sells/);
+      expect((await say("Hmm")).text).toMatch(/few words what your business sells/);
       const nudge = await say("40000");
       expect(nudge.buttons?.body).toMatch(/^It looks like you may be here for your own business/);
       expect(ids(nudge)).toEqual(["sign up", "see it as a customer"]);
@@ -216,6 +216,34 @@ describe("chat sign-up on the quotes number", () => {
       await say("Okay");
       await say("20 T-shirts");
       expect((await say("Moni")).text).toBe("Which item do you want?");
+    });
+
+    it("starts the sign-up when they say okay to the intro, and answers a quick second sign up once", async () => {
+      const { say, mem } = guest();
+      await say("hi");
+      expect((await say("Ok")).text).toMatch(/^Let's set up your WhatsApp quote bot/);
+      expect(await say("sign up")).toBeNull();
+      expect(mem.rows.get(OWNER)?.step).toBe("name");
+    });
+
+    it("opens the demo shop when they ask to see it as a customer part way through signing up", async () => {
+      const { say, mem } = guest();
+      await say("hi");
+      await say("I sell shoes");
+      await say("sign up");
+      const demo = await say("see it as a customer");
+      expect(demo.buttons?.body).toMatch(/^You're now a customer of the yarnOga Demo Shop/);
+      expect(mem.rows.has(OWNER)).toBe(false);
+
+      await say("sign up");
+      expect((await say("Shoe Palace")).text).toMatch(/^Thanks, \*Shoe Palace\* it is\./);
+      expect(mem.rows.get(OWNER)?.description).toBe("shoes");
+    });
+
+    it("opens the demo shop for a typed request to see the customer side", async () => {
+      const { say } = guest();
+      await say("hi");
+      expect((await say("I want to see how it works as a customer")).buttons?.body).toMatch(/^You're now a customer/);
     });
 
     it("shows the intro when a first message can't be used", async () => {
@@ -299,6 +327,63 @@ describe("chat sign-up on the quotes number", () => {
       const { say } = gated(false);
       expect((await say("pickup")).buttons?.buttons.map((b) => b.id)).toEqual(["yes", "deliver instead"]);
       expect((await say("yes")).text).toBe("Order DEMO-1001 confirmed.");
+    });
+  });
+
+  describe("starter price lists", () => {
+    const barber = async () => {
+      const t = setUp();
+      await t.say("sign up");
+      await t.say("Barber business");
+      return t;
+    };
+
+    it("asks again when the answer to what they sell is a filler, and carries on when a referral answer isn't a code", async () => {
+      const { say, mem } = await barber();
+      expect((await say("Np")).text).toMatch(/what does \*Barber business\* sell or do\?/);
+      expect((await say("I cut hair")).text).toBe("Do you have a referral code? Send it now, or send *no* to carry on.");
+      const prices = await say("Low cut");
+      expect(prices.text).toMatch(/^That doesn't look like a referral code, so let's carry on without one\.\n\nNow your prices\. Here's a starter price list for a barber/);
+      expect(prices.text).toContain("• Low cut: ₦1,200 each");
+      expect(prices.text).toContain("_low cut 1,500_");
+      expect(mem.rows.get(OWNER)).toMatchObject({ step: "prices", referralCode: null, description: "I cut hair" });
+    });
+
+    it("saves the starter list on YES", async () => {
+      const { say, setup } = await barber();
+      await say("haircuts and shaving");
+      await say("no");
+      expect((await say("YES")).text).toMatch(/Barber business\* is set up/);
+      const list = setup.lists.get("biz-1")!;
+      expect(list.find((i) => i.product === "Low cut")?.tiers).toEqual([{ minQuantity: 1, unitPriceKobo: 120000 }]);
+    });
+
+    it("gives the AI the starter list with the owner's changes, so its prices aren't dropped", async () => {
+      const { say, ai } = setUp({
+        rows: [
+          { product: "Low cut", option: "Standard", minQuantity: null, fromQuantity: null, price: "1500" },
+          { product: "Skin cut", option: "Standard", minQuantity: null, fromQuantity: null, price: "1500" },
+        ],
+        notes: null,
+      });
+      await say("sign up");
+      await say("Fresh Cuts");
+      await say("barbing salon");
+      await say("no");
+      const reply = await say("low cut 1500");
+      expect(ai.calls[0]!.text).toMatch(/^A starter price list we suggested:\nProduct,Option.*\nLow cut,Standard,,,1200/s);
+      expect(ai.calls[0]!.text).toContain("The owner's changes: low cut 1500");
+      expect(reply.text).toContain("• Low cut: ₦1,500 each");
+      expect(reply.text).toContain("• Skin cut: ₦1,500 each");
+    });
+
+    it("lets a photo replace the starter list", async () => {
+      const { bot, say, ai } = await barber();
+      await say("haircuts");
+      await say("no");
+      const photo = { data: new Blob([new Uint8Array([1, 2, 3])]), mimeType: "image/jpeg" };
+      await bot.handle(msg("", { type: "image", mediaId: "m1", text: undefined }), ctx(1, photo));
+      expect(ai.calls[0]!.text).not.toMatch(/starter|so far/);
     });
   });
 
@@ -387,8 +472,8 @@ describe("chat sign-up on the quotes number", () => {
     const links: string[] = [];
     const { say, ai } = setUp(CUPCAKES, { fetchSheet: async (link) => (links.push(link), "Product,Price\nMugs,2500\n") });
     await say("sign up");
-    await say("Mama Cakes");
-    await say("cakes");
+    await say("Mama Hampers");
+    await say("gift hampers");
     expect((await say("skip")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
     const reply = await say("here https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing");
     expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);

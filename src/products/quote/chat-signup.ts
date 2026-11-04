@@ -15,6 +15,7 @@ import {
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
+import { starterList } from "./starter-lists.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
 
@@ -23,7 +24,9 @@ import { welcomeAsk } from "./welcome.js";
 //
 // 1. business name, 2. what they sell, 3. a referral code if they have one,
 // 4. their prices: typed, as a voice note, as a photo of their price list or
-// as a CSV file. The AI drafts the
+// as a CSV file. For common trades (a barber, a salon, a bakery, ...) the bot
+// first offers a starter list with typical prices (starter-lists.ts) that the
+// owner can keep, change or replace. The AI drafts the
 // price list (drafter.ts, as on the setup screen) and the bot shows it back.
 // The owner corrects it in the chat or replies YES. Only then is the business
 // created, on the Free plan and switched off until its own number is
@@ -37,6 +40,8 @@ import { welcomeAsk } from "./welcome.js";
 // shop: what it does for a business, and "what do you sell?". Their answer
 // gets a short pitch in their own words, with Sign up free and See it as a
 // customer (the demo shop). The answer is kept, so sign-up skips that question.
+// "Okay" to the intro starts the sign-up. Asking to see it as a customer, at
+// the intro or part way through signing up, opens the demo shop.
 // Two messages in a row the bot can't use get the sign-up message instead of
 // another guess, at most once a day. All kept in memory: a restart only means
 // a visitor may see the intro again.
@@ -133,6 +138,9 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   // a restart their YES simply places the demo order.
   const waiting = new Set<string>();
   const visitors = new Map<string, Visitor>();
+  // When each sign-up started, so a "sign up" sent straight after another
+  // (or after an "okay" that already started it) doesn't ask the name twice.
+  const started = new Map<string, number>();
   const visitor = (waId: string): Visitor => {
     let v = visitors.get(waId);
     if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null }));
@@ -168,28 +176,18 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             return { text: current.length ? `Tell me what to change, or send your whole new list.\n\n${preview(current)}` : ASK_PRICES };
           }
         }
-        if (SIGN_UP.test(text)) {
-          const sells = visitors.get(msg.from)?.sells ?? null;
-          visitors.delete(msg.from);
-          await opts.store.save(msg.from, { step: "name", businessName: null, description: sells, referralCode: null, draftCsv: null, trying: false });
-          return {
-            text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
-          };
-        }
+        if (SIGN_UP.test(text)) return startSignup(msg.from);
         const gate = opts.signUpToContinue && !signup?.businessId;
         if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
         const ask = welcomeAsk(text);
         const guest = !signup?.businessId;
-        if (guest && text.toLowerCase() === SEE_DEMO) {
-          visitor(msg.from).askedSells = false;
-          const shop = await next.handle({ ...msg, text: "hi" }, ctx);
-          return shop ? withoutStage(addNote(shop, DEMO_NOTE, true)) : { text: DEMO_NOTE };
-        }
+        if (guest && AS_CUSTOMER.test(text)) return showDemo(msg, ctx);
         if (guest && ask === "greeting") {
           visitor(msg.from).askedSells = true;
           return intro(msg.contactName);
         }
         if (guest && visitor(msg.from).askedSells) {
+          if (GO_AHEAD.test(text.toLowerCase().replace(/[.!]+$/, ""))) return startSignup(msg.from);
           const answer = whatTheySell(msg, text);
           if (answer) {
             Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
@@ -225,6 +223,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         return invited;
       }
 
+      if (!signup.businessId && AS_CUSTOMER.test(text)) {
+        // Their sign-up stops here; what they sell is kept for when they come back to it.
+        await opts.store.remove(msg.from);
+        started.delete(msg.from);
+        visitor(msg.from).sells = signup.description;
+        return showDemo(msg, ctx);
+      }
+
       if (CANCEL.test(text)) {
         if (signup.businessId) {
           await opts.store.save(msg.from, { step: "done", draftCsv: null });
@@ -237,35 +243,41 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       switch (signup.step) {
         case "name": {
           const name = text.replace(/\s+/g, " ");
-          if (SIGN_UP.test(name)) return { text: "What's your business called?" };
-          if (name.length < 2 || name.length > 80) return { text: "Please type your business name (80 letters at most)." };
+          if (SIGN_UP.test(name)) {
+            // A second "sign up" sent while the first was being answered.
+            if (now().getTime() - (started.get(msg.from) ?? 0) < REPEAT_MS) return null;
+            return { text: "What's your business called?" };
+          }
+          if (name.length < 2 || name.length > 80 || FILLER.test(plainWords(name))) return { text: "Please type your business name (80 letters at most)." };
           if (signup.description) {
             // They told us what they sell before signing up.
             await opts.store.save(msg.from, { step: "referral", businessName: name });
+            started.delete(msg.from);
             const thanks = `Thanks, *${name}* it is.`;
             return { text: looksLikePharmacy(name, signup.description) ? `${thanks}\n\n${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : `${thanks}\n\n${ASK_REFERRAL}` };
           }
           await opts.store.save(msg.from, { step: "about", businessName: name });
+          started.delete(msg.from);
           return { text: `Thanks. In a few words, what does *${name}* sell? For example: _cakes and pastries_ or _printed T-shirts and mugs_.` };
         }
         case "about": {
           const about = text.replace(/\s+/g, " ");
           if (!about) return { text: "In a few words, what do you sell?" };
+          if (!isTrade(about)) return { text: `In a few words, what does *${signup.businessName}* sell or do? For example: _haircuts_, _cakes and pastries_ or _printed T-shirts and mugs_.` };
           if (about.length > 120) return { text: "Please keep that short, a few words is enough (120 letters at most)." };
           await opts.store.save(msg.from, { step: "referral", description: about });
           return { text: looksLikePharmacy(signup.businessName, about) ? `${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : ASK_REFERRAL };
         }
         case "referral": {
-          if (NO_CODE.test(text)) {
-            await opts.store.save(msg.from, { step: "prices", referralCode: null });
-            return { text: ASK_PRICES };
-          }
+          if (NO_CODE.test(text)) return askPrices(signup, msg.from, "");
           const code = text.replace(/\s+/g, "").toUpperCase();
-          if (!/^[A-Z0-9]{4,20}$/.test(code) || !(await opts.store.codeExists(code))) {
+          const found = /^[A-Z0-9]{4,20}$/.test(code) && (await opts.store.codeExists(code));
+          // Codes are one word; "I cut hair" or "low cut" is an answer to something else.
+          if (!found && /\s/.test(text)) return askPrices(signup, msg.from, "That doesn't look like a referral code, so let's carry on without one.");
+          if (!found) {
             return { text: `I can't find the code *${text}*. Check the spelling and send it again, or send *no* to carry on without one.` };
           }
-          await opts.store.save(msg.from, { step: "prices", referralCode: code });
-          return { text: `Thanks, I've kept *${code}*. Its discount comes off your first month when you upgrade.\n\n${ASK_PRICES}` };
+          return askPrices(signup, msg.from, `Thanks, I've kept *${code}*. Its discount comes off your first month when you upgrade.`, code);
         }
         default:
           return pricesStep(signup, msg, ctx, text);
@@ -292,6 +304,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       return showDraft(msg.from, csv, []);
     }
 
+    // A starter list we suggested isn't theirs yet: a photo replaces it, and
+    // typed words either change it or replace it with their own list.
+    const starter = signup.draftCsv !== null && signup.draftCsv === starterList(signup.businessName, signup.description)?.csv;
+    const soFar = starter ? null : signup.draftCsv;
+
     let images: DraftImage[] = [];
     let ownerText: string | null = text;
     if (msg.type === "image" && msg.mediaId) {
@@ -312,8 +329,12 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     }
     const caption = (msg.caption ?? "").trim();
     const request = [
-      signup.draftCsv ? `The price list so far:\n${signup.draftCsv}` : "",
-      images.length ? [signup.draftCsv ? "Add what's in the photo to it." : "", caption].filter(Boolean).join(" ") : signup.draftCsv ? `The owner's changes: ${text}` : text,
+      starter && !images.length
+        ? `A starter price list we suggested:\n${signup.draftCsv}\nIf the owner asks for changes to it (a new price, an item to add or remove), apply them and keep the rest. If they send their own list instead, use only theirs.`
+        : soFar
+          ? `The price list so far:\n${soFar}`
+          : "",
+      images.length ? [soFar ? "Add what's in the photo to it." : "", caption].filter(Boolean).join(" ") : signup.draftCsv ? `The owner's changes: ${text}` : text,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -434,6 +455,41 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return bot.handle(msg, ctx);
   }
 
+  async function startSignup(waId: string): Promise<Reply> {
+    const sells = visitors.get(waId)?.sells ?? null;
+    visitors.delete(waId);
+    started.set(waId, now().getTime());
+    await opts.store.save(waId, { step: "name", businessName: null, description: sells, referralCode: null, draftCsv: null, trying: false });
+    return {
+      text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
+    };
+  }
+
+  async function showDemo(msg: IncomingMessage, ctx: ProductContext): Promise<Reply> {
+    visitor(msg.from).askedSells = false;
+    const shop = await next.handle({ ...msg, text: "hi" }, ctx);
+    return shop ? withoutStage(addNote(shop, DEMO_NOTE, true)) : { text: DEMO_NOTE };
+  }
+
+  /** Moves on to prices, offering a starter list when one fits the business. */
+  async function askPrices(signup: Signup, waId: string, before: string, referralCode: string | null = null): Promise<Reply> {
+    const starter = starterList(signup.businessName, signup.description);
+    await opts.store.save(waId, { step: "prices", referralCode, draftCsv: starter?.csv ?? null });
+    const lead = before ? `${before}\n\n` : "";
+    if (!starter) return { text: lead + ASK_PRICES };
+    const { items } = readPriceList(parseCsv(starter.csv));
+    return {
+      text: [
+        `${lead}Now your prices. Here's a starter price list for ${starter.trade}, with prices many businesses like yours charge. Change them to your own.`,
+        "",
+        preview(items),
+        "",
+        "Reply *YES* to use it as it is, or tell me what to change, for example _" + changeExample(items) + "_.",
+        "Or send your own list instead: type it, send a voice note, a photo of your price list, or a CSV file.",
+      ].join("\n"),
+    };
+  }
+
   /** Counts one AI call against the person's daily allowance (and, for drafts, everyone's). */
   async function useAi(signup: Signup, waId: string, isDraft: boolean): Promise<boolean> {
     const today = now().toISOString().slice(0, 10);
@@ -485,13 +541,38 @@ interface Visitor {
 }
 
 const SEE_DEMO = "see it as a customer";
+/** Wanting the customer's side: the button, or typed ("show me as a customer", "demo shop"). */
+const AS_CUSTOMER = /\b(as an? (customer|buyer)|customer('s)? (view|side)|demo shop|(see|try|show me) (the |your )?demo|i('m| am) (just )?(a )?customer)\b/i;
+/** "Okay" to the intro, which offers to sign up. */
+const GO_AHEAD = /^(ok+a*y*|okay|yes|yeah|yea|yep|sure|alright|go ahead|let'?s go|let'?s start|yes please|ok let'?s go)$/;
+/** How long a repeated "sign up" counts as sent with the first. */
+const REPEAT_MS = 2 * 60_000;
 const GUEST_BUTTONS = [SIGN_UP_BUTTON, { id: SEE_DEMO, title: "See it as a customer" }];
 const WHAT_IT_DOES =
   "yarnOga gives your business a WhatsApp assistant that answers your customers, sends quotes and invoices, takes orders and payments, and keeps every order in one place.";
 const ASK_SELLS_AGAIN = "Tell me in a few words what your business sells, for example _cakes_, _shoes_ or _printing_.";
 const NUDGE = `It looks like you may be here for your own business. ${WHAT_IT_DOES}\n\nSign up free in about 5 minutes, right here in this chat, or see what your customers would see first.`;
 const DEMO_NOTE = "You're now a customer of the yarnOga Demo Shop. Order something to see what your customers will see, and send *sign up* when you're ready for your own.";
-const FILLER = /^(ok+a*y*|k+|yes|yeah|yea|no|nope|thanks?|thank you|tnx|hmm+|lol|alright|fine|sure|good|nice|cool|wow|moni|morning|noted|really|what|why|who)$/;
+const FILLER = /^(ok+a*y*|k+|yes|yeah|yea|no|nope|np|no problem|nothing|idk|i dont know|thanks?|thank you|tnx|hmm+|lol|alright|fine|sure|good|nice|cool|wow|moni|morning|noted|really|what|why|who)$/;
+
+/** Lower case letters and spaces only, for matching filler words. */
+function plainWords(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\s]/gu, "").replace(/\s+/g, " ").trim();
+}
+
+/** True when an answer to "what do you sell?" can be a trade: three letters or more and not "okay" or "np". */
+function isTrade(text: string): boolean {
+  const plain = plainWords(text);
+  return (plain.match(/\p{L}/gu) ?? []).length >= 3 && !FILLER.test(plain);
+}
+
+/** "low cut 1500": the first item at a slightly higher price, to show how a change is typed. */
+function changeExample(items: PriceListItem[]): string {
+  const first = items[0]!;
+  const kobo = first.tiers[0]?.unitPriceKobo ?? 0;
+  const step = kobo >= 1_000_000 ? 500_000 : kobo >= 100_000 ? 30_000 : 1_000;
+  return `${first.product.toLowerCase()} ${formatNaira(kobo + step).replace("₦", "")}`;
+}
 
 function intro(contactName: string | undefined): Reply {
   const first = contactName?.trim().split(/\s+/)[0];
@@ -522,9 +603,7 @@ function whatTheySell(msg: IncomingMessage, text: string): string | null | undef
     .replace(/^(selling|into)\s+/i, "")
     .replace(/[.!]+$/, "")
     .trim();
-  const plain = sells.toLowerCase().replace(/[^\p{L}\s]/gu, "").trim();
-  if ((plain.match(/\p{L}/gu) ?? []).length < 3 || FILLER.test(plain)) return null;
-  return sells;
+  return isTrade(sells) ? sells : null;
 }
 
 function withoutStage({ stage: _, ...reply }: Reply): Reply {
