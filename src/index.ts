@@ -73,6 +73,9 @@ import {
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
+import { createEventTickets } from "./products/quote/tickets/index.js";
+import { createTicketLinks } from "./products/quote/tickets/links.js";
+import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -376,6 +379,14 @@ const walkInFor = (businessId: string, orderPrefix: string, features?: PlanFeatu
     ? createWalkIn({ businessId, orderPrefix, store: createSupabaseWalkInStore(supabase, businessId), links: walkInLinks, features })
     : undefined;
 
+// Event tickets, their QR codes and the door screen (QUOTE_EVENT_TICKETS).
+const ticketsConfig = config.activeProduct === "quote" ? config.quoteEventTickets : undefined;
+const ticketLinks = ticketsConfig && createTicketLinks(config.whatsapp.appSecret, ticketsConfig.publicUrl);
+const ticketsFor = (businessId: string, businessName: string, orderPrefix: string, language: Lang, features?: PlanFeatures) =>
+  ticketLinks
+    ? createEventTickets({ businessId, businessName, orderPrefix, language, store: createSupabaseTicketStore(supabase, businessId), links: ticketLinks, features })
+    : undefined;
+
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
 async function numbersAllowed(mainId: string): Promise<number | null> {
   const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
@@ -497,6 +508,7 @@ if (config.activeProduct === "quote" && config.quote) {
     ),
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
+    tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features),
     sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
@@ -593,6 +605,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
+    tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),
@@ -1331,6 +1344,15 @@ const app = createApp({
   ownerApp: ownerAppDeps,
   compliance: complianceDeps,
   emails: emailStore ? { secret: config.whatsapp.appSecret, store: emailStore } : undefined,
+  door: ticketsConfig
+    ? {
+        secret: config.whatsapp.appSecret,
+        async business(id) {
+          const found = await quoteBotFor(id);
+          return found ? { name: found.name, orderPrefix: found.orderPrefix, store: createSupabaseTicketStore(supabase, id) } : null;
+        },
+      }
+    : undefined,
   shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
   screenShield: config.screenShield,
 });
@@ -1734,6 +1756,6 @@ if (followUps && followUpConfig) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

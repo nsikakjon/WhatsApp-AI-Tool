@@ -129,6 +129,8 @@ export interface Config {
    * receipts, pickup screens, table numbers. Only set when QUOTE_WALK_IN is true.
    */
   quoteWalkIn?: { publicUrl: string };
+  /** Event tickets with a QR code each and a door screen (migration 0067). Only set when QUOTE_EVENT_TICKETS is true. */
+  quoteEventTickets?: { publicUrl: string };
   /** Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true. */
   quoteShop?: { publicUrl: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
@@ -494,6 +496,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
     quoteWalkIn: /^(true|yes|on|1)$/i.test(env.QUOTE_WALK_IN ?? "")
+      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
+    quoteEventTickets: /^(true|yes|on|1)$/i.test(env.QUOTE_EVENT_TICKETS ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
     quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "")
