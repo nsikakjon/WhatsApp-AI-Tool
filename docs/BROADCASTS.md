@@ -59,6 +59,10 @@ or Meta's pricing page, and price the add-on above it.
 If you put the rough rate in `BROADCAST_COST_KOBO` (in kobo, e.g. `7000` for
 ₦70), the owner's preview shows an estimate of what the broadcast will cost.
 
+With `MARKETING_MESSAGES_API=true`, broadcasts go through Meta's Marketing
+Messages API once the WhatsApp account has accepted its terms (see
+[MARKETING_MESSAGES.md](MARKETING_MESSAGES.md)).
+
 ## Setting it up
 
 ### 1. Run the migration (Supabase)
