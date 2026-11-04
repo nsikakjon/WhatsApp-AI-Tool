@@ -75,6 +75,8 @@ export interface AppBusiness {
     /** Paystack's recipient code for a bank account (it checks the account first). */
     recipient(accountName: string, accountNumber: string, bankCode: string): Promise<string>;
   };
+  /** Monthly payments from regular customers (QUOTE_MONTHLY_PAYMENTS, naira, needs a Paystack subaccount). */
+  monthly?: import("../products/quote/monthly.js").Monthly;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
   payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }

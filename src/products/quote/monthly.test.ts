@@ -2,78 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { SavedCard } from "../../core/payments/paystack.js";
 import type { Payment } from "../../core/payments/store.js";
 import type { Notice } from "../../core/product.js";
-import { addDays, createMonthly, lagosToday, nextPayDay, type Member, type MonthlyStore, type OpenMonth } from "./monthly.js";
+import { addDays, createMonthly, lagosToday, nextPayDay, type Member } from "./monthly.js";
+import { memoryMonthlyStore as memoryStore } from "./monthly-testing.js";
 
 const quiet = { info() {}, warn() {}, error() {} };
 const CARD: SavedCard = { code: "AUTH_1", email: "ada@example.com", label: "Visa ••4081" };
-
-/** Behaves like the tables and quote_monthly_paid in migration 0067. */
-function memoryStore(member: Partial<Member> = {}) {
-  const months: Array<OpenMonth & { memberId: string; status: "open" | "paid" }> = [];
-  const m: Member = {
-    id: "m1",
-    planId: "p1",
-    planName: "Gym membership",
-    name: "Ada",
-    waId: "2348011111111",
-    payDay: 5,
-    nextDue: "2026-11-05",
-    status: "active",
-    card: null,
-    lastPaidAt: null,
-    open: null,
-    ...member,
-  };
-  const withOpen = (): Member => ({ ...m, open: months.find((x) => x.memberId === m.id && x.status === "open") ?? null });
-  const store: MonthlyStore = {
-    plans: async () => [{ id: "p1", name: "Gym membership", priceKobo: 1_500_000, active: true }],
-    addPlan: async () => {},
-    setPlanActive: async () => {},
-    members: async () => [withOpen()],
-    member: async () => withOpen(),
-    addMember: async () => "m1",
-    cancel: async () => true,
-    forgetCard: async () => {},
-    async openDue(today) {
-      if (m.status !== "active" || m.nextDue > today || months.some((x) => x.memberId === m.id && x.period === m.nextDue)) return;
-      months.push({ id: `c${months.length + 1}`, memberId: m.id, period: m.nextDue, amountKobo: 1_500_000, linkUrl: null, notices: 0, cardTriedAt: null, ownerToldAt: null, status: "open" });
-    },
-    async claimCard(id) {
-      const c = months.find((x) => x.id === id)!;
-      if (c.cardTriedAt) return false;
-      c.cardTriedAt = new Date();
-      return true;
-    },
-    async saveLink(id, url) {
-      months.find((x) => x.id === id)!.linkUrl = url;
-    },
-    async claimNotice(id, n) {
-      const c = months.find((x) => x.id === id)!;
-      if (c.status !== "open" || c.notices !== n - 1) return false;
-      c.notices = n;
-      return true;
-    },
-    async claimOwnerTold(id) {
-      const c = months.find((x) => x.id === id)!;
-      if (c.ownerToldAt) return false;
-      c.ownerToldAt = new Date();
-      return true;
-    },
-    async month(id) {
-      const c = months.find((x) => x.id === id);
-      return c ? { member: withOpen(), period: c.period, amountKobo: c.amountKobo } : null;
-    },
-    async paid(id, _ref, nextDue, card) {
-      const c = months.find((x) => x.id === id)!;
-      if (c.status === "paid") return false;
-      c.status = "paid";
-      m.nextDue = nextDue > m.nextDue ? nextDue : m.nextDue;
-      if (card) m.card = card;
-      return true;
-    },
-  };
-  return { store, months, member: m };
-}
 
 function setup(opts: { member?: Partial<Member>; reachable?: boolean; card?: "success" | "failed" | "pending"; template?: boolean } = {}) {
   const { store, months, member } = memoryStore(opts.member);
