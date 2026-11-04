@@ -141,6 +141,12 @@ export interface Config {
   quoteBarcodes: boolean;
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
+  /**
+   * Monthly payments from a business's regular customers (migration 0069).
+   * Only set when QUOTE_MONTHLY_PAYMENTS is true. `template` is an approved
+   * WhatsApp template for customers who haven't messaged in the last day.
+   */
+  quoteMonthly?: { template?: { name: string; language: string } };
   /** Discount codes businesses give their customers (migration 0042). Off unless QUOTE_DISCOUNT_CODES is true. */
   quoteDiscountCodes: boolean;
   /** Each quote business's own referral code (migration 0041). Off unless QUOTE_REFERRALS is true. */
@@ -488,6 +494,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
     quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
+    quoteMonthly: /^(true|yes|on|1)$/i.test(env.QUOTE_MONTHLY_PAYMENTS ?? "")
+      ? {
+          template: env.QUOTE_MONTHLY_TEMPLATE_NAME
+            ? { name: env.QUOTE_MONTHLY_TEMPLATE_NAME, language: env.QUOTE_MONTHLY_TEMPLATE_LANGUAGE || "en" }
+            : undefined,
+        }
+      : undefined,
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),

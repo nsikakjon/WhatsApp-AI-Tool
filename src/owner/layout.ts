@@ -33,6 +33,7 @@ const ICONS: Record<string, string> = {
   minus: '<path d="M5 12h14"/>',
   till: '<rect x="3" y="10" width="18" height="10" rx="2"/><path d="M6 10V4h9v6M9 7h3M7 15h2M11 15h2M15 15h2"/>',
   upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1V7Z"/><path d="M4 7l11-3v3"/><path d="M16 13.5h.01"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   whatsapp: '<path d="M3 21l1.6-4.8A8.5 8.5 0 1 1 8 19.6Z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1-1.3 2 .9c-.2 1.1-1.2 1.9-2.3 1.9-3.3 0-6.3-3-6.3-6.3 0-1.1.8-2.1 1.9-2.3l.9 2Z"/>',
@@ -60,6 +61,8 @@ export interface NavItem {
   counter?: boolean;
   /** Only when paying riders and staff is switched on (QUOTE_PAYOUTS). */
   payouts?: boolean;
+  /** Only when monthly payments are on for this business (QUOTE_MONTHLY_PAYMENTS). */
+  monthly?: boolean;
 }
 
 export const NAV: NavItem[] = [
@@ -71,6 +74,7 @@ export const NAV: NavItem[] = [
   { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
   { href: "/home/pay", label: "Pay people", icon: "wallet", need: "pay_out", payouts: true },
+  { href: "/home/monthly", label: "Monthly payments", icon: "repeat", need: "money", monthly: true },
   { href: "/home/test", label: "Test your bot", icon: "test", need: "tools" },
   { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools" },
   { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
@@ -90,6 +94,8 @@ export interface Shell {
   counter?: boolean;
   /** Paying riders and staff is on for this business. */
   payouts?: boolean;
+  /** Monthly payments are on for this business. */
+  monthly?: boolean;
   /** Other businesses this person can switch to. */
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
@@ -103,7 +109,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");

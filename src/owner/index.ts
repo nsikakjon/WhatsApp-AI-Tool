@@ -15,6 +15,7 @@ import { registerInbox } from "./sections/inbox.js";
 import { registerOrders } from "./sections/orders.js";
 import { registerPrices } from "./sections/prices.js";
 import { registerDelivery } from "./sections/delivery.js";
+import { registerMonthly } from "./sections/monthly.js";
 import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTools } from "./sections/tools.js";
@@ -276,6 +277,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             role: user.role,
             counter: Boolean(c.get("biz").counter),
             payouts: Boolean(c.get("biz").payouts),
+            monthly: Boolean(c.get("biz").monthly),
             others: c.get("others"),
             flash,
           },
@@ -306,6 +308,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerPrices(app, ctx);
   registerDelivery(app, ctx);
   registerPay(app, ctx);
+  registerMonthly(app, ctx);
   registerTools(app, ctx);
   registerVerify(app, ctx);
   registerSettings(app, ctx);

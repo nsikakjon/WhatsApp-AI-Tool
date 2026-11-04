@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertKobo, type PayCurrency } from "../money.js";
 import type { Notice } from "../product.js";
 import type { FlutterwaveClient } from "./flutterwave.js";
-import type { PaystackClient } from "./paystack.js";
+import type { PaystackClient, SavedCard } from "./paystack.js";
 import type { Payment, PaymentProvider, PaymentStore, PromoCheck } from "./store.js";
 
 // Checkout links for any product, and what happens once one is paid.
@@ -54,14 +54,24 @@ export interface PaymentLinks {
 /** A WhatsApp message about a payment; from the product's own number unless fromNumberId says otherwise. */
 export type OutgoingNote = Notice & { fromNumberId?: string };
 
-/** A product's reaction to a paid payment: the WhatsApp messages to send. `feesKobo` is Paystack's charge, when it says. */
-export type PaidHandler = (payment: Payment, paid?: { feesKobo?: number }) => Promise<OutgoingNote[]>;
+/**
+ * A product's reaction to a paid payment: the WhatsApp messages to send.
+ * `feesKobo` is Paystack's charge, when it says; `card` is the card it was
+ * paid with, when Paystack lets us charge it again.
+ */
+export type PaidHandler = (payment: Payment, paid?: { feesKobo?: number; card?: SavedCard }) => Promise<OutgoingNote[]>;
 
 export type ConfirmResult = "paid" | "already-paid" | "not-paid" | "unknown";
 
 export interface Payments extends PaymentLinks {
   /** Checks a payment with Paystack and, if it's newly paid, runs the product's onPaid. */
   confirm(reference: string): Promise<ConfirmResult>;
+  /**
+   * Charges a card the payer saved on an earlier payment (naira, Paystack).
+   * A charge that goes through is confirmed like any other payment, so the
+   * product's onPaid runs once. "pending" is settled by Paystack's webhook.
+   */
+  chargeCard(req: Omit<PaymentRequest, "promo" | "currency"> & { card: SavedCard }): Promise<"paid" | "failed" | "pending">;
 }
 
 export interface PaymentsOptions {
@@ -84,7 +94,7 @@ export interface PaymentsOptions {
 export function createPayments(opts: PaymentsOptions): Payments {
   const log = opts.log ?? console;
 
-  return {
+  const payments: Payments = {
     async createLink(req) {
       assertKobo(req.amountKobo);
       if (req.amountKobo === 0) throw new Error("Can't take a payment of nothing");
@@ -148,6 +158,31 @@ export function createPayments(opts: PaymentsOptions): Payments {
       return { url, amountKobo, promo };
     },
 
+    async chargeCard(req) {
+      assertKobo(req.amountKobo);
+      if (req.amountKobo === 0) throw new Error("Can't take a payment of nothing");
+      if (!opts.onPaid[req.product]) throw new Error(`"${req.product}" has no onPaid handler`);
+      if (!opts.paystack?.chargeCard) throw new Error("Saved card charges need Paystack (PAYSTACK_SECRET_KEY)");
+      if (req.platformFeeKobo) {
+        assertKobo(req.platformFeeKobo);
+        if (!req.subaccount || req.platformFeeKobo >= req.amountKobo) throw new Error("A platform fee needs a subaccount and must be less than the payment");
+      }
+      const reference = `yarnoga-${req.product}-${randomUUID()}`;
+      await opts.store.create({ reference, product: req.product, waId: req.waId, purpose: req.purpose, amountKobo: req.amountKobo });
+      const result = await opts.paystack.chargeCard({
+        reference,
+        amountKobo: req.amountKobo,
+        description: req.title,
+        waId: req.waId,
+        card: req.card,
+        subaccount: req.subaccount,
+        transactionChargeKobo: req.platformFeeKobo || undefined,
+      });
+      if (result !== "success") return result;
+      const confirmed = await payments.confirm(reference);
+      return confirmed === "paid" || confirmed === "already-paid" ? "paid" : "pending";
+    },
+
     async confirm(reference) {
       const payment = await opts.store.byReference(reference);
       if (!payment) return "unknown";
@@ -175,7 +210,10 @@ export function createPayments(opts: PaymentsOptions): Payments {
 
       let notes: OutgoingNote[];
       try {
-        notes = await opts.onPaid[payment.product]!(payment, { feesKobo: "feesKobo" in tx ? tx.feesKobo : undefined });
+        notes = await opts.onPaid[payment.product]!(payment, {
+          feesKobo: "feesKobo" in tx ? tx.feesKobo : undefined,
+          card: "card" in tx ? tx.card : undefined,
+        });
       } catch (err) {
         // Back to pending so Paystack's retry (or the thank-you page) can try again.
         await opts.store.markPending(payment.id);
@@ -193,4 +231,5 @@ export function createPayments(opts: PaymentsOptions): Payments {
       return "paid";
     },
   };
+  return payments;
 }
