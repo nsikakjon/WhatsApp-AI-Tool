@@ -117,3 +117,33 @@ describe("dashboard page", () => {
     expect(renderDashboard(stats)).not.toContain("<script>");
   });
 });
+
+describe("leads from ads", () => {
+  const ad = {
+    numberId: "PN1",
+    label: "Demo Shop",
+    sourceType: "ad",
+    sourceId: "1202",
+    headline: "Prices <on> WhatsApp",
+    sourceUrl: "https://fb.me/x",
+    leads: 9,
+    leads7: 4,
+    leads30: 7,
+    freeNow: 2,
+    lastAt: NOW,
+    firstBy: new Map<string, Date>(),
+  };
+
+  it("lists each ad with its leads and who's in a free window", () => {
+    const html = renderDashboard(sampleStats(), [], undefined, undefined, undefined, false, { ads: [ad], freeSentThisMonth: 31 });
+    expect(html).toContain('href="#ads"');
+    expect(html).toContain("Prices &#60;on&#62; WhatsApp");
+    expect(html).toContain("<td>Demo Shop</td><td>4</td><td>7</td><td>9</td><td>2</td>");
+    expect(html).toContain(">31<");
+  });
+
+  it("says when there are no leads yet, and hides the section when it's off", () => {
+    expect(renderDashboard(sampleStats(), [], undefined, undefined, undefined, false, { ads: [], freeSentThisMonth: 0 })).toContain("No one has messaged from an ad yet");
+    expect(renderDashboard(sampleStats())).not.toContain('id="ads"');
+  });
+});

@@ -8,7 +8,8 @@ import { createSupabaseStore } from "./core/db/store.js";
 import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
-import { createSupabaseAdLeads } from "./core/ads.js";
+import { createSupabaseAdLeadReader, createSupabaseAdLeads } from "./core/ads.js";
+import { createSupabaseAdsSource } from "./dashboard/ads.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { withUnclearLimit } from "./core/unclear-limit.js";
@@ -159,6 +160,8 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const usage = config.shopCosts
   ? createSupabaseUsageMeter(supabase, { voiceModel: config.groq?.model ?? "whisper-large-v3" })
   : undefined;
+// Leads from WhatsApp ads, for the dashboard and the owner app (AD_LEADS).
+const adLeadReader = config.adLeads ? createSupabaseAdLeadReader(supabase) : undefined;
 const countAi = (numberId: string, model: string) => usage && ((u: AiUsage) => usage.ai(numberId, model, u));
 
 // yarnOga's own welcome and setup-tip emails to our customers (EMAILS_ENABLED,
@@ -1225,6 +1228,7 @@ const app = createApp({
             mainBusiness: config.quote ? { id: DEFAULT_BUSINESS_ID, plan: config.quote.plan ?? null } : undefined,
           })
         : undefined,
+      ads: adLeadReader ? createSupabaseAdsSource(supabase, adLeadReader, dashboardNumbers) : undefined,
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,

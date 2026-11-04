@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono } from "hono";
 import { renderDashboard } from "./page.js";
+import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
@@ -24,6 +25,8 @@ export interface DashboardDeps {
   money?: MoneyStore;
   /** What each shop costs us against what it pays (SHOP_COSTS). */
   costs?: ShopCostSource;
+  /** Leads from WhatsApp ads on every number (AD_LEADS). */
+  ads?: AdsSource;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** The TikTok developer app, for the one-time connect button. */
@@ -46,7 +49,7 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials, website, money, costs] = await Promise.all([
+      const [stats, socials, website, money, costs, ads] = await Promise.all([
         deps.stats.load(now),
         deps.socials?.load(now) ?? [],
         // A website problem (say, the table isn't created yet) mustn't hide everything else.
@@ -62,9 +65,13 @@ export function createDashboard(deps: DashboardDeps) {
           log.error("Shop costs failed to load:", err);
           return "error" as const;
         }),
+        deps.ads?.load(now).catch((err) => {
+          log.error("Ad leads failed to load:", err);
+          return "error" as const;
+        }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
-      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans)));
+      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans), ads));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
