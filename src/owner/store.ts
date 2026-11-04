@@ -618,6 +618,66 @@ export function createSupabaseCounter(db: SupabaseClient, businessId: string, bu
   };
 }
 
+/** Money a business took in, for its tax summary (QUOTE_TAX_SUMMARY). */
+export interface Takings {
+  at: Date;
+  totalKobo: number;
+  kind: "order" | "counter";
+}
+
+export interface TaxSalesStore {
+  /** Orders paid in [from, to) by when they were paid, and counter sales by when they were rung up (cancelled ones left out). */
+  takings(from: Date, to: Date): Promise<Takings[]>;
+}
+
+export function createSupabaseTaxSales(db: SupabaseClient, businessIds: string[], opts: { counter: boolean }): TaxSalesStore {
+  // A year of a busy shop's sales runs past the 1,000 rows Supabase sends at once, so read page by page.
+  const PAGE = 1000;
+  async function all<R>(what: string, read: (first: number, last: number) => PromiseLike<{ data: R[] | null; error: { message: string } | null }>): Promise<R[]> {
+    const rows: R[] = [];
+    for (let first = 0; ; first += PAGE) {
+      const { data, error } = await read(first, first + PAGE - 1);
+      if (error) throw new Error(`${what} failed: ${error.message}`);
+      rows.push(...(data ?? []));
+      if (!data || data.length < PAGE) return rows;
+    }
+  }
+  return {
+    async takings(from, to) {
+      const [orders, counter] = await Promise.all([
+        all<{ id: string; paid_at: string; total_kobo: number | string }>("tax summary orders", (first, last) =>
+          db
+            .from("quote_orders")
+            .select("id, paid_at, total_kobo")
+            .in("business_id", businessIds)
+            .eq("status", "paid")
+            .gte("paid_at", from.toISOString())
+            .lt("paid_at", to.toISOString())
+            .order("id")
+            .range(first, last),
+        ),
+        opts.counter
+          ? all<{ id: string; created_at: string; total_kobo: number | string }>("tax summary counter sales", (first, last) =>
+              db
+                .from("quote_counter_sales")
+                .select("id, created_at, total_kobo")
+                .in("business_id", businessIds)
+                .is("voided_at", null)
+                .gte("created_at", from.toISOString())
+                .lt("created_at", to.toISOString())
+                .order("id")
+                .range(first, last),
+            )
+          : Promise.resolve([]),
+      ]);
+      return [
+        ...orders.map((r) => ({ at: new Date(r.paid_at), totalKobo: Number(r.total_kobo), kind: "order" as const })),
+        ...counter.map((r) => ({ at: new Date(r.created_at), totalKobo: Number(r.total_kobo), kind: "counter" as const })),
+      ];
+    },
+  };
+}
+
 export function createSupabaseDeliverySetup(db: SupabaseClient, businessId: string, trackLink?: (deliveryId: string) => string): DeliverySetupStore {
   const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
