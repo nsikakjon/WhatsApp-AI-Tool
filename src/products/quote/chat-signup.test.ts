@@ -3,6 +3,8 @@ import type { Product, ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { AI_PER_PERSON_PER_DAY, SIGNUPS_PER_DAY, orderPrefix, withChatSignup, type ChatSignupOptions, type Signup, type SignupStore } from "./chat-signup.js";
 import type { PriceListDraft, PriceListDrafter } from "./drafter.js";
+import { createNumberCollector } from "./numbers.js";
+import { memoryQueue } from "./numbers-testing.js";
 import type { PriceListItem } from "./pricelist.js";
 
 const NUMBER = "num-quotes";
@@ -276,6 +278,23 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.created).toEqual([{ name: "Mama Cakes", description: "cakes and pastries", orderPrefix: "MC", ownerWaId: OWNER, referralCode: null }]);
     expect(setup.lists.get("biz-1")).toHaveLength(3);
     expect(mem.rows.get(OWNER)).toMatchObject({ step: "done", businessId: "biz-1", draftCsv: null });
+  });
+
+  it("asks for a new SIM's number after sign-up and puts it on the queue", async () => {
+    const q = memoryQueue([{ id: "s1", name: "Tolu", waId: "2348022222222" }]);
+    const { say } = setUp(CUPCAKES, { numbers: createNumberCollector({ store: q.store }) });
+    await signUpToPrices(say);
+    await say("Cupcakes 600");
+    const done = await say("YES");
+    expect(done.text).toContain("Get a new SIM");
+    expect(done.text).not.toContain("will message you shortly");
+    expect(q.rows.get("biz-1")?.status).toBe("no_number");
+
+    const got = await say("0803 123 4567");
+    expect(got.text).toMatch(/We've got \*0803 123 4567\*/);
+    expect(got.notify?.[0]).toMatchObject({ to: "2348022222222" });
+    expect(q.rows.get("biz-1")).toMatchObject({ number: "2348031234567", assignedTo: "s1" });
+    expect((await say("try")).text).toMatch(/chatting with \*Mama Cakes\*'s bot|isn't available/);
   });
 
   describe("asking demo visitors to sign up after the delivery question", () => {

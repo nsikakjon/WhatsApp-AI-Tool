@@ -114,6 +114,8 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { phoneDetails, registerNumber } from "./signup/meta.js";
+import { createNumberCollector, createSupabaseNumberQueue } from "./products/quote/numbers.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
@@ -646,6 +648,8 @@ if (quoteBusinesses) {
 
 // Business owners sign up by chatting to the yarnOga quotes number (QUOTE_SIGNUP_PHONE_NUMBER_ID).
 const chatSignup = config.quoteChatSignup;
+// Their new SIM's number goes on the staff queue at /quote-setup/numbers (QUOTE_NUMBER_QUEUE).
+const numberQueue = chatSignup?.numberQueue && quoteBusinesses ? createSupabaseNumberQueue(supabase) : undefined;
 if (chatSignup && quoteBusinesses) {
   const businesses = createSupabaseBusinesses(supabase);
   product = withChatSignup(product, {
@@ -655,6 +659,9 @@ if (chatSignup && quoteBusinesses) {
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
     signUpToContinue: chatSignup.signUpToContinue,
+    numbers: numberQueue
+      ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl })
+      : undefined,
     sheets: sheetSync,
     askEmail: emailAsker
       ? ({ waId, businessId }) =>
@@ -1324,6 +1331,18 @@ const app = createApp({
       branches: config.quoteBranches ? { limit: numbersAllowed } : undefined,
       sheets: sheetSync && sheetStore ? { url: async (id) => (await sheetStore.sheet(id)).url, remember: sheetSync.remember } : undefined,
       payLinks: config.quotePayLinks && Boolean(config.paystack),
+      numbers: numberQueue
+        ? {
+            store: numberQueue,
+            publicUrl: config.quoteChatSignup?.numberQueue?.publicUrl,
+            // With our own system-user token, so staff never handle it.
+            meta: {
+              displayNumber: async (id) => (await phoneDetails(fetch, config.whatsapp, id, config.whatsapp.accessToken)).displayNumber ?? null,
+              register: (id, pin) => registerNumber(fetch, config.whatsapp, id, config.whatsapp.accessToken, pin),
+            },
+            send: (to, text) => sendNotice({ store, whatsapp }, { to, text }, config.quoteChatSignup!.phoneNumberId),
+          }
+        : undefined,
     }
   : undefined, delivery
   ? {
