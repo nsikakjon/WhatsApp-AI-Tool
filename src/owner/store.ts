@@ -748,6 +748,32 @@ export function createSupabaseTaxSales(db: SupabaseClient, businessIds: string[]
   };
 }
 
+/** A quote or order from someone who came from an ad, for the Ads page (AD_LEADS). */
+export interface AdOrder {
+  contactId: string;
+  status: string;
+  createdAt: Date;
+}
+
+/** Quotes and orders these people got from the business since `since`. */
+export function createSupabaseAdOrders(db: SupabaseClient, businessIds: string[]) {
+  return async (contactIds: string[], since: Date): Promise<AdOrder[]> => {
+    const out: AdOrder[] = [];
+    // Kept to a few hundred ids a request so the address Supabase is sent stays short.
+    for (let i = 0; i < contactIds.length; i += 200) {
+      const { data, error } = await db
+        .from("quote_orders")
+        .select("contact_id, status, created_at")
+        .in("business_id", businessIds)
+        .in("contact_id", contactIds.slice(i, i + 200))
+        .gte("created_at", since.toISOString());
+      if (error) throw new Error(`ad orders failed: ${error.message}`);
+      for (const r of data ?? []) out.push({ contactId: r.contact_id as string, status: r.status as string, createdAt: new Date(r.created_at as string) });
+    }
+    return out;
+  };
+}
+
 export function createSupabaseDeliverySetup(db: SupabaseClient, businessId: string, trackLink?: (deliveryId: string) => string): DeliverySetupStore {
   const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {

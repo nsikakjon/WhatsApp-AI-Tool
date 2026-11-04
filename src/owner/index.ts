@@ -20,6 +20,7 @@ import { registerMonthly } from "./sections/monthly.js";
 import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTax } from "./sections/tax.js";
+import { registerAds } from "./sections/ads.js";
 import { registerTools } from "./sections/tools.js";
 import { registerVerify } from "./sections/verify.js";
 import { can, ROLE_LABEL, type Permission } from "./roles.js";
@@ -282,6 +283,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             till: Boolean(c.get("biz").counter?.sellOffline),
             payouts: Boolean(c.get("biz").payouts),
             tax: Boolean(c.get("biz").tax),
+            ads: Boolean(c.get("biz").ads),
             monthly: Boolean(c.get("biz").monthly),
             others: c.get("others"),
             flash,
@@ -318,6 +320,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerMonthly(app, ctx);
   registerTools(app, ctx);
   registerTax(app, ctx);
+  registerAds(app, ctx);
   registerVerify(app, ctx);
   registerSettings(app, ctx);
 
