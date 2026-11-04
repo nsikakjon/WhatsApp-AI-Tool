@@ -19,6 +19,8 @@ export interface WebhookDeps {
   transcriber?: Transcriber;
   /** Counts what each voice note costs us (SHOP_COSTS). */
   usage?: UsageMeter;
+  /** Template for notices (e.g. owner alerts) to someone outside WhatsApp's 24-hour window. See sendNotice. */
+  noticeTemplate?: { name: string; language: string };
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   /**
