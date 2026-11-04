@@ -142,6 +142,7 @@ import {
   createSupabasePrices,
   createSupabaseCounter,
   createSupabaseTaxSales,
+  createSupabaseAdOrders,
   createSupabaseUsers,
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
@@ -1062,6 +1063,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const features = planParts.features;
           const branding = createSupabaseBranding(supabase, id);
           const sentNumbers = main ? [numberId, ""] : [numberId];
+          const allNumberIds = [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))];
           const language = main ? config.quote!.language : (row!.language ?? "en");
           const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
           return {
@@ -1091,6 +1093,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
+            ads: adLeadReader ? { leads: (now) => adLeadReader.leads(allNumberIds, now), orders: createSupabaseAdOrders(supabase, ids) } : undefined,
             barcodes: config.quoteBarcodes,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
@@ -1098,7 +1101,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             data: createSupabaseBusinessData(supabase, {
               businessId: id,
               businessIds: ids,
-              numberIds: [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))],
+              numberIds: allNumberIds,
               orderPrefix,
             }),
             logo: () => branding.logo(),
