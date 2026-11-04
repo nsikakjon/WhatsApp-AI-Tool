@@ -1,6 +1,6 @@
 import type { Member, MonthlyStore, OpenMonth } from "./monthly.js";
 
-/** Behaves like the tables and quote_monthly_paid in migration 0067. */
+/** Behaves like the tables and quote_monthly_paid in migration 0069. */
 export function memoryMonthlyStore(first: Partial<Member> | null = {}) {
   const months: Array<OpenMonth & { memberId: string; status: "open" | "paid" }> = [];
   const plans = [{ id: "p1", name: "Gym membership", priceKobo: 1_500_000, active: true }];

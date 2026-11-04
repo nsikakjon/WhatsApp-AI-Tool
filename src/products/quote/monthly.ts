@@ -8,7 +8,7 @@ import { showWaId } from "../../core/whatsapp/ids.js";
 import { lagosHour } from "./followups.js";
 
 // Monthly payments from a business's regular customers (QUOTE_MONTHLY_PAYMENTS,
-// migration 0067): gym members, class fees, a monthly supply. The owner sets
+// migration 0069): gym members, class fees, a monthly supply. The owner sets
 // up plans and adds customers in the owner app; each month the customer is
 // charged on their pay day.
 //
@@ -80,7 +80,7 @@ export interface MonthlyStore {
   claimOwnerTold(monthId: string): Promise<boolean>;
   /** The member and month a payment was for, if it's this business's. */
   month(monthId: string): Promise<{ member: Member; period: string; amountKobo: number } | null>;
-  /** Marks the month paid and moves next_due on (migration 0067). True only for the first call. */
+  /** Marks the month paid and moves next_due on (migration 0069). True only for the first call. */
   paid(monthId: string, reference: string, nextDue: string, card: SavedCard | null): Promise<boolean>;
 }
 

@@ -48,7 +48,7 @@ subaccount get the page.
 
 ## Switching it on (jay)
 
-1. **Supabase**: run `supabase/migrations/0067_quote_monthly_payments.sql`
+1. **Supabase**: run `supabase/migrations/0069_quote_monthly_payments.sql`
    (SQL Editor > New query > paste > Run). Running it again is safe.
 2. **Railway**: add `QUOTE_MONTHLY_PAYMENTS=true`. It needs
    `PAYSTACK_SECRET_KEY` and `PUBLIC_URL`, which are already set, and a

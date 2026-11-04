@@ -138,7 +138,7 @@ export interface Config {
   /** Paying riders and staff from the owner app by Paystack Transfer (migration 0066). Needs PAYSTACK_SECRET_KEY. */
   quotePayouts: boolean;
   /**
-   * Monthly payments from a business's regular customers (migration 0067).
+   * Monthly payments from a business's regular customers (migration 0069).
    * Only set when QUOTE_MONTHLY_PAYMENTS is true. `template` is an approved
    * WhatsApp template for customers who haven't messaged in the last day.
    */

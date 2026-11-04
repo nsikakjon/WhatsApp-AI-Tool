@@ -928,7 +928,7 @@ if (payoutTransfers) {
   productNumbers.payouts = config.whatsapp.phoneNumberId;
 }
 // Monthly payments from a business's regular customers (QUOTE_MONTHLY_PAYMENTS,
-// migration 0067): naira businesses with a Paystack subaccount, as the money
+// migration 0069): naira businesses with a Paystack subaccount, as the money
 // goes to the business's own bank. yarnOga's fee is the plan's transaction
 // fee, as on invoice pay links.
 async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
