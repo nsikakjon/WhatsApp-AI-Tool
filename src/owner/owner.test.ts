@@ -14,6 +14,7 @@ import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
 import { customersCsv } from "./sections/customers.js";
 import type { AppUser, BusinessData, CounterSale, CounterStore, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
 import { pickedQuantities, priceSale, profitByProduct, profitSummary, saleProfit, signedMoney } from "./sections/counter.js";
+import { readTillSale } from "./sections/till.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
 import { memoryVerifications } from "../compliance/memory.js";
@@ -677,6 +678,115 @@ describe("counter sales", () => {
     const cancel = await s.app.request(`https://${HOST}/counter/${s.counter.recorded[0]!.id}/cancel`, post({}, cookie));
     expect(cancel.headers.get("location")).toBe("/home/counter?msg=sale_cancelled");
     expect(await (await get(s, `/prices/${milk().id}`, cookie)).text()).toContain('name="o0_cost" inputmode="decimal" value="400"');
+  });
+
+  describe("offline till", () => {
+    function withTill() {
+      const counter = memoryCounter();
+      const offline: CounterSale[] = [];
+      const keys = new Set<string>();
+      counter.sellOffline = vi.fn(async (sale) => {
+        if (sale.lines.some((l) => l.variantId === "99999999-9999-9999-9999-999999999999")) return { ok: false as const, reason: "unknown" as const };
+        if (keys.has(sale.key)) return { ok: true as const, saleId: "dup", duplicate: true };
+        keys.add(sale.key);
+        offline.push({
+          id: `66666666-6666-6666-6666-${String(offline.length + 1).padStart(12, "0")}`,
+          at: sale.soldAt,
+          soldBy: sale.userId,
+          paidBy: sale.paidBy,
+          totalKobo: sale.lines.reduce((t, l) => t + l.totalKobo, 0),
+          voided: false,
+          lines: sale.lines.map((l) => ({ name: l.name, quantity: l.quantity, totalKobo: l.totalKobo, unitCostKobo: null })),
+          offline: {
+            syncedAt: new Date(),
+            short: [{ name: "Peak milk: Tin", by: 2 }],
+            repriced: sale.lines.filter((l) => l.listPriceKobo !== null).map((l) => ({ name: l.name, chargedKobo: l.unitPriceKobo, listKobo: l.listPriceKobo! })),
+          },
+        });
+        return { ok: true as const, saleId: "x", duplicate: false };
+      });
+      counter.sales = async () => offline;
+      const s = setup({ counter, currency: "NGN" }, { offline: true });
+      s.prices.all.push(milk());
+      return { ...s, counter, offline };
+    }
+    const json = (body: unknown, cookie: string) => ({
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", Origin: `https://${HOST}`, Host: HOST, cookie },
+    });
+
+    it("keeps the till's price, notes a changed price list, and checks what the till sent", () => {
+      const now = new Date("2026-11-04T12:00:00Z");
+      const sale = { key: crypto.randomUUID(), paidBy: "cash", at: "2026-11-04T09:30:00Z", lines: [{ id: TIN, quantity: 2, unitPriceKobo: 48_000 }, { id: SACHET, quantity: 1, unitPriceKobo: 10_000 }] };
+      const read = readTillSale(sale, [milk()], now);
+      expect(read.ok && read.sale.lines).toEqual([
+        { variantId: TIN, name: "Peak milk: Tin", quantity: 2, unitPriceKobo: 48_000, totalKobo: 96_000, listPriceKobo: 50_000 },
+        { variantId: SACHET, name: "Peak milk: Sachet", quantity: 1, unitPriceKobo: 10_000, totalKobo: 10_000, listPriceKobo: null },
+      ]);
+      expect(read.ok && read.sale.soldAt.toISOString()).toBe("2026-11-04T09:30:00.000Z");
+      // A fast clock doesn't put the sale in the future.
+      const ahead = readTillSale({ ...sale, at: "2026-11-05T09:30:00Z" }, [milk()], now);
+      expect(ahead.ok && ahead.sale.soldAt).toEqual(now);
+      // Removed from the price list since: kept with the till's name.
+      const gone = readTillSale({ ...sale, lines: [{ id: TIN, name: "Peak milk: Tin", quantity: 1, unitPriceKobo: 50_000 }] }, [], now);
+      expect(gone.ok && gone.sale.lines[0]).toMatchObject({ name: "Peak milk: Tin", listPriceKobo: null });
+      expect(readTillSale({ ...sale, lines: [{ id: TIN, quantity: 1.5, unitPriceKobo: 1 }] }, [milk()], now).ok).toBe(false);
+      expect(readTillSale({ ...sale, lines: [{ id: TIN, quantity: 1, unitPriceKobo: -5 }] }, [milk()], now).ok).toBe(false);
+      expect(readTillSale({ ...sale, lines: [sale.lines[0], sale.lines[0]] }, [milk()], now).ok).toBe(false);
+      expect(readTillSale({ ...sale, paidBy: "card" }, [milk()], now).ok).toBe(false);
+      expect(readTillSale({ ...sale, key: "1" }, [milk()], now).ok).toBe(false);
+    });
+
+    it("opens the till and its files without a login, so it works offline", async () => {
+      const s = withTill();
+      const page = await s.app.request("/till");
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain('rel="manifest" href="/home/manifest.webmanifest"');
+      expect(html).toContain("/home/sw.js");
+      expect(html).not.toContain("Peak milk");
+      const sw = await s.app.request("/sw.js");
+      expect(sw.headers.get("content-type")).toContain("javascript");
+      expect(await sw.text()).toContain('"/home/till"');
+      expect(JSON.parse(await (await s.app.request("/manifest.webmanifest")).text())).toMatchObject({ start_url: "/home/till", display: "standalone" });
+      expect((await s.app.request("/brand/app-512.png")).status).toBe(200);
+      // The price list itself needs a login.
+      expect((await s.app.request("/till/data")).headers.get("location")).toBe("/home/login");
+    });
+
+    it("gives the till the price list and records each sale once", async () => {
+      const s = withTill();
+      const cookie = await login(s, STAFF, "cashier");
+      const data = (await (await get(s, "/till/data", cookie)).json()) as { businessId: string; userId: string; items: Array<{ id: string; tiers: number[][] }> };
+      expect(data.businessId).toBe(BIZ);
+      expect(data.items.find((i) => i.id === TIN)!.tiers).toEqual([[1, 50_000], [12, 45_000]]);
+
+      const sale = { key: crypto.randomUUID(), businessId: BIZ, userId: data.userId, at: new Date().toISOString(), paidBy: "pos", lines: [{ id: TIN, name: "Peak milk: Tin", quantity: 1, unitPriceKobo: 48_000 }] };
+      const other = { ...sale, key: crypto.randomUUID(), businessId: "77777777-7777-7777-7777-777777777777" };
+      const unknown = { ...sale, key: crypto.randomUUID(), lines: [{ id: "99999999-9999-9999-9999-999999999999", quantity: 1, unitPriceKobo: 1 }] };
+      const first = await s.app.request(`https://${HOST}/till/sync`, json({ sales: [sale, other, unknown] }, cookie));
+      expect(((await first.json()) as { results: Array<{ status: string }> }).results.map((r) => r.status)).toEqual(["saved", "other_business", "refused"]);
+      const again = await s.app.request(`https://${HOST}/till/sync`, json({ sales: [sale] }, cookie));
+      expect(((await again.json()) as { results: Array<{ status: string }> }).results[0]!.status).toBe("duplicate");
+      expect(s.offline).toHaveLength(1);
+      expect(s.offline[0]).toMatchObject({ paidBy: "pos", totalKobo: 48_000, soldBy: data.userId });
+
+      const owner = await login(s, OWNER);
+      const counter = await (await get(s, "/counter", owner)).text();
+      expect(counter).toContain('href="/home/till"');
+      expect(counter).toContain("offline till");
+      expect(counter).toContain("sold 2 more than the stock showed");
+      expect(counter).toContain("charged ₦480 each; the price list says ₦500");
+    });
+
+    it("refuses riders, and isn't there when the switch is off", async () => {
+      const s = withTill();
+      expect((await get(s, "/till/data", await login(s, "2348044444444", "rider"))).status).toBe(403);
+      const off = withCounter();
+      expect((await off.app.request("/till")).status).not.toBe(200);
+      expect(await (await get(off, "/counter", await login(off, OWNER))).text()).not.toContain("/home/till");
+    });
   });
 
   it("stays hidden when counter sales are off", async () => {
