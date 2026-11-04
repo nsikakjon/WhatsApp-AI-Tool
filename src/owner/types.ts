@@ -87,6 +87,8 @@ export interface AppBusiness {
   tax?: TaxSalesStore;
   /** Monthly payments from regular customers (QUOTE_MONTHLY_PAYMENTS, naira, needs a Paystack subaccount). */
   monthly?: import("../products/quote/monthly.js").Monthly;
+  /** Whether the owner can add staff and change their roles; false when the plan doesn't include it (plan-locks.ts). */
+  staffLogins?: boolean;
   /** Pay links (Paystack) on its invoices, and yarnOga's fee on them in hundredths of a percent. */
   payLinks?: { on: boolean; feeBasisPoints(): Promise<number>; feeCap?(): Promise<number | null> };
 }

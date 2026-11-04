@@ -1,5 +1,6 @@
 import { registerScannerAssets } from "./scanner.js";
 import { registerCounter } from "./sections/counter.js";
+import { lockToPlan } from "./plan-locks.js";
 import { registerCustomers } from "./sections/customers.js";
 import { registerTill, registerTillAssets } from "./sections/till.js";
 import { readFileSync } from "node:fs";
@@ -55,6 +56,7 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   send: { ok: false, text: "Sending failed. Please try again." },
   owner_only: { ok: false, text: "Only the owner can do that." },
   not_allowed: { ok: false, text: "Your role doesn't include that. Ask the owner if you need it." },
+  staff_plan: { ok: false, text: "Staff logins come with Starter and above. Send plan to your bot on WhatsApp to upgrade." },
   is_owner: { ok: false, text: "That's the owner's number. The owner already sees everything." },
   roles_update: { ok: false, text: "That couldn't be saved. If roles are new for your business, yarnOga support needs to finish an update (migration 0058)." },
   sent_review: { ok: true, text: "Sent. We'll review your business in 1 to 2 working days and message you on WhatsApp." },
@@ -240,7 +242,8 @@ export function createOwnerApp(deps: OwnerAppDeps) {
       if (c.req.method === "GET") return c.redirect("/home/login", 303);
       return c.text("Please log in again.", 401);
     }
-    const biz = await deps.business(user.businessId);
+    const found = await deps.business(user.businessId);
+    const biz = found && (await lockToPlan(found));
     if (!biz) return c.html(bare("Not set up", `<h1>Your business isn't set up yet</h1><p>Please contact <a href="mailto:${esc(deps.support.email)}">${esc(deps.support.email)}</a>.</p>`), 404);
     const others: Array<{ userId: string; name: string }> = [];
     for (const row of await deps.users.byWaId(user.waId)) {
