@@ -1,3 +1,4 @@
+import type { AdLeadStore } from "../ads.js";
 import { guessLanguage } from "../i18n.js";
 import { Hono } from "hono";
 import { isPauseActive, type MessageStore } from "../db/store.js";
@@ -19,6 +20,8 @@ export interface WebhookDeps {
   transcriber?: Transcriber;
   /** Counts what each voice note costs us (SHOP_COSTS). */
   usage?: UsageMeter;
+  /** Saves the ad behind a chat started from a Click-to-WhatsApp ad (AD_LEADS). */
+  adLeads?: AdLeadStore;
   /** Told which WhatsApp Business Account each number belongs to, as webhooks arrive. */
   seenAccount?: (phoneNumberId: string, accountId: string) => void;
   /** Template for notices (e.g. owner alerts) to someone outside WhatsApp's 24-hour window. See sendNotice. */
@@ -144,6 +147,15 @@ async function handleMessage(
   if ((await deps.store.recordInbound(contactId, msg)) === "duplicate") {
     log.info(`Skipping duplicate message ${msg.waMessageId}`);
     return;
+  }
+
+  if (msg.referral && deps.adLeads) {
+    try {
+      await deps.adLeads.record(contactId, { ...msg, referral: msg.referral });
+    } catch (err) {
+      // The person still gets their answer; only the ad count misses them.
+      log.error(`Couldn't save the ad behind message ${msg.waMessageId}:`, err);
+    }
   }
 
   // The owner is chatting with this customer from the WhatsApp Business app:

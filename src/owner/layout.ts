@@ -36,6 +36,7 @@ const ICONS: Record<string, string> = {
   upload: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   wallet: '<path d="M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1V7Z"/><path d="M4 7l11-3v3"/><path d="M16 13.5h.01"/>',
+  megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1Z"/><path d="M17 8.5a5 5 0 0 1 0 7M7 15l1.5 5h2.5l-1-4.5"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   whatsapp: '<path d="M3 21l1.6-4.8A8.5 8.5 0 1 1 8 19.6Z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1-1.3 2 .9c-.2 1.1-1.2 1.9-2.3 1.9-3.3 0-6.3-3-6.3-6.3 0-1.1.8-2.1 1.9-2.3l.9 2Z"/>',
@@ -65,6 +66,8 @@ export interface NavItem {
   payouts?: boolean;
   /** Only when the tax summary is switched on (QUOTE_TAX_SUMMARY). */
   tax?: boolean;
+  /** Only when leads from ads are switched on (AD_LEADS). */
+  ads?: boolean;
   /** Only when monthly payments are on for this business (QUOTE_MONTHLY_PAYMENTS). */
   monthly?: boolean;
 }
@@ -83,6 +86,7 @@ export const NAV: NavItem[] = [
   { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools" },
   { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
   { href: "/home/export", label: "Export", icon: "export", ownerOnly: true },
+  { href: "/home/ads", label: "Ads", icon: "megaphone", ownerOnly: true, ads: true },
   { href: "/home/tax", label: "Tax summary", icon: "receipt", ownerOnly: true, tax: true },
   { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true },
   { href: "/home/help", label: "Help", icon: "help" },
@@ -101,6 +105,8 @@ export interface Shell {
   payouts?: boolean;
   /** The tax summary is on for this business. */
   tax?: boolean;
+  /** Leads from ads are on for this business. */
+  ads?: boolean;
   /** Monthly payments are on for this business. */
   monthly?: boolean;
   /** Other businesses this person can switch to. */
@@ -118,7 +124,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const main = items.slice(0, 7).map(link).join("");

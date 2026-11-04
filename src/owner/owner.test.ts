@@ -10,6 +10,8 @@ import { barcodeKey } from "./scanner.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import { taxCsv, taxMonths, taxTotal, vatInside, yearMonths } from "./sections/tax.js";
+import { withOrders } from "./sections/ads.js";
+import { summariseAds } from "../core/ads.js";
 import { liveJson, STALE_MINUTES } from "./sections/delivery.js";
 import { customersCsv } from "./sections/customers.js";
 import type { AppUser, BusinessData, CounterSale, CounterStore, ExportRow, PriceStore, ProductRecord, UserStore } from "./store.js";
@@ -955,5 +957,50 @@ describe("tax summary", () => {
     const cookie = await login(off, OWNER);
     expect((await get(off, "/tax", cookie)).status).toBe(404);
     expect(await (await get(off, "/", cookie)).text()).not.toContain("/home/tax");
+  });
+});
+
+describe("ads page", () => {
+  const now = new Date();
+  const ago = (h: number) => new Date(now.getTime() - h * 3_600_000);
+  const lead = (contactId: string, firstAt: Date, freeUntil: Date | null = null) => ({
+    numberId: "PNID",
+    contactId,
+    sourceType: "ad",
+    sourceId: "1202",
+    sourceUrl: "https://fb.me/abc",
+    headline: "Order cakes on WhatsApp",
+    firstAt,
+    freeUntil,
+  });
+  const leads = [lead("c1", ago(30), new Date(now.getTime() + 3_600_000)), lead("c2", ago(24 * 10)), lead("c3", ago(2))];
+  const orders = [
+    { contactId: "c1", status: "paid", createdAt: ago(20) },
+    { contactId: "c2", status: "quoted", createdAt: ago(24 * 9) },
+    // Before c3 saw the ad, so it isn't the ad's.
+    { contactId: "c3", status: "confirmed", createdAt: ago(5) },
+  ];
+
+  it("counts a quote or order for an ad only after the person came from it", () => {
+    const [row] = withOrders(summariseAds(leads, now), orders);
+    expect(row).toMatchObject({ leads: 3, leads7: 2, quoted: 2, ordered: 1, freeNow: 1 });
+  });
+
+  it("shows the owner each ad's leads and orders", async () => {
+    const s = setup({ ads: { leads: vi.fn(async () => leads), orders: vi.fn(async () => orders) } });
+    const cookie = await login(s, OWNER);
+    const html = await (await get(s, "/ads", cookie)).text();
+    expect(html).toContain("Order cakes on WhatsApp");
+    expect(html).toContain("Ad ID 1202");
+    expect(html).toContain("72 hours");
+    expect(await (await get(s, "/", cookie)).text()).toContain("/home/ads");
+    expect(await (await get(s, "/ads", await login(s, STAFF, "manager"))).text()).toContain("Only the business owner");
+  });
+
+  it("is hidden when switched off", async () => {
+    const off = setup();
+    const cookie = await login(off, OWNER);
+    expect((await get(off, "/ads", cookie)).status).toBe(404);
+    expect(await (await get(off, "/", cookie)).text()).not.toContain("/home/ads");
   });
 });

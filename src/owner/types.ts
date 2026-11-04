@@ -10,7 +10,8 @@ import type { BoardStore } from "../products/quote/board.js";
 import type { PlanFeatures } from "../products/quote/features.js";
 import type { ShopLookStore } from "../products/quote/shop.js";
 import type { AiPack } from "../products/quote/topups.js";
-import type { AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore, TaxSalesStore } from "./store.js";
+import type { AdLead } from "../core/ads.js";
+import type { AdOrder, AppUser, BusinessData, CounterStore, DeliverySetupStore, PriceStore, TaxSalesStore } from "./store.js";
 import type { VerificationStore } from "../compliance/store.js";
 
 /** One quote business as the app sees it. Built by the server for whoever is logged in. */
@@ -76,6 +77,11 @@ export interface AppBusiness {
     topUpLink(waId: string, amountKobo: number): Promise<string>;
     /** Paystack's recipient code for a bank account (it checks the account first). */
     recipient(accountName: string, accountNumber: string, bankCode: string): Promise<string>;
+  };
+  /** Leads from WhatsApp ads on its numbers (AD_LEADS); without it the Ads page is hidden. */
+  ads?: {
+    leads(now: Date): Promise<AdLead[]>;
+    orders(contactIds: string[], since: Date): Promise<AdOrder[]>;
   };
   /** Monthly sales for VAT and the presumptive tax (QUOTE_TAX_SUMMARY); without it the page is hidden. */
   tax?: TaxSalesStore;

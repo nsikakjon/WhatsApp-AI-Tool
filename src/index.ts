@@ -8,6 +8,8 @@ import { createSupabaseStore } from "./core/db/store.js";
 import { createSupabaseInboxStore } from "./core/inbox/store.js";
 import { createGroqTranscriber } from "./core/voice/transcribe.js";
 import { createSupabaseUsageMeter, type AiUsage } from "./core/usage.js";
+import { createSupabaseAdLeadReader, createSupabaseAdLeads } from "./core/ads.js";
+import { createSupabaseAdsSource } from "./dashboard/ads.js";
 import { createWhatsAppClient } from "./core/whatsapp/client.js";
 import type { Product } from "./core/product.js";
 import { withUnclearLimit } from "./core/unclear-limit.js";
@@ -143,6 +145,7 @@ import {
   createSupabasePrices,
   createSupabaseCounter,
   createSupabaseTaxSales,
+  createSupabaseAdOrders,
   createSupabaseUsers,
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
@@ -161,6 +164,8 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
 const usage = config.shopCosts
   ? createSupabaseUsageMeter(supabase, { voiceModel: config.groq?.model ?? "whisper-large-v3" })
   : undefined;
+// Leads from WhatsApp ads, for the dashboard and the owner app (AD_LEADS).
+const adLeadReader = config.adLeads ? createSupabaseAdLeadReader(supabase) : undefined;
 const countAi = (numberId: string, model: string) => usage && ((u: AiUsage) => usage.ai(numberId, model, u));
 
 // yarnOga's own welcome and setup-tip emails to our customers (EMAILS_ENABLED,
@@ -1080,6 +1085,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const features = planParts.features;
           const branding = createSupabaseBranding(supabase, id);
           const sentNumbers = main ? [numberId, ""] : [numberId];
+          const allNumberIds = [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))];
           const language = main ? config.quote!.language : (row!.language ?? "en");
           const currency = main ? config.quote!.currency : (row!.currency ?? "NGN");
           return {
@@ -1109,6 +1115,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
+            ads: adLeadReader ? { leads: (now) => adLeadReader.leads(allNumberIds, now), orders: createSupabaseAdOrders(supabase, ids) } : undefined,
             barcodes: config.quoteBarcodes,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
@@ -1116,7 +1123,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             data: createSupabaseBusinessData(supabase, {
               businessId: id,
               businessIds: ids,
-              numberIds: [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))],
+              numberIds: allNumberIds,
               orderPrefix,
             }),
             logo: () => branding.logo(),
@@ -1228,6 +1235,7 @@ const app = createApp({
   whatsapp,
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   usage,
+  adLeads: config.adLeads ? createSupabaseAdLeads(supabase) : undefined,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   seenAccount: config.marketingMessagesApi ? (number, account) => numberAccounts.set(number, account) : undefined,
   noticeTemplate: config.ownerAlertTemplate,
@@ -1247,6 +1255,7 @@ const app = createApp({
             mainBusiness: config.quote ? { id: DEFAULT_BUSINESS_ID, plan: config.quote.plan ?? null } : undefined,
           })
         : undefined,
+      ads: adLeadReader ? createSupabaseAdsSource(supabase, adLeadReader, dashboardNumbers) : undefined,
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,

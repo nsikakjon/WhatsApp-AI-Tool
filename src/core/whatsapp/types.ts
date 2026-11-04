@@ -39,10 +39,32 @@ export interface IncomingMessage {
   location?: { latitude: number; longitude: number; name?: string; address?: string };
   /** Contact cards the sender shared (attach > Contact): each person's name and first phone number. */
   sharedContacts?: Array<{ name?: string; phone?: string }>;
+  /** Set when the person tapped a Click-to-WhatsApp ad or a Facebook post's WhatsApp button to send this. */
+  referral?: AdReferral;
   /** Unix time (seconds) WhatsApp says the message was sent. */
   timestamp: number;
   /** The original message object from Meta, kept for logging and storage. */
   raw: unknown;
+}
+
+/**
+ * What Meta tells us about the ad (or Facebook post) someone tapped to start
+ * the chat. Only the first message after the tap carries it.
+ */
+export interface AdReferral {
+  /** "ad" or "post". */
+  sourceType: string;
+  /** The ad's (or post's) ID in Meta Ads Manager. */
+  sourceId: string;
+  /** Link to the ad or post. */
+  sourceUrl?: string;
+  /** The ad's headline and text, as the person saw them. */
+  headline?: string;
+  body?: string;
+  /** "image" or "video". */
+  mediaType?: string;
+  /** Meta's click ID, which ties this chat back to the ad click in Ads Manager. */
+  ctwaClid?: string;
 }
 
 /**

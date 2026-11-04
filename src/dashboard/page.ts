@@ -1,5 +1,7 @@
 import { pageShell } from "../core/admin-page.js";
 import { formatNaira } from "../core/money.js";
+import { AD_REPORT_DAYS } from "../core/ads.js";
+import type { AdsReport } from "./ads.js";
 import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import type { SocialAccount } from "./socials.js";
@@ -108,6 +110,37 @@ ${
     : ""
 }
 <p class="intro">"Pays a month" is the plan's monthly list price, not money received. Dollar costs use the latest dollar rate in Money. Meta's fee is $0.0067 a message past a number's free ${num(META_FREE_MESSAGES)}; numbers a business connected itself are billed to that business.</p>`,
+  );
+}
+
+function adsSection(ads: AdsReport | "error" | undefined): string {
+  if (!ads) return "";
+  const intro = `People who messaged a number by tapping a Click-to-WhatsApp ad, per ad, over the last ${AD_REPORT_DAYS} days. Each chat is free for 72 hours after the first reply, templates included.`;
+  if (ads === "error") {
+    return section("ads", "Leads from ads", intro, `<p class="problem">Ad leads couldn't load. Check that migration 0072 has been run in Supabase.</p>`);
+  }
+  const total = (k: "leads" | "leads7" | "leads30" | "freeNow") => ads.ads.reduce((sum, a) => sum + a[k], 0);
+  const rows = ads.ads
+    .map((a) => {
+      const name = a.headline ?? (a.sourceType === "post" ? "Facebook post" : "Ad with no headline");
+      const link = a.sourceUrl && /^https:\/\//.test(a.sourceUrl) ? ` <a href="${esc(a.sourceUrl)}" rel="noopener noreferrer" target="_blank">open</a>` : "";
+      return `<tr><td>${esc(name)}${link}<span class="small">ID ${esc(a.sourceId)}</span></td><td>${esc(a.label)}</td><td>${num(a.leads7)}</td><td>${num(a.leads30)}</td><td>${num(a.leads)}</td><td>${num(a.freeNow)}</td></tr>`;
+    })
+    .join("");
+  return section(
+    "ads",
+    "Leads from ads",
+    intro,
+    `<div class="tiles">
+${tile("Leads this week", num(total("leads7")), `${num(total("leads30"))} in the last 30 days`)}
+${tile("In a free window now", num(total("freeNow")), "chats where every message is free")}
+${tile("Sent free this month", num(ads.freeSentThisMonth), "messages not counted towards Meta's fees")}
+</div>
+${
+  rows
+    ? `<div class="scroll"><table class="plans wide"><thead><tr><th>Ad</th><th>Number</th><th>7 days</th><th>30 days</th><th>${AD_REPORT_DAYS} days</th><th>Free now</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<p class="intro">No one has messaged from an ad yet. Leads show here from the first message after someone taps a Click-to-WhatsApp ad.</p>`
+}`,
   );
 }
 
@@ -328,6 +361,7 @@ export function renderDashboard(
   costs?: ShopCosts | "error",
   planEditor = false,
   numberQueue = false,
+  ads?: AdsReport | "error",
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -425,6 +459,7 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
   const jumps: [string, string, boolean][] = [
     ["money", "Money", Boolean(profit)],
     ["costs", "Shop costs", Boolean(costs)],
+    ["ads", "Ads", Boolean(ads)],
     ["whatsapp", "WhatsApp", true],
     ["flyers", "Flyers", true],
     ["quotes", "Sales assistant", true],
@@ -450,6 +485,7 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
     body: `${glance}
 ${profitSection(profit)}
 ${costsSection(costs)}
+${adsSection(ads)}
 ${whatsapp}
 ${flyers}
 ${quotes}

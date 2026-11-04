@@ -241,6 +241,12 @@ export interface Config {
    */
   shopCosts: boolean;
   /**
+   * Save which Click-to-WhatsApp ad started each chat, show leads per ad on the
+   * dashboard and in the owner app, and count Meta's free 72-hour window
+   * (migration 0072). Off unless AD_LEADS is true.
+   */
+  adLeads: boolean;
+  /**
    * The plan editor at /dashboard/plans: change plan prices, limits and
    * features without SQL. Needs DASHBOARD_PASSWORD. Off unless PLAN_EDITOR is true.
    */
@@ -585,6 +591,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteAiTopUps: /^(true|yes|on|1)$/i.test(env.QUOTE_AI_TOPUPS ?? ""),
     quoteLimitAlerts: /^(true|yes|on|1)$/i.test(env.QUOTE_LIMIT_ALERTS ?? ""),
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
+    adLeads: /^(true|yes|on|1)$/i.test(env.AD_LEADS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
     marketingMessagesApi: /^(true|yes|on|1)$/i.test(env.MARKETING_MESSAGES_API ?? ""),

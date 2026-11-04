@@ -5,6 +5,7 @@ import { echoProduct } from "../../products/echo/index.js";
 import type { Product } from "../product.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { UsageMeter } from "../usage.js";
+import type { AdLeadStore } from "../ads.js";
 import type { BotPause, MessageStore } from "../db/store.js";
 import type { WhatsAppClient } from "./client.js";
 import { FALLBACK_TEXT, isTransient, retryingClient } from "./webhook.js";
@@ -75,6 +76,7 @@ function setup(
     now?: () => Date;
     retryDelaysMs?: number[];
     usage?: UsageMeter;
+    adLeads?: AdLeadStore;
     seenAccount?: (phoneNumberId: string, accountId: string) => void;
     log?: typeof silent;
   } = {},
@@ -337,6 +339,39 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     });
     await post(app, body, sign(body));
     expect(seen).toMatchObject({ type: "button", text: "Stop promotions" });
+  });
+
+  it("saves the ad behind a chat started from a Click-to-WhatsApp ad, and still replies", async () => {
+    const leads: Array<{ contactId: string; numberId?: string; adId: string }> = [];
+    const adLeads: AdLeadStore = {
+      async record(contactId, msg) {
+        leads.push({ contactId, numberId: msg.businessNumberId, adId: msg.referral.sourceId });
+      },
+    };
+    const { app, sent } = setup(echoProduct, undefined, undefined, { adLeads });
+    const fromAd = JSON.parse(textWebhook("wamid.ad", "Hi, how much?"));
+    fromAd.entry[0].changes[0].value.messages[0].referral = { source_type: "ad", source_id: "1202", headline: "Prices on WhatsApp", ctwa_clid: "ARA" };
+    const body = JSON.stringify(fromAd);
+    await post(app, body, sign(body));
+    await post(app, body, sign(body));
+    const plain = textWebhook("wamid.plain", "Another one");
+    await post(app, plain, sign(plain));
+    expect(leads).toEqual([{ contactId: "contact-1", numberId: "PNID", adId: "1202" }]);
+    expect(sent.map((s) => s.body)).toEqual(["You said: Hi, how much?", "You said: Another one"]);
+  });
+
+  it("still replies when the ad can't be saved", async () => {
+    const adLeads: AdLeadStore = {
+      async record() {
+        throw new Error("relation ad_leads does not exist");
+      },
+    };
+    const { app, sent } = setup(echoProduct, undefined, undefined, { adLeads });
+    const fromAd = JSON.parse(textWebhook("wamid.ad2", "Hi"));
+    fromAd.entry[0].changes[0].value.messages[0].referral = { source_type: "ad", source_id: "1202" };
+    const body = JSON.stringify(fromAd);
+    await post(app, body, sign(body));
+    expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hi" }]);
   });
 
   it("rejects a missing signature without doing any work", async () => {
