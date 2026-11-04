@@ -282,6 +282,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             monthly: Boolean(c.get("biz").monthly),
             others: c.get("others"),
             flash,
+            tour: deps.tour && active === "/home" ? { userId: user.id, start: c.req.query("tour") === "1" } : undefined,
           },
           body,
         ),

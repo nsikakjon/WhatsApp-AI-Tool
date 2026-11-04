@@ -70,6 +70,10 @@ error asking for the update.
    - `OWNER_APP=true`
    - `PUBLIC_URL` (you have it already if payments or delivery are on)
    - optionally `SUPPORT_WA_ID` (yarnOga's support WhatsApp number)
+   - optionally `OWNER_APP_TOUR=true`: the first time someone opens the
+     dashboard, a short tour points out the main menu items they can use
+     (a rider sees fewer steps than an owner). It shows once per browser;
+     Help > Show me around plays it again.
 3. **app.yarnoga.com**: follow docs/CUSTOM_DOMAIN.md, which ends with
    `PUBLIC_URL=https://app.yarnoga.com`. The app's links then use that address.
    Until then they use the Railway address, which works just as well.

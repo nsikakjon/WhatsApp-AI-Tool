@@ -1027,6 +1027,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         publicUrl: ownerApp.publicUrl,
         users: appUsers,
         support: { email: ownerApp.supportEmail, waNumber: ownerApp.supportWaId },
+        tour: ownerApp.tour,
         inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
         health: () => runChecks(health),
         healthLabels: health.labels,

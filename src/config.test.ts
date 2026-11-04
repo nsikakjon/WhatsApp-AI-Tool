@@ -317,7 +317,9 @@ describe("loadConfig", () => {
       publicUrl: "https://bot.example.com",
       supportEmail: "support@yarnoga.com",
       supportWaId: undefined,
+      tour: false,
     });
+    expect(loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com", OWNER_APP_TOUR: "true" }).ownerApp?.tour).toBe(true);
     expect(
       loadConfig({ ...base, OWNER_APP: "true", PUBLIC_URL: "https://bot.example.com", OWNER_APP_URL: "https://app.yarnoga.com", SUPPORT_WA_ID: "+234 800 000 0000" }).ownerApp,
     ).toMatchObject({ publicUrl: "https://app.yarnoga.com", supportWaId: "2348000000000" });
