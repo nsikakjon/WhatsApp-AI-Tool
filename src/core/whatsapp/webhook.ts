@@ -156,7 +156,7 @@ async function handleMessage(
         log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
       }
     },
-    canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, now(deps)),
+    canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, fromNumber, now(deps)),
   };
 
   // The bot itself failed (e.g. the AI didn't answer in time): try once more

@@ -86,7 +86,7 @@ export async function sendNotice(
   note: Notice,
   fromNumberId?: string,
 ): Promise<void> {
-  if (note.template && !(await canMessageFreely(deps.store, note.to))) {
+  if (note.template && !(await canMessageFreely(deps.store, note.to, fromNumberId))) {
     await sendTemplateAndRecord(deps, note.to, note.template, fromNumberId);
     return;
   }
@@ -101,9 +101,16 @@ const WINDOW_MS = 23 * 60 * 60 * 1000;
 
 /**
  * True if we can still send this person ordinary messages (they messaged us
- * in the last day). Outside that, only template messages are delivered.
+ * in the last day). Outside that, only template messages are delivered. The
+ * day is counted per number: a message to the flyer line doesn't let the
+ * quotes line write to them freely, so pass the number we'd send from.
  */
-export async function canMessageFreely(store: MessageStore, waId: string, now = new Date()): Promise<boolean> {
-  const last = await store.lastInboundAt(waId);
+export async function canMessageFreely(
+  store: MessageStore,
+  waId: string,
+  fromNumberId?: string,
+  now = new Date(),
+): Promise<boolean> {
+  const last = await store.lastInboundAt(waId, fromNumberId);
   return last !== null && now.getTime() - last.getTime() < WINDOW_MS;
 }

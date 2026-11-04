@@ -968,7 +968,7 @@ async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
       const cap = (await features.limit("transaction_fee_cap_ngn").catch(() => null)) ?? DEFAULT_FEE_CAP.NGN;
       return transactionFeeKobo(amountKobo, (await features.limit("transaction_fee")) ?? 0, cap);
     },
-    canMessageFreely: (waId) => canMessageFreely(store, waId),
+    canMessageFreely: (waId) => canMessageFreely(store, waId, found.fromNumberId ?? config.whatsapp.phoneNumberId),
     template: config.quoteMonthly.template,
     send: (note) => sendNotice({ store, whatsapp }, note, found.fromNumberId ?? undefined),
     ownerWaId: found.ownerWaId,
@@ -1510,10 +1510,10 @@ if (flyerBot && flyerConfig) {
   const template = flyerConfig.template;
   runEvery(5 * 60 * 1000, () =>
     flyerBot.sendDueBirthdays(new Date(), {
-      canReach: async (to) => template !== undefined || (await canMessageFreely(store, to)),
+      canReach: async (to) => template !== undefined || (await canMessageFreely(store, to, from)),
       send: async (d) => {
         const image = { data: d.flyer, mimeType: "image/jpeg" };
-        if (await canMessageFreely(store, d.to)) {
+        if (await canMessageFreely(store, d.to, from)) {
           await sendImageAndRecord(deps, d.to, { ...image, caption: d.wish }, from);
           await sendAndRecord(deps, d.to, forwardTip([d.memberName], d.groupName, d.lang), from);
         } else if (template) {
@@ -1594,7 +1594,7 @@ if (ratings) {
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
         await askForRatings(b.id, {
           store: ratings,
-          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId, numberId),
           isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
           optedOut: followUps ? (contactId) => followUps.optedOut(b.id, contactId) : undefined,
           send: (to, orderNumber) => sendNotice(deps, { to, ...found.bot.ratingAsk(orderNumber) }, found.fromNumberId ?? undefined),
@@ -1631,7 +1631,7 @@ if (payReminders) {
         const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
         await sendPayReminders(businessId, {
           store: payReminders,
-          canMessageFreely: (waId) => canMessageFreely(store, waId),
+          canMessageFreely: (waId) => canMessageFreely(store, waId, numberId),
           isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
           optedOut: followUps ? (contactId) => followUps.optedOut(businessId, contactId) : undefined,
           remind: (orderNumber, n) => found.bot.paymentReminder(orderNumber, n),
@@ -1747,7 +1747,7 @@ if (ownerAppDeps) {
       if (b.dailySummaryOn === false || (b.id !== DEFAULT_BUSINESS_ID && (!b.active || !b.phoneNumberId))) continue;
       try {
         const found = await quoteBotFor(b.id);
-        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId))) continue;
+        if (!found?.ownerWaId || !(await canMessageFreely(store, found.ownerWaId, found.fromNumberId ?? config.whatsapp.phoneNumberId))) continue;
         if (!(await onPlan(b, "daily_summary"))) continue;
         const biz = await ownerAppDeps.business(b.id);
         const summary = biz ? await dailySummary(biz, now, ownerAppDeps.publicUrl) : null;
