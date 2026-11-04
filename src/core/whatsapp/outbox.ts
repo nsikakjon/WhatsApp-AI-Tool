@@ -77,22 +77,39 @@ export async function sendButtonsAndRecord(
   });
 }
 
+export interface NoticeDeps {
+  store: MessageStore;
+  whatsapp: WhatsAppClient;
+  /**
+   * Approved template with one value ({{1}} = the notice's text), for notices
+   * that have no template of their own, such as alerts to a business owner.
+   */
+  noticeTemplate?: { name: string; language: string };
+  /** The number that sends when no other is named, so its 24 hours are the ones checked. */
+  defaultNumberId?: string;
+}
+
 /**
  * Sends a notice to someone other than the sender. Someone who hasn't
- * messaged us in the last day gets the notice's template, when it has one.
+ * messaged this number in the last day gets a template instead, since
+ * WhatsApp accepts anything else but never delivers it: the notice's own
+ * template, or else its text inside the general notice template.
  */
-export async function sendNotice(
-  deps: { store: MessageStore; whatsapp: WhatsAppClient },
-  note: Notice,
-  fromNumberId?: string,
-): Promise<void> {
-  if (note.template && !(await canMessageFreely(deps.store, note.to))) {
-    await sendTemplateAndRecord(deps, note.to, note.template, fromNumberId);
+export async function sendNotice(deps: NoticeDeps, note: Notice, fromNumberId?: string): Promise<void> {
+  const template =
+    note.template ?? (deps.noticeTemplate && note.text ? { ...deps.noticeTemplate, bodyParams: [asTemplateValue(note.text)] } : undefined);
+  if (template && !(await canMessageFreely(deps.store, note.to, fromNumberId ?? deps.defaultNumberId))) {
+    await sendTemplateAndRecord(deps, note.to, template, fromNumberId);
     return;
   }
   if (note.text) await sendAndRecord(deps, note.to, note.text, fromNumberId);
   for (const image of note.images ?? []) await sendImageAndRecord(deps, note.to, image, fromNumberId);
   if (note.buttons) await sendButtonsAndRecord(deps, note.to, note.buttons, fromNumberId);
+}
+
+/** Template values can't hold line breaks or long runs of spaces, and stop at 1,024 characters. */
+export function asTemplateValue(text: string): string {
+  return text.trim().replace(/\s*\n+\s*/g, " · ").replace(/\s{2,}/g, " ").slice(0, 1000);
 }
 
 // WhatsApp allows ordinary messages for 24 hours after the person's last
@@ -101,9 +118,16 @@ const WINDOW_MS = 23 * 60 * 60 * 1000;
 
 /**
  * True if we can still send this person ordinary messages (they messaged us
- * in the last day). Outside that, only template messages are delivered.
+ * in the last day). Outside that, only template messages are delivered. The
+ * day is counted per number: a message to the flyer line doesn't let the
+ * quotes line write to them freely, so pass the number we'd send from.
  */
-export async function canMessageFreely(store: MessageStore, waId: string, now = new Date()): Promise<boolean> {
-  const last = await store.lastInboundAt(waId);
+export async function canMessageFreely(
+  store: MessageStore,
+  waId: string,
+  fromNumberId?: string,
+  now = new Date(),
+): Promise<boolean> {
+  const last = await store.lastInboundAt(waId, fromNumberId);
   return last !== null && now.getTime() - last.getTime() < WINDOW_MS;
 }

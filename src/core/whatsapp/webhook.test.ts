@@ -76,6 +76,7 @@ function setup(
     retryDelaysMs?: number[];
     usage?: UsageMeter;
     seenAccount?: (phoneNumberId: string, accountId: string) => void;
+    log?: typeof silent;
   } = {},
 ) {
   const sent: Array<{ to: string; body: string }> = [];
@@ -787,5 +788,41 @@ describe("retryingClient", () => {
     expect(isTransient(new Error("WhatsApp send failed (400): bad number"))).toBe(false);
     expect(isTransient(new Error("WhatsApp send failed (429): too many"))).toBe(true);
     expect(isTransient(Object.assign(new Error("x"), { status: 529 }))).toBe(true);
+  });
+});
+
+describe("delivery receipts", () => {
+  it("logs a message WhatsApp accepted but couldn't deliver", async () => {
+    const warnings: string[] = [];
+    const { app, sent } = setup(echoProduct, undefined, undefined, { log: { ...silent, warn: (m: string) => warnings.push(m) } });
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "PNID" },
+                statuses: [
+                  { id: "wamid.ok", status: "delivered", recipient_id: "2348012345678" },
+                  {
+                    id: "wamid.alert",
+                    status: "failed",
+                    recipient_id: "2348012345678",
+                    errors: [{ code: 131047, title: "Re-engagement message", error_data: { details: "Message failed to send because more than 24 hours have passed since the customer last replied to this number." } }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const res = await post(app, body, sign(body));
+    expect(res.status).toBe(200);
+    expect(sent).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("wamid.alert to ...5678 from number PNID: 131047 Message failed to send because more than 24 hours");
   });
 });

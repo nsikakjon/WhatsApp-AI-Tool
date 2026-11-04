@@ -40,6 +40,40 @@ On Railway > your service > **Variables**:
    API key, then set `RESEND_API_KEY`, `ALERT_EMAIL` (Jay's address) and
    `ALERT_EMAIL_FROM` (e.g. `yarnOga alerts <alerts@yarnoga.com>`).
 
+## Owner alerts that never arrive
+
+WhatsApp only delivers an ordinary message to someone who wrote to that same
+bot number in the last 24 hours. Outside that, WhatsApp accepts the message
+but drops it a moment later, so it shows in the owner app's inbox as sent
+while nothing reaches the phone. Owners rarely chat with their own bot, so new
+order, sign-up, "talk to someone" and delivery fee alerts would mostly go
+missing. With an approved template they always arrive:
+
+1. WhatsApp Manager > **Message templates** > **Create template** > category
+   **Utility**, name `owner_alert`, language **English**.
+2. Body:
+
+   ```
+   There is an update on your yarnOga shop account: {{1}}
+
+   Reply to this message to see the details.
+   ```
+
+   For the sample value of `{{1}}` use something like
+   `Order DEMO-1042 needs a delivery fee. Reply fee DEMO-1042 2500 to set it.`
+   (no prices or promotions: Meta otherwise suggests Marketing, which it may
+   hold back and charges more for).
+3. Do this in each WhatsApp account that has a bot number (templates belong
+   to one account), and submit. Approval usually takes minutes.
+4. On Railway set `OWNER_ALERT_TEMPLATE_NAME=owner_alert` (and
+   `OWNER_ALERT_TEMPLATE_LANGUAGE=en`).
+
+An alert sent while the window is open still goes as a normal message, with
+its buttons and photos. Inside the template, line breaks become " · ".
+
+When WhatsApp drops a message for any reason, the server log says so with
+WhatsApp's error code (131047 means the 24 hours had passed).
+
 ## Sentry (error tracking, free tier)
 
 Sentry lists every error with when it happened, how often, and the exact line

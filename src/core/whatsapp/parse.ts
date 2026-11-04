@@ -120,6 +120,41 @@ export function extractOwnerReplies(payload: unknown): OwnerReply[] {
   return result;
 }
 
+/** A message of ours that WhatsApp accepted but then couldn't deliver. */
+export interface FailedDelivery {
+  waMessageId: string;
+  to: string;
+  businessNumberId?: string;
+  /** WhatsApp's error code and title, e.g. 131047 "Re-engagement message". */
+  code?: number;
+  reason: string;
+}
+
+// Delivery receipts come as { field: "messages", value: { statuses: [{ id,
+// status: "sent" | "delivered" | "read" | "failed", recipient_id, errors }] } }.
+export function extractFailedDeliveries(payload: unknown): FailedDelivery[] {
+  const result: FailedDelivery[] = [];
+  const body = payload as WebhookBody;
+  if (body?.object !== "whatsapp_business_account") return result;
+  for (const entry of body.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "messages") continue;
+      for (const status of change.value?.statuses ?? []) {
+        if (status.status !== "failed" || !status.id) continue;
+        const error = status.errors?.[0];
+        result.push({
+          waMessageId: status.id,
+          to: status.recipient_id ?? "",
+          businessNumberId: change.value?.metadata?.phone_number_id,
+          code: error?.code,
+          reason: error?.error_data?.details || error?.message || error?.title || "no reason given",
+        });
+      }
+    }
+  }
+  return result;
+}
+
 function choiceId(interactive: InteractiveReply | undefined): string | undefined {
   return interactive?.list_reply?.id ?? interactive?.button_reply?.id ?? undefined;
 }
@@ -141,6 +176,12 @@ interface WebhookBody {
         contacts?: Array<{ wa_id?: string; user_id?: string; profile?: { name?: string } }>;
         messages?: Array<WebhookMessage>;
         message_echoes?: Array<WebhookMessage & { to?: string }>;
+        statuses?: Array<{
+          id?: string;
+          status?: string;
+          recipient_id?: string;
+          errors?: Array<{ code?: number; title?: string; message?: string; error_data?: { details?: string } }>;
+        }>;
       };
     }>;
   }>;
