@@ -1548,7 +1548,7 @@ if (broadcastConfig && broadcastStore) {
       store: broadcastStore,
       perRun: broadcastConfig.perMinute,
       send: async (to, b) => {
-        let template: OutgoingTemplate = { ...broadcastConfig.template, bodyParams: [b.businessName, b.body] };
+        let template: OutgoingTemplate = { ...broadcastConfig.template, marketing: true, bodyParams: [b.businessName, b.body] };
         if (b.imageMediaId && broadcastConfig.imageTemplateName) {
           let image = pictures.get(b.id);
           if (!image) {
@@ -1824,7 +1824,7 @@ if (followUps && followUpConfig) {
           // allowed: (id) => createPlanFeatures({ store: createSupabaseFeatureStore(supabase, id) }).has("follow_ups"),
           sendText: (to, text, from) => sendAndRecord(deps, to, text, from),
           sendTemplate: template
-            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, bodyParams: params }, from)
+            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, marketing: true, bodyParams: params }, from)
             : undefined,
         });
       } catch (err) {
