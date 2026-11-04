@@ -113,7 +113,7 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
-import { createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createConnectionAccounts, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { phoneDetails, registerNumber } from "./signup/meta.js";
 import { createNumberCollector, createSupabaseNumberQueue } from "./products/quote/numbers.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
@@ -748,8 +748,16 @@ const leadQualifier = leadsConfig
   : undefined;
 
 const store = createSupabaseStore(supabase);
+// MARKETING_MESSAGES_API: each number's WhatsApp Business Account, from Meta's
+// webhooks or, for numbers connected on /signup, the database.
+const numberAccounts = new Map<string, string>();
+const connectionAccounts = config.marketingMessagesApi ? createConnectionAccounts(supabase) : undefined;
 // Numbers connected on /signup send with their own business's key.
-const whatsapp = createWhatsAppClient({ ...config.whatsapp, tokenFor: createConnectionTokens(supabase) });
+const whatsapp = createWhatsAppClient({
+  ...config.whatsapp,
+  tokenFor: createConnectionTokens(supabase),
+  marketingAccountFor: connectionAccounts && (async (id) => numberAccounts.get(id) ?? (await connectionAccounts(id))),
+});
 // What notices (owner alerts and the like) are sent with.
 const outbox = {
   store,
@@ -1221,6 +1229,7 @@ const app = createApp({
   transcriber: config.groq ? createGroqTranscriber(config.groq) : undefined,
   usage,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
+  seenAccount: config.marketingMessagesApi ? (number, account) => numberAccounts.set(number, account) : undefined,
   noticeTemplate: config.ownerAlertTemplate,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
@@ -1568,7 +1577,7 @@ if (broadcastConfig && broadcastStore) {
       store: broadcastStore,
       perRun: broadcastConfig.perMinute,
       send: async (to, b) => {
-        let template: OutgoingTemplate = { ...broadcastConfig.template, bodyParams: [b.businessName, b.body] };
+        let template: OutgoingTemplate = { ...broadcastConfig.template, marketing: true, bodyParams: [b.businessName, b.body] };
         if (b.imageMediaId && broadcastConfig.imageTemplateName) {
           let image = pictures.get(b.id);
           if (!image) {
@@ -1844,7 +1853,7 @@ if (followUps && followUpConfig) {
           // allowed: (id) => createPlanFeatures({ store: createSupabaseFeatureStore(supabase, id) }).has("follow_ups"),
           sendText: (to, text, from) => sendAndRecord(deps, to, text, from),
           sendTemplate: template
-            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, bodyParams: params }, from)
+            ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, marketing: true, bodyParams: params }, from)
             : undefined,
         });
       } catch (err) {

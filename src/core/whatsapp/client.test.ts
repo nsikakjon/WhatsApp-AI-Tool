@@ -226,4 +226,89 @@ describe("WhatsApp client", () => {
     expect(media.mimeType).toBe("audio/ogg");
     expect(await media.data.text()).toBe("AUDIO");
   });
+
+  describe("marketing templates", () => {
+    const offer = { name: "business_offer", language: "en", bodyParams: ["Ada Prints", "10% off"], marketing: true };
+
+    function setup(status: string, opts: { marketingStatus?: number; accounts?: Record<string, string> } = {}) {
+      const calls: string[] = [];
+      let clock = 0;
+      const fakeFetch = (async (url: string) => {
+        calls.push(url.replace("https://graph.facebook.com/v23.0/", ""));
+        if (url.includes("fields=marketing_messages_onboarding_status")) {
+          return new Response(JSON.stringify({ marketing_messages_onboarding_status: status }));
+        }
+        if (url.endsWith("/marketing_messages") && opts.marketingStatus) {
+          return new Response(JSON.stringify({ error: { message: "Template is not a marketing template" } }), {
+            status: opts.marketingStatus,
+          });
+        }
+        return new Response(JSON.stringify({ messages: [{ id: "wamid.sent" }] }));
+      }) as unknown as typeof fetch;
+      const accounts = opts.accounts ?? { PNID: "WABA1" };
+      const client = createWhatsAppClient({
+        accessToken: "OURS",
+        phoneNumberId: "PNID",
+        graphApiVersion: "v23.0",
+        marketingAccountFor: async (id) => accounts[id],
+        fetch: fakeFetch,
+        now: () => clock,
+      });
+      return { client, calls, later: (ms: number) => (clock += ms) };
+    }
+
+    it("go through the Marketing Messages API once the account is onboarded, checking Meta once an hour", async () => {
+      const { client, calls, later } = setup("ONBOARDED");
+      await client.sendTemplate("2348012345678", offer);
+      await client.sendTemplate("2348012345678", offer);
+      expect(calls).toEqual([
+        "WABA1?fields=marketing_messages_onboarding_status",
+        "PNID/marketing_messages",
+        "PNID/marketing_messages",
+      ]);
+      later(60 * 60 * 1000);
+      await client.sendTemplate("2348012345678", offer);
+      expect(calls.slice(3)).toEqual(["WABA1?fields=marketing_messages_onboarding_status", "PNID/marketing_messages"]);
+    });
+
+    it("use the normal send when the account isn't onboarded, the number's account is unknown, or the template isn't marketing", async () => {
+      const notYet = setup("ELIGIBLE");
+      await notYet.client.sendTemplate("2348012345678", offer);
+      expect(notYet.calls).toEqual(["WABA1?fields=marketing_messages_onboarding_status", "PNID/messages"]);
+
+      const unknown = setup("ONBOARDED", { accounts: {} });
+      await unknown.client.sendTemplate("2348012345678", offer, "OTHER");
+      expect(unknown.calls).toEqual(["OTHER/messages"]);
+
+      const utility = setup("ONBOARDED");
+      await utility.client.sendTemplate("2348012345678", { ...offer, marketing: false });
+      expect(utility.calls).toEqual(["PNID/messages"]);
+    });
+
+    it("fall back to the normal send when Meta turns one down, and stop trying that template for an hour", async () => {
+      const { client, calls, later } = setup("ONBOARDED", { marketingStatus: 400 });
+      const sent = await client.sendTemplate("2348012345678", offer);
+      expect(sent.waMessageId).toBe("wamid.sent");
+      await client.sendTemplate("2348012345678", offer);
+      expect(calls).toEqual([
+        "WABA1?fields=marketing_messages_onboarding_status",
+        "PNID/marketing_messages",
+        "PNID/messages",
+        "PNID/messages",
+      ]);
+      later(60 * 60 * 1000);
+      await client.sendTemplate("2348012345678", offer);
+      expect(calls.slice(4)).toEqual([
+        "WABA1?fields=marketing_messages_onboarding_status",
+        "PNID/marketing_messages",
+        "PNID/messages",
+      ]);
+    });
+
+    it("leave a busy Meta to the usual retry instead of sending twice", async () => {
+      const { client, calls } = setup("ONBOARDED", { marketingStatus: 503 });
+      await expect(client.sendTemplate("2348012345678", offer)).rejects.toMatchObject({ status: 503 });
+      expect(calls.at(-1)).toBe("PNID/marketing_messages");
+    });
+  });
 });

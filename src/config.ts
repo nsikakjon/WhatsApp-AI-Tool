@@ -252,6 +252,12 @@ export interface Config {
    */
   screenShield: boolean;
   /**
+   * Broadcasts and quote follow-ups go through Meta's Marketing Messages API
+   * for numbers whose account has accepted its terms. Off unless
+   * MARKETING_MESSAGES_API is true.
+   */
+  marketingMessagesApi: boolean;
+  /**
    * The "₦X processed through yarnOga" line on the website, shown once paid
    * naira payments reach this many kobo. Off unless PROCESSED_COUNTER_MIN_NAIRA is set.
    */
@@ -581,6 +587,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     shopCosts: /^(true|yes|on|1)$/i.test(env.SHOP_COSTS ?? ""),
     planEditor: /^(true|yes|on|1)$/i.test(env.PLAN_EDITOR ?? ""),
     screenShield: /^(true|yes|on|1)$/i.test(env.SCREEN_SHIELD ?? ""),
+    marketingMessagesApi: /^(true|yes|on|1)$/i.test(env.MARKETING_MESSAGES_API ?? ""),
     processedCounterMinKobo: env.PROCESSED_COUNTER_MIN_NAIRA?.trim()
       ? wholeNumber(env, "PROCESSED_COUNTER_MIN_NAIRA", 1) * 100
       : undefined,

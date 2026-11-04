@@ -99,6 +99,12 @@ export interface OutgoingTemplate {
   headerImage?: OutgoingImage;
   /** Values for {{1}}, {{2}}, ... in the template's body, in order. */
   bodyParams: string[];
+  /**
+   * A Marketing template (a broadcast or a follow-up). It goes through Meta's
+   * Marketing Messages API when the number's WhatsApp Business Account has
+   * signed up for it, and through the normal send otherwise.
+   */
+  marketing?: boolean;
 }
 
 export interface WhatsAppClientOptions {
@@ -110,15 +116,29 @@ export interface WhatsAppClientOptions {
    * Numbers without one (ours) use `accessToken`.
    */
   tokenFor?: (phoneNumberId: string) => Promise<string | undefined>;
+  /**
+   * The WhatsApp Business Account a number belongs to. Only given when
+   * MARKETING_MESSAGES_API is on: marketing templates then go through the
+   * Marketing Messages API for accounts Meta reports as ONBOARDED.
+   */
+  marketingAccountFor?: (phoneNumberId: string) => Promise<string | undefined>;
   fetch?: typeof fetch;
+  now?: () => number;
 }
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+const HOUR = 60 * 60 * 1000;
 
 export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClient {
   const doFetch = opts.fetch ?? fetch;
   const graph = `https://graph.facebook.com/${opts.graphApiVersion}`;
   const ourAuth = { Authorization: `Bearer ${opts.accessToken}` };
+  const now = opts.now ?? Date.now;
+  // Meta's answer per account, and templates the Marketing Messages API turned
+  // down (e.g. a Utility one), each rechecked after an hour.
+  const onboarded = new Map<string, { ready: boolean; at: number }>();
+  const refused = new Map<string, number>();
 
   /** Makes a request with the number's own key, or ours if it has none or Meta no longer takes it. */
   async function authorised(numberId: string | undefined, request: (auth: Record<string, string>) => Promise<Response>) {
@@ -132,10 +152,14 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     return { res: await request(ourAuth), auth: ourAuth };
   }
 
-  async function send(fromNumberId: string | undefined, { to, ...message }: { to: string } & Record<string, unknown>) {
+  async function send(
+    fromNumberId: string | undefined,
+    { to, ...message }: { to: string } & Record<string, unknown>,
+    edge: "messages" | "marketing_messages" = "messages",
+  ) {
     // A customer with a hidden number is addressed by their user ID, which Meta takes as "recipient".
     const address = isPhoneNumber(to) ? { to } : { recipient: to };
-    const url = `${graph}/${fromNumberId || opts.phoneNumberId}/messages`;
+    const url = `${graph}/${fromNumberId || opts.phoneNumberId}/${edge}`;
     const body = JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...address, ...message });
     const { res } = await authorised(fromNumberId, (auth) =>
       doFetch(url, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body }),
@@ -145,9 +169,27 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
       error?: { message?: string; code?: number };
     };
     if (!res.ok) {
-      throw new Error(`WhatsApp send failed (${res.status}): ${data.error?.message ?? "unknown error"}`);
+      throw Object.assign(new Error(`WhatsApp send failed (${res.status}): ${data.error?.message ?? "unknown error"}`), {
+        status: res.status,
+      });
     }
     return { waMessageId: data.messages?.[0]?.id ?? "", raw: data as unknown };
+  }
+
+  /** The number's account, when Meta says it has signed up for the Marketing Messages API. */
+  async function marketingAccount(numberId: string): Promise<string | undefined> {
+    const account = await opts.marketingAccountFor?.(numberId);
+    if (!account) return undefined;
+    let hit = onboarded.get(account);
+    if (!hit || now() - hit.at >= HOUR) {
+      const { res } = await authorised(numberId, (auth) =>
+        doFetch(`${graph}/${encodeURIComponent(account)}?fields=marketing_messages_onboarding_status`, { headers: auth }),
+      );
+      const data = (await res.json().catch(() => ({}))) as { marketing_messages_onboarding_status?: string };
+      hit = { ready: res.ok && data.marketing_messages_onboarding_status === "ONBOARDED", at: now() };
+      onboarded.set(account, hit);
+    }
+    return hit.ready ? account : undefined;
   }
 
   async function uploadImage(fromNumberId: string | undefined, image: { data: Uint8Array; mimeType: string }): Promise<string> {
@@ -198,11 +240,28 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
           parameters: template.bodyParams.map((text) => ({ type: "text", text: text.replace(/\s+/g, " ").trim() })),
         });
       }
-      return send(fromNumberId, {
+      const message = {
         to,
         type: "template",
         template: { name: template.name, language: { code: template.language }, components },
-      });
+      };
+      const numberId = fromNumberId || opts.phoneNumberId;
+      const account = template.marketing ? await marketingAccount(numberId).catch(() => undefined) : undefined;
+      const key = `${account}/${template.name}`;
+      const refusedAt = refused.get(key);
+      if (account && (refusedAt === undefined || now() - refusedAt >= HOUR)) {
+        try {
+          return await send(fromNumberId, message, "marketing_messages");
+        } catch (err) {
+          // Meta turned the message down, so nothing went out: send it the normal way.
+          // A busy or unreachable Meta is left to the usual retry instead.
+          const status = (err as { status?: number }).status;
+          if (!status || status === 408 || status === 429 || status >= 500) throw err;
+          refused.set(key, now());
+          console.warn(`Marketing Messages API refused ${template.name} (${String(err)}); sending through the Cloud API`);
+        }
+      }
+      return send(fromNumberId, message);
     },
 
     async sendList(to, list, fromNumberId) {

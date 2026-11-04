@@ -70,7 +70,14 @@ function setup(
   product: Product = echoProduct,
   transcriber?: Transcriber,
   route?: (msg: IncomingMessage) => Product,
-  extra: { ownerReplyPauseMinutes?: number; now?: () => Date; retryDelaysMs?: number[]; usage?: UsageMeter; log?: typeof silent } = {},
+  extra: {
+    ownerReplyPauseMinutes?: number;
+    now?: () => Date;
+    retryDelaysMs?: number[];
+    usage?: UsageMeter;
+    seenAccount?: (phoneNumberId: string, accountId: string) => void;
+    log?: typeof silent;
+  } = {},
 ) {
   const sent: Array<{ to: string; body: string }> = [];
   const sentFrom: Array<string | undefined> = [];
@@ -184,6 +191,16 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(sent).toEqual([{ to: "2348012345678", body: "You said: Hello" }]);
     expect(outbound).toEqual(["You said: Hello"]);
     expect(contacts.has("2348012345678")).toBe(true);
+  });
+
+  it("notes which WhatsApp Business Account the number belongs to, but not from an unsigned webhook", async () => {
+    const seen: string[] = [];
+    const { app } = setup(echoProduct, undefined, undefined, { seenAccount: (number, account) => seen.push(`${number}:${account}`) });
+    const body = textWebhook("wamid.acc", "Hello");
+    await post(app, body, "sha256=wrong");
+    expect(seen).toEqual([]);
+    await post(app, body, sign(body));
+    expect(seen).toEqual(["PNID:WABA_ID"]);
   });
 
   it("still answers a customer who hides their number behind a WhatsApp username", async () => {
