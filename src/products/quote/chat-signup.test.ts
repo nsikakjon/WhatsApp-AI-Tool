@@ -283,10 +283,12 @@ describe("chat sign-up on the quotes number", () => {
   it("asks for a new SIM's number after sign-up and puts it on the queue", async () => {
     const q = memoryQueue([{ id: "s1", name: "Tolu", waId: "2348022222222" }]);
     const { say } = setUp(CUPCAKES, { numbers: createNumberCollector({ store: q.store }) });
+    expect((await say("sign up")).text).toMatch(/fresh SIM that has never been on WhatsApp.*\n\nFirst, what's your business called\?$/s);
+    await say("cancel");
     await signUpToPrices(say);
     await say("Cupcakes 600");
     const done = await say("YES");
-    expect(done.text).toContain("Get a new SIM");
+    expect(done.text).toContain("Get a fresh SIM");
     expect(done.text).not.toContain("will message you shortly");
     expect(q.rows.get("biz-1")?.status).toBe("no_number");
 

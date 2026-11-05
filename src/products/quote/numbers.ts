@@ -75,9 +75,14 @@ export function nextStaff(staff: ConnectStaff[], requests: NumberRequest[]): Con
   return [...staff].sort((a, b) => load(a.id) - load(b.id))[0] ?? null;
 }
 
+/** Told before sign-up starts, so nobody finishes it without a number to give. */
+export const FRESH_NUMBER_NOTE =
+  "Before we start: your bot needs its own WhatsApp number, a fresh SIM that has never been on WhatsApp (any network). " +
+  "Your own number can't be used, because it already has WhatsApp on it. You can get the SIM later; I'll ask for the number at the end.";
+
 export const NEW_SIM_STEPS =
   "Last step: a WhatsApp number just for your bot, so your customers can reach it.\n\n" +
-  "1. Get a new SIM (any network) and put it in any phone that can get SMS.\n" +
+  "1. Get a fresh SIM (any network) that has never been on WhatsApp, and put it in any phone that can get SMS.\n" +
   "2. Don't install WhatsApp on that SIM.\n" +
   "3. Send the new number here, for example _0803 123 4567_.\n\n" +
   "Your own WhatsApp stays as it is, and new orders come to you there.";

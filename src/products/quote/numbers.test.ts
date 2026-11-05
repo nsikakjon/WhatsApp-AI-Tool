@@ -94,6 +94,6 @@ describe("collecting the new SIM's number in the chat", () => {
     expect(await say("08031234567")).toBeNull();
     await numbers.opened("biz-1");
     expect(await say("try")).toBeNull();
-    expect((await say("number"))?.text).toMatch(/new SIM/);
+    expect((await say("number"))?.text).toMatch(/fresh SIM/);
   });
 });
