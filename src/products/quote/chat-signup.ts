@@ -15,7 +15,7 @@ import {
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
-import { NEW_SIM_STEPS, type createNumberCollector } from "./numbers.js";
+import { FRESH_NUMBER_NOTE, NEW_SIM_STEPS, type createNumberCollector } from "./numbers.js";
 import { starterList } from "./starter-lists.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
@@ -473,7 +473,10 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     started.set(waId, now().getTime());
     await opts.store.save(waId, { step: "name", businessName: null, description: sells, referralCode: null, draftCsv: null, trying: false });
     return {
-      text: "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\nFirst, what's your business called?",
+      text:
+        "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\n" +
+        (opts.numbers ? `${FRESH_NUMBER_NOTE}\n\n` : "") +
+        "First, what's your business called?",
     };
   }
 

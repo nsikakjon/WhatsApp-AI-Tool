@@ -157,7 +157,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
         <label class="option">
           <input type="radio" name="kind" value="new">
           <b>It's a new number</b>
-          <span>A number not on WhatsApp yet. You get a code by SMS or call to prove it's yours. It won't work in the WhatsApp app afterwards.</span>
+          <span>A fresh SIM that has never been on WhatsApp. A number already on WhatsApp or the WhatsApp Business app can't be used this way. You get a code by SMS or call to prove it's yours, and it won't work in the WhatsApp app afterwards.</span>
         </label>
       </fieldset>
       <ol class="steps" id="steps-app">
@@ -166,7 +166,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
         <li>Choose to connect your existing WhatsApp Business app and scan the QR code with it.</li>
       </ol>
       <ol class="steps" id="steps-new" hidden>
-        <li>Keep the phone with the new SIM nearby.</li>
+        <li>Get a fresh SIM (any network) that has never had WhatsApp on it, and keep the phone with it nearby.</li>
         <li>Log in with the Facebook account that manages your business, then choose your business.</li>
         <li>Enter the number and the code Meta sends to it.</li>
       </ol>
