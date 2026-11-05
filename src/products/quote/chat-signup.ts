@@ -17,6 +17,7 @@ import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescri
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
 import { FRESH_NUMBER_NOTE, NEW_SIM_STEPS, type createNumberCollector } from "./numbers.js";
 import { starterList } from "./starter-lists.js";
+import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
 import { welcomeAsk } from "./welcome.js";
 
@@ -44,7 +45,9 @@ import { welcomeAsk } from "./welcome.js";
 // "Okay" to the intro starts the sign-up. Asking to see it as a customer, at
 // the intro or part way through signing up, opens the demo shop.
 // Two messages in a row the bot can't use get the sign-up message instead of
-// another guess, at most once a day. All kept in memory: a restart only means
+// another guess, at most once a day. Questions about yarnOga itself ("who are
+// you?", "is this a bot?", "is it free?") get a fixed answer (yarnoga-faq.ts)
+// instead of the demo shop's guess. All kept in memory: a restart only means
 // a visitor may see the intro again.
 //
 // With signUpToContinue on, a visitor trying the demo shop is asked to sign up
@@ -183,6 +186,13 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           }
         }
         if (SIGN_UP.test(text)) return startSignup(msg.from);
+        const answer = yarnOgaAnswer(text);
+        if (answer) {
+          if (signup?.businessId) return { text: answer };
+          const v = visitor(msg.from);
+          v.unclear = 0;
+          return { text: "", buttons: { body: v.askedSells ? `${answer}\n\nWhat do you sell?` : answer, buttons: GUEST_BUTTONS } };
+        }
         const gate = opts.signUpToContinue && !signup?.businessId;
         if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
         const ask = welcomeAsk(text);

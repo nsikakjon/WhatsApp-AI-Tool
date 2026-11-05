@@ -206,6 +206,22 @@ describe("chat sign-up on the quotes number", () => {
       expect((await say("Do you have mugs?")).text).toBe("Which item do you want?");
     });
 
+    it("answers who we are instead of the sign-up message", async () => {
+      const { say } = guest();
+      await say("Okay");
+      const who = await say("Please, who are you?");
+      expect(who.buttons?.body).toMatch(/^I'm yarnOga, a WhatsApp assistant for businesses/);
+      expect(ids(who)).toEqual(["sign up", "see it as a customer"]);
+      expect((await say("Moni")).text).toBe("Which item do you want?");
+    });
+
+    it("answers a question about us after the intro, then asks again what they sell", async () => {
+      const { say } = guest();
+      await say("hi");
+      expect((await say("Are you a bot?")).buttons?.body).toMatch(/^I'm an AI assistant, not a person\..*\n\nWhat do you sell\?$/s);
+      expect((await say("I sell shoes")).buttons?.body).toMatch(/^For \*shoes\*/);
+    });
+
     it("sends the sign-up message after two messages in a row the shop can't use, once a day", async () => {
       const { say, nextDay } = guest();
       expect((await say("Okay")).text).toBe("Which item do you want?");
