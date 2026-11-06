@@ -415,6 +415,15 @@ describe("Flutterwave (CFA francs)", () => {
     expect(page).toContain("Paiement reçu");
   });
 
+  it("thanks cedi and shilling payers in English only", async () => {
+    const { payments, rows } = cfaSetup({ currency: "GHS" });
+    await payments.createLink({ ...cfa, waId: "233241234567", amountKobo: 7_000, currency: "GHS" });
+    const app = createPaymentRoutes({ payments, flutterwaveHash: HASH, log: silent });
+    const page = await (await app.request(`/payments/done?status=successful&tx_ref=${rows[0]!.reference}`)).text();
+    expect(page).toContain("Payment received");
+    expect(page).not.toContain("Paiement");
+  });
+
   it("sends Flutterwave whole francs and reads them back as hundredths", async () => {
     const fetch = vi.fn(async (url: string) =>
       url.includes("verify_by_reference")

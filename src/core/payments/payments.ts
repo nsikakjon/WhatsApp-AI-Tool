@@ -66,6 +66,8 @@ export type ConfirmResult = "paid" | "already-paid" | "not-paid" | "unknown";
 export interface Payments extends PaymentLinks {
   /** Checks a payment with Paystack and, if it's newly paid, runs the product's onPaid. */
   confirm(reference: string): Promise<ConfirmResult>;
+  /** The currency a payment was asked for in, so the thank-you page can speak the payer's language. */
+  currencyOf?(reference: string): Promise<PayCurrency | null>;
   /**
    * Charges a card the payer saved on an earlier payment (naira, Paystack).
    * A charge that goes through is confirmed like any other payment, so the
@@ -181,6 +183,11 @@ export function createPayments(opts: PaymentsOptions): Payments {
       if (result !== "success") return result;
       const confirmed = await payments.confirm(reference);
       return confirmed === "paid" || confirmed === "already-paid" ? "paid" : "pending";
+    },
+
+    async currencyOf(reference) {
+      const payment = await opts.store.byReference(reference);
+      return payment ? (payment.currency ?? "NGN") : null;
     },
 
     async confirm(reference) {

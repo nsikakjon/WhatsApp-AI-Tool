@@ -20,7 +20,7 @@ const TRANSFER_EVENTS = new Set(["transfer.success", "transfer.failed", "transfe
 
 /**
  * POST /webhooks/paystack: Paystack tells us a payment went through.
- * POST /webhooks/flutterwave: the same from Flutterwave (CFA francs).
+ * POST /webhooks/flutterwave: the same from Flutterwave (CFA francs, cedis, shillings).
  * GET /payments/done: where the payer's browser lands after paying. It checks
  * the payment too, so the purchase switches on even if the webhook is late.
  */
@@ -108,8 +108,9 @@ export function createPaymentRoutes(deps: PaymentRoutesDeps) {
       : result === "error"
         ? "We couldn't check your payment just now. If you paid, it will be confirmed on WhatsApp shortly."
         : "This payment wasn't completed. Go back to WhatsApp to try again.";
-    // Flutterwave payers are paying in CFA francs, so they also get it in French.
-    const french = c.req.query("tx_ref")
+    // CFA franc payers also get it in French; cedi and shilling payers don't.
+    const currency = REFERENCE.test(reference) ? await deps.payments.currencyOf?.(reference).catch(() => null) : null;
+    const french = currency === "XOF" || currency === "XAF"
       ? ok
         ? "Paiement reçu, merci. Vous pouvez retourner sur WhatsApp ; nous vous y avons écrit."
         : result === "error"

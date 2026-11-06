@@ -113,17 +113,54 @@ To switch it on:
 2. **US dollars:** in the Paystack dashboard, go to Settings > Preferences and
    ask for international payments (USD). Paystack checks the business, then
    asks for a USD (domiciliary) account at Zenith Bank to pay dollars into.
-3. **Cedis and shillings:** ask Flutterwave support to switch on GHS
-   (Ghana Mobile Money and cards) and KES (M-Pesa and cards) collections for
-   the yarnOga Flutterwave account. CFA francs already work if
-   `FLUTTERWAVE_SECRET_KEY` is set.
+3. **Cedis, shillings and CFA francs:** switch Flutterwave on (next section).
 4. In Railway, set `PLAN_CURRENCIES` to the currencies that are ready, e.g.
-   `XOF,XAF` today, then `XOF,XAF,USD` once Paystack says yes, and add
-   `GHS,KES` once Flutterwave does. Any currency not listed is charged in naira,
-   so it is safe to add them one at a time.
+   `GHS,KES` once Flutterwave works, then add `XOF,XAF` and `USD` as each one
+   is ready. Any currency not listed is charged in naira, so it is safe to add
+   them one at a time.
 
 The `plan` reply still lists prices in naira; the payment link and its
 message show the amount in the payer's currency.
+
+## Switching on Flutterwave
+
+Flutterwave is off until its secret key is in Railway. With it off, nothing
+changes: everyone pays in naira through Paystack.
+
+1. In the Flutterwave dashboard, open **Settings > API Keys**. The bot uses
+   the **v3 keys** (Public key, Secret key, Encryption key). If the page shows
+   a Client ID and Client Secret instead, use the switch on that page to show
+   the v3 keys. Start in **Test mode**.
+2. In Railway > Variables, add:
+   - `FLUTTERWAVE_SECRET_KEY`: the **Secret key** (starts with
+     `FLWSECK_TEST-` in test mode, `FLWSECK-` when live). Paste it only into
+     Railway, never into a chat or a document.
+   - `FLUTTERWAVE_SECRET_HASH`: a long phrase you make up, at least 16
+     characters (for example four random words and a number).
+3. In Flutterwave, open **Settings > Webhooks**:
+   - URL: your `PUBLIC_URL` followed by `/webhooks/flutterwave`;
+   - Secret hash: the same phrase as `FLUTTERWAVE_SECRET_HASH`;
+   - if the page offers event or format choices, keep successful payments
+     (charge) ticked and JSON format on. Save.
+4. Make sure Flutterwave has **GHS** and **KES** collections on for the
+   account (Settings > Business preferences, or ask support). Cedi links fail
+   with "currency not supported" until it does.
+5. In Railway, set `PLAN_CURRENCIES` to `GHS,KES`. Railway redeploys in about
+   two minutes; the "Server listening" line in the deploy log then says
+   "Flutterwave test".
+6. Test from a Ghana (+233) or Kenya (+254) number that owns a test shop:
+   send *upgrade starter* to the quotes number. The link should
+   open a Flutterwave page in cedis or shillings. Pay with Flutterwave's
+   test card. The bot confirms on WhatsApp and the plan switches on.
+7. Once that works, repeat steps 1 to 3 in **Live mode** (the live secret key
+   replaces the test one; set the secret hash on the live webhook too).
+
+Shop pay links through Flutterwave work the same way for CFA franc shops: each
+shop gets a Flutterwave subaccount (RS_...) with its Mobile Money or bank
+account, and `QUOTE_PAY_LINKS` stays `true`. See docs/FRENCH.md.
+
+If a Flutterwave link fails, the bot tells the payer it will send payment
+details shortly, and the Railway logs say what Flutterwave answered.
 
 ## For developers
 
