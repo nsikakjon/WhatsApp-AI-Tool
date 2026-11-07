@@ -343,6 +343,9 @@ describe("plans paid in other currencies", () => {
     const sent = fetch.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string));
     expect(sent[0]).toMatchObject({ amount: 62.5, currency: "GHS", payment_options: "mobilemoneyghana,card" });
     expect(sent[1]).toMatchObject({ amount: 850, currency: "KES", payment_options: "mpesa,card" });
+    await client.initialize({ ...base, amountMinor: 2_400_000, currency: "UGX" });
+    expect(JSON.parse((fetch.mock.calls[2] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ amount: 24000, currency: "UGX", payment_options: "mobilemoneyuganda,card" });
+    await expect(client.initialize({ ...base, amountMinor: 2_400_050, currency: "UGX" })).rejects.toThrow("whole units");
   });
 });
 
@@ -435,7 +438,7 @@ describe("Flutterwave (CFA francs)", () => {
     const sent = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(sent).toMatchObject({ amount: 50000, currency: "XOF", payment_options: "mobilemoneyfranco,card", subaccounts: [{ id: "RS_ABC", transaction_charge_type: "flat", transaction_charge: 800 }] });
     expect(await client.verify("yarnoga-quote-x")).toMatchObject({ status: "success", amountMinor: 5_000_000, currency: "XOF" });
-    await expect(client.initialize({ reference: "r", amountMinor: 150, currency: "XOF", email: "e", callbackUrl: "c", description: "d", waId: "1" })).rejects.toThrow("whole francs");
+    await expect(client.initialize({ reference: "r", amountMinor: 150, currency: "XOF", email: "e", callbackUrl: "c", description: "d", waId: "1" })).rejects.toThrow("whole units");
     expect(isValidFlutterwaveHash(HASH, HASH)).toBe(true);
     expect(isValidFlutterwaveHash(undefined, HASH)).toBe(false);
   });
