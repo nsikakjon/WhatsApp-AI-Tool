@@ -21,12 +21,12 @@ const CSS = `
 #shield-mark{position:fixed;inset:0;pointer-events:none;z-index:2147483647;opacity:.07}
 @media print{body{display:none}}`;
 
-// Money as the app writes it (₦12,500, $5.50, GH₵70, KSh 850, 3 500 FCFA) and
+// Money as the app writes it (₦12,500, $5.50, GH₵70, KSh 850, USh 24,000, 3 500 FCFA) and
 // phone numbers (+234 803 123 4567, 2348031234567, 08031234567). Pressing the
 // eye shows them on every page in that tab; leaving the tab (another app, the
 // recent apps screen) hides them on screen again until the eye is pressed.
 const SCRIPT = `(()=>{
-const pat=/(?:[₦$]|GH₵|KSh\\s?|NGN\\s?)\\d+(?:,\\d{3})*(?:\\.\\d+)?|\\d{1,3}(?:[ \\u00a0]\\d{3})*(?:,\\d{2})?[ \\u00a0]FCFA|\\+\\d{1,3}[ -]?\\d[\\d -]{6,13}\\d|\\b(?:2\\d{11,12}|0[789][01]\\d{8})\\b/g;
+const pat=/(?:[₦$]|GH₵|(?:KSh|USh|TSh|RWF|MK|NGN)\\s?)\\d+(?:,\\d{3})*(?:\\.\\d+)?|\\d{1,3}(?:[ \\u00a0]\\d{3})*(?:,\\d{2})?[ \\u00a0]FCFA|\\+\\d{1,3}[ -]?\\d[\\d -]{6,13}\\d|\\b(?:2\\d{11,12}|0[789][01]\\d{8})\\b/g;
 const skip=new Set(["SCRIPT","STYLE","TEXTAREA","OPTION","SELECT","TITLE","NOSCRIPT"]);
 const nodes=[],walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
 for(let n;(n=walk.nextNode());){const p=n.parentElement;if(p&&!skip.has(p.tagName)&&!p.closest("svg,.sv")&&(pat.lastIndex=0,pat.test(n.data)))nodes.push(n)}

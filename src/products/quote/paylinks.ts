@@ -1,28 +1,47 @@
 import type { OutgoingNote, PaidHandler, PaymentLinks } from "../../core/payments/payments.js";
-import type { Currency } from "../../core/money.js";
+import { isCfa, type Currency } from "../../core/money.js";
 import type { SavedOrder } from "./store.js";
 
 // Pay links on quote invoices (QUOTE_PAY_LINKS). Naira orders are paid on
-// Paystack, CFA franc orders on Flutterwave (Mobile Money or card), and the
-// money goes straight to the business's own account through its subaccount,
-// so yarnOga never holds it. The order is marked paid once the provider
-// confirms (QuoteProduct.orderPaid).
+// Paystack; CFA franc, shilling, Rwandan franc and kwacha orders on Flutterwave
+// (M-Pesa, Mobile Money or card). The money goes straight to the business's
+// own account through its subaccount, so yarnOga never holds it. The order is
+// marked paid once the provider confirms (QuoteProduct.orderPaid).
 //
 // yarnOga's fee (the plan's transaction_fee, 2.5%, migration 0048) is capped
-// (₦2,000, or 800 FCFA, migration 0052) and kept back when the provider splits
-// the payment. The customer pays the order total and nothing more; the
-// business gets the total less our fee and the provider's.
+// (₦2,000, 800 FCFA or about the same elsewhere, migration 0052) and kept
+// back when the provider splits the payment. The customer pays the order total
+// and nothing more; the business gets the total less our fee and the provider's.
 
 export const PAYSTACK_SUBACCOUNT = /^ACCT_[a-z0-9]+$/i;
 export const FLUTTERWAVE_SUBACCOUNT = /^RS_[A-Za-z0-9]+$/;
 
-/** The cap on our fee when the plan doesn't set one: ₦2,000, or 800 FCFA, in hundredths. */
-export const DEFAULT_FEE_CAP: Record<Currency, number> = { NGN: 200_000, XOF: 80_000, XAF: 80_000 };
+/**
+ * The cap on our fee when the plan doesn't set one, in hundredths: ₦2,000, or
+ * roughly the same in each other currency (800 FCFA, KSh 200, USh 5,000,
+ * TSh 3,500, RWF 2,000, MK 2,500).
+ */
+export const DEFAULT_FEE_CAP: Record<Currency, number> = {
+  NGN: 200_000,
+  XOF: 80_000,
+  XAF: 80_000,
+  KES: 20_000,
+  UGX: 500_000,
+  TZS: 350_000,
+  RWF: 200_000,
+  MWK: 250_000,
+};
+
+/** The plan feature that can change the cap (migration 0052); other currencies use DEFAULT_FEE_CAP. */
+export function feeCapFeature(currency: Currency): "transaction_fee_cap_ngn" | "transaction_fee_cap_cfa" | null {
+  if (currency === "NGN") return "transaction_fee_cap_ngn";
+  return isCfa(currency) ? "transaction_fee_cap_cfa" : null;
+}
 
 /**
  * Our fee on a payment, in hundredths: `basisPoints` hundredths of a percent
- * (250 = 2.5%), rounded to the nearest kobo, at most `capKobo`. In CFA francs
- * it's rounded down to whole francs, as Flutterwave can't split centimes.
+ * (250 = 2.5%), rounded to the nearest kobo, at most `capKobo`. Outside naira
+ * it's rounded down to whole units, as prices there are whole francs, shillings or kwacha.
  */
 export function transactionFeeKobo(totalKobo: number, basisPoints: number, capKobo: number | null = null, currency: Currency = "NGN"): number {
   if (!Number.isInteger(totalKobo) || !Number.isInteger(basisPoints) || basisPoints <= 0) return 0;
@@ -37,7 +56,7 @@ export function orderPayLinks(opts: {
   businessId: string;
   businessName: string;
   orderPrefix: string;
-  /** Paystack's ACCT_... for naira, Flutterwave's RS_... for CFA francs. */
+  /** Paystack's ACCT_... for naira, Flutterwave's RS_... for every other currency. */
   subaccount: string;
   /** The business's currency; NGN when left out. */
   currency?: Currency;

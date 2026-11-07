@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { prescriptionNote } from "../../products/quote/prescription.js";
-import { currencyName, currencySign, formatMoney, parseMoney, type Currency } from "../../core/money.js";
+import { currencyName, currencySign, formatMoney, isCfa, parseMoney, type Currency } from "../../core/money.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import { BARCODE, barcodeKey, scannerBox } from "../scanner.js";
@@ -26,7 +26,7 @@ export interface PriceForm {
 
 /**
  * Reads the product form. Prices go through parseMoney, so "₦1,500" and
- * "1500.50" work in naira, "5 000" in CFA francs, and "15k" never does.
+ * "1500.50" work in naira, "5 000" in CFA francs, "KSh 1,500" in shillings, and "15k" never does.
  */
 export function readProductForm(form: Record<string, unknown>, currency: Currency = "NGN"): PriceForm {
   const problems: string[] = [];
@@ -64,7 +64,7 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       if (!priceText && !fromText) return;
       const price = parseMoney(priceText, currency);
       if (price === null) {
-        const example = currency === "NGN" ? "1500 or 1,500.50" : "5000 or 5 000 (whole francs)";
+        const example = currency === "NGN" ? "1500 or 1,500.50" : isCfa(currency) ? "5000 or 5 000 (whole francs)" : "1500 or 1,500 (whole numbers)";
         problems.push(`${label}: "${priceText || "(empty)"}" isn't a price. Type it in ${currencyName(currency)}, e.g. ${example}.`);
         return;
       }

@@ -1,5 +1,11 @@
 import type { Lang } from "../../core/i18n.js";
-import type { Currency } from "../../core/money.js";
+import { isCfa, type Currency } from "../../core/money.js";
+
+/** The phone wallet a pay link offers first outside naira: M-Pesa in Kenya, the local Mobile Money elsewhere. */
+function wallet(currency: Currency): string {
+  if (currency === "KES") return "M-Pesa";
+  return isCfa(currency) ? "Mobile Money (MTN MoMo, Orange Money)" : "Mobile Money";
+}
 
 // Every fixed message the quote bot sends, in English and French, and the
 // customer messages in Nigerian Pidgin and Hausa too. Messages to a customer follow the
@@ -156,7 +162,7 @@ const en: QuoteTexts = {
   noQuoteWaiting: () => "There's no quote waiting for confirmation. Tell me what you'd like and I'll send you one.",
   overLimitCustomer: (b, ref, total) => `Thank you! The ${b} team will contact you shortly to complete order ${ref} (total ${total}).`,
   payLine: (url, currency) =>
-    currency === "NGN" ? `Pay online by card, bank transfer or USSD: ${url}` : `Pay online by Mobile Money (MTN MoMo, Orange Money) or card: ${url}`,
+    currency === "NGN" ? `Pay online by card, bank transfer or USSD: ${url}` : `Pay online by ${wallet(currency)} or card: ${url}`,
   payReminder: (n, b, ref, total, how) =>
     [
       n === 1
@@ -296,7 +302,7 @@ const fr: QuoteTexts = {
   payLine: (url, currency) =>
     currency === "NGN"
       ? `Payez en ligne par carte, virement ou USSD : ${url}`
-      : `Payez en ligne par Mobile Money (MTN MoMo, Orange Money) ou par carte : ${url}`,
+      : `Payez en ligne par ${wallet(currency)} ou par carte : ${url}`,
   payReminder: (n, b, ref, total, how) =>
     [
       n === 1
@@ -427,7 +433,7 @@ const pcm: QuoteTexts = {
   noQuoteWaiting: () => "No quote dey wait to confirm. Tell me wetin you want, I go send you one.",
   overLimitCustomer: (b, ref, total) => `Thank you! The ${b} team go reach you soon to finish order ${ref} (total ${total}).`,
   payLine: (url, currency) =>
-    currency === "NGN" ? `Pay online with card, bank transfer or USSD: ${url}` : `Pay online with Mobile Money (MTN MoMo, Orange Money) or card: ${url}`,
+    currency === "NGN" ? `Pay online with card, bank transfer or USSD: ${url}` : `Pay online with ${wallet(currency)} or card: ${url}`,
   payReminder: (n, b, ref, total, how) =>
     [
       n === 1
@@ -495,7 +501,7 @@ const ha: QuoteTexts = {
   noQuoteWaiting: () => "Babu farashin da ke jiran tabbatarwa. Ku fada min abin da kuke so, zan turo muku.",
   overLimitCustomer: (b, ref, total) => `Mun gode! Ma'aikatan ${b} za su tuntube ku ba da jimawa ba don kammala oda ${ref} (jimilla ${total}).`,
   payLine: (url, currency) =>
-    currency === "NGN" ? `Ku biya ta intanet da kati, tura kudi ta banki ko USSD: ${url}` : `Ku biya ta intanet da Mobile Money (MTN MoMo, Orange Money) ko kati: ${url}`,
+    currency === "NGN" ? `Ku biya ta intanet da kati, tura kudi ta banki ko USSD: ${url}` : `Ku biya ta intanet da ${wallet(currency)} ko kati: ${url}`,
   payReminder: (n, b, ref, total, how) =>
     [
       n === 1
@@ -562,7 +568,7 @@ const sw: QuoteTexts = {
   noQuoteWaiting: () => "Hakuna bei inayosubiri uthibitisho. Niambie unachotaka, nitakutumia.",
   overLimitCustomer: (b, ref, total) => `Asante! Timu ya ${b} itawasiliana nawe hivi karibuni kukamilisha oda ${ref} (jumla ${total}).`,
   payLine: (url, currency) =>
-    currency === "NGN" ? `Lipa mtandaoni kwa kadi, uhamisho wa benki au USSD: ${url}` : `Lipa mtandaoni kwa pesa ya simu (Mobile Money) au kadi: ${url}`,
+    currency === "NGN" ? `Lipa mtandaoni kwa kadi, uhamisho wa benki au USSD: ${url}` : `Lipa mtandaoni kwa ${wallet(currency)} au kadi: ${url}`,
   payReminder: (n, b, ref, total, how) =>
     [
       n === 1

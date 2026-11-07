@@ -35,7 +35,7 @@ export interface QuoteBusiness {
   branchOf?: string | null;
   /** Where pay links on its invoices pay out (migration 0045): a Paystack subaccount code, ACCT_... */
   paystackSubaccount?: string | null;
-  /** Where CFA franc pay links pay out (migration 0052): a Flutterwave subaccount ID, RS_... */
+  /** Where pay links outside naira pay out (migration 0052): a Flutterwave subaccount ID, RS_... */
   flutterwaveSubaccount?: string | null;
   /** The language its owner messages and invoices use, and customers get when theirs isn't clear (migration 0051). */
   language?: Lang;

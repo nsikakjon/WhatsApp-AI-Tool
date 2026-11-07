@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { isLang } from "../../core/i18n.js";
-import { formatMoney, formatNaira, isCurrency, type Currency } from "../../core/money.js";
+import { formatMoney, formatNaira, isCfa, isCurrency, type Currency } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { hashPassword, normaliseWaId, passwordProblem } from "../auth.js";
 import type { SectionContext } from "../index.js";
@@ -61,8 +61,10 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
     const example = 1_000_000; // ₦10,000
     const exPaystack = paystackFeeKobo(example);
     const exOurs = yarnogaFeeKobo(example, fee, cap);
-    const cfaExample = 5_000_000; // 50 000 FCFA
-    const cfaOurs = yarnogaFeeKobo(cfaExample, fee, cap, biz.currency);
+    // An order big enough for the cap to apply: 50 000 FCFA, KSh 10,000 and so on.
+    const capExample = isCfa(biz.currency) ? 5_000_000 : cap * 50;
+    const capOurs = yarnogaFeeKobo(capExample, fee, cap, biz.currency);
+    const wallets = biz.currency === "KES" ? "M-Pesa" : isCfa(biz.currency) ? "Mobile Money (MTN MoMo, Orange Money, Moov, Wave)" : "Mobile Money";
     const money = (minor: number) => formatMoney(minor, biz.currency);
     const feeNote = biz.currency !== "NGN"
       ? `<div class="card"><h3>About transaction fees</h3>
@@ -70,9 +72,9 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
 <li><b>Mobile Money or bank transfer straight to you</b> (the details on your invoice): <b>no fees</b> from yarnOga. Your operator may charge its usual fees.</li>
 ${
   biz.payLinks?.on
-    ? `<li><b>Mobile Money (MTN MoMo, Orange Money, Moov, Wave) or card through the pay link</b> on your invoices: Flutterwave takes its processing fee for your country and operator${fee ? `, and yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
-${fee ? `<li>Example: on a ${money(cfaExample)} order, yarnOga keeps ${money(cfaOurs)} (${percent}% would be more, so the cap applies). You receive the rest, less Flutterwave's fee, in your Mobile Money or bank account.</li>` : ""}`
-    : `<li><b>Mobile Money pay links</b> aren't on for your business yet. When they are, Flutterwave charges its processing fee and yarnOga's fee is ${fee ? `${percent}%, capped at ${money(cap)} a payment` : "shown here before anything is charged"}. Ask support to switch them on.</li>`
+    ? `<li><b>${wallets} or card through the pay link</b> on your invoices: Flutterwave takes its processing fee for your country and operator${fee ? `, and yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
+${fee ? `<li>Example: on a ${money(capExample)} order, yarnOga keeps ${money(capOurs)} (${percent}% would be more, so the cap applies). You receive the rest, less Flutterwave's fee, in your Mobile Money or bank account.</li>` : ""}`
+    : `<li><b>${wallets} pay links</b> aren't on for your business yet. When they are, Flutterwave charges its processing fee and yarnOga's fee is ${fee ? `${percent}%, capped at ${money(cap)} a payment` : "shown here before anything is charged"}. Ask support to switch them on.</li>`
 }
 </ul><p class="muted small">Fees are taken from each payment, never charged separately.</p></div>`
       : `<div class="card"><h3>About transaction fees</h3>
@@ -138,7 +140,7 @@ ${care ? careForm(care, await careOnPlan(biz.features)) : ""}
 <div class="row"><label>Bot language <span class="muted">(your messages and invoices; customers who write in French or English always get replies in their own language)</span>
 <select name="language"${biz.fromEnv ? " disabled" : ""}>${option("en", "English", biz.language)}${option("fr", "Français (French)", biz.language)}</select></label>
 <label>Currency <span class="muted">(your prices are in this currency)</span>
-<select name="currency"${biz.fromEnv ? " disabled" : ""}>${option("NGN", "Naira (₦)", biz.currency)}${option("XOF", "CFA franc, West Africa (FCFA)", biz.currency)}${option("XAF", "CFA franc, Central Africa (FCFA)", biz.currency)}</select></label></div>
+<select name="currency"${biz.fromEnv ? " disabled" : ""}>${option("NGN", "Naira (₦)", biz.currency)}${option("XOF", "CFA franc, West Africa (FCFA)", biz.currency)}${option("XAF", "CFA franc, Central Africa (FCFA)", biz.currency)}${option("KES", "Kenyan shilling (KSh)", biz.currency)}${option("UGX", "Ugandan shilling (USh)", biz.currency)}${option("TZS", "Tanzanian shilling (TSh)", biz.currency)}${option("RWF", "Rwandan franc (RWF)", biz.currency)}${option("MWK", "Malawian kwacha (MK)", biz.currency)}</select></label></div>
 <label class="check"><input type="checkbox" name="voice" value="on"${biz.voiceReplies ? " checked" : ""}${biz.fromEnv ? " disabled" : ""}> Answer voice notes with a voice note as well as text</label>
 <p class="muted small">Changing the currency doesn't convert your prices: check your price list and delivery fees afterwards.${biz.fromEnv ? " On the main number these are set by yarnOga; ask support to change them." : ""}</p>
 <div class="actions"><button${biz.fromEnv ? " disabled" : ""}>Save</button></div></form>

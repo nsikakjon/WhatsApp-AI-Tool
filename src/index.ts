@@ -16,7 +16,7 @@ import { withUnclearLimit } from "./core/unclear-limit.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
-import { DEFAULT_FEE_CAP, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
+import { DEFAULT_FEE_CAP, feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
 import { createMonthly, createSupabaseMonthlyStore, type Monthly } from "./products/quote/monthly.js";
 import {
   createSupabaseBranding,
@@ -230,7 +230,7 @@ function courierFor(
   };
 }
 
-// CFA franc businesses are paid through Flutterwave, to their Flutterwave subaccount.
+// Businesses outside naira are paid through Flutterwave, to their Flutterwave subaccount.
 const payLinkFor = (
   businessId: string,
   businessName: string,
@@ -240,9 +240,10 @@ const payLinkFor = (
   dispatch?: Dispatch,
 ) => {
   const currency = accounts.currency ?? "NGN";
-  const cfa = currency !== "NGN";
-  const subaccount = cfa ? accounts.flutterwave : accounts.paystack;
-  const provider = cfa ? config.flutterwave : config.paystack;
+  const naira = currency === "NGN";
+  const subaccount = naira ? accounts.paystack : accounts.flutterwave;
+  const provider = naira ? config.paystack : config.flutterwave;
+  const capFeature = feeCapFeature(currency);
   return config.quotePayLinks && provider && subaccount
     ? orderPayLinks({
         links: { createLink: (req) => payments!.createLink(req) },
@@ -255,7 +256,7 @@ const payLinkFor = (
           ? async () => ((await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0)
           : undefined,
         // The cap is a plan feature too (migration 0052); without the row, the default cap applies.
-        feeCap: features ? () => features.limit(cfa ? "transaction_fee_cap_cfa" : "transaction_fee_cap_ngn").catch(() => null) : undefined,
+        feeCap: features && capFeature ? () => features.limit(capFeature).catch(() => null) : undefined,
         // A Shipbubble courier's fee goes to yarnOga, which pays the courier from its wallet.
         courierKobo: dispatch
           ? async (order) => {
@@ -1206,7 +1207,10 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               ),
               feeBasisPoints: async () =>
                 features && (await features.has("transaction_fee")) ? ((await features.limit("transaction_fee")) ?? 0) : 0,
-              feeCap: async () => (features ? features.limit(currency === "NGN" ? "transaction_fee_cap_ngn" : "transaction_fee_cap_cfa") : null),
+              feeCap: async () => {
+                const capFeature = feeCapFeature(currency);
+                return features && capFeature ? features.limit(capFeature) : null;
+              },
             },
           };
         },

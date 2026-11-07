@@ -60,7 +60,8 @@ export function buildSystemPrompt(
   opts: { currency?: Currency; language?: Lang; about?: string | null } = {},
 ): string {
   const list = catalog.map((c, i) => `- ref p${i + 1}: ${c.name} (minimum ${c.minQuantity})${c.details ? `. Details: ${c.details}` : ""}`).join("\n");
-  const where = !opts.currency || opts.currency === "NGN" ? "Nigeria" : "French-speaking Africa";
+  const where =
+    !opts.currency || opts.currency === "NGN" ? "Nigeria" : opts.currency === "XOF" || opts.currency === "XAF" ? "French-speaking Africa" : "East Africa";
   const usual = opts.language === "fr" ? "French" : "English";
   return `You work the WhatsApp line for ${businessName}, ${description?.trim() || "a business"} in ${where}. Customers message to get price quotes and place orders. Code you can't see works out every price from the business's price list, so your job is only to understand the customer.
 
