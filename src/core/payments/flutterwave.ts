@@ -3,13 +3,14 @@ import { assertKobo, type PayCurrency } from "../money.js";
 
 // Talks to Flutterwave, which takes Mobile Money (MTN MoMo, Orange Money,
 // Moov, Wave) and card payments in CFA francs for businesses in
-// French-speaking Africa, and Mobile Money (Ghana) or M-Pesa (Kenya) and card
-// payments for yarnOga's own plans in cedis and shillings. Paystack stays in
-// charge of naira and US dollar payments.
+// French-speaking Africa, and Mobile Money, M-Pesa and card payments for
+// yarnOga's own plans in Ghana, Kenya, Rwanda, Uganda, Tanzania and Malawi.
+// Paystack stays in charge of naira and US dollar payments.
 //
 // Flutterwave counts money in currency units (5000 means 5 000 FCFA), while
 // we keep hundredths, so amounts are divided by 100 on the way out and
-// multiplied by 100 on the way back. CFA prices are always whole francs.
+// multiplied by 100 on the way back. CFA francs, Rwandan francs, and Ugandan
+// and Tanzanian shillings have no coins in use, so those prices are whole units.
 
 export interface FlutterwaveConfig {
   /** Secret key from Flutterwave > Settings > API Keys. FLWSECK-... or FLWSECK_TEST-... */
@@ -21,7 +22,7 @@ export interface FlutterwaveConfig {
 
 export interface FlutterwaveCheckout {
   reference: string;
-  /** In hundredths (centimes, pesewas, cents); CFA amounts must be whole francs. */
+  /** In hundredths (centimes, pesewas, cents); CFA, RWF, UGX and TZS amounts must be whole units. */
   amountMinor: number;
   currency: Exclude<PayCurrency, "NGN" | "USD">;
   email: string;
@@ -56,10 +57,11 @@ export function isValidFlutterwaveHash(header: string | undefined, secretHash: s
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const WHOLE_UNITS = new Set<string>(["XOF", "XAF", "RWF", "UGX", "TZS"]);
+
 function units(minor: number, currency: FlutterwaveCheckout["currency"]): number {
   assertKobo(minor);
-  const cfa = currency === "XOF" || currency === "XAF";
-  if (cfa && minor % 100 !== 0) throw new Error(`CFA amounts must be whole francs (got ${minor} centimes)`);
+  if (WHOLE_UNITS.has(currency) && minor % 100 !== 0) throw new Error(`${currency} amounts must be whole units (got ${minor} hundredths)`);
   return minor / 100;
 }
 
@@ -69,6 +71,10 @@ const PAYMENT_OPTIONS: Record<FlutterwaveCheckout["currency"], string> = {
   XAF: "mobilemoneyfranco,card",
   GHS: "mobilemoneyghana,card",
   KES: "mpesa,card",
+  RWF: "mobilemoneyrwanda,card",
+  UGX: "mobilemoneyuganda,card",
+  TZS: "mobilemoneytanzania,card",
+  MWK: "mobilemoneymalawi,card",
 };
 
 export function createFlutterwaveClient(config: FlutterwaveConfig, fetchImpl: typeof fetch = fetch): FlutterwaveClient {

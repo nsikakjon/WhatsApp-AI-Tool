@@ -100,23 +100,27 @@ payer's WhatsApp number:
 | Nigeria (+234) | Naira | Paystack |
 | Ghana (+233) | Cedis | Flutterwave: Mobile Money or card |
 | Kenya (+254) | Shillings | Flutterwave: M-Pesa or card |
+| Rwanda (+250) | Rwandan francs | Flutterwave: Mobile Money or card |
+| Uganda (+256) | Ugandan shillings | Flutterwave: Mobile Money or card |
+| Tanzania (+255) | Tanzanian shillings | Flutterwave: Mobile Money or card |
+| Malawi (+265) | Kwacha | Flutterwave: Mobile Money or card |
 | CFA franc countries (Senegal, Côte d'Ivoire, Cameroon...) | CFA francs | Flutterwave: Mobile Money or card |
 | Anywhere else | US dollars | Paystack: card |
 
-The prices are in the `plan_prices` table (migration
-`0062_plan_prices.sql`), the same ones as the website's currency picker. To
+The prices are in the `plan_prices` table (migrations
+`0062_plan_prices.sql` and `0074_plan_prices_east_africa.sql`), the same ones as the website's currency picker. To
 change one, change it in the table and in the website's `js/currency.js`.
 
 To switch it on:
 
-1. Run `0062_plan_prices.sql` in Supabase.
+1. Run `0062_plan_prices.sql` and then `0074_plan_prices_east_africa.sql` in Supabase.
 2. **US dollars:** in the Paystack dashboard, go to Settings > Preferences and
    ask for international payments (USD). Paystack checks the business, then
    asks for a USD (domiciliary) account at Zenith Bank to pay dollars into.
 3. **Cedis, shillings and CFA francs:** switch Flutterwave on (next section).
-4. In Railway, set `PLAN_CURRENCIES` to the currencies that are ready, e.g.
-   `GHS,KES` once Flutterwave works, then add `XOF,XAF` and `USD` as each one
-   is ready. Any currency not listed is charged in naira, so it is safe to add
+4. In Railway, set `PLAN_CURRENCIES` to the currencies Flutterwave has
+   switched on for the account, e.g. `KES,RWF,UGX,TZS,MWK`, then add `GHS`,
+   `XOF,XAF` and `USD` as each one is approved. Any currency not listed is charged in naira, so it is safe to add
    them one at a time.
 
 The `plan` reply still lists prices in naira; the payment link and its
@@ -142,15 +146,15 @@ changes: everyone pays in naira through Paystack.
    - Secret hash: the same phrase as `FLUTTERWAVE_SECRET_HASH`;
    - if the page offers event or format choices, keep successful payments
      (charge) ticked and JSON format on. Save.
-4. Make sure Flutterwave has **GHS** and **KES** collections on for the
-   account (Settings > Business preferences, or ask support). Cedi links fail
-   with "currency not supported" until it does.
-5. In Railway, set `PLAN_CURRENCIES` to `GHS,KES`. Railway redeploys in about
+4. Check which countries Flutterwave has switched on for the account. A
+   link in a currency that isn't on fails, and the payer is told payment
+   details will follow.
+5. In Railway, set `PLAN_CURRENCIES` to those currencies, e.g. `KES,RWF,UGX,TZS,MWK`. Railway redeploys in about
    two minutes; the "Server listening" line in the deploy log then says
    "Flutterwave test".
-6. Test from a Ghana (+233) or Kenya (+254) number that owns a test shop:
+6. Test from a number in one of those countries that owns a test shop:
    send *upgrade starter* to the quotes number. The link should
-   open a Flutterwave page in cedis or shillings. Pay with Flutterwave's
+   open a Flutterwave page in that country's currency. Pay with Flutterwave's
    test card. The bot confirms on WhatsApp and the plan switches on.
 7. Once that works, repeat steps 1 to 3 in **Live mode** (the live secret key
    replaces the test one; set the secret hash on the live webhook too).

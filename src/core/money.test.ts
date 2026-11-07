@@ -53,6 +53,10 @@ describe("plan payment currencies", () => {
     expect(payCurrencyFor("2348024777076")).toBe("NGN");
     expect(payCurrencyFor("233241234567")).toBe("GHS");
     expect(payCurrencyFor("254712345678")).toBe("KES");
+    expect(payCurrencyFor("250788123456")).toBe("RWF");
+    expect(payCurrencyFor("256772123456")).toBe("UGX");
+    expect(payCurrencyFor("255754123456")).toBe("TZS");
+    expect(payCurrencyFor("265991234567")).toBe("MWK");
     expect(payCurrencyFor("2250701234567")).toBe("XOF");
     expect(payCurrencyFor("237612345678")).toBe("XAF");
     expect(payCurrencyFor("447700900123")).toBe("USD");
@@ -63,6 +67,10 @@ describe("plan payment currencies", () => {
     expect(formatPayMoney(350_000, "XOF")).toBe(formatMoney(350_000, "XOF"));
     expect(formatPayMoney(298_000, "GHS")).toBe("GH₵2,980");
     expect(formatPayMoney(85_000, "KES")).toBe("KSh 850");
+    expect(formatPayMoney(2_400_000, "UGX")).toBe("USh 24,000");
+    expect(formatPayMoney(950_000, "RWF")).toBe("RWF 9,500");
+    expect(formatPayMoney(1_700_000, "TZS")).toBe("TSh 17,000");
+    expect(formatPayMoney(1_200_000, "MWK")).toBe("MK 12,000");
     expect(formatPayMoney(550, "USD")).toBe("$5.50");
   });
 });

@@ -21,7 +21,7 @@ export interface PaymentRequest {
   waId: string;
   /** Looked up from the database by the product; never from the AI. In hundredths of `currency`. */
   amountKobo: number;
-  /** NGN (the default) and USD go through Paystack; XOF, XAF, GHS and KES through Flutterwave. */
+  /** NGN (the default) and USD go through Paystack; every other currency through Flutterwave. */
   currency?: PayCurrency;
   /** What the payment is for, given back to the product once paid. */
   purpose: Record<string, unknown>;
