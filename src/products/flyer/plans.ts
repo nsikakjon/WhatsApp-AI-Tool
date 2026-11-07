@@ -5,6 +5,8 @@
 // flyer_plans (Supabase > Table Editor), in kobo, so they can change without
 // a deploy and payments always read them from one place.
 
+import { THEMES } from "./themes.js";
+
 export type PlanId = "free" | "standard" | "premium" | "deluxe" | "organisation";
 
 export interface Plan {
@@ -32,48 +34,57 @@ export interface Plan {
   summaryFr: string;
 }
 
+// Which designs each plan gets. Free has four; each paid plan adds more, and
+// Deluxe and Organisation get every design. A new design in themes.ts is on
+// Standard unless it is listed here.
+const FREE_DESIGNS = ["royal", "classic", "minimal", "retro"];
+const PREMIUM_DESIGNS = ["glass", "scribble", "y2k"];
+const DELUXE_DESIGNS = ["editorial", "aurora"];
+const STANDARD_DESIGNS = THEMES.map((t) => t.id).filter((id) => !PREMIUM_DESIGNS.includes(id) && !DELUXE_DESIGNS.includes(id));
+const PREMIUM_ALL = [...STANDARD_DESIGNS, ...PREMIUM_DESIGNS];
+
 export const PLANS: Plan[] = [
   {
     id: "free",
     label: "Free",
     maxMembers: 10,
     maxAdmins: 1,
-    designs: ["royal", "classic"],
+    designs: FREE_DESIGNS,
     colour: false,
     importList: false,
     eventFlyers: false,
     ownBackground: false,
     credit: true,
-    summary: "up to 10 members, 2 designs, 1 admin",
-    summaryFr: "jusqu'à 10 membres, 2 modèles, 1 administrateur",
+    summary: `up to 10 members, ${FREE_DESIGNS.length} designs, 1 admin`,
+    summaryFr: `jusqu'à 10 membres, ${FREE_DESIGNS.length} modèles, 1 administrateur`,
   },
   {
     id: "standard",
     label: "Standard",
     maxMembers: 50,
     maxAdmins: 2,
-    designs: "all",
+    designs: STANDARD_DESIGNS,
     colour: true,
     importList: true,
     eventFlyers: true,
     ownBackground: false,
     credit: true,
-    summary: "up to 50 members, all designs and colours, spreadsheet import, event flyers, 2 admins",
-    summaryFr: "jusqu'à 50 membres, tous les modèles et couleurs, import de tableur, flyers d'événement, 2 administrateurs",
+    summary: `up to 50 members, ${STANDARD_DESIGNS.length} designs in any colour, spreadsheet import, event flyers, 2 admins`,
+    summaryFr: `jusqu'à 50 membres, ${STANDARD_DESIGNS.length} modèles en toutes couleurs, import de tableur, flyers d'événement, 2 administrateurs`,
   },
   {
     id: "premium",
     label: "Premium",
     maxMembers: 500,
     maxAdmins: 5,
-    designs: "all",
+    designs: PREMIUM_ALL,
     colour: true,
     importList: true,
     eventFlyers: true,
     ownBackground: true,
     credit: false,
-    summary: "up to 500 members, everything in Standard, your own background, no \"Made with\" line, 5 admins",
-    summaryFr: "jusqu'à 500 membres, tout Standard, votre propre fond, sans la mention « Fait avec », 5 administrateurs",
+    summary: `up to 500 members, everything in Standard, ${PREMIUM_ALL.length} designs, your own background, no "Made with" line, 5 admins`,
+    summaryFr: `jusqu'à 500 membres, tout Standard, ${PREMIUM_ALL.length} modèles, votre propre fond, sans la mention « Fait avec », 5 administrateurs`,
   },
   {
     id: "deluxe",
@@ -86,8 +97,8 @@ export const PLANS: Plan[] = [
     eventFlyers: true,
     ownBackground: true,
     credit: false,
-    summary: "unlimited members and admins, everything in Premium, several groups or chapters",
-    summaryFr: "membres et administrateurs illimités, tout Premium, plusieurs groupes ou sections",
+    summary: `unlimited members and admins, everything in Premium, all ${THEMES.length} designs, several groups or chapters`,
+    summaryFr: `membres et administrateurs illimités, tout Premium, les ${THEMES.length} modèles, plusieurs groupes ou sections`,
   },
   {
     id: "organisation",
