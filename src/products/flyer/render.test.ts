@@ -35,10 +35,13 @@ describe("flyer drawing", () => {
     }
   }, 30_000);
 
-  it("has the seven new designs, numbered 12 to 18", () => {
-    expect(THEMES).toHaveLength(18);
+  it("numbers the designs up to 28, with the ten design styles from 19", () => {
+    expect(THEMES).toHaveLength(28);
     expect(findTheme("12")?.id).toBe("goldportrait");
     expect(findTheme("18")?.id).toBe("balloons");
+    expect(findTheme("19")?.id).toBe("editorial");
+    expect(findTheme("28")?.id).toBe("aurora");
+    expect(findTheme("pop art")?.id).toBe("popart");
   });
 
   it("draws an event flyer and a design sheet", async () => {

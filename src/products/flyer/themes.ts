@@ -22,6 +22,8 @@ export interface Theme {
    *   for the initials picture when a member has no photo.
    * "goldportrait", "redpeach", "blackgold", "whiteconfetti", "bigdate",
    *   "polaroidnote", "balloons": the seven ready-made designs in designs7.ts.
+   * "editorial", "swiss", "minimal", "retro", "popart", "y2k", "glass",
+   *   "collage", "scribble", "aurora": the ten design styles in designs10.ts.
    */
   layout:
     | "circle"
@@ -37,7 +39,17 @@ export interface Theme {
     | "whiteconfetti"
     | "bigdate"
     | "polaroidnote"
-    | "balloons";
+    | "balloons"
+    | "editorial"
+    | "swiss"
+    | "minimal"
+    | "retro"
+    | "popart"
+    | "y2k"
+    | "glass"
+    | "collage"
+    | "scribble"
+    | "aurora";
   /**
    * Stands the person in front of the design using their cut-out photo (the
    * background removed, see cutout.ts), falling back to the plain photo.
@@ -258,6 +270,120 @@ export const THEMES: Theme[] = [
     layout: "balloons",
     background: ["#ff6a00", "#ff8c1a"],
     accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "editorial",
+    label: "Magazine cover",
+    labelFr: "Couverture de magazine",
+    layout: "editorial",
+    cutout: true,
+    background: ["#a59a88", "#e9e3d8"],
+    accent: "#c8102e",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "swiss",
+    label: "Swiss grid",
+    labelFr: "Grille suisse",
+    layout: "swiss",
+    background: ["#f1eee7", "#d8d3c8"],
+    accent: "#e3001b",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "minimal",
+    label: "Minimal cream",
+    labelFr: "Crème minimaliste",
+    layout: "minimal",
+    background: ["#f6f1e8", "#e6dccb"],
+    accent: "#b08d57",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "retro",
+    label: "Retro sunburst",
+    labelFr: "Soleil rétro",
+    layout: "retro",
+    background: ["#e8891c", "#f2b632"],
+    accent: "#7a2e0e",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "popart",
+    label: "Pop art comic",
+    labelFr: "Bande dessinée pop art",
+    layout: "popart",
+    cutout: true,
+    background: ["#ffd60a", "#3ab0ff"],
+    accent: "#111111",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "y2k",
+    label: "Y2K chrome",
+    labelFr: "Chrome style Y2K",
+    layout: "y2k",
+    cutout: true,
+    background: ["#2d0a5c", "#8a2be2"],
+    accent: "#ff8be8",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "glass",
+    label: "Frosted glass",
+    labelFr: "Verre dépoli",
+    layout: "glass",
+    background: ["#3d2b52", "#7a4fb0"],
+    accent: "#ffffff",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "collage",
+    label: "Paper collage",
+    labelFr: "Collage papier",
+    layout: "collage",
+    background: ["#c9a37a", "#e8d2b0"],
+    accent: "#e5383b",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "scribble",
+    label: "Red marker scribble",
+    labelFr: "Gribouillis au feutre rouge",
+    layout: "scribble",
+    cutout: true,
+    background: ["#e5383b", "#f7f3ea"],
+    accent: "#111111",
+    text: "#ffffff",
+    muted: "rgba(255,255,255,0.85)",
+    confetti: false,
+  },
+  {
+    id: "aurora",
+    label: "Aurora night",
+    labelFr: "Nuit d'aurore",
+    layout: "aurora",
+    background: ["#050b1f", "#2b3f8f"],
+    accent: "#7df9ff",
     text: "#ffffff",
     muted: "rgba(255,255,255,0.85)",
     confetti: false,
