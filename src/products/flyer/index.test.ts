@@ -1215,3 +1215,25 @@ describe("flyer bot: Hausa", () => {
     expect((await bot.handle(msg(OWNER, { text: "remove Aisha" }), ctx))?.text).toContain("Removed Aisha Bello");
   });
 });
+
+describe("flyer bot: Swahili", () => {
+  it("answers Swahili in Swahili but keeps the group and its flyers in English", async () => {
+    const { bot, groups } = setup({ openSignup: true });
+    const hello = await bot.handle(msg(ADMIN, { text: "Habari, tafadhali mnafanya nini?" }), ctx);
+    expect(hello?.text).toContain("Inaitwa nani?");
+    const created = await bot.handle(msg(ADMIN, { text: "Alliance High School Class of 2010" }), ctx);
+    expect(created?.text).toContain("Wewe ndiye admin");
+    expect(created?.text).toContain("Hatua ya 1 kati ya 3");
+    expect(groups[0]?.language).toBe("en");
+  });
+
+  it("switches to Swahili on request, with flyers still drawn in English", async () => {
+    const { bot, render } = await withGroup();
+    expect((await bot.handle(msg(OWNER, { text: "kiswahili" }), ctx))?.text).toContain("kwa Kiswahili");
+    const added = await bot.handle(photo(OWNER, "add Amina Wanjiku, 14 March"), ctx);
+    expect(added?.text).toContain("Amina Wanjiku amehifadhiwa 🎂 14 March");
+    expect(render.birthday).toHaveBeenLastCalledWith(expect.objectContaining({ lang: "en" }));
+    expect((await bot.handle(msg(OWNER, { text: "english" }), ctx))?.text).toContain("in English");
+    expect((await bot.handle(msg(OWNER, { text: "remove Amina" }), ctx))?.text).toContain("Removed Amina Wanjiku");
+  });
+});
