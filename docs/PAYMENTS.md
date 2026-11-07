@@ -163,6 +163,32 @@ Shop pay links through Flutterwave work the same way for CFA franc shops: each
 shop gets a Flutterwave subaccount (RS_...) with its Mobile Money or bank
 account, and `QUOTE_PAY_LINKS` stays `true`. See docs/FRENCH.md.
 
+## Shops in East Africa
+
+A shop can keep its price list in Kenyan, Ugandan or Tanzanian shillings,
+Rwandan francs or Malawian kwacha (run migration 0075 first). Quotes,
+invoices, receipts, the shop link and the counter then show its own money
+(KSh 1,500, USh 24,000, TSh 3,500, RWF 9,500, MK 5,000). Prices are whole
+shillings, francs or kwacha.
+
+- **Choosing the currency.** The owner picks it in the owner app under
+  Settings > Language and currency, or yarnOga sets `QUOTE_CURRENCY` (e.g.
+  `KES`) for the main number. Changing it doesn't convert prices, so the price
+  list needs checking afterwards.
+- **Pay links.** Like CFA shops, each shop needs a Flutterwave subaccount
+  (Flutterwave > Subaccounts, with the owner's M-Pesa, Mobile Money or bank
+  account). Put its RS_... ID in the shop's `flutterwave_subaccount` column in
+  Supabase (or `QUOTE_FLUTTERWAVE_SUBACCOUNT` for the main number). Customers
+  then pay by M-Pesa (Kenya), Mobile Money (Uganda, Tanzania, Rwanda, Malawi)
+  or card, and the money settles to the shop.
+- **yarnOga's fee.** 2.5% as everywhere, capped at about ₦2,000 in local
+  money: KSh 200, USh 5,000, TSh 3,500, RWF 2,000 or MK 2,500.
+- **Before telling shops.** Make one real payment on a test shop in each
+  country, because Flutterwave only takes currencies it has switched on for
+  the account.
+- **Not available outside naira yet:** Shipbubble couriers, payouts to staff
+  and the tax summary, the same as for CFA shops.
+
 If a Flutterwave link fails, the bot tells the payer it will send payment
 details shortly, and the Railway logs say what Flutterwave answered.
 
