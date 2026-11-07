@@ -8,8 +8,8 @@ import type { Product, Reply } from "../product.js";
 // OGG/Opus, the format WhatsApp plays as a voice message.
 
 export interface Speaker {
-  /** The text read aloud as an OGG/Opus voice note. */
-  speak(text: string, lang: SpokenLang): Promise<Uint8Array>;
+  /** The text read aloud as an OGG/Opus voice note, or null when there's no voice for that language. */
+  speak(text: string, lang: SpokenLang): Promise<Uint8Array | null>;
 }
 
 export interface GoogleSpeakerOptions {
@@ -22,13 +22,15 @@ export interface GoogleSpeakerOptions {
 // Neither Google nor Azure has a Hausa voice yet, so Hausa chats get text only.
 type SpokenLang = Exclude<Lang, "ha">;
 
-const DEFAULT_VOICES: Record<SpokenLang, string> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A", pcm: "en-GB-Neural2-A" };
+// Google has no Swahili voice of its own, so Swahili gets text only there unless a voice is set.
+const DEFAULT_VOICES: Partial<Record<SpokenLang, string>> = { fr: "fr-FR-Neural2-A", en: "en-GB-Neural2-A", pcm: "en-GB-Neural2-A" };
 
 export function createGoogleSpeaker(opts: GoogleSpeakerOptions): Speaker {
   const doFetch = opts.fetch ?? fetch;
   return {
     async speak(text, lang) {
       const name = opts.voices?.[lang] ?? DEFAULT_VOICES[lang];
+      if (!name) return null;
       const res = await doFetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(opts.apiKey)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -51,12 +53,12 @@ export interface AzureSpeakerOptions {
   apiKey: string;
   /** The resource's region, e.g. westeurope. */
   region: string;
-  /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice and a Nigerian English one (which also reads Pidgin). */
+  /** Voice names, e.g. fr-FR-DeniseNeural. Defaults: a French voice, a Nigerian English one (which also reads Pidgin) and a Kenyan Swahili one. */
   voices?: Partial<Record<SpokenLang, string>>;
   fetch?: typeof fetch;
 }
 
-const AZURE_VOICES: Record<SpokenLang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural", pcm: "en-NG-EzinneNeural" };
+const AZURE_VOICES: Record<SpokenLang, string> = { fr: "fr-FR-DeniseNeural", en: "en-NG-EzinneNeural", pcm: "en-NG-EzinneNeural", sw: "sw-KE-ZuriNeural" };
 
 /** Text made safe to put inside the SSML Azure reads. */
 function xml(text: string): string {
@@ -129,7 +131,8 @@ export function withVoiceReplies(
         // The bot answers in the customer's language, so that comes first.
         const lang = guessLanguage(msg.text) ?? guessLanguage(said) ?? opts.language ?? "en";
         if (lang === "ha") return reply;
-        return { ...reply, audio: { data: await opts.speaker.speak(said, lang), mimeType: "audio/ogg" } };
+        const data = await opts.speaker.speak(said, lang);
+        return data ? { ...reply, audio: { data, mimeType: "audio/ogg" } } : reply;
       } catch (err) {
         (opts.log ?? console).error("Voice reply failed; sending text only:", err);
         return reply;

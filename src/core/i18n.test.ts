@@ -24,6 +24,17 @@ describe("guessing the language", () => {
     expect(guessLanguage(text)).toBe("ha");
   });
 
+  it.each([
+    "Habari, ni bei gani kwa flyers 100?",
+    "Nataka keki mbili",
+    "Tafadhali mnaleta Nairobi?",
+    "Asante sana",
+    "Mambo, mnauza nini?",
+    "Nitalipa kesho",
+  ])("hears Swahili in %s", (text) => {
+    expect(guessLanguage(text)).toBe("sw");
+  });
+
   it.each(["Hi, I need 100 flyers please", "How much is it?", "Can you deliver tomorrow?", "Thanks boss", "yes"])("keeps %s as English", (text) => {
     expect(guessLanguage(text)).toBe("en");
   });
@@ -33,11 +44,13 @@ describe("guessing the language", () => {
     expect(guessLanguage("200")).toBeNull();
   });
 
-  it("never lets a business pick Pidgin or Hausa, and writes documents for those chats in English", () => {
+  it("never lets a business pick Pidgin, Hausa or Swahili, and writes documents for those chats in English", () => {
     expect(isLang("pcm")).toBe(false);
     expect(isLang("ha")).toBe(false);
+    expect(isLang("sw")).toBe(false);
     expect(writtenLang("pcm")).toBe("en");
     expect(writtenLang("ha")).toBe("en");
+    expect(writtenLang("sw")).toBe("en");
     expect(writtenLang("fr")).toBe("fr");
   });
 });

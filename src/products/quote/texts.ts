@@ -528,4 +528,71 @@ const ha: QuoteTexts = {
   defaultHelp: (names) => `Zan iya ba ku farashin: ${names}. Ku fada min abin da kuke bukata da yawansa.`,
 };
 
-export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr, pcm, ha };
+// Standard Swahili that reads naturally in Kenya, Tanzania and Uganda.
+const sw: QuoteTexts = {
+  ...en,
+  voiceNotOnLine: () => "Samahani, siwezi kusikiliza ujumbe wa sauti kwenye laini hii. Tafadhali andika unachohitaji (mfano: A5 flyers 100).",
+  voiceUnclear: () => "Samahani, sikusikia vizuri ujumbe huo wa sauti. Unaweza kuandika unachohitaji (mfano: A5 flyers 100)?",
+  sendRequest: () => "Tafadhali tuma unachohitaji kwa maandishi au ujumbe wa sauti (mfano: A5 flyers 100).",
+  stopReminders: () => "Sawa, sitakutumia tena vikumbusho vya bei. Tuma ujumbe wakati wowote ukitaka bei.",
+  ratingAsk: (b, ref) => `Tulifanyaje kwenye oda yako ${ref}? Jibu lako litasaidia ${b} kuboresha huduma yao.`,
+  orderAgainButton: "🔁 Agiza tena",
+  lastTime: (items) => `Mara ya mwisho uliagiza: ${items}. Bonyeza *Agiza tena* kupata bei mpya ya vitu hivyo hivyo.`,
+  noLastOrder: "Sioni oda yoyote uliyoweka awali. Niambie unachohitaji, nitakutumia bei.",
+  someGone: (items) => `Baadhi ya vitu vya oda yako ya mwisho havipo tena kwenye orodha ya bei (${items}), kwa hiyo nimeviondoa.`,
+  ratingButtons: { great: "😀 Vizuri sana", ok: "🙂 Sawa", bad: "🙁 Si vizuri" },
+  ratingThanks: (stars, b) =>
+    stars >= 5
+      ? `Asante! 🙏 Tunafurahi kwamba umeridhika. Kama unamjua mtu atakayependa ${b}, tafadhali mpe namba yetu.`
+      : stars >= 3
+        ? "Asante kwa kutuambia. Kama kuna kitu tunaweza kurekebisha, jibu hapa tu."
+        : `Samahani kwamba haikwenda vizuri. Nimeiarifu timu ya ${b}, mtu atawasiliana nawe kurekebisha.`,
+  ratingAlready: "Asante, tayari tumepokea jibu lako kuhusu oda hii. 🙏",
+  noPriceList: (b) => `Asante kwa kuwasiliana na ${b}! Orodha yetu ya bei bado haijawekwa mtandaoni, kwa hiyo mtu wa timu yetu atakujibu.`,
+  didntCatch: () => "Samahani, sikuelewa vizuri. Unahitaji nini, na ngapi?",
+  teamNotified: (b) => `Nimeiarifu timu ya ${b}. Mtu atakujibu hapa hivi karibuni.`,
+  closedNow: (when) => `🕗 Tumefunga sasa${when ? `, tutafungua tena ${when}` : ""}. Unaweza kuagiza hapa; timu itaishughulikia tukifungua.`,
+  closed: (b) => `Samahani, ${b} hawapokei oda mpya kwa sasa. Tafadhali muulize mtu wa timu yetu.`,
+  minimum: (item, min) => `${item}: oda ya chini kabisa ni ${min}.`,
+  teamWillPrice: (items) => `Timu itakutumia bei ya: ${items}.`,
+  thanks: (note) => `Asante! ${note}`,
+  quoteHeader: (ref) => `Hii ndiyo bei yako (${ref}):`,
+  quoteTotal: (total) => `*Jumla: ${total}*`,
+  replyYes: () => "Jibu YES kuweka oda hii, au niambie nibadilishe nini.",
+  noQuoteWaiting: () => "Hakuna bei inayosubiri uthibitisho. Niambie unachotaka, nitakutumia.",
+  overLimitCustomer: (b, ref, total) => `Asante! Timu ya ${b} itawasiliana nawe hivi karibuni kukamilisha oda ${ref} (jumla ${total}).`,
+  payLine: (url, currency) =>
+    currency === "NGN" ? `Lipa mtandaoni kwa kadi, uhamisho wa benki au USSD: ${url}` : `Lipa mtandaoni kwa pesa ya simu (Mobile Money) au kadi: ${url}`,
+  payReminder: (n, b, ref, total, how) =>
+    [
+      n === 1
+        ? `Habari! Kikumbusho kidogo kutoka ${b}: oda yako ${ref} (${total}) inasubiri malipo.`
+        : `Habari tena kutoka ${b}: bado tunakuwekea oda yako ${ref} (${total}).`,
+      how ?? "",
+      n === 1 ? "Umeshalipa? Asante, tafadhali puuza ujumbe huu." : "Hiki ndicho kikumbusho chetu cha mwisho. Ukibadilisha mawazo, jibu tu utujulishe.",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  nextWalkInLink: () => "Lipa kwa kiungo hicho, kisha onyesha QR code ya risiti yako ukija kuchukua.",
+  nextWalkInCounter: (ref) => `Tafadhali lipa kaunta na uwape namba ya oda yako, ${ref}.`,
+  nextDeliveryLink: () => "Mletaji akishaanza safari, tutakutumia kiungo cha kufuatilia mzigo wako.",
+  nextReady: (b) => `Timu ya ${b} itakujulisha ikiwa tayari.`,
+  nextContactDelivery: (b) => `Timu ya ${b} itawasiliana nawe hivi karibuni kuhusu usafirishaji.`,
+  nextTickets: (link, b) =>
+    `${link ? "Lipa kwa kiungo hicho, na tiketi zako" : `${b} wakishathibitisha malipo yako, tiketi zako`} zitakuja hapa WhatsApp, QR code moja kwa kila mtu.`,
+  confirmedInvoice: (ref, total, next) => `Asante! Oda ${ref} imethibitishwa. Hii ndiyo invoice yako ya ${total}. ${next}`,
+  confirmedTotal: (ref, total, next) => `Asante! Oda ${ref} imethibitishwa (jumla ${total}). ${next}`,
+  confirmedContact: (ref, total, b, withDelivery) =>
+    `Asante! Oda ${ref} imethibitishwa (jumla ${total}). Timu ya ${b} itawasiliana nawe hivi karibuni kuhusu malipo${withDelivery ? " na usafirishaji" : ""}.`,
+  paymentThanks: (ref, total, b) => `Malipo ya oda ${ref} (${total}) yamepokelewa. Asante kwa kuchagua ${b}!`,
+  pickupAtTable: (table) => `Tutakuletea kwenye ${table}.`,
+  pickupWhenReady: () => "Tutakutumia ujumbe ikiwa tayari kuchukuliwa.",
+  pickupShowQr: () => "Onyesha QR code ya risiti hii ukija kuchukua.",
+  pickupShowCode: (code) => `Onyesha ujumbe huu ukija kuchukua. Namba yako ni ${code}.`,
+  hereIsReceipt: () => "Hii ndiyo risiti yako:",
+  noProblem: () => "Hakuna shida. Nijulishe ukihitaji kitu kingine.",
+  cancelledQuote: (ref) => `Sawa, nimefuta bei ${ref}. Tuma ujumbe wakati wowote ukitaka mpya.`,
+  defaultHelp: (names) => `Ninaweza kukupa bei ya: ${names}. Niambie unachohitaji na idadi.`,
+};
+
+export const QUOTE_TEXTS: Record<Lang, QuoteTexts> = { en, fr, pcm, ha, sw };

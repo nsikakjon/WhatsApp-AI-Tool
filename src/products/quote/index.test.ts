@@ -1260,6 +1260,25 @@ describe("Hausa", () => {
   });
 });
 
+describe("Swahili", () => {
+  it("answers a Swahili customer in Swahili, with the price from the price list", async () => {
+    const { product, seen, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null, language: "sw" });
+    const reply = await product.handle(text("Habari, ni bei gani kwa business card 200?"), ctx);
+    expect(seen[0]?.language).toBe("sw");
+    expect(reply?.text).toContain("Hii ndiyo bei yako (KP-1001)");
+    expect(reply?.text).toContain("₦10,000");
+    expect(reply?.text).toContain("Jibu YES");
+    expect(orders[0]?.totalKobo).toBe(1_000_000);
+  });
+
+  it("welcomes a Swahili greeting in Swahili", async () => {
+    const { product } = setup({ intent: "other", items: [], message: null });
+    const hi = await product.handle(text("Habari"), ctx);
+    expect(hi?.buttons?.body).toContain("Karibu KahnPrints");
+    expect(hi?.buttons?.buttons.map((b) => b.title)).toEqual(["Pata bei", "Ongea na mtu"]);
+  });
+});
+
 describe("payment reminders", () => {
   it("reminds about a confirmed order with its total and how to pay, and not once it's paid", async () => {
     const { product, orders } = setup({ intent: "quote", items: [{ variantId: "v-card", quantity: 200 }], message: null });

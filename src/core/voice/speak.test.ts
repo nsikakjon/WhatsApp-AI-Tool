@@ -45,7 +45,7 @@ describe("voice replies", () => {
   it("asks Google for an OGG/Opus voice note", async () => {
     const fetch = vi.fn(async () => Response.json({ audioContent: Buffer.from("ogg").toString("base64") }));
     const audio = await createGoogleSpeaker({ apiKey: "k", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Bonjour", "fr");
-    expect(Buffer.from(audio).toString()).toBe("ogg");
+    expect(Buffer.from(audio!).toString()).toBe("ogg");
     const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
     expect(body).toMatchObject({ voice: { languageCode: "fr-FR", name: "fr-FR-Neural2-A" }, audioConfig: { audioEncoding: "OGG_OPUS" } });
   });
@@ -61,6 +61,18 @@ describe("voice replies", () => {
     expect(init.body).toContain("&lt;merci&gt; &amp; à bientôt");
     await createAzureSpeaker({ apiKey: "k", region: "westeurope", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Hello", "en");
     expect((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body).toContain('xml:lang="en-NG"');
+    await createAzureSpeaker({ apiKey: "k", region: "westeurope", fetch: fetch as unknown as typeof globalThis.fetch }).speak("Asante", "sw");
+    expect((fetch.mock.calls[2] as unknown as [string, RequestInit])[1].body).toContain('<voice name="sw-KE-ZuriNeural">');
+  });
+
+  it("answers a Swahili voice note in text only on Google, which has no Swahili voice", async () => {
+    const fetch = vi.fn(async () => Response.json({ audioContent: "b2dn" }));
+    const google = createGoogleSpeaker({ apiKey: "k", fetch: fetch as unknown as typeof globalThis.fetch });
+    const swahili = { name: "quote", handle: vi.fn(async () => ({ text: "Hii ndiyo bei yako (KP-1001):" })) };
+    const reply = await withVoiceReplies(swahili, { speaker: google, enabled: () => true }).handle({ ...voiceNote, text: "Habari, nataka flyers 100" }, ctx);
+    expect(reply?.text).toContain("Hii ndiyo bei yako");
+    expect(reply?.audio).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("reports an Azure failure so the text goes on its own", async () => {

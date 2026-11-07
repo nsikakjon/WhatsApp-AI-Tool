@@ -90,6 +90,7 @@ function menu(catalog: CatalogEntry[], lang: Lang): string {
     fr: ["Voici ce que nous proposons :", "(et plus : demandez à l'équipe)", "Répondez avec le numéro de l'article et la quantité, un par ligne. Par exemple : *1 x 100*"],
     pcm: ["See wetin we get:", "(and more: ask the team)", "Reply with the item number and how many, one for each line. Like: *1 x 100*"],
     ha: ["Ga abin da muke da shi:", "(da sauransu: ku tambayi ma'aikata)", "Ku amsa da lambar abu da yawansa, daya a kowane layi. Misali: *1 x 100*"],
+    sw: ["Hivi ndivyo tunavyouza:", "(na zaidi: uliza timu yetu)", "Jibu kwa namba ya bidhaa na idadi, moja kwa kila mstari. Kwa mfano: *1 x 100*"],
   }[lang];
   return [words[0], ...shown.map((c, i) => `${i + 1}. ${c.name}`), ...(catalog.length > shown.length ? [words[1]] : []), "", words[2]].join("\n");
 }
