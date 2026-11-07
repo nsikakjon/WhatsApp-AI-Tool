@@ -9,6 +9,7 @@ import type { Lang } from "../../core/i18n.js";
 import { fitWidth, flyerWords } from "./words.js";
 import { personLayer, renderCalendar, renderGala, renderSunflower, renderWhiteGold } from "./designs4.js";
 import { DESIGNS_7 } from "./designs7.js";
+import { DESIGNS_10 } from "./designs10.js";
 import { themeById, type Theme } from "./themes.js";
 
 // The fonts ship with the code (assets/fonts), so flyers look the same on
@@ -24,6 +25,10 @@ function loadFonts() {
   GlobalFonts.registerFromPath(`${fontDir}PlayfairDisplay-Bold.ttf`, "Playfair Display Bold");
   GlobalFonts.registerFromPath(`${fontDir}PlayfairDisplay-Black.ttf`, "Playfair Display Black");
   GlobalFonts.registerFromPath(`${fontDir}Pacifico-Regular.ttf`, "Pacifico");
+  GlobalFonts.registerFromPath(`${fontDir}Anton-Regular.ttf`, "Anton");
+  GlobalFonts.registerFromPath(`${fontDir}PermanentMarker-Regular.ttf`, "Permanent Marker");
+  GlobalFonts.registerFromPath(`${fontDir}Inter-Regular.otf`, "Inter");
+  GlobalFonts.registerFromPath(`${fontDir}Inter-ExtraBold.otf`, "Inter ExtraBold");
   fontsLoaded = true;
 }
 
@@ -69,13 +74,14 @@ export interface EventFlyerInput {
   style?: FlyerStyle;
 }
 
-/** The ready-made designs from designs4.ts and designs7.ts, by layout. They draw everything themselves. */
+/** The ready-made designs from designs4.ts, designs7.ts and designs10.ts, by layout. They draw everything themselves. */
 const READY_MADE = {
   gala: renderGala,
   sunflower: renderSunflower,
   whitegold: renderWhiteGold,
   calendar: renderCalendar,
   ...DESIGNS_7,
+  ...DESIGNS_10,
 };
 
 export async function renderBirthdayFlyer(input: BirthdayFlyerInput): Promise<Buffer> {
