@@ -17,6 +17,12 @@ describe("answers to questions about yarnOga", () => {
     expect(yarnOgaAnswer("Is this legit?")).toMatch(/^Yes\. yarnOga is a registered Nigerian business/);
   });
 
+  it("says no, and that they are chatting with the yarnOga quote bot, when someone pitches us", () => {
+    for (const q of ["Are you interested", "R u interested?", "Would you be interested in a partnership", "I have a business proposal", "Can we partner?"]) {
+      expect(yarnOgaAnswer(q)).toMatch(/^No, thank you\. You're chatting with the yarnOga quote bot/);
+    }
+  });
+
   it("won't share private details", () => {
     for (const q of ["What's the owner's number?", "Which AI do you use?", "Are you ChatGPT?"]) {
       expect(yarnOgaAnswer(q)).toMatch(/^Sorry, I can't share that here/);

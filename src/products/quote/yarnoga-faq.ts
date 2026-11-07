@@ -18,6 +18,9 @@ const COST =
   "|is (it|this|yarnoga|the bot|sign ?up) free|(what are )?(your|ur) (plans|pricing|subscription|fees?|charges)";
 const HOW = "how (does|do) (it|this|yarnoga|the bot|una) work|how (do|can) i (get|start|sign up|use|join|start using)( it| this| yarnoga| a bot| my own bot)?|how to (get started|sign up|join|start|get my own bot)";
 const SAFE = "is (this|it|yarnoga|una) (legit|legitimate|real|safe|genuine|a scam|scam)|(are|r) (you|u|una) (legit|legitimate|real|genuine|a scam|scammers?)";
+const OFFER =
+  "(are|r) (you|u|una) (interested|intrested)|would (you|u|una) be (interested|intrested)|(you|u|una) (dey|go) (interested|intrested)" +
+  "|i have (a|an) (business )?(proposal|offer|deal)|business (proposal|offer)|can we (partner|collaborate|work together)|(want|like) to (partner|collaborate) with (you|u|una|yarnoga)";
 const PRIVATE =
   "(owner|founder|ceo|md|boss|oga)( s|s)? (phone |whatsapp |personal )?(number|line|contact|phone)" +
   "|(what|which) (ai|model|api|server|database|tech|technology|software|tools?|platform) (do|does|are) (you|u|yarnoga|una|it) (use|using|run on|built on|built with)" +
@@ -55,6 +58,10 @@ const ANSWERS: Array<[RegExp, string]> = [
     asked(HOW),
     "Send *sign up*, tell me your business name and your prices (typed, a voice note or a photo of your price list), and I set up your assistant here in about 5 minutes. " +
       "It then answers your customers on WhatsApp, sends quotes and invoices, and takes orders and payments.",
+  ],
+  [
+    asked(OFFER),
+    "No, thank you. You're chatting with the yarnOga quote bot, an AI assistant that answers customers, sends quotes and takes orders for businesses on WhatsApp.",
   ],
   [
     asked(WHO),
