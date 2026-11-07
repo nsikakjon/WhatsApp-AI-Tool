@@ -1165,6 +1165,34 @@ describe("quote product with event tickets", () => {
   });
 });
 
+describe("Kenyan shillings", () => {
+  const cakes: Variant[] = [{ id: "v-cake", name: "Birthday cake: 1kg", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 250_000 }] }];
+
+  it("quotes in KSh from the price list and offers M-Pesa on the pay link", async () => {
+    const mem = memoryOrders();
+    let answer: Understanding = { intent: "quote", items: [{ variantId: "v-cake", quantity: 2 }], message: null, language: "sw" };
+    const product = createQuoteProduct({
+      businessName: "Mama Njeri Bakery",
+      orderPrefix: "MN",
+      ownerWaId: OWNER,
+      catalog: { activeVariants: async () => cakes },
+      orders: mem.store,
+      ai: { understand: async () => answer },
+      renderDocument: fakeDocuments().render,
+      payLink: async () => "https://checkout.flutterwave.com/v3/hosted/pay/mn",
+      currency: "KES",
+      log: { error() {} },
+    });
+    const quote = await product.handle(text("Habari, nataka keki mbili"), ctx);
+    expect(quote?.text).toContain("Hii ndiyo bei yako (MN-1001)");
+    expect(quote?.text).toContain("KSh 5,000");
+    expect(mem.orders[0]?.totalKobo).toBe(500_000);
+    answer = { intent: "confirm", items: [], message: null, language: "en" };
+    const confirmed = await product.handle(text("yes"), ctx);
+    expect(JSON.stringify(confirmed)).toContain("Pay online by M-Pesa or card: https://checkout.flutterwave.com/v3/hosted/pay/mn");
+  });
+});
+
 describe("French and CFA francs", () => {
   const cfa: Variant[] = [
     { id: "v-pagne", name: "Pagne: 6 yards", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_250_000 }] },

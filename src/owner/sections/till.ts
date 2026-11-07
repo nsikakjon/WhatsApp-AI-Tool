@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { mark } from "../../core/brand.js";
+import { moneyStyle } from "../../core/money.js";
 import { quoteLine } from "../../products/quote/pricing.js";
 import type { SectionContext } from "../index.js";
 import { doc, icon } from "../layout.js";
@@ -108,6 +109,7 @@ export function registerTill(app: Hono<Env>, ctx: SectionContext) {
       businessName: biz.name,
       userId: user.id,
       currency: biz.currency,
+      money: moneyStyle(biz.currency),
       barcodes: Boolean(biz.barcodes),
       paidBy: PAID_BY.map((p) => [p, PAID_BY_LABEL[p]]),
       items,
@@ -266,8 +268,10 @@ const TILL_SCRIPT = String.raw`(function () {
   }
   function money(m) {
     var whole = Math.floor(m / 100), rest = m % 100, pad = rest < 10 ? "0" + rest : String(rest);
-    if (!data || (data.currency !== "XOF" && data.currency !== "XAF")) return "₦" + String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (rest ? "." + pad : "");
-    return String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + (rest ? "," + pad : "") + " FCFA";
+    // Data saved on the phone before amounts carried their style is naira or CFA francs.
+    var cfa = data && (data.currency === "XOF" || data.currency === "XAF");
+    var st = (data && data.money) || (cfa ? { before: "", after: " FCFA", thousands: " ", decimal: "," } : { before: "₦", after: "", thousands: ",", decimal: "." });
+    return st.before + String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, st.thousands) + (rest ? st.decimal + pad : "") + st.after;
   }
   function today(at) { var d = new Date(at), n = new Date(); return d.toDateString() === n.toDateString(); }
   function save() {

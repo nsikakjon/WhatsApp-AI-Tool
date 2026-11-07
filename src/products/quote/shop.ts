@@ -4,7 +4,7 @@ import { compress } from "hono/compress";
 import { html, raw } from "hono/html";
 import { mark } from "../../core/brand.js";
 import type { Lang } from "../../core/i18n.js";
-import { formatMoney, type Currency } from "../../core/money.js";
+import { formatMoney, moneyStyle, type Currency } from "../../core/money.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { cleanHours, nextOpenText, openState, type OpeningHours } from "./about.js";
@@ -408,7 +408,7 @@ ${products.length > 0
   // The running total uses the price list's tiers exactly as pricing.ts does:
   // the best tier the quantity reaches, times the quantity. It's a guide for
   // the customer; the bot works out the real quote from the database.
-  const T = ${json({ intro: t.intro(b.name), picked: t.picked, before: t.beforeDelivery, priced: t.priced, currency: b.currency, wa: b.whatsappNumber })};
+  const T = ${json({ intro: t.intro(b.name), picked: t.picked, before: t.beforeDelivery, priced: t.priced, money: moneyStyle(b.currency), wa: b.whatsappNumber })};
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   const info = new Map();
@@ -421,7 +421,7 @@ ${products.length > 0
   const group = (n, sep) => String(n).replace(/\\B(?=(\\d{3})+(?!\\d))/g, sep);
   const money = (m) => {
     const whole = Math.floor(m / 100), rest = m % 100, cents = String(rest).padStart(2, "0");
-    return T.currency === "NGN" ? "₦" + group(whole, ",") + (rest ? "." + cents : "") : group(whole, "\\u00a0") + (rest ? "," + cents : "") + " FCFA";
+    return T.money.before + group(whole, T.money.thousands) + (rest ? T.money.decimal + cents : "") + T.money.after;
   };
   const unit = (i, n) => {
     let best = null;

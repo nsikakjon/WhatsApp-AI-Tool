@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Payment } from "../../core/payments/store.js";
-import { orderPayLinks, transactionFeeKobo, withOrderPayments } from "./paylinks.js";
+import { feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./paylinks.js";
 
 const payment = (purpose: Record<string, unknown>): Payment => ({
   id: "p1",
@@ -95,6 +95,23 @@ describe("order pay links", () => {
     });
     await link({ id: "o1", orderNumber: 1001, totalKobo: 5_000_000, lines: [] }, "2250712345678");
     expect(createLink).toHaveBeenCalledWith(expect.objectContaining({ currency: "XOF", subaccount: "RS_ABC123", platformFeeKobo: 80_000 }));
+  });
+
+  it("asks for a shilling link to a Kenyan business's Flutterwave subaccount, capped at KSh 200", async () => {
+    const createLink = vi.fn(async () => ({ url: "https://checkout.flutterwave.com/v3/hosted/pay/y", amountKobo: 2_000_000, promo: null }));
+    const link = orderPayLinks({
+      links: { createLink },
+      businessId: "b4",
+      businessName: "Mama Njeri Bakery",
+      orderPrefix: "MN",
+      subaccount: "RS_KE123",
+      currency: "KES",
+      feeBasisPoints: async () => 250,
+    });
+    await link({ id: "o2", orderNumber: 1001, totalKobo: 2_000_000, lines: [] }, "254712345678");
+    expect(createLink).toHaveBeenCalledWith(expect.objectContaining({ currency: "KES", subaccount: "RS_KE123", platformFeeKobo: 20_000 }));
+    expect(feeCapFeature("KES")).toBeNull();
+    expect(feeCapFeature("XAF")).toBe("transaction_fee_cap_cfa");
   });
 
   it("sends a courier fee to yarnOga in the split, with our fee on the business's part only", async () => {

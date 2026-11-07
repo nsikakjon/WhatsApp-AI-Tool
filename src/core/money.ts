@@ -23,56 +23,83 @@ export function formatNaira(kobo: number): string {
 
 /**
  * The currencies a business can price in. Amounts are always whole numbers of
- * the currency's hundredths (kobo for naira, centimes for CFA francs), so the
- * same integer columns and sums work for every currency.
+ * the currency's hundredths (kobo for naira, centimes for CFA francs, cents
+ * for shillings), so the same integer columns and sums work for every currency.
  *   NGN  Nigerian naira
  *   XOF  West African CFA franc (Senegal, Côte d'Ivoire, Benin, Togo, Mali, Burkina Faso, Niger, Guinea-Bissau)
  *   XAF  Central African CFA franc (Cameroon, Gabon, Congo, Chad, Central African Republic, Equatorial Guinea)
- * CFA francs have no coins below 1 franc, so CFA prices are whole francs.
+ *   KES  Kenyan shilling      UGX  Ugandan shilling      TZS  Tanzanian shilling
+ *   RWF  Rwandan franc        MWK  Malawian kwacha
+ * Only naira prices have kobo. Every other currency is priced in whole units
+ * (whole francs, shillings or kwacha), the way shops there price things.
  */
-export type Currency = "NGN" | "XOF" | "XAF";
-export const CURRENCIES: Currency[] = ["NGN", "XOF", "XAF"];
+export type Currency = "NGN" | "XOF" | "XAF" | "KES" | "UGX" | "TZS" | "RWF" | "MWK";
+export const CURRENCIES: Currency[] = ["NGN", "XOF", "XAF", "KES", "UGX", "TZS", "RWF", "MWK"];
 
 export function isCurrency(value: unknown): value is Currency {
-  return value === "NGN" || value === "XOF" || value === "XAF";
+  return typeof value === "string" && (CURRENCIES as string[]).includes(value);
 }
 
-/** The currency's sign or name as people write it next to a price: "₦" or "FCFA". */
+/** True for the two CFA francs, which are written the French way ("5 000 FCFA"). */
+export function isCfa(currency: Currency | PayCurrency): currency is "XOF" | "XAF" {
+  return currency === "XOF" || currency === "XAF";
+}
+
+// How East African amounts are written: the sign first, commas between thousands.
+const EAST_AFRICA: Record<string, { sign: string; en: string; fr: string }> = {
+  KES: { sign: "KSh", en: "Kenyan shillings", fr: "shillings kényans" },
+  UGX: { sign: "USh", en: "Ugandan shillings", fr: "shillings ougandais" },
+  TZS: { sign: "TSh", en: "Tanzanian shillings", fr: "shillings tanzaniens" },
+  RWF: { sign: "RWF", en: "Rwandan francs", fr: "francs rwandais" },
+  MWK: { sign: "MK", en: "kwacha", fr: "kwacha" },
+};
+
+/** The currency's sign as people write it next to a price: "₦", "FCFA", "KSh" and so on. */
 export function currencySign(currency: Currency): string {
-  return currency === "NGN" ? "₦" : "FCFA";
+  if (isCfa(currency)) return "FCFA";
+  return EAST_AFRICA[currency]?.sign ?? "₦";
 }
 
-/** The currency's name in a sentence, e.g. "fee in naira" or "frais en francs CFA". */
+/** The currency's name in a sentence, e.g. "fee in naira", "frais en francs CFA" or "Kenyan shillings". */
 export function currencyName(currency: Currency, lang: Lang = "en"): string {
-  if (currency === "NGN") return "naira";
-  return lang === "fr" ? "francs CFA" : "CFA francs";
+  if (isCfa(currency)) return lang === "fr" ? "francs CFA" : "CFA francs";
+  return EAST_AFRICA[currency]?.[lang === "fr" ? "fr" : "en"] ?? "naira";
 }
 
 /**
- * Formats an amount for display: 1250000 -> "₦12,500" in naira, and
+ * How a page's own script writes amounts: sign before or after, the thousands
+ * separator and the decimal mark. Matches formatMoney.
+ */
+export function moneyStyle(currency: Currency): { before: string; after: string; thousands: string; decimal: string } {
+  if (isCfa(currency)) return { before: "", after: "\u00a0FCFA", thousands: "\u00a0", decimal: "," };
+  const east = EAST_AFRICA[currency];
+  return { before: east ? `${east.sign} ` : "₦", after: "", thousands: ",", decimal: "." };
+}
+
+/**
+ * Formats an amount for display: 1250000 -> "₦12,500" in naira,
  * 500000 -> "5 000 FCFA" in CFA francs (the French way, with a space every
- * three digits and FCFA after the number).
+ * three digits and FCFA after the number) and 150000 -> "KSh 1,500" in
+ * Kenyan shillings.
  */
 export function formatMoney(minor: number, currency: Currency = "NGN"): string {
-  if (currency === "NGN") return formatNaira(minor);
+  if (!isCurrency(currency) || currency === "NGN") return formatNaira(minor);
   assertKobo(minor);
-  const francs = Math.floor(minor / 100);
+  const style = moneyStyle(currency);
+  const units = Math.floor(minor / 100);
   const rest = minor % 100;
-  // A non-breaking space keeps "5 000 FCFA" on one line.
-  const whole = francs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return `${whole}${rest ? `,${rest.toString().padStart(2, "0")}` : ""} FCFA`;
+  const whole = units.toString().replace(/\B(?=(\d{3})+(?!\d))/g, style.thousands);
+  return `${style.before}${whole}${rest ? `${style.decimal}${rest.toString().padStart(2, "0")}` : ""}${style.after}`;
 }
 
 /**
- * The currencies yarnOga's own plans can be paid in. Businesses price in a
- * Currency; a plan can also be paid in Ghana cedis, Kenyan, Ugandan or
- * Tanzanian shillings, Rwandan francs, Malawian kwacha or US dollars, at fixed
- * prices from the plan_prices table (migrations 0062 and 0074). Amounts are
- * hundredths here too (pesewas, cents).
+ * The currencies yarnOga's own plans can be paid in: any Currency, Ghana cedis
+ * or US dollars, at fixed prices from the plan_prices table (migrations 0062
+ * and 0074). Amounts are hundredths here too (pesewas, cents).
  */
-export type PayCurrency = Currency | "GHS" | "KES" | "RWF" | "UGX" | "TZS" | "MWK" | "USD";
+export type PayCurrency = Currency | "GHS" | "USD";
 
-const PAY_SIGN: Record<string, string> = { GHS: "GH₵", KES: "KSh ", RWF: "RWF ", UGX: "USh ", TZS: "TSh ", MWK: "MK ", USD: "$" };
+const PAY_SIGN: Record<string, string> = { GHS: "GH₵", USD: "$" };
 
 export function isPayCurrency(value: unknown): value is PayCurrency {
   return isCurrency(value) || (typeof value === "string" && value in PAY_SIGN);
@@ -113,8 +140,9 @@ export function payCurrencyFor(waId: string): PayCurrency {
 /**
  * A price typed by a person, in the business's currency, as whole hundredths:
  * "₦1,500" or "1500.50" in naira; "5 000", "5000 FCFA" or "5.000 F" in CFA
- * francs (whole francs only). Null for anything that isn't a plain amount,
- * including "15k", so a typo never becomes a price.
+ * francs; "KSh 1,500", "1500/=" or "1,500.00" in shillings, Rwandan francs or
+ * kwacha (whole units only outside naira). Null for anything that isn't a
+ * plain amount, including "15k", so a typo never becomes a price.
  */
 export function parseMoney(text: string, currency: Currency = "NGN"): number | null {
   if (currency === "NGN") {
@@ -123,10 +151,19 @@ export function parseMoney(text: string, currency: Currency = "NGN"): number | n
     if (!m) return null;
     return Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0"));
   }
+  if (isCfa(currency)) {
+    const clean = text
+      .replace(/\s*(f\s*cfa|fcfa|cfa|xof|xaf|francs?|f)\s*$/i, "")
+      .replace(/^\s*(fcfa|cfa|xof|xaf)\s*/i, "")
+      .replace(/[\s  .,']/g, "");
+    if (!/^\d{1,10}$/.test(clean)) return null;
+    return Number(clean) * 100;
+  }
   const clean = text
-    .replace(/\s*(f\s*cfa|fcfa|cfa|xof|xaf|francs?|f)\s*$/i, "")
-    .replace(/^\s*(fcfa|cfa|xof|xaf)\s*/i, "")
-    .replace(/[\s  .,']/g, "");
+    .replace(/^\s*(ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|sh)\.?\s*/i, "")
+    .replace(/\s*(\/=|\/-|ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|shillings?|francs?|kwacha)\s*$/i, "")
+    .replace(/\.0{1,2}$/, "")
+    .replace(/[\s,]/g, "");
   if (!/^\d{1,10}$/.test(clean)) return null;
   return Number(clean) * 100;
 }

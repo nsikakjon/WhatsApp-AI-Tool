@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { guessLanguage } from "./i18n.js";
-import { assertKobo, formatMoney, formatNaira, formatPayMoney, parseMoney, payCurrencyFor } from "./money.js";
+import { assertKobo, currencyName, formatMoney, formatNaira, formatPayMoney, parseMoney, payCurrencyFor } from "./money.js";
 
 describe("formatNaira", () => {
   it("shows whole naira with thousands separators", () => {
@@ -45,6 +45,28 @@ describe("currencies", () => {
     expect(parseMoney("3500F", "XAF")).toBe(350000);
     expect(parseMoney("15k", "XOF")).toBeNull();
     expect(parseMoney("₦1,500.50", "NGN")).toBe(150050);
+  });
+});
+
+describe("East African shop currencies", () => {
+  it("writes each one the way people there write prices", () => {
+    expect(formatMoney(150_000, "KES")).toBe("KSh 1,500");
+    expect(formatMoney(2_400_000, "UGX")).toBe("USh 24,000");
+    expect(formatMoney(350_000, "TZS")).toBe("TSh 3,500");
+    expect(formatMoney(950_000, "RWF")).toBe("RWF 9,500");
+    expect(formatMoney(500_000, "MWK")).toBe("MK 5,000");
+    expect(currencyName("KES")).toBe("Kenyan shillings");
+    expect(currencyName("RWF", "fr")).toBe("francs rwandais");
+  });
+
+  it("reads prices typed in whole shillings, francs or kwacha", () => {
+    expect(parseMoney("KSh 1,500", "KES")).toBe(150_000);
+    expect(parseMoney("1500/=", "KES")).toBe(150_000);
+    expect(parseMoney("1,500.00", "TZS")).toBe(150_000);
+    expect(parseMoney("24 000 USh", "UGX")).toBe(2_400_000);
+    expect(parseMoney("RWF 9500", "RWF")).toBe(950_000);
+    expect(parseMoney("1500.50", "KES")).toBeNull();
+    expect(parseMoney("15k", "MWK")).toBeNull();
   });
 });
 
