@@ -57,6 +57,18 @@ describe("sendNotice", () => {
     expect(sent[0].kind).toBe("template");
   });
 
+  it("emails a copy of notices to the alert numbers, even when WhatsApp fails", async () => {
+    const { store, whatsapp } = setup();
+    const emailed: string[] = [];
+    whatsapp.sendTemplate = async () => {
+      throw new Error("WhatsApp down");
+    };
+    const deps = { store, whatsapp, noticeTemplate: ownerAlert, emailCopy: { waIds: [alert.to], send: async (t: string) => void emailed.push(t) } };
+    await expect(sendNotice(deps, alert, "quotes")).rejects.toThrow("WhatsApp down");
+    await sendNotice(deps, { ...alert, to: "2348000000009" }, "flyer").catch(() => {});
+    expect(emailed).toEqual([alert.text]);
+  });
+
   it("prefers the notice's own template", async () => {
     const { store, whatsapp, sent } = setup();
     const own = { name: "order_update", language: "en", bodyParams: ["a", "b"] };

@@ -296,10 +296,21 @@ describe("loadConfig", () => {
       SENTRY_DSN: "https://abc@o1.ingest.sentry.io/42",
     }).alerts;
     expect(alerts.waId).toBe("2348012345678");
-    expect(alerts.email).toEqual({ apiKey: "re_x", to: "jay@example.com", from: "yarnOga alerts <alerts@yarnoga.com>" });
+    expect(alerts.email).toEqual({ apiKey: "re_x", to: "jay@example.com", from: "yarnOga alerts <alerts@updates.yarnoga.com>" });
     expect(alerts.sentry).toEqual({ dsn: "https://abc@o1.ingest.sentry.io/42", environment: "production" });
     expect(() => loadConfig({ ...base, ALERT_EMAIL: "jay@example.com" })).toThrow("RESEND_API_KEY");
     expect(() => loadConfig({ ...base, SENTRY_DSN: "nope" })).toThrow("SENTRY_DSN");
+  });
+
+  it("emails yarnOga's own alerts to SIGNUP_ALERT_EMAIL, with a Resend key", () => {
+    expect(loadConfig(base).signupAlertEmail).toBeUndefined();
+    expect(loadConfig({ ...base, SIGNUP_ALERT_EMAIL: "jay@example.com", RESEND_API_KEY: "re_x" }).signupAlertEmail).toEqual({
+      apiKey: "re_x",
+      to: "jay@example.com",
+      from: "yarnOga alerts <alerts@updates.yarnoga.com>",
+    });
+    expect(() => loadConfig({ ...base, SIGNUP_ALERT_EMAIL: "jay@example.com" })).toThrow("RESEND_API_KEY");
+    expect(() => loadConfig({ ...base, SIGNUP_ALERT_EMAIL: "jay", RESEND_API_KEY: "re_x" })).toThrow("SIGNUP_ALERT_EMAIL");
   });
 
   it("switches the compliance page on with a long password, and Dojah when both keys are set", () => {

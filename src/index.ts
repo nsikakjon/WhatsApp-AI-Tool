@@ -132,6 +132,7 @@ import { createPlanPrices, createSupabasePlanPriceLookup } from "./core/payments
 import { createSupabaseDiscounts } from "./products/quote/discounts.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
 import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
+import { emailedAlert } from "./core/email/alert-card.js";
 import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks, createPaystackTransfers } from "./core/payments/paystack.js";
@@ -764,12 +765,22 @@ const whatsapp = createWhatsAppClient({
   tokenFor: createConnectionTokens(supabase),
   marketingAccountFor: connectionAccounts && (async (id) => numberAccounts.get(id) ?? (await connectionAccounts(id))),
 });
+// Alerts to yarnOga's own numbers (new sign-ups, numbers to connect) are
+// emailed too (SIGNUP_ALERT_EMAIL): WhatsApp holds them back when that number
+// hasn't messaged the bot in a day.
+const emailCopy = config.signupAlertEmail
+  ? {
+      waIds: [config.quoteChatSignup?.alertWaId, config.quote?.ownerWaId].filter((id): id is string => Boolean(id)),
+      send: emailedAlert(resendEmail(config.signupAlertEmail), { imageBase: config.signupAlertEmail.imageBase }),
+    }
+  : undefined;
 // What notices (owner alerts and the like) are sent with.
 const outbox = {
   store,
   whatsapp,
   noticeTemplate: config.ownerAlertTemplate,
   defaultNumberId: config.whatsapp.phoneNumberId,
+  emailCopy,
 };
 
 // Problems reach Jay: every logged error goes to Sentry and (at most every
@@ -1243,6 +1254,7 @@ const app = createApp({
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
   seenAccount: config.marketingMessagesApi ? (number, account) => numberAccounts.set(number, account) : undefined,
   noticeTemplate: config.ownerAlertTemplate,
+  emailCopy,
   route: (msg) => {
     if (routes.site && msg.businessNumberId === siteConfig?.phoneNumberId) return routes.site;
     if (routes.leads && msg.businessNumberId === leadsConfig?.phoneNumberId) return routes.leads;
@@ -1364,7 +1376,7 @@ const app = createApp({
               displayNumber: async (id) => (await phoneDetails(fetch, config.whatsapp, id, config.whatsapp.accessToken)).displayNumber ?? null,
               register: (id, pin) => registerNumber(fetch, config.whatsapp, id, config.whatsapp.accessToken, pin),
             },
-            send: (to, text) => sendNotice({ store, whatsapp }, { to, text }, config.quoteChatSignup!.phoneNumberId),
+            send: (to, text) => sendNotice(outbox, { to, text }, config.quoteChatSignup!.phoneNumberId),
           }
         : undefined,
     }

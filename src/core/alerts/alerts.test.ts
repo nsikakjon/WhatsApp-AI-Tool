@@ -80,3 +80,4 @@ describe("sentry", () => {
     expect(frames[1]).toMatchObject({ function: "inner", lineno: 1, in_app: true });
   });
 });
+

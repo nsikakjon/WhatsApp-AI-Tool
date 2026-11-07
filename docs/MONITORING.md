@@ -71,6 +71,23 @@ missing. With an approved template they always arrive:
 An alert sent while the window is open still goes as a normal message, with
 its buttons and photos. Inside the template, line breaks become " · ".
 
+### yarnOga's own alerts by email
+
+Alerts to yarnOga itself (new sign-ups, a new SIM number to connect, renewals)
+go to `QUOTE_SIGNUP_ALERT_WA_ID`, else `QUOTE_OWNER_WA_ID`. To get a copy of
+each by email as well, whatever WhatsApp does with it, set on Railway:
+
+- `SIGNUP_ALERT_EMAIL` = the address to send them to
+- `RESEND_API_KEY` (already set for the welcome emails)
+- `ALERT_EMAIL_FROM` = `yarnOga alerts <alerts@updates.yarnoga.com>`, or
+  leave it empty. It must be on updates.yarnoga.com, the domain Resend has
+  verified; an address on plain yarnoga.com is refused.
+
+Each email is a yarnOga-branded card: the kind of alert, the business name,
+the key facts (what they sell, their WhatsApp, price list size, code, time),
+a "Message them on WhatsApp" button, then the alert word for word. The logo
+loads from PUBLIC_URL.
+
 When WhatsApp drops a message for any reason, the server log says so with
 WhatsApp's error code (131047 means the 24 hours had passed).
 
