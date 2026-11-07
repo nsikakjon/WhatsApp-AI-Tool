@@ -27,21 +27,21 @@ export interface EmailContent {
   button?: { label: string; href: string };
 }
 
-const INK = "#121400";
-const TEXT = "#1d211e";
-const MUTED = "#5b625c";
-const BG = "#ecebe3";
-const DARK = "#0a0d0b";
-const NEON = "#c6ff1f";
-const LEAF = "#3f8f16";
-const FOREST = "#0e3b2c";
-const FONT = "'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif";
-const HEAD = "'Chakra Petch','Schibsted Grotesk',Arial,sans-serif";
+export const INK = "#121400";
+export const TEXT = "#1d211e";
+export const MUTED = "#5b625c";
+export const BG = "#ecebe3";
+export const DARK = "#0a0d0b";
+export const NEON = "#c6ff1f";
+export const LEAF = "#3f8f16";
+export const FOREST = "#0e3b2c";
+export const FONT = "'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif";
+export const HEAD = "'Chakra Petch','Schibsted Grotesk',Arial,sans-serif";
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Escaped text with *bold* and links. */
-function inline(s: string): string {
+export function inline(s: string): string {
   return esc(s)
     .replace(/\*([^*\n]+)\*/g, "<b>$1</b>")
     .replace(/https?:\/\/[^\s<]+[^\s<.,)]/g, (url) => `<a href="${url}" style="color:${LEAF}">${url}</a>`);

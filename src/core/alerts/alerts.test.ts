@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAlerter, emailedAlert, watchErrors } from "./alerter.js";
+import { createAlerter, watchErrors } from "./alerter.js";
 import { createSentry, parseDsn, stackFrames } from "./sentry.js";
 
 describe("createAlerter", () => {
@@ -81,10 +81,3 @@ describe("sentry", () => {
   });
 });
 
-describe("emailedAlert", () => {
-  it("uses the first line as the subject and drops WhatsApp's bold marks", async () => {
-    const sent: [string, string][] = [];
-    await emailedAlert(async (subject, text) => void sent.push([subject, text]))("New sign-up: *Ada's Shop*\nOwner: +2348000000001");
-    expect(sent).toEqual([["yarnOga: New sign-up: Ada's Shop", "New sign-up: Ada's Shop\nOwner: +2348000000001"]]);
-  });
-});

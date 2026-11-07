@@ -49,7 +49,7 @@ export interface Config {
    * QUOTE_OWNER_WA_ID) is emailed here too, SIGNUP_ALERT_EMAIL. WhatsApp holds
    * them back when that number hasn't messaged the bot in a day.
    */
-  signupAlertEmail?: { apiKey: string; to: string; from: string };
+  signupAlertEmail?: { apiKey: string; to: string; from: string; imageBase?: string };
   /**
    * The owners' and staff web app at /home (OWNER_APP=true): dashboard, inbox,
    * orders, price list, delivery, posters, exports and settings for each
@@ -840,7 +840,8 @@ function signupAlertEmailSettings(env: NodeJS.ProcessEnv): Config["signupAlertEm
   if (!/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(to)) throw new Error(`SIGNUP_ALERT_EMAIL must be one email address (got "${to}")`);
   const apiKey = env.RESEND_API_KEY?.trim();
   if (!apiKey) throw new Error("SIGNUP_ALERT_EMAIL needs RESEND_API_KEY too (emails are sent through resend.com)");
-  return { apiKey, to, from: alertFrom(env) };
+  const base = env.PUBLIC_URL?.trim();
+  return { apiKey, to, from: alertFrom(env), imageBase: base ? `${publicUrl(base)}/email/img` : undefined };
 }
 
 /** Resend only sends from a verified domain, and ours is updates.yarnoga.com. */

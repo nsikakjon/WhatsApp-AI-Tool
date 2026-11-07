@@ -83,7 +83,10 @@ each by email as well, whatever WhatsApp does with it, set on Railway:
   leave it empty. It must be on updates.yarnoga.com, the domain Resend has
   verified; an address on plain yarnoga.com is refused.
 
-The first line of the alert becomes the email's subject.
+Each email is a yarnOga-branded card: the kind of alert, the business name,
+the key facts (what they sell, their WhatsApp, price list size, code, time),
+a "Message them on WhatsApp" button, then the alert word for word. The logo
+loads from PUBLIC_URL.
 
 When WhatsApp drops a message for any reason, the server log says so with
 WhatsApp's error code (131047 means the 24 hours had passed).

@@ -52,23 +52,14 @@ export function createAlerter(
 /** Email through Resend (free tier: 100 emails a day). */
 export function resendEmail(opts: { apiKey: string; from: string; to: string; fetch?: typeof fetch }) {
   const doFetch = opts.fetch ?? fetch;
-  return async (subject: string, text: string) => {
+  return async (subject: string, text: string, html?: string) => {
     const res = await doFetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: opts.from, to: [opts.to], subject, text }),
+      body: JSON.stringify({ from: opts.from, to: [opts.to], subject, text, ...(html ? { html } : {}) }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`Resend answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  };
-}
-
-/** Turns a WhatsApp alert into an email: its first line is the subject, without WhatsApp's *bold* marks. */
-export function emailedAlert(send: (subject: string, text: string) => Promise<void>) {
-  return (text: string) => {
-    const plain = text.replace(/\*([^*\n]+)\*/g, "$1").trim();
-    const first = plain.split("\n")[0].trim();
-    return send(`yarnOga: ${first.length > 90 ? `${first.slice(0, 89)}…` : first}`, plain);
   };
 }
 

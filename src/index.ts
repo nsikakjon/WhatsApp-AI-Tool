@@ -131,7 +131,8 @@ import { createSupabasePromoAdmin } from "./core/payments/promos.js";
 import { createPlanPrices, createSupabasePlanPriceLookup } from "./core/payments/plan-prices.js";
 import { createSupabaseDiscounts } from "./products/quote/discounts.js";
 import { createSupabaseReferrals, referralReply, rewardReferrer } from "./products/quote/referrals.js";
-import { createAlerter, emailedAlert, resendEmail, watchErrors } from "./core/alerts/alerter.js";
+import { createAlerter, resendEmail, watchErrors } from "./core/alerts/alerter.js";
+import { emailedAlert } from "./core/email/alert-card.js";
 import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks, createPaystackTransfers } from "./core/payments/paystack.js";
@@ -770,7 +771,7 @@ const whatsapp = createWhatsAppClient({
 const emailCopy = config.signupAlertEmail
   ? {
       waIds: [config.quoteChatSignup?.alertWaId, config.quote?.ownerWaId].filter((id): id is string => Boolean(id)),
-      send: emailedAlert(resendEmail(config.signupAlertEmail)),
+      send: emailedAlert(resendEmail(config.signupAlertEmail), { imageBase: config.signupAlertEmail.imageBase }),
     }
   : undefined;
 // What notices (owner alerts and the like) are sent with.
