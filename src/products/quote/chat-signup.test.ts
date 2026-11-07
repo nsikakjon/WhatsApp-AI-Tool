@@ -222,6 +222,14 @@ describe("chat sign-up on the quotes number", () => {
       expect((await say("I sell shoes")).buttons?.body).toMatch(/^For \*shoes\*/);
     });
 
+    it("says no to \"Are you interested\", without taking it as what they sell", async () => {
+      const { say } = guest();
+      await say("hi");
+      const reply = await say("Are you interested");
+      expect(reply.buttons?.body).toMatch(/^No, thank you\. You're chatting with the yarnOga quote bot/);
+      expect(reply.buttons?.body).not.toMatch(/For \*Are you interested\*/);
+    });
+
     it("sends the sign-up message after two messages in a row the shop can't use, once a day", async () => {
       const { say, nextDay } = guest();
       expect((await say("Okay")).text).toBe("Which item do you want?");
