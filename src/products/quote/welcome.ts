@@ -8,8 +8,8 @@ import type { Reply } from "../../core/product.js";
 // the business sells: the product cards when they're on, else the welcome.
 
 const GREETING =
-  /^(hi+|hello+|hel+o|hey+|hiya|howdy|yo|good (morning|afternoon|evening|day)|morning|evening|how far|how are you|sannu|sannu da zuwa|ina kwana|ina wuni|barka da (safiya|safe|rana|yamma|dare)|bonjour|bonsoir|salut|coucou|bjr|bsr|cc|allo|all[oô]|ça va|ca va)( (there|sir|ma|madam|boss|team|o|oh|all|monsieur|madame|à tous|a tous|l équipe))?$/;
-const HELP = /^(help|start|options|commands|what can you do|taimako|aide|démarrer|commencer|que pouvez vous faire)$/;
+  /^(hi+|hello+|hel+o|hey+|hiya|howdy|yo|good (morning|afternoon|evening|day)|morning|evening|how far|how are you|sannu|sannu da zuwa|ina kwana|ina wuni|barka da (safiya|safe|rana|yamma|dare)|habari|habari yako|habari za (asubuhi|mchana|jioni|leo)|hujambo|mambo|jambo|shikamoo|bonjour|bonsoir|salut|coucou|bjr|bsr|cc|allo|all[oô]|ça va|ca va)( (there|sir|ma|madam|boss|team|o|oh|all|monsieur|madame|à tous|a tous|l équipe))?$/;
+const HELP = /^(help|start|options|commands|what can you do|taimako|msaada|aide|démarrer|commencer|que pouvez vous faire)$/;
 const LIST =
   "(food |drinks? |bar |cocktail |lunch |dinner |breakfast |today s |todays |daily )?(menu|menus|specials|list)" +
   "|(price|product|drinks?|wine|cocktail|service|item)s? ?list|pricelist|prices|rates|rate ?card|tariffs?" +
@@ -17,10 +17,11 @@ const LIST =
   "|what (do|can) (you|u|una) (sell|have|offer|make)|what (you|u) (sell|have|got)|whats available|what s available" +
   "|wetin (you|u|una) (get|dey sell|sell|dey)" +
   "|jerin farashi|me (kuke|kuka|kake|kike) (sayarwa|siyarwa|da shi)|me ke akwai|me kuke da shi" +
+  "|orodha ya bei|bei zenu|bidhaa zenu|mnauza nini|mna nini|mnayo nini" +
   "|carte|la carte|liste des prix|liste de prix|vos prix|tarifs?|catalogue produits|vos produits|vos articles|qu est ce que vous vendez|que vendez vous";
 const CATALOGUE = new RegExp(
-  `^(abeg |please |pls |plz |kindly |don allah |dan allah |svp |s il vous plaît |s il vous plait )?((can|may) (i|we) (see|have|get) |(send|show|share|give|drop|i want|i need|i d like)( me| us)? |(envoyez|montrez|donnez)( moi| nous)? |je (veux|voudrais) (voir )?|(puis je|pouvez vous m envoyer) )?` +
-    `(your |ur |the |una |ya |a |la |le |les |votre |vos )?(${LIST})( please| pls| abeg| biko| don allah| svp| s il vous plaît| s il vous plait)?$`,
+  `^(abeg |please |pls |plz |kindly |don allah |dan allah |tafadhali |svp |s il vous plaît |s il vous plait )?((can|may) (i|we) (see|have|get) |(send|show|share|give|drop|i want|i need|i d like)( me| us)? |(envoyez|montrez|donnez)( moi| nous)? |je (veux|voudrais) (voir )?|(puis je|pouvez vous m envoyer) )?` +
+    `(your |ur |the |una |ya |a |la |le |les |votre |vos )?(${LIST})( please| pls| abeg| biko| don allah| tafadhali| svp| s il vous plaît| s il vous plait)?$`,
 );
 
 const PRODUCTS_SHOWN = 8;
@@ -59,6 +60,7 @@ export function customerWelcome(w: CustomerWelcome): Reply {
   if (w.lang === "fr") return frenchWelcome(w, products, first, firstName);
   if (w.lang === "pcm") return pidginWelcome(w, products, first, firstName);
   if (w.lang === "ha") return hausaWelcome(w, products, first, firstName);
+  if (w.lang === "sw") return swahiliWelcome(w, products, first, firstName);
   const example = first ? `${Math.max(first.minQuantity, 10)} ${productName(first.name)}` : "what you need";
   const body = [
     `Hi${firstName ? ` ${firstName}` : ""}! Welcome to ${w.businessName}.`,
@@ -150,6 +152,30 @@ function hausaWelcome(w: CustomerWelcome, products: string[], first: CustomerWel
     buttons: {
       body,
       buttons: [{ id: QUOTE_CHOICE, title: "Nemi farashi" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Yi magana da mutum" }] : [])],
+    },
+  };
+}
+
+function swahiliWelcome(w: CustomerWelcome, products: string[], first: CustomerWelcome["items"][number] | undefined, firstName: string | undefined): Reply {
+  const example = first ? `${productName(first.name)} ${Math.max(first.minQuantity, 10)}` : "unachohitaji";
+  const body = [
+    `Habari${firstName ? ` ${firstName}` : ""}! Karibu ${w.businessName}.`,
+    ...(products.length ? [`Tunauza: ${products.slice(0, PRODUCTS_SHOWN).join(", ")}${products.length > PRODUCTS_SHOWN ? " na zaidi" : ""}.`] : []),
+    "",
+    "Jinsi ya kuagiza:",
+    `1. Niambie unachohitaji na idadi, kwa mfano *${example}*${w.voiceNotes ? ". Unaweza kuandika au kutuma ujumbe wa sauti" : ""}.`,
+    "2. Nitakutumia bei pamoja na jumla.",
+    "3. Jibu *YES* kuagiza, au niambie nibadilishe nini. *Cancel* itafuta bei.",
+    ...(w.delivery ? ["4. Niambie tukuletee wapi, au sema *pickup* kama utakuja kuchukua."] : []),
+    ...(w.invoices ? [`${w.delivery ? 5 : 4}. Invoice yako itakuja hapa.`] : []),
+    "",
+    w.catalogue ? "Tuma *menu* kuona kila kitu tunachouza, na *help* kuona ujumbe huu tena." : "Tuma *help* wakati wowote kuona ujumbe huu tena.",
+  ].join("\n");
+  return {
+    text: "",
+    buttons: {
+      body,
+      buttons: [{ id: QUOTE_CHOICE, title: "Pata bei" }, ...(w.team ? [{ id: TEAM_CHOICE, title: "Ongea na mtu" }] : [])],
     },
   };
 }

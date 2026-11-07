@@ -1,20 +1,20 @@
 // Languages the bots speak. Each business (and flyer group) picks English or
 // French for its fixed messages, documents and flyers. A customer who writes
 // in another language gets answers in theirs when the AI (or the quick guess
-// below) can tell. Nigerian Pidgin ("pcm") and Hausa ("ha") are only ever
-// chat languages: invoices, receipts, flyers and messages to the owner stay in
-// the business's own language.
+// below) can tell. Nigerian Pidgin ("pcm"), Hausa ("ha") and Swahili ("sw")
+// are only ever chat languages: invoices, receipts, flyers and messages to the
+// owner stay in the business's own language.
 
-export type Lang = "en" | "fr" | "pcm" | "ha";
+export type Lang = "en" | "fr" | "pcm" | "ha" | "sw";
 /** The languages a business or flyer group can choose. */
 export const LANGS: Lang[] = ["en", "fr"];
 
-/** True for a language a business or group can choose (not Pidgin or Hausa, which follow the customer). */
+/** True for a language a business or group can choose (not Pidgin, Hausa or Swahili, which follow the customer). */
 export function isLang(value: unknown): value is Lang {
   return value === "en" || value === "fr";
 }
 
-/** The language for things that are written down: Pidgin and Hausa chats get English documents and flyers. */
+/** The language for things that are written down: Pidgin, Hausa and Swahili chats get English documents and flyers. */
 export function writtenLang(lang: Lang | undefined): "en" | "fr" {
   return lang === "fr" ? "fr" : "en";
 }
@@ -34,6 +34,10 @@ const PIDGIN =
 const HAUSA =
   /\b(sannu|barka da|ina kwana|ina wuni|yaya dai|nagode|na gode|mun gode|don allah|dan allah|nawa|farashin|kudin|ina so|ina son|ina bukata|muna so|muna son|akwai|ba matsala|shikenan|madalla|yanzu|gobe|zan biya|zan zo|zan karba|kuna da|kuke da|kuke sayarwa|guda|turo min|kawo min|aiko min|ranka ya dade)\b/i;
 
+// Swahili as people in Kenya, Tanzania and Uganda type it on WhatsApp.
+const SWAHILI =
+  /\b(habari|hujambo|mambo|jambo|shikamoo|asante|asanteni|tafadhali|karibu|ni bei gani|bei gani|bei yake|ngapi|kiasi gani|nataka|ninataka|naomba|nahitaji|ninahitaji|tunataka|mnauza|mnayo|kesho|sawa sawa|hakuna shida|hakuna matatizo|nitalipa|nimelipa|niletee|nitumie|vipande|ndiyo|hapana|samahani)\b/i;
+
 /**
  * A quick guess at the language of a short message, for replies made before
  * (or without) the AI, like the welcome. Null when it can't tell.
@@ -42,6 +46,7 @@ export function guessLanguage(text: string | null | undefined): Lang | null {
   if (!text) return null;
   const t = text.toLowerCase();
   if (HAUSA.test(t) || /[ɓɗƙƴ]/.test(t)) return "ha";
+  if (SWAHILI.test(t)) return "sw";
   if (PIDGIN.test(t)) return "pcm";
   const fr = FRENCH.test(t) || /[àâçéèêëîïôûùüÿœ]/.test(t);
   const en = ENGLISH.test(t);
@@ -52,5 +57,5 @@ export function guessLanguage(text: string | null | undefined): Lang | null {
 
 /** "fr" -> "French": for telling the AI which language to use. */
 export function languageName(lang: Lang): string {
-  return { en: "English", fr: "French", pcm: "Nigerian Pidgin", ha: "Hausa" }[lang];
+  return { en: "English", fr: "French", pcm: "Nigerian Pidgin", ha: "Hausa", sw: "Swahili" }[lang];
 }

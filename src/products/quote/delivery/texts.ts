@@ -1,7 +1,7 @@
 import type { Lang } from "../../../core/i18n.js";
 
 // Everything the delivery steps say, in English and French, and what the
-// customer sees in Nigerian Pidgin and Hausa too (riders and owners get English).
+// customer sees in Nigerian Pidgin, Hausa and Swahili too (riders and owners get English).
 // Amounts arrive already formatted in the business's currency; nothing here
 // works out money.
 
@@ -337,4 +337,18 @@ const ha: DeliveryTexts = {
   courierComing: (c, l, b, link) => `${c} ne zai kawo muku odarku ${l} daga ${b}.${link ? ` Ku bi diddiginta a nan: ${link}` : ""}`,
 };
 
-export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr, pcm, ha };
+const sw: DeliveryTexts = {
+  ...en,
+  confirmingFee: (b) => `${b} wanathibitisha gharama ya kukuletea hadi anwani yako. Utapata jumla mpya hapa hivi karibuni.`,
+  askAddress:
+    "Tukuletee wapi? Bonyeza *Send location* kutuma mahali ulipo, au andika anwani kamili pamoja na mtaa (mfano: Moi Avenue, Nairobi CBD). Jibu *PICKUP* kama utakuja kuchukua mwenyewe.",
+  collectFrom: (p) => `Sawa, utakuja kuchukua${p ? ` hapa:\n${p}` : "."}`,
+  tapConfirm: "Bonyeza *Confirm order* ili kuweka oda.",
+  tapConfirmOrChange: "Bonyeza *Confirm order* ili kuweka oda, au badilisha anwani.",
+  willConfirmFee: (b) => `Asante! ${b} watathibitisha gharama ya kukuletea hadi anwani hiyo na kukutumia jumla mpya hapa.`,
+  riderComing: (r, l, b, link) => `${r} atakuletea oda yako ${l} kutoka ${b}. Ifuatilie hapa: ${link}`,
+  deliveryCancelled: (l, b) => `Usafirishaji wa oda yako ${l} umesitishwa. ${b} watawasiliana nawe.`,
+  courierComing: (c, l, b, link) => `${c} atakuletea oda yako ${l} kutoka ${b}.${link ? ` Ifuatilie hapa: ${link}` : ""}`,
+};
+
+export const DELIVERY_TEXTS: Record<Lang, DeliveryTexts> = { en, fr, pcm, ha, sw };

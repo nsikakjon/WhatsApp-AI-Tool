@@ -114,7 +114,7 @@ export function flyerEmails(facts: (groupId: string) => Promise<FlyerEmailFacts 
                 ],
               },
               "Names typed all in small letters get their capitals when they're saved, so *amadi nnadozie* becomes *Amadi Nnadozie*. A name typed with capitals is kept exactly as you typed it, for names like *McDonald* or *Bakare-Ojo*.",
-              "If you'd rather chat in Pidgin or Hausa, send *pidgin* or *hausa* and the bot answers you in that language. Send *english* to switch back. The flyers themselves stay in English.",
+              "If you'd rather chat in Pidgin, Hausa or Swahili, send *pidgin*, *hausa* or *swahili* and the bot answers you in that language. Send *english* to switch back. The flyers themselves stay in English.",
             ],
           }),
       },

@@ -190,9 +190,9 @@ Le jour de chaque anniversaire, je vous envoie le flyer le matin, prêt à trans
 🇬🇧 Send *english* to use me in English.`;
 
 const helpText = (lang: Lang) => (lang === "fr" ? HELP_FR : HELP);
-// Pidgin and Hausa are optional: a message without them goes out in English.
-const tr = (lang: Lang, en: string, fr: string, pcm?: string, ha?: string) =>
-  lang === "fr" ? fr : lang === "pcm" ? (pcm ?? en) : lang === "ha" ? (ha ?? en) : en;
+// Pidgin, Hausa and Swahili are optional: a message without them goes out in English.
+const tr = (lang: Lang, en: string, fr: string, pcm?: string, ha?: string, sw?: string) =>
+  lang === "fr" ? fr : lang === "pcm" ? (pcm ?? en) : lang === "ha" ? (ha ?? en) : lang === "sw" ? (sw ?? en) : en;
 
 /**
  * French commands, turned into the English ones the bot reads, so French
@@ -601,7 +601,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     const done =
       edit === "original"
         ? tr(lang, `Back to ${m.name}'s photo as you sent it ✅`, `Retour à la photo de ${m.name} telle qu'envoyée ✅`)
-        : tr(lang, `Done ✅ Here's ${m.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${m.name} :`, `E don do ✅ See ${m.name} flyer now:`, `An gama ✅ Ga flyer din ${m.name} yanzu:`);
+        : tr(lang, `Done ✅ Here's ${m.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${m.name} :`, `E don do ✅ See ${m.name} flyer now:`, `An gama ✅ Ga flyer din ${m.name} yanzu:`, `Tayari ✅ Hii ndiyo flyer ya ${m.name} sasa:`);
     return photoSaved(done, saved, group, from);
   }
 
@@ -674,7 +674,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const caption = target.value(to);
       lastEvent.set(from, { ...event, caption });
       const flyer = await render.event({ photo: event.photo, caption, logo: await logoFor(group), style: await styleFor(group) });
-      return { text: tr(lang, "Done ✅ Here's the corrected flyer:", "C'est fait ✅ Voici le flyer corrigé :", "E don do ✅ See the correct flyer:", "An gama ✅ Ga flyer din da aka gyara:"), images: [{ data: flyer, mimeType: JPEG }] };
+      return { text: tr(lang, "Done ✅ Here's the corrected flyer:", "C'est fait ✅ Voici le flyer corrigé :", "E don do ✅ See the correct flyer:", "An gama ✅ Ga flyer din da aka gyara:", "Tayari ✅ Hii ndiyo flyer iliyorekebishwa:"), images: [{ data: flyer, mimeType: JPEG }] };
     }
 
     if (target.field === "group") {
@@ -704,7 +704,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     lastPhoto.set(from, member.id);
     lastEvent.delete(from);
     return {
-      text: tr(lang, `Done ✅ Here's ${member.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${member.name} :`, `E don do ✅ See ${member.name} flyer now:`, `An gama ✅ Ga flyer din ${member.name} yanzu:`),
+      text: tr(lang, `Done ✅ Here's ${member.name}'s flyer now:`, `C'est fait ✅ Voici le flyer de ${member.name} :`, `E don do ✅ See ${member.name} flyer now:`, `An gama ✅ Ga flyer din ${member.name} yanzu:`, `Tayari ✅ Hii ndiyo flyer ya ${member.name} sasa:`),
       images: [{ data: await birthdayFlyer(member, group), mimeType: JPEG }],
     };
   }
@@ -751,7 +751,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       .catch((err) => {
         log.error(`Import for ${group.name} failed:`, err);
         return sendLater({
-          text: tr(lang, "Sorry, the import stopped part-way. Send *members* to see who was saved, then try again.", "Désolé, l'import s'est arrêté en cours de route. Envoyez *membres* pour voir qui a été enregistré, puis réessayez.", "Sorry, the import stop for middle. Send *members* to see who don save, then try again.", "Yi hakuri, shigar da jerin ya tsaya a tsakiya. Ku turo *members* don ganin wadanda aka ajiye, sannan ku sake gwadawa."),
+          text: tr(lang, "Sorry, the import stopped part-way. Send *members* to see who was saved, then try again.", "Désolé, l'import s'est arrêté en cours de route. Envoyez *membres* pour voir qui a été enregistré, puis réessayez.", "Sorry, the import stop for middle. Send *members* to see who don save, then try again.", "Yi hakuri, shigar da jerin ya tsaya a tsakiya. Ku turo *members* don ganin wadanda aka ajiye, sannan ku sake gwadawa.", "Samahani, kupakia orodha kumesimama katikati. Tuma *members* kuona waliohifadhiwa, kisha jaribu tena."),
         });
       });
     opts.onBackground?.(work);
@@ -869,12 +869,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const m = found[0]!;
       const touched = await touchUp(picture);
       const member = await opts.store.saveMember(group.id, m.name, m.birthday, touched.photo, touched.original);
-      return photoSaved(tr(lang, `Photo saved for ${member.name} ✅`, `Photo enregistrée pour ${member.name} ✅`, `Photo don save for ${member.name} ✅`, `An ajiye hoton ${member.name} ✅`), member, group, from);
+      return photoSaved(tr(lang, `Photo saved for ${member.name} ✅`, `Photo enregistrée pour ${member.name} ✅`, `Photo don save for ${member.name} ✅`, `An ajiye hoton ${member.name} ✅`, `Picha ya ${member.name} imehifadhiwa ✅`), member, group, from);
     }
 
     if (/^logo$/i.test(caption)) {
       await opts.store.saveLogo(group.id, picture);
-      return { text: tr(lang, `Logo saved for ${group.name} ✅ It'll appear on every flyer from now on.`, `Logo enregistré pour ${group.name} ✅ Il apparaîtra désormais sur chaque flyer.`, `Logo don save for ${group.name} ✅ E go dey every flyer from now.`, `An ajiye logo din ${group.name} ✅ Zai fito a kowane flyer daga yanzu.`) };
+      return { text: tr(lang, `Logo saved for ${group.name} ✅ It'll appear on every flyer from now on.`, `Logo enregistré pour ${group.name} ✅ Il apparaîtra désormais sur chaque flyer.`, `Logo don save for ${group.name} ✅ E go dey every flyer from now.`, `An ajiye logo din ${group.name} ✅ Zai fito a kowane flyer daga yanzu.`, `Logo ya ${group.name} imehifadhiwa ✅ Itaonekana kwenye kila flyer kuanzia sasa.`) };
     }
 
     if (/^background$/i.test(caption)) {
@@ -891,17 +891,17 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
     if (/^(add|birthday)\b/i.test(caption)) {
       const parsed = parseAddCaption(caption);
       if (!parsed?.name) {
-        return { text: tr(lang, "Please put the name and birthday in the caption, like this:\nadd Ada Okafor, 14 March", "Mettez le nom et la date d'anniversaire dans la légende, comme ceci :\najouter Awa Diallo, 14 mars", "Abeg put the name and birthday for the caption, like this:\nadd Ada Okafor, 14 March", "Don Allah ku sa suna da ranar haihuwa a cikin caption, kamar haka:\nadd Aisha Bello, 14 March") };
+        return { text: tr(lang, "Please put the name and birthday in the caption, like this:\nadd Ada Okafor, 14 March", "Mettez le nom et la date d'anniversaire dans la légende, comme ceci :\najouter Awa Diallo, 14 mars", "Abeg put the name and birthday for the caption, like this:\nadd Ada Okafor, 14 March", "Don Allah ku sa suna da ranar haihuwa a cikin caption, kamar haka:\nadd Aisha Bello, 14 March", "Tafadhali weka jina na tarehe ya kuzaliwa kwenye caption, hivi:\nadd Amina Wanjiku, 14 March") };
       }
       if (!parsed.birthday) {
-        return { text: tr(lang, `I couldn't read the birthday for ${parsed.name}. Try a date like 14 March or 14/03.`, `Je n'arrive pas à lire la date d'anniversaire de ${parsed.name}. Essayez une date comme 14 mars ou 14/03.`, `I no fit read the birthday for ${parsed.name}. Try date like 14 March or 14/03.`, `Ban iya karanta ranar haihuwar ${parsed.name} ba. Ku gwada kwanan wata kamar 14 March ko 14/03.`) };
+        return { text: tr(lang, `I couldn't read the birthday for ${parsed.name}. Try a date like 14 March or 14/03.`, `Je n'arrive pas à lire la date d'anniversaire de ${parsed.name}. Essayez une date comme 14 mars ou 14/03.`, `I no fit read the birthday for ${parsed.name}. Try date like 14 March or 14/03.`, `Ban iya karanta ranar haihuwar ${parsed.name} ba. Ku gwada kwanan wata kamar 14 March ko 14/03.`, `Sikuweza kusoma tarehe ya kuzaliwa ya ${parsed.name}. Jaribu tarehe kama 14 March au 14/03.`) };
       }
       const full = await fullReply(group, parsed.name);
       if (full) return full;
       const touched = await touchUp(picture);
       const member = await opts.store.saveMember(group.id, parsed.name, parsed.birthday, touched.photo, touched.original);
       const saved = await photoSaved(
-        tr(lang, `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, `${member.name} est enregistré(e) 🎂 ${formatMonthDay(member.birthday, "fr")}. Voici un aperçu de son flyer :`, `${member.name} don save 🎂 ${formatMonthDay(member.birthday)}. See how their flyer go look:`, `An ajiye ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Ga yadda flyer din zai kasance:`),
+        tr(lang, `Saved ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Here's a preview of their flyer:`, `${member.name} est enregistré(e) 🎂 ${formatMonthDay(member.birthday, "fr")}. Voici un aperçu de son flyer :`, `${member.name} don save 🎂 ${formatMonthDay(member.birthday)}. See how their flyer go look:`, `An ajiye ${member.name} 🎂 ${formatMonthDay(member.birthday)}. Ga yadda flyer din zai kasance:`, `${member.name} amehifadhiwa 🎂 ${formatMonthDay(member.birthday)}. Hivi ndivyo flyer yake itakavyoonekana:`),
         member,
         group,
         from,
@@ -1008,7 +1008,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
 
     if (lower === "members" || lower === "list") {
       const members = await opts.store.members(group.id);
-      if (!members.length) return { text: `${tr(lang, `No members in ${group.name} yet.`, `Pas encore de membres dans ${group.name}.`, `No member dey ${group.name} yet.`, `Babu memba a ${group.name} tukuna.`)}\n\n${helpText(lang)}` };
+      if (!members.length) return { text: `${tr(lang, `No members in ${group.name} yet.`, `Pas encore de membres dans ${group.name}.`, `No member dey ${group.name} yet.`, `Babu memba a ${group.name} tukuna.`, `Bado hakuna wanachama kwenye ${group.name}.`)}\n\n${helpText(lang)}` };
       const lines = members
         .sort((a, b) => daysUntil(a.birthday, today) - daysUntil(b.birthday, today))
         .map((m) => `• ${m.name}${fr ? " : " : ": "}${formatMonthDay(m.birthday, lang)}`);
@@ -1022,7 +1022,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         .map((m) => ({ m, days: daysUntil(m.birthday, today) }))
         .filter((x) => x.days <= 30)
         .sort((a, b) => a.days - b.days);
-      if (!soon.length) return { text: tr(lang, `No birthdays in ${group.name} in the next 30 days.`, `Aucun anniversaire dans ${group.name} dans les 30 prochains jours.`, `No birthday for ${group.name} for the next 30 days.`, `Babu ranar haihuwa a ${group.name} cikin kwanaki 30 masu zuwa.`) };
+      if (!soon.length) return { text: tr(lang, `No birthdays in ${group.name} in the next 30 days.`, `Aucun anniversaire dans ${group.name} dans les 30 prochains jours.`, `No birthday for ${group.name} for the next 30 days.`, `Babu ranar haihuwa a ${group.name} cikin kwanaki 30 masu zuwa.`, `Hakuna siku ya kuzaliwa kwenye ${group.name} katika siku 30 zijazo.`) };
       const when = (d: number) =>
         fr ? (d === 0 ? "aujourd'hui 🎉" : d === 1 ? "demain" : `dans ${d} jours`) : d === 0 ? "today 🎉" : d === 1 ? "tomorrow" : `in ${d} days`;
       return {
@@ -1035,7 +1035,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const celebrants = (await opts.store.members(group.id)).filter((m) =>
         dates.some((d) => d.month === m.birthday.month && d.day === m.birthday.day),
       );
-      if (!celebrants.length) return { text: tr(lang, `No birthdays in ${group.name} today.`, `Aucun anniversaire dans ${group.name} aujourd'hui.`, `No birthday for ${group.name} today.`, `Babu ranar haihuwa a ${group.name} yau.`) };
+      if (!celebrants.length) return { text: tr(lang, `No birthdays in ${group.name} today.`, `Aucun anniversaire dans ${group.name} aujourd'hui.`, `No birthday for ${group.name} today.`, `Babu ranar haihuwa a ${group.name} yau.`, `Hakuna siku ya kuzaliwa kwenye ${group.name} leo.`) };
       const images = [];
       for (const m of celebrants) {
         const wish = await opts.wishes.write({ name: m.name, groupName: group.name, lang: writtenLang(lang) });
@@ -1063,7 +1063,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const found = findMember(await opts.store.members(group.id), remove[1]!);
       if (found.length !== 1) return { text: notFound(found, remove[1]!, lang) };
       await opts.store.removeMember(found[0]!.id);
-      return { text: tr(lang, `Removed ${found[0]!.name} from ${group.name}.`, `${found[0]!.name} a été retiré(e) de ${group.name}.`, `I don remove ${found[0]!.name} from ${group.name}.`, `Na cire ${found[0]!.name} daga ${group.name}.`) };
+      return { text: tr(lang, `Removed ${found[0]!.name} from ${group.name}.`, `${found[0]!.name} a été retiré(e) de ${group.name}.`, `I don remove ${found[0]!.name} from ${group.name}.`, `Na cire ${found[0]!.name} daga ${group.name}.`, `Nimemwondoa ${found[0]!.name} kwenye ${group.name}.`) };
     }
 
     const addAdmin = text.match(/^add (?:as |them as )?admins?(?:\s+(.+))?$/i);
@@ -1076,7 +1076,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             lang,
             "Please send their WhatsApp number, e.g. add admin 08012345678, or share their contact (📎 > Contact) and reply add admin.",
             "Envoyez son numéro WhatsApp, par exemple ajouter admin +225 07 12 34 56 78, ou partagez son contact (📎 > Contact) et répondez ajouter admin.",
-            "Abeg send their WhatsApp number, like add admin 08012345678, or share their contact (📎 > Contact) and reply add admin.", "Don Allah ku turo lambar WhatsApp dinsu, misali add admin 08012345678, ko ku tura contact dinsu (📎 > Contact) sannan ku amsa da add admin.",
+            "Abeg send their WhatsApp number, like add admin 08012345678, or share their contact (📎 > Contact) and reply add admin.", "Don Allah ku turo lambar WhatsApp dinsu, misali add admin 08012345678, ko ku tura contact dinsu (📎 > Contact) sannan ku amsa da add admin.", "Tafadhali tuma namba yake ya WhatsApp pamoja na msimbo wa nchi, mfano add admin +254712345678, au shiriki contact yake (📎 > Contact) kisha jibu add admin.",
           ),
         };
       }
@@ -1096,7 +1096,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           lang,
           `Done. ${who} can now manage ${group.name}. Ask them to send "hi" to this number so I can send them birthday flyers.`,
           `C'est fait. ${who} peut maintenant gérer ${group.name}. Demandez-lui d'envoyer « bonjour » à ce numéro pour que je puisse lui envoyer les flyers d'anniversaire.`,
-          `E don set. ${who} fit manage ${group.name} now. Tell dem make dem send "hi" to this number so I fit send dem birthday flyers.`, `An gama. Yanzu ${who} na iya kula da ${group.name}. Ku ce su turo "hi" zuwa wannan lambar don in iya tura musu flyers na ranar haihuwa.`,
+          `E don set. ${who} fit manage ${group.name} now. Tell dem make dem send "hi" to this number so I fit send dem birthday flyers.`, `An gama. Yanzu ${who} na iya kula da ${group.name}. Ku ce su turo "hi" zuwa wannan lambar don in iya tura musu flyers na ranar haihuwa.`, `Tayari. Sasa ${who} anaweza kusimamia ${group.name}. Mwambie atume "hi" kwa namba hii ili nimtumie flyers za siku za kuzaliwa.`,
         ),
       };
     }
@@ -1409,6 +1409,15 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         "Shikenan! Kowace safiyar ranar haihuwa, zan turo muku flyer din memban don ku tura wa group. Ku turo *help* kowane lokaci don ganin duk abin da zan iya yi, ko *support* don yin magana da mutum.",
       ].join("\n");
     }
+    if (lang === "sw") {
+      return [
+        "*Hatua ya 3 kati ya 3: ongeza wanachama wako.*",
+        "• Mmoja mmoja: tuma picha ya mwanachama na caption *add Amina Wanjiku, 14 March*",
+        "• Wote kwa pamoja (Standard plan na zaidi): bandika link ya Google Sheets, au tuma faili la CSV, lenye columns *Name*, *Birthday* na *Photo*",
+        "",
+        "Ni hayo tu! Kila asubuhi ya siku ya kuzaliwa, nitakutumia flyer ya mwanachama uitume kwenye group. Tuma *help* wakati wowote kuona yote ninayoweza kufanya, au *support* kuongea na mtu.",
+      ].join("\n");
+    }
     if (lang === "pcm") {
       return [
         "*Step 3 of 3: add your members.*",
@@ -1446,14 +1455,14 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         group,
         page,
         page === 1
-          ? `${lead}${tr(lang, "*Step 2 of 3: pick a design.* Here they are with your group's name on them. ", "*Étape 2 sur 3 : choisissez un modèle.* Les voici avec le nom de votre groupe. ", "*Step 2 of 3: pick design.* See dem with your group name for top. ", "*Mataki na 2 cikin 3: zabi design.* Ga su da sunan group dinku a kansu. ")}`
+          ? `${lead}${tr(lang, "*Step 2 of 3: pick a design.* Here they are with your group's name on them. ", "*Étape 2 sur 3 : choisissez un modèle.* Les voici avec le nom de votre groupe. ", "*Step 2 of 3: pick design.* See dem with your group name for top. ", "*Mataki na 2 cikin 3: zabi design.* Ga su da sunan group dinku a kansu. ", "*Hatua ya 2 kati ya 3: chagua design.* Hizi hapa zikiwa na jina la group yako. ")}`
           : "",
-        tr(lang, "Tap *Choose a design* to pick one, or reply with a number, e.g. *1*, or *skip* to keep design 1.", "Touchez *Choisir un modèle*, ou répondez avec un numéro, par exemple *1*, ou *passer* pour garder le modèle 1.", "Tap *Choose a design* to pick one, or reply with number, like *1*, or *skip* to keep design 1.", "Danna *Choose a design* don zaba, ko ku amsa da lamba, misali *1*, ko *skip* don ci gaba da design na 1."),
+        tr(lang, "Tap *Choose a design* to pick one, or reply with a number, e.g. *1*, or *skip* to keep design 1.", "Touchez *Choisir un modèle*, ou répondez avec un numéro, par exemple *1*, ou *passer* pour garder le modèle 1.", "Tap *Choose a design* to pick one, or reply with number, like *1*, or *skip* to keep design 1.", "Danna *Choose a design* don zaba, ko ku amsa da lamba, misali *1*, ko *skip* don ci gaba da design na 1.", "Bonyeza *Choose a design* kuchagua, au jibu kwa namba, mfano *1*, au *skip* kubaki na design 1."),
       );
     };
 
     if (step === "logo") {
-      if (skip) return step2(tr(lang, "No problem, you can send it later with the caption *logo*.\n\n", "Pas de souci, vous pourrez l'envoyer plus tard avec la légende *logo*.\n\n", "No wahala, you fit send am later with the caption *logo*.\n\n", "Ba matsala, kuna iya turo shi daga baya da caption *logo*.\n\n"));
+      if (skip) return step2(tr(lang, "No problem, you can send it later with the caption *logo*.\n\n", "Pas de souci, vous pourrez l'envoyer plus tard avec la légende *logo*.\n\n", "No wahala, you fit send am later with the caption *logo*.\n\n", "Ba matsala, kuna iya turo shi daga baya da caption *logo*.\n\n", "Hakuna shida, unaweza kuituma baadaye na caption *logo*.\n\n"));
       const isPicture = (msg.type === "image" || msg.type === "document") && msg.mediaId;
       if (!isPicture || !/^(logo)?$/i.test(text)) return null;
       const file = await ctx.downloadMedia(msg.mediaId!);
@@ -1461,7 +1470,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       await opts.store.saveLogo(group.id, { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
       const withLogo = (await opts.store.groupsForAdmin(msg.from)).find((g) => g.id === group.id) ?? group;
       group = withLogo;
-      return step2(tr(lang, "Logo saved ✅\n\n", "Logo enregistré ✅\n\n", "Logo don save ✅\n\n", "An ajiye logo ✅\n\n"));
+      return step2(tr(lang, "Logo saved ✅\n\n", "Logo enregistré ✅\n\n", "Logo don save ✅\n\n", "An ajiye logo ✅\n\n", "Logo imehifadhiwa ✅\n\n"));
     }
 
     if (skip) {
@@ -1489,7 +1498,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       text: tr(
         lang,
         `Design set to *${theme.label}* ✅ (change it any time with *design*)\n\n${setupDone()}`,
-        `Modèle choisi : *${theme.labelFr}* ✅ (changez-le quand vous voulez avec *design*)\n\n${setupDone("fr")}`, `Design don set to *${theme.label}* ✅ (change am anytime with *design*)\n\n${setupDone("pcm")}`, `An zabi design *${theme.label}* ✅ (kuna iya canza shi kowane lokaci da *design*)\n\n${setupDone("ha")}`,
+        `Modèle choisi : *${theme.labelFr}* ✅ (changez-le quand vous voulez avec *design*)\n\n${setupDone("fr")}`, `Design don set to *${theme.label}* ✅ (change am anytime with *design*)\n\n${setupDone("pcm")}`, `An zabi design *${theme.label}* ✅ (kuna iya canza shi kowane lokaci da *design*)\n\n${setupDone("ha")}`, `Design *${theme.label}* imechaguliwa ✅ (ibadilishe wakati wowote kwa *design*)\n\n${setupDone("sw")}`,
       ),
       images: [{ data: flyer, mimeType: JPEG }],
     };
@@ -1511,12 +1520,12 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       const who = msg.contactName ? `${msg.contactName} (${msg.from})` : msg.from;
       const isPicture = (msg.type === "image" || msg.type === "document") && !!msg.mediaId;
       // The group's language once there is one; before that, the language they write in.
-      // Someone who writes Pidgin or Hausa to an English group gets the same back; the flyers stay in English.
+      // Someone who writes Pidgin, Hausa or Swahili to an English group gets the same back; the flyers stay in English.
       const heard = guessLanguage(said);
       if (heard) spoken.set(msg.from, heard);
       let lang: Lang = groups[0]?.language ?? spoken.get(msg.from) ?? "en";
       const chat = spoken.get(msg.from);
-      if (lang === "en" && (chat === "pcm" || chat === "ha")) lang = chat;
+      if (lang === "en" && (chat === "pcm" || chat === "ha" || chat === "sw")) lang = chat;
 
       if (/^(?:language\s+)?(pidgin|pigin|naija|broken english)$/i.test(said)) {
         spoken.set(msg.from, "pcm");
@@ -1527,6 +1536,11 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         spoken.set(msg.from, "ha");
         if (groups[0]?.language === "fr") await opts.store.setStyle(groups[0].id, { language: "en" });
         return { text: "To shikenan, daga yanzu zan rika magana da ku cikin Hausa. Flyers dinku za su ci gaba da kasancewa cikin Turanci. Ku turo *english* don komawa." };
+      }
+      if (/^(?:language\s+)?(swahili|kiswahili)$/i.test(said)) {
+        spoken.set(msg.from, "sw");
+        if (groups[0]?.language === "fr") await opts.store.setStyle(groups[0].id, { language: "en" });
+        return { text: "Sawa, kuanzia sasa nitazungumza nawe kwa Kiswahili. Flyers zako zitaendelea kuwa kwa Kiingereza. Tuma *english* kurudi." };
       }
 
       // "français" / "english" switches the current group's language.
@@ -1562,8 +1576,8 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         await opts.store.setChatState(msg.from, null);
         return {
           text: groups.length
-            ? tr(lang, "OK, cancelled.", "D'accord, c'est annulé.", "Okay, I don cancel am.", "To, an soke.")
-            : tr(lang, "OK, cancelled. Message me any time to set up a group.", "D'accord, c'est annulé. Écrivez-moi quand vous voulez pour créer un groupe.", "Okay, I don cancel am. Message me anytime you wan set up group.", "To, an soke. Ku turo sako kowane lokaci kuke son kafa group."),
+            ? tr(lang, "OK, cancelled.", "D'accord, c'est annulé.", "Okay, I don cancel am.", "To, an soke.", "Sawa, imefutwa.")
+            : tr(lang, "OK, cancelled. Message me any time to set up a group.", "D'accord, c'est annulé. Écrivez-moi quand vous voulez pour créer un groupe.", "Okay, I don cancel am. Message me anytime you wan set up group.", "To, an soke. Ku turo sako kowane lokaci kuke son kafa group.", "Sawa, imefutwa. Nitumie ujumbe wakati wowote ukitaka kuanzisha group."),
         };
       }
       const support = text.match(/^(?:support|help me|talk to (?:a )?(?:person|human|someone)|agent|complain(?:t)?)\b[:\s]*([\s\S]*)$/i);
@@ -1571,13 +1585,13 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         const body = support ? support[1]!.trim() : text;
         if (!body) {
           await opts.store.setChatState(msg.from, { step: "support", groupId: groups[0]?.id ?? null });
-          return { text: tr(lang, "What do you need help with? Type your message and I'll pass it to a person on our team.", "En quoi puis-je vous aider ? Écrivez votre message et je le transmets à une personne de notre équipe.", "Wetin you need help with? Type your message, I go pass am to person for our team.", "Me kuke bukatar taimako a kai? Ku rubuta sakonku, zan mika shi ga wani a cikin ma'aikatanmu.") };
+          return { text: tr(lang, "What do you need help with? Type your message and I'll pass it to a person on our team.", "En quoi puis-je vous aider ? Écrivez votre message et je le transmets à une personne de notre équipe.", "Wetin you need help with? Type your message, I go pass am to person for our team.", "Me kuke bukatar taimako a kai? Ku rubuta sakonku, zan mika shi ga wani a cikin ma'aikatanmu.", "Unahitaji msaada gani? Andika ujumbe wako, nitaupeleka kwa mtu wa timu yetu.") };
         }
         await opts.store.setChatState(msg.from, null);
         const where = groups[0] ? ` (group: ${groups[0].name}, ${planOf(groups[0]).label} plan)` : "";
         log.info(`Support message from ...${msg.from.slice(-4)}`);
         return {
-          text: tr(lang, "Thanks, I've passed that to our team. They'll reply to you here.", "Merci, j'ai transmis votre message à notre équipe. Elle vous répondra ici.", "Thank you, I don pass am to our team. Dem go reply you here.", "Mun gode, na mika sakonku ga ma'aikatanmu. Za su amsa muku a nan."),
+          text: tr(lang, "Thanks, I've passed that to our team. They'll reply to you here.", "Merci, j'ai transmis votre message à notre équipe. Elle vous répondra ici.", "Thank you, I don pass am to our team. Dem go reply you here.", "Mun gode, na mika sakonku ga ma'aikatanmu. Za su amsa muku a nan.", "Asante, nimeupeleka kwa timu yetu. Watakujibu hapa."),
           notify: opts.owners.map((to) => ({
             to,
             text: `🆘 Support from ${who}${where}:\n${body}\n\nTo answer, send: reply ${msg.from} <your message>`,
@@ -1596,7 +1610,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             text: tr(
               lang,
               `What's your group called? Reply with its name as it should appear on the flyers, e.g. *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`,
-              `Comment s'appelle votre groupe ? Répondez avec son nom tel qu'il doit apparaître sur les flyers, par exemple *Promo 2010 Lycée Classique*.${groups.length ? " (Ou *annuler*.)" : ""}`, `Wetin be your group name? Reply with the name as e suppose show for the flyers, like *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`, `Menene sunan group dinku? Ku amsa da sunan kamar yadda zai fito a kan flyers, misali *ABU Zaria Class of 2010*.${groups.length ? " (Ko *cancel*.)" : ""}`,
+              `Comment s'appelle votre groupe ? Répondez avec son nom tel qu'il doit apparaître sur les flyers, par exemple *Promo 2010 Lycée Classique*.${groups.length ? " (Ou *annuler*.)" : ""}`, `Wetin be your group name? Reply with the name as e suppose show for the flyers, like *Unilag Class of 2010*.${groups.length ? " (Or *cancel*.)" : ""}`, `Menene sunan group dinku? Ku amsa da sunan kamar yadda zai fito a kan flyers, misali *ABU Zaria Class of 2010*.${groups.length ? " (Ko *cancel*.)" : ""}`, `Group yako inaitwa nani? Jibu kwa jina kama linavyopaswa kuonekana kwenye flyers, mfano *Alliance High School Class of 2010*.${groups.length ? " (Au *cancel*.)" : ""}`,
             ),
           };
         }
@@ -1612,7 +1626,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           trialNote = tr(
             lang,
             `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever comes first) you get every ${trialPlan.label} feature: all designs and colours, spreadsheet import and event flyers. No card needed. After that the group carries on free on the Free plan unless you upgrade.`,
-            `\n\n🎁 *Essai gratuit ${trialPlan.label} :* pendant ${opts.trial.days} jours (ou ${opts.trial.flyers} flyers, au premier des deux termes), vous avez tout ${trialPlan.label} : tous les modèles et couleurs, l'import de tableur et les flyers d'événement. Sans carte bancaire. Ensuite, le groupe continue gratuitement sur la formule Free, sauf si vous changez de formule.`, `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever one reach first) you go get every ${trialPlan.label} feature: all the designs and colours, spreadsheet import and event flyers. No card needed. After that, the group go continue free on the Free plan unless you upgrade.`, `\n\n🎁 *Gwajin ${trialPlan.label} kyauta:* na kwanaki ${opts.trial.days} masu zuwa (ko flyers ${opts.trial.flyers}, duk wanda ya fara cika) za ku sami duk abubuwan ${trialPlan.label}: duk designs da launuka, shigar da jeri daga spreadsheet da flyers na taro. Ba a bukatar kati. Bayan haka group din zai ci gaba kyauta a kan Free plan sai dai idan kun yi upgrade.`,
+            `\n\n🎁 *Essai gratuit ${trialPlan.label} :* pendant ${opts.trial.days} jours (ou ${opts.trial.flyers} flyers, au premier des deux termes), vous avez tout ${trialPlan.label} : tous les modèles et couleurs, l'import de tableur et les flyers d'événement. Sans carte bancaire. Ensuite, le groupe continue gratuitement sur la formule Free, sauf si vous changez de formule.`, `\n\n🎁 *Free ${trialPlan.label} trial:* for the next ${opts.trial.days} days (or ${opts.trial.flyers} flyers, whichever one reach first) you go get every ${trialPlan.label} feature: all the designs and colours, spreadsheet import and event flyers. No card needed. After that, the group go continue free on the Free plan unless you upgrade.`, `\n\n🎁 *Gwajin ${trialPlan.label} kyauta:* na kwanaki ${opts.trial.days} masu zuwa (ko flyers ${opts.trial.flyers}, duk wanda ya fara cika) za ku sami duk abubuwan ${trialPlan.label}: duk designs da launuka, shigar da jeri daga spreadsheet da flyers na taro. Ba a bukatar kati. Bayan haka group din zai ci gaba kyauta a kan Free plan sai dai idan kun yi upgrade.`, `\n\n🎁 *Jaribio la bure la ${trialPlan.label}:* kwa siku ${opts.trial.days} zijazo (au flyers ${opts.trial.flyers}, kipi kitakachotangulia) unapata kila kitu cha ${trialPlan.label}: designs na rangi zote, kupakia orodha kutoka spreadsheet na flyers za matukio. Hakuna haja ya kadi. Baada ya hapo group itaendelea bure kwenye Free plan usipofanya upgrade.`,
           );
         }
         await opts.store.setChatState(msg.from, { step: "logo", groupId: group.id });
@@ -1621,7 +1635,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
           text: tr(
             lang,
             `Created *${group.name}* ✅ You're its admin.${trialNote}\n\nThree quick steps to get it ready:\n\n*Step 1 of 3: your logo.* Send your group's logo as a picture. (Send it as a document to keep a see-through background.) No logo? Reply *skip*.`,
-            `*${group.name}* est créé ✅ Vous en êtes l'administrateur.${trialNote}\n\nTrois petites étapes pour le préparer :\n\n*Étape 1 sur 3 : votre logo.* Envoyez le logo du groupe en image. (En document pour garder un fond transparent.) Pas de logo ? Répondez *passer*.`, `*${group.name}* don ready ✅ Na you be the admin.${trialNote}\n\nThree quick steps to set am up:\n\n*Step 1 of 3: your logo.* Send your group logo as picture. (Send am as document if you wan keep see-through background.) No logo? Reply *skip*.`, `An kafa *${group.name}* ✅ Ku ne admin.${trialNote}\n\nMatakai uku masu sauki don shirya shi:\n\n*Mataki na 1 cikin 3: logo dinku.* Ku turo logo na group dinku a matsayin hoto. (Ku turo shi a matsayin document idan kuna son bangonsa ya kasance transparent.) Babu logo? Ku amsa da *skip*.`,
+            `*${group.name}* est créé ✅ Vous en êtes l'administrateur.${trialNote}\n\nTrois petites étapes pour le préparer :\n\n*Étape 1 sur 3 : votre logo.* Envoyez le logo du groupe en image. (En document pour garder un fond transparent.) Pas de logo ? Répondez *passer*.`, `*${group.name}* don ready ✅ Na you be the admin.${trialNote}\n\nThree quick steps to set am up:\n\n*Step 1 of 3: your logo.* Send your group logo as picture. (Send am as document if you wan keep see-through background.) No logo? Reply *skip*.`, `An kafa *${group.name}* ✅ Ku ne admin.${trialNote}\n\nMatakai uku masu sauki don shirya shi:\n\n*Mataki na 1 cikin 3: logo dinku.* Ku turo logo na group dinku a matsayin hoto. (Ku turo shi a matsayin document idan kuna son bangonsa ya kasance transparent.) Babu logo? Ku amsa da *skip*.`, `*${group.name}* imeundwa ✅ Wewe ndiye admin.${trialNote}\n\nHatua tatu fupi za kuiandaa:\n\n*Hatua ya 1 kati ya 3: logo yako.* Tuma logo ya group yako kama picha. (Itume kama document kama unataka mandharinyuma yake ibaki transparent.) Huna logo? Jibu *skip*.`,
           ),
           notify: isOwner
             ? undefined
@@ -1629,11 +1643,11 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         };
       }
 
-      const group = groups[0] && (lang === "pcm" || lang === "ha") ? { ...groups[0], language: lang } : groups[0];
+      const group = groups[0] && (lang === "pcm" || lang === "ha" || lang === "sw") ? { ...groups[0], language: lang } : groups[0];
       if (!group) {
         if (!isOwner && !opts.openSignup) {
           return {
-            text: tr(lang, "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.", "Bonjour ! Ce numéro crée des flyers d'anniversaire et d'événement pour les groupes WhatsApp. Demandez à l'administrateur de votre groupe de vous ajouter.", "Hello! This number dey make birthday and event flyers for WhatsApp groups. Ask your group admin make dem add you.", "Sannu! Wannan lambar tana yin flyers na ranar haihuwa da na taro don groups na WhatsApp. Ku roki admin na group dinku su saka ku."),
+            text: tr(lang, "Hello! This number makes birthday and event flyers for WhatsApp groups. Ask your group's admin to add you.", "Bonjour ! Ce numéro crée des flyers d'anniversaire et d'événement pour les groupes WhatsApp. Demandez à l'administrateur de votre groupe de vous ajouter.", "Hello! This number dey make birthday and event flyers for WhatsApp groups. Ask your group admin make dem add you.", "Sannu! Wannan lambar tana yin flyers na ranar haihuwa da na taro don groups na WhatsApp. Ku roki admin na group dinku su saka ku.", "Habari! Namba hii inatengeneza flyers za siku za kuzaliwa na matukio kwa groups za WhatsApp. Muombe admin wa group yako akuongeze."),
           };
         }
         await opts.store.setChatState(msg.from, { step: "name", groupId: null });
@@ -1645,6 +1659,11 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
         if (lang === "ha") {
           return {
             text: `Sannu! Ni ne ${opts.brandName} 🎉 Ina yin flyers na ranar haihuwa ga membobin group dinku na WhatsApp (tsofaffin dalibai, abokai, coci ko masallaci, wurin aiki), zan turo muku su kowace safiyar ranar haihuwa a shirye don ku tura, kuma zan saka logo na group dinku a kan hotunan taronku.\n\nKyauta ne ga groups masu mutane har ${planById("free").maxMembers}${trialPlan ? `, kuma sabbin groups na iya gwada duk abubuwan ${trialPlan.label} kyauta na kwanaki ${opts.trial!.days}, ba a bukatar kati` : ""} (ku turo *plans* don manyan groups). Kuna da tambaya? Ku turo *support*.\n\nMu kafa group dinku. *Menene sunansa?* Ku amsa da sunan, misali *ABU Zaria Class of 2010*.`,
+          };
+        }
+        if (lang === "sw") {
+          return {
+            text: `Habari! Mimi ni ${opts.brandName} 🎉 Ninatengeneza flyers za siku za kuzaliwa kwa wanachama wa group yako ya WhatsApp (wanafunzi wa zamani, marafiki, kanisa au msikiti, kazini), nakutumia kila asubuhi ya siku ya kuzaliwa tayari kutuma, na naweka logo ya group yako kwenye picha za matukio yenu.\n\nNi bure kwa groups zenye watu hadi ${planById("free").maxMembers}${trialPlan ? `, na groups mpya zinajaribu kila kitu cha ${trialPlan.label} bure kwa siku ${opts.trial!.days}, bila kadi` : ""} (tuma *plans* kwa groups kubwa). Una swali? Tuma *support*.\n\nTuanzishe group yako. *Inaitwa nani?* Jibu kwa jina lake, mfano *Alliance High School Class of 2010*.`,
           };
         }
         if (lang === "pcm") {
@@ -1673,7 +1692,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             text: tr(
               lang,
               "Please send a photo (JPG or PNG), or a member list as a CSV file. From Excel or Google Sheets: File > Download > CSV.",
-              "Envoyez une photo (JPG ou PNG), ou une liste de membres en fichier CSV. Depuis Excel ou Google Sheets : Fichier > Télécharger > CSV.", "Abeg send photo (JPG or PNG), or member list as CSV file. From Excel or Google Sheets: File > Download > CSV.", "Don Allah ku turo hoto (JPG ko PNG), ko jerin membobi a matsayin fayil na CSV. Daga Excel ko Google Sheets: File > Download > CSV.",
+              "Envoyez une photo (JPG ou PNG), ou une liste de membres en fichier CSV. Depuis Excel ou Google Sheets : Fichier > Télécharger > CSV.", "Abeg send photo (JPG or PNG), or member list as CSV file. From Excel or Google Sheets: File > Download > CSV.", "Don Allah ku turo hoto (JPG ko PNG), ko jerin membobi a matsayin fayil na CSV. Daga Excel ko Google Sheets: File > Download > CSV.", "Tafadhali tuma picha (JPG au PNG), au orodha ya wanachama kama faili la CSV. Kutoka Excel au Google Sheets: File > Download > CSV.",
             ),
           };
         }
@@ -1682,7 +1701,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
       if (msg.sharedContacts?.length) {
         const card = msg.sharedContacts[0]!;
         const number = card.phone ? normalizeNumber(card.phone) : null;
-        if (!number) return { text: tr(lang, "That contact has no phone number I can use. Send add admin and their number instead.", "Ce contact n'a pas de numéro utilisable. Envoyez plutôt ajouter admin et son numéro.", "That contact no get phone number wey I fit use. Send add admin and their number instead.", "Wannan contact din ba shi da lambar waya da zan iya amfani da ita. Ku turo add admin da lambarsu maimakon haka.") };
+        if (!number) return { text: tr(lang, "That contact has no phone number I can use. Send add admin and their number instead.", "Ce contact n'a pas de numéro utilisable. Envoyez plutôt ajouter admin et son numéro.", "That contact no get phone number wey I fit use. Send add admin and their number instead.", "Wannan contact din ba shi da lambar waya da zan iya amfani da ita. Ku turo add admin da lambarsu maimakon haka.", "Contact hii haina namba ya simu ninayoweza kutumia. Tuma add admin na namba yake badala yake.") };
         sharedCard.set(msg.from, { name: card.name, number });
         const who = card.name ? `${card.name} (${number})` : number;
         return {
@@ -1690,7 +1709,7 @@ export function createFlyerBot(opts: FlyerBotOptions): FlyerBot {
             lang,
             `Got ${who}. Reply *add admin* to let them manage ${group.name}.`,
             `J'ai bien ${who}. Répondez *ajouter admin* pour qu'il ou elle gère ${group.name}.`,
-            `I don see ${who}. Reply *add admin* make dem fit manage ${group.name}.`, `Na ga ${who}. Ku amsa da *add admin* don su iya kula da ${group.name}.`,
+            `I don see ${who}. Reply *add admin* make dem fit manage ${group.name}.`, `Na ga ${who}. Ku amsa da *add admin* don su iya kula da ${group.name}.`, `Nimemwona ${who}. Jibu *add admin* ili aweze kusimamia ${group.name}.`,
           ),
         };
       }
