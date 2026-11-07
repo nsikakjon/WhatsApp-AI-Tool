@@ -36,7 +36,7 @@ export interface Design7Input extends DesignInput {
 }
 
 /** "14 October" -> day 14, month 9; anything unreadable falls back to 1 January. */
-function dateOf(label: string) {
+export function dateOf(label: string) {
   return parseDate(label) ?? { day: 1, month: 0 };
 }
 
@@ -45,7 +45,7 @@ function firstName(name: string): string {
 }
 
 /** The group logo in a box, keeping its shape. */
-async function drawLogo(ctx: Ctx, logo: Uint8Array | undefined, x: number, y: number, max: number, align: "left" | "right" | "center" = "left") {
+export async function drawLogo(ctx: Ctx, logo: Uint8Array | undefined, x: number, y: number, max: number, align: "left" | "right" | "center" = "left") {
   if (!logo) return;
   const img = await loadImage(logo);
   const s = Math.min(max / img.width, max / img.height);
@@ -65,7 +65,7 @@ async function standing(ctx: Ctx, input: DesignInput, x: number, y: number, w: n
   }
 }
 
-function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
