@@ -21,6 +21,15 @@ const SAFE = "is (this|it|yarnoga|una) (legit|legitimate|real|safe|genuine|a sca
 const OFFER =
   "(are|r) (you|u|una) (interested|intrested)|would (you|u|una) be (interested|intrested)|(you|u|una) (dey|go) (interested|intrested)" +
   "|i have (a|an) (business )?(proposal|offer|deal)|business (proposal|offer)|can we (partner|collaborate|work together)|(want|like) to (partner|collaborate) with (you|u|una|yarnoga)";
+const BEGGING =
+  "(send|give|dash|borrow|lend|loan) me (some |small )?(money|cash|airtime|data|recharge card|something|1k|2k|5k|10k)|(send|give|dash|borrow|lend|loan) me$|dash me" +
+  "|help me (with )?(some |small )?(money|cash|transport fare|transport|airtime|data|food|school fees|rent|hospital bill)|(help|assist) me financially" +
+  "|i need (some |small )?(money|cash|financial help|financial assistance|financial support)";
+const SCAM =
+  "porn|porno|xxx|nudes|sex (chat|video|videos)|hook ?up|onlyfans" +
+  "|betting|bet9ja|sportybet|1xbet|betking|sure odds|booking code" +
+  "|crypto|bitcoin|btc|usdt|forex|binary options|double your money|investment (plan|platform)" +
+  "|lottery|jackpot|(you|u) (have |ve )?(just )?won (a |an |the )?(prize|reward|cash|money|jackpot|gift|phone|iphone|\\d)|claim (your |the )?(reward|prize|gift|bonus|winnings)";
 const PRIVATE =
   "(owner|founder|ceo|md|boss|oga)( s|s)? (phone |whatsapp |personal )?(number|line|contact|phone)" +
   "|(what|which) (ai|model|api|server|database|tech|technology|software|tools?|platform) (do|does|are) (you|u|yarnoga|una|it) (use|using|run on|built on|built with)" +
@@ -28,6 +37,18 @@ const PRIVATE =
 
 const plain = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 const asked = (pattern: string) => new RegExp(`(^|\\b)(${pattern})(\\b|$)`);
+
+/** Spam and begging get a short no. Checked on long messages too, since spam often is. */
+const REFUSALS: Array<[RegExp, string]> = [
+  [
+    asked(SCAM),
+    "No, thank you. I don't open links or take part in adult, betting, crypto, lottery or reward offers. You're chatting with the yarnOga quote bot, which helps businesses answer customers, send quotes and take orders on WhatsApp.",
+  ],
+  [
+    asked(BEGGING),
+    "Sorry, I can't help with money, airtime or gifts. You're chatting with the yarnOga quote bot, which helps businesses answer customers, send quotes and take orders on WhatsApp.",
+  ],
+];
 
 const ANSWERS: Array<[RegExp, string]> = [
   [
@@ -72,6 +93,9 @@ const ANSWERS: Array<[RegExp, string]> = [
 /** The fixed answer to a question about yarnOga, or null when the message isn't one. */
 export function yarnOgaAnswer(text: string): string | null {
   const words = plain(text);
-  if (!words || words.length > 120) return null;
+  if (!words) return null;
+  const refusal = REFUSALS.find(([pattern]) => pattern.test(words))?.[1];
+  if (refusal) return refusal;
+  if (words.length > 120) return null;
   return ANSWERS.find(([pattern]) => pattern.test(words))?.[1] ?? null;
 }

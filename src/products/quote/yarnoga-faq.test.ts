@@ -23,6 +23,23 @@ describe("answers to questions about yarnOga", () => {
     }
   });
 
+  it("says no to spam links and offers", () => {
+    for (const q of [
+      "Hot girls waiting for you 🔥 click https://xxx-chat.example/join",
+      "Join our betting group, sure odds daily: https://t.me/odds",
+      "Invest in crypto and double your money in 7 days",
+      "Congratulations! You have won N500,000 in the MTN lottery. Click this link to claim your reward",
+    ]) {
+      expect(yarnOgaAnswer(q)).toMatch(/^No, thank you\. I don't open links/);
+    }
+  });
+
+  it("says sorry to requests for money", () => {
+    for (const q of ["Please send me money for transport", "Abeg dash me something", "Help me with airtime", "I need financial help"]) {
+      expect(yarnOgaAnswer(q)).toMatch(/^Sorry, I can't help with money, airtime or gifts\./);
+    }
+  });
+
   it("won't share private details", () => {
     for (const q of ["What's the owner's number?", "Which AI do you use?", "Are you ChatGPT?"]) {
       expect(yarnOgaAnswer(q)).toMatch(/^Sorry, I can't share that here/);
@@ -30,7 +47,7 @@ describe("answers to questions about yarnOga", () => {
   });
 
   it("leaves shop questions and orders to the shop", () => {
-    for (const q of ["How much is it?", "Do you have mugs?", "20 T-shirts", "Is delivery free?", "What do you sell?", "hi"]) {
+    for (const q of ["How much is it?", "Do you have mugs?", "20 T-shirts", "Is delivery free?", "What do you sell?", "hi", "I won't be home, send it to my office", "Help me print 50 flyers"]) {
       expect(yarnOgaAnswer(q)).toBeNull();
     }
   });
