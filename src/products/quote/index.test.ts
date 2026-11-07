@@ -318,6 +318,21 @@ describe("quote product", () => {
     expect(reply?.text).toContain("I can give you a quote for: Flyers, Business cards, DTF transfers");
   });
 
+  it("says no to spam and requests for money in the shop's name, without the AI", async () => {
+    const { product, seen } = setup({ intent: "other", items: [], message: "unused" });
+    const spam = await product.handle(text("Congratulations! You have won N500,000. Click the link to claim your reward"), ctx);
+    expect(spam?.text).toMatch(/^No, thank you\. I don't open links.*You're chatting with the KahnPrints WhatsApp assistant/);
+    const begging = await product.handle(text("Please send me money for transport"), ctx);
+    expect(begging?.text).toMatch(/^Sorry, I can't help with money, airtime or gifts\. You're chatting with the KahnPrints WhatsApp assistant/);
+    expect((await product.handle(text("Abeg dash me something"), ctx))?.text).toMatch(/^Sorry, I no fit help with money/);
+    expect([spam?.stage, begging?.stage]).toEqual(["unclear", "unclear"]);
+    expect(seen).toEqual([]);
+
+    // A message that names something the shop sells is an order, not begging.
+    await product.handle(text("Give me something nice, 100 flyers"), ctx);
+    expect(seen).toHaveLength(1);
+  });
+
   it("falls back politely when the AI fails", async () => {
     const { product } = setup(new Error("timeout"));
     expect((await product.handle(text("do you open on sundays"), ctx))?.text).toContain("Sorry, I didn't catch that");
