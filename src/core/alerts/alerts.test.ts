@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAlerter, watchErrors } from "./alerter.js";
+import { createAlerter, emailedAlert, watchErrors } from "./alerter.js";
 import { createSentry, parseDsn, stackFrames } from "./sentry.js";
 
 describe("createAlerter", () => {
@@ -78,5 +78,13 @@ describe("sentry", () => {
     const frames = stackFrames("Error: x\n    at inner (/app/dist/a.js:1:2)\n    at /app/node_modules/b.js:3:4");
     expect(frames[0]).toMatchObject({ filename: "/app/node_modules/b.js", in_app: false });
     expect(frames[1]).toMatchObject({ function: "inner", lineno: 1, in_app: true });
+  });
+});
+
+describe("emailedAlert", () => {
+  it("uses the first line as the subject and drops WhatsApp's bold marks", async () => {
+    const sent: [string, string][] = [];
+    await emailedAlert(async (subject, text) => void sent.push([subject, text]))("New sign-up: *Ada's Shop*\nOwner: +2348000000001");
+    expect(sent).toEqual([["yarnOga: New sign-up: Ada's Shop", "New sign-up: Ada's Shop\nOwner: +2348000000001"]]);
   });
 });

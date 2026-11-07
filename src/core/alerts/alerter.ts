@@ -63,6 +63,15 @@ export function resendEmail(opts: { apiKey: string; from: string; to: string; fe
   };
 }
 
+/** Turns a WhatsApp alert into an email: its first line is the subject, without WhatsApp's *bold* marks. */
+export function emailedAlert(send: (subject: string, text: string) => Promise<void>) {
+  return (text: string) => {
+    const plain = text.replace(/\*([^*\n]+)\*/g, "$1").trim();
+    const first = plain.split("\n")[0].trim();
+    return send(`yarnOga: ${first.length > 90 ? `${first.slice(0, 89)}…` : first}`, plain);
+  };
+}
+
 /**
  * Every console.error also goes to Sentry and, at most every 30 minutes, to
  * Jay. All the code already logs its failures with console.error, so this

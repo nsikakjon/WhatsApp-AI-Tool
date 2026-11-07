@@ -87,6 +87,8 @@ export interface NoticeDeps {
   noticeTemplate?: { name: string; language: string };
   /** The number that sends when no other is named, so its 24 hours are the ones checked. */
   defaultNumberId?: string;
+  /** Notices to these numbers are emailed too, since WhatsApp can hold them back (SIGNUP_ALERT_EMAIL). */
+  emailCopy?: { waIds: string[]; send(text: string): Promise<void> };
 }
 
 /**
@@ -96,6 +98,9 @@ export interface NoticeDeps {
  * template, or else its text inside the general notice template.
  */
 export async function sendNotice(deps: NoticeDeps, note: Notice, fromNumberId?: string): Promise<void> {
+  if (note.text && deps.emailCopy?.waIds.includes(note.to)) {
+    await deps.emailCopy.send(note.text).catch((err) => console.warn(`Couldn't email a copy of the alert to ...${note.to.slice(-4)}:`, String(err)));
+  }
   const template =
     note.template ?? (deps.noticeTemplate && note.text ? { ...deps.noticeTemplate, bodyParams: [asTemplateValue(note.text)] } : undefined);
   if (template && !(await canMessageFreely(deps.store, note.to, fromNumberId ?? deps.defaultNumberId))) {

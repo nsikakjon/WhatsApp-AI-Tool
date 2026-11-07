@@ -6,7 +6,7 @@ import type { Transcriber } from "../voice/transcribe.js";
 import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
 import type { OutgoingButtons, WhatsAppClient } from "./client.js";
-import { canMessageFreely, sendImageAndRecord, sendNotice } from "./outbox.js";
+import { canMessageFreely, sendImageAndRecord, sendNotice, type NoticeDeps } from "./outbox.js";
 import { extractFailedDeliveries, extractMessages, extractNumberAccounts, extractOwnerReplies } from "./parse.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
@@ -26,6 +26,8 @@ export interface WebhookDeps {
   seenAccount?: (phoneNumberId: string, accountId: string) => void;
   /** Template for notices (e.g. owner alerts) to someone outside WhatsApp's 24-hour window. See sendNotice. */
   noticeTemplate?: { name: string; language: string };
+  /** Notices to these numbers are emailed too. See sendNotice. */
+  emailCopy?: NoticeDeps["emailCopy"];
   /** Picks which product handles a message. */
   route: (msg: IncomingMessage) => Product;
   /**

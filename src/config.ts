@@ -45,6 +45,12 @@ export interface Config {
     sentry?: { dsn: string; environment: string };
   };
   /**
+   * Every WhatsApp alert to yarnOga's own alert numbers (QUOTE_SIGNUP_ALERT_WA_ID,
+   * QUOTE_OWNER_WA_ID) is emailed here too, SIGNUP_ALERT_EMAIL. WhatsApp holds
+   * them back when that number hasn't messaged the bot in a day.
+   */
+  signupAlertEmail?: { apiKey: string; to: string; from: string };
+  /**
    * The owners' and staff web app at /home (OWNER_APP=true): dashboard, inbox,
    * orders, price list, delivery, posters, exports and settings for each
    * quote business. Needs migration 0049.
@@ -471,6 +477,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ? { name: env.OWNER_ALERT_TEMPLATE_NAME.trim(), language: env.OWNER_ALERT_TEMPLATE_LANGUAGE?.trim() || "en" }
       : undefined,
     alerts: alertSettings(env),
+    signupAlertEmail: signupAlertEmailSettings(env),
     ownerApp: /^(true|yes|on|1)$/i.test(env.OWNER_APP ?? "")
       ? {
           publicUrl: publicUrl(env.OWNER_APP_URL || required(env, "PUBLIC_URL")),
@@ -822,9 +829,23 @@ function alertSettings(env: NodeJS.ProcessEnv): Config["alerts"] {
     template: env.ALERT_TEMPLATE_NAME
       ? { name: env.ALERT_TEMPLATE_NAME, language: env.ALERT_TEMPLATE_LANGUAGE || "en" }
       : undefined,
-    email: to && apiKey ? { apiKey, to, from: env.ALERT_EMAIL_FROM?.trim() || "yarnOga alerts <alerts@yarnoga.com>" } : undefined,
+    email: to && apiKey ? { apiKey, to, from: alertFrom(env) } : undefined,
     sentry: dsn ? { dsn, environment: env.SENTRY_ENVIRONMENT?.trim() || "production" } : undefined,
   };
+}
+
+function signupAlertEmailSettings(env: NodeJS.ProcessEnv): Config["signupAlertEmail"] {
+  const to = env.SIGNUP_ALERT_EMAIL?.trim();
+  if (!to) return undefined;
+  if (!/^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(to)) throw new Error(`SIGNUP_ALERT_EMAIL must be one email address (got "${to}")`);
+  const apiKey = env.RESEND_API_KEY?.trim();
+  if (!apiKey) throw new Error("SIGNUP_ALERT_EMAIL needs RESEND_API_KEY too (emails are sent through resend.com)");
+  return { apiKey, to, from: alertFrom(env) };
+}
+
+/** Resend only sends from a verified domain, and ours is updates.yarnoga.com. */
+function alertFrom(env: NodeJS.ProcessEnv): string {
+  return env.ALERT_EMAIL_FROM?.trim() || "yarnOga alerts <alerts@updates.yarnoga.com>";
 }
 
 function emailSettings(env: NodeJS.ProcessEnv): Config["emails"] {
