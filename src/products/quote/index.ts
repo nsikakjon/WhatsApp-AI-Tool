@@ -24,6 +24,7 @@ import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder 
 import type { Understander } from "./understand.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
+import { declineKind } from "./decline.js";
 import type { EventTickets } from "./tickets/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
 
@@ -259,6 +260,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const variants = await opts.catalog.activeVariants();
       if (variants.length === 0) {
         return { text: t.noPriceList(opts.businessName) };
+      }
+      // Spam and requests for money get a short no in the shop's name, not the AI, unless
+      // they name something the shop sells (an airtime seller's "send me airtime 1k").
+      // "unclear" so a spammer who keeps going stops getting replies.
+      const decline = msg.from === opts.ownerWaId ? null : declineKind(msg.text);
+      if (decline && !namesAnItem(msg.text, variants)) {
+        return { text: decline === "spam" ? t.declineSpam(opts.businessName) : t.declineBegging(opts.businessName), stage: "unclear" };
       }
       const welcome = await welcomeReply(msg, variants, walkIn, lang, ctx.contactId);
       if (welcome) return welcome;
@@ -1004,6 +1012,12 @@ function defaultHelp(variants: Variant[], t: QuoteTexts): string {
 // from reaching a customer.
 const MONEY =
   /₦|naira|\bngn\b|kobo|\bN\s?\d|\d\s*k\b|\bprice (is|of)\b|\bcosts?\b|\btotal\b|\d{1,3}(,\d{3})+|fcfa|\bcfa\b|\bxof\b|\bxaf\b|francs?\b|\d\s*f\b|\bprix (est|de)\b|co[uû]te|\d{1,3}([ .\u00a0\u202f]\d{3})+/i;
+
+/** True when the message has a word (four letters or more) from one of the shop's item names. */
+function namesAnItem(text: string, variants: Array<{ name: string }>): boolean {
+  const words = new Set(text.toLowerCase().match(/\p{L}{4,}/gu) ?? []);
+  return variants.some((v) => (v.name.toLowerCase().match(/\p{L}{4,}/gu) ?? []).some((w) => words.has(w)));
+}
 
 export function safeMessage(message: string | null): string | null {
   if (!message || !message.trim()) return null;

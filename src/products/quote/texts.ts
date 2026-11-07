@@ -35,6 +35,8 @@ export interface QuoteTexts {
   lowStock(items: Array<{ name: string; left: number }>): string;
   noPriceList(business: string): string;
   didntCatch(): string;
+  declineSpam(business: string): string;
+  declineBegging(business: string): string;
   teamNotified(business: string): string;
   /** Added when the business is closed: `when` is like "tomorrow at 08:00". */
   closedNow(when: string | null): string;
@@ -150,6 +152,8 @@ const en: QuoteTexts = {
     ].join("\n"),
   noPriceList: (b) => `Thanks for messaging ${b}! Our price list isn't online yet, so someone from the team will get back to you.`,
   didntCatch: () => "Sorry, I didn't catch that. Could you tell me what you'd like and how many?",
+  declineSpam: (b) => `No, thank you. I don't open links or take part in adult, betting, crypto, lottery or reward offers. You're chatting with the ${b} WhatsApp assistant. Tell me what you'd like to order.`,
+  declineBegging: (b) => `Sorry, I can't help with money, airtime or gifts. You're chatting with the ${b} WhatsApp assistant. Tell me what you'd like to order.`,
   teamNotified: (b) => `I've let the ${b} team know. Someone will reply to you here shortly.`,
   closedNow: (when) => `🕗 We're closed right now${when ? ` and open again ${when}` : ""}. You can still order here; the team will take it from there when we open.`,
   closed: (b) => `Sorry, ${b} isn't taking new orders right now. Please ask a member of staff.`,
@@ -288,6 +292,8 @@ const fr: QuoteTexts = {
     ].join("\n"),
   noPriceList: (b) => `Merci d'avoir écrit à ${b} ! Notre liste de prix n'est pas encore en ligne : quelqu'un de l'équipe va vous répondre.`,
   didntCatch: () => "Désolé, je n'ai pas bien compris. Pouvez-vous me dire ce que vous voulez et en quelle quantité ?",
+  declineSpam: (b) => `Non merci. Je n'ouvre pas de liens et je ne participe à aucune offre pour adultes, de paris, de crypto, de loterie ou de récompense. Vous discutez avec l'assistant WhatsApp de ${b}. Dites-moi ce que vous souhaitez commander.`,
+  declineBegging: (b) => `Désolé, je ne peux pas aider avec de l'argent, du crédit ou des cadeaux. Vous discutez avec l'assistant WhatsApp de ${b}. Dites-moi ce que vous souhaitez commander.`,
   teamNotified: (b) => `J'ai prévenu l'équipe de ${b}. Quelqu'un va vous répondre ici très vite.`,
   closedNow: (when) => `🕗 Nous sommes fermés pour le moment${when ? ` et rouvrons ${when}` : ""}. Vous pouvez quand même commander ici ; l'équipe s'en occupera à l'ouverture.`,
   closed: (b) => `Désolé, ${b} ne prend pas de nouvelles commandes pour le moment. Adressez-vous à un membre du personnel.`,
@@ -422,6 +428,8 @@ const pcm: QuoteTexts = {
   ratingAlready: "Thank you, we don already get your answer for that order. 🙏",
   noPriceList: (b) => `Thank you for messaging ${b}! Our price list never dey online, so somebody from the team go reply you.`,
   didntCatch: () => "Sorry, I no understand well. Wetin you want, and how many?",
+  declineSpam: (b) => `No, thank you. I no dey open link or join any adult, betting, crypto, lottery or reward offer. Na ${b} WhatsApp assistant you dey chat with. Tell me wetin you wan order.`,
+  declineBegging: (b) => `Sorry, I no fit help with money, airtime or gift. Na ${b} WhatsApp assistant you dey chat with. Tell me wetin you wan order.`,
   teamNotified: (b) => `I don tell the ${b} team. Somebody go reply you here soon.`,
   closedNow: (when) => `🕗 We don close for now${when ? `, we go open again ${when}` : ""}. You fit still order here; the team go handle am once we open.`,
   closed: (b) => `Sorry, ${b} no dey take new order now. Abeg ask any of the staff.`,
