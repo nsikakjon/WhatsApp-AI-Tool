@@ -137,11 +137,17 @@ export function createOwnerApp(deps: OwnerAppDeps) {
 
   // ---- Logging in ----
 
-  const loginPage = (error = "", waId = "") =>
+  // Where to go after logging in: a page of the app the person was sent to (e.g. a chat from a WhatsApp alert).
+  const backTo = (raw: unknown) => {
+    const path = String(raw ?? "");
+    return /^\/home\/[\w\-/?=&.%]*$/.test(path) && !path.includes("//") ? path : "/home";
+  };
+
+  const loginPage = (error = "", waId = "", next = "/home") =>
     bare(
       "Log in",
       `<h1>Log in</h1>${error ? `<p class="flash bad">${esc(error)}</p>` : ""}
-<form method="post" action="/home/login">
+<form method="post" action="/home/login">${next === "/home" ? "" : `<input type="hidden" name="next" value="${esc(next)}">`}
 <label for="wa">Your WhatsApp number</label><input id="wa" name="wa" inputmode="tel" autocomplete="username" required value="${esc(waId)}" placeholder="0801 234 5678">
 <label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required>
 <div class="actions"><button>Log in</button></div></form>
@@ -150,16 +156,17 @@ export function createOwnerApp(deps: OwnerAppDeps) {
 <p class="muted small">Trouble logging in? <a href="mailto:${esc(deps.support.email)}">${esc(deps.support.email)}</a></p>`,
     );
 
-  app.get("/login", (c) => c.html(loginPage()));
+  app.get("/login", (c) => c.html(loginPage("", "", backTo(c.req.query("next")))));
 
   app.post("/login", async (c) => {
     const ip = clientIp(c);
     const form = await c.req.parseBody();
     const waId = normaliseWaId(String(form.wa ?? "")) ?? "";
     const password = String(form.password ?? "");
+    const next = backTo(form.next);
     // Counted per address and per number, so one phone number can't be guessed from many places.
     if (guard.blocked(ip) || (waId && guard.blocked(`wa:${waId}`))) {
-      return c.html(loginPage("Too many wrong passwords. Wait 15 minutes and try again, or send app to your bot on WhatsApp."), 429);
+      return c.html(loginPage("Too many wrong passwords. Wait 15 minutes and try again, or send app to your bot on WhatsApp.", "", next), 429);
     }
     const rows = waId ? await deps.users.byWaId(waId) : [];
     let user: AppUser | null = null;
@@ -173,12 +180,12 @@ export function createOwnerApp(deps: OwnerAppDeps) {
     if (!user) {
       await guard.failed(ip);
       if (waId) await guard.failed(`wa:${waId}`);
-      return c.html(loginPage("That number and password don't match.", String(form.wa ?? "")), 401);
+      return c.html(loginPage("That number and password don't match.", String(form.wa ?? ""), next), 401);
     }
     guard.succeeded(ip);
     guard.succeeded(`wa:${waId}`);
     await startSession(c, user);
-    return c.redirect("/home", 303);
+    return c.redirect(next, 303);
   });
 
   // The link from WhatsApp. Opening it only shows a button: link previews and
@@ -237,10 +244,23 @@ export function createOwnerApp(deps: OwnerAppDeps) {
 
   app.use("*", async (c, next) => {
     const session = readSession(await getSignedCookie(c, secret, COOKIE), now().getTime());
-    const user = session ? await deps.users.get(session.userId) : null;
+    let user = session ? await deps.users.get(session.userId) : null;
     if (!session || !user || !user.active || user.sessionEpoch !== session.epoch) {
-      if (c.req.method === "GET") return c.redirect("/home/login", 303);
+      if (c.req.method === "GET") {
+        const url = new URL(c.req.url);
+        const next = backTo(url.pathname + url.search);
+        return c.redirect(next === "/home" ? "/home/login" : `/home/login?next=${encodeURIComponent(next)}`, 303);
+      }
       return c.text("Please log in again.", 401);
+    }
+    // A link for one business (?b=<id>, e.g. a chat from an owner alert) switches to it when this person runs more than one.
+    const wanted = c.req.method === "GET" ? c.req.query("b") : undefined;
+    if (wanted && wanted !== user.businessId) {
+      const row = (await deps.users.byWaId(user.waId)).find((u) => u.businessId === wanted && u.active);
+      if (row) {
+        await startSession(c, row);
+        user = row;
+      }
     }
     const found = await deps.business(user.businessId);
     const biz = found && (await lockToPlan(found));

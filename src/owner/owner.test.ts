@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { Product } from "../core/product.js";
 import type { IncomingMessage } from "../core/whatsapp/types.js";
@@ -249,6 +250,35 @@ describe("owner app login", () => {
     expect(ok.status).toBe(303);
     expect(cookieOf(ok)).toContain("yarnoga_app=");
   }, 20_000);
+
+  it("goes back to the page a link opened, such as a chat from an owner alert, after logging in", async () => {
+    const s = setup();
+    const site = new Hono().route("/home", s.app);
+    const chat = `/home/inbox/${BIZ}?b=${BIZ}`;
+    const res = await site.request(`https://${HOST}${chat}`);
+    expect(res.headers.get("location")).toBe(`/home/login?next=${encodeURIComponent(chat)}`);
+    expect(await (await site.request(`https://${HOST}${res.headers.get("location")}`)).text()).toContain(`name="next" value="${chat.replace("&", "&amp;")}"`);
+
+    await s.users.store.ensureOwner(BIZ, OWNER);
+    await s.users.store.setPassword(OWNER, await hashPassword("a good long password"));
+    const form = { wa: "0801 111 1111", password: "a good long password" };
+    expect((await s.app.request(`https://${HOST}/login`, post({ ...form, next: chat }))).headers.get("location")).toBe(chat);
+    expect((await s.app.request(`https://${HOST}/login`, post({ ...form, next: "https://evil.example/home/" }))).headers.get("location")).toBe("/home");
+    expect((await s.app.request(`https://${HOST}/login`, post({ ...form, next: "/home//evil.example" }))).headers.get("location")).toBe("/home");
+  }, 20_000);
+
+  it("switches to the business a link names when the person runs more than one", async () => {
+    const OTHER = "22222222-2222-2222-2222-222222222222";
+    const s = setup({}, { business: async (id) => (id === BIZ ? s.biz : id === OTHER ? { ...s.biz, id: OTHER, name: "Demo Shop" } : null) });
+    const cookie = await login(s, OWNER);
+    await s.users.store.ensureOwner(OTHER, OWNER);
+    const switched = await get(s, `/?b=${OTHER}`, cookie);
+    expect(await switched.text()).toContain("Demo Shop");
+    expect(await (await get(s, "/", cookieOf(switched))).text()).toContain("Demo Shop");
+    // A business they don't belong to changes nothing.
+    const stranger = await get(s, "/?b=33333333-3333-3333-3333-333333333333", cookie);
+    expect(stranger.headers.get("set-cookie")).toBeNull();
+  });
 
   it("serves the yarnOga logo files without a login, and nothing else from that folder", async () => {
     const s = setup();
