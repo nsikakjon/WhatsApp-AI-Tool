@@ -42,6 +42,8 @@ export interface WhatsAppClient {
    * back as an ordinary location message.
    */
   sendLocationRequest(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /** Sends a message with one button that opens a web page, e.g. a chat in the owner app's inbox. */
+  sendLink(to: string, body: string, link: OutgoingLink, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /**
    * Sends a voice note (OGG with the Opus codec, which WhatsApp plays as a
    * voice message): uploads it, then sends it. Optional, so test fakes and
@@ -88,6 +90,12 @@ export interface OutgoingButtons {
   body: string;
   /** At most 3. `id` comes back as the message text when tapped; titles are cut to 20 characters. */
   buttons: Array<{ id: string; title: string }>;
+}
+
+export interface OutgoingLink {
+  /** The button's label (up to 20 characters). */
+  label: string;
+  url: string;
 }
 
 export interface OutgoingTemplate {
@@ -295,6 +303,18 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
               .slice(0, 3)
               .map((b) => ({ type: "reply", reply: { id: b.id.slice(0, 256), title: cut(b.title, 20) } })),
           },
+        },
+      });
+    },
+
+    async sendLink(to, body, link, fromNumberId) {
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          body: { text: cut(body, 1024) },
+          action: { name: "cta_url", parameters: { display_text: cut(link.label, 20), url: link.url } },
         },
       });
     },

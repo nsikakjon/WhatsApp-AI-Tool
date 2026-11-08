@@ -1,6 +1,6 @@
 import type { MessageStore } from "../db/store.js";
 import type { Notice } from "../product.js";
-import type { OutgoingButtons, OutgoingImage, OutgoingTemplate, WhatsAppClient } from "./client.js";
+import type { OutgoingButtons, OutgoingImage, OutgoingLink, OutgoingTemplate, WhatsAppClient } from "./client.js";
 
 /**
  * Sends a text that isn't a direct reply (an alert or a scheduled report) and
@@ -77,6 +77,25 @@ export async function sendButtonsAndRecord(
   });
 }
 
+/** Sends a text with a button that opens a web page, and saves it with the recipient's messages. */
+export async function sendLinkAndRecord(
+  deps: { store: MessageStore; whatsapp: WhatsAppClient },
+  to: string,
+  text: string,
+  link: OutgoingLink,
+  fromNumberId?: string,
+): Promise<void> {
+  const contactId = await deps.store.upsertContact(to);
+  const sent = await deps.whatsapp.sendLink(to, text, link, fromNumberId);
+  await deps.store.recordOutbound(contactId, {
+    waMessageId: sent.waMessageId,
+    type: "interactive",
+    body: `${text}\n\n${link.label}: ${link.url}`,
+    raw: sent.raw,
+    businessNumberId: fromNumberId,
+  });
+}
+
 export interface NoticeDeps {
   store: MessageStore;
   whatsapp: WhatsAppClient;
@@ -88,26 +107,29 @@ export interface NoticeDeps {
   /** The number that sends when no other is named, so its 24 hours are the ones checked. */
   defaultNumberId?: string;
   /** Notices to these numbers are emailed too, since WhatsApp can hold them back (SIGNUP_ALERT_EMAIL). */
-  emailCopy?: { waIds: string[]; send(text: string): Promise<void> };
+  emailCopy?: { waIds: string[]; send(text: string, link?: OutgoingLink): Promise<void> };
 }
 
 /**
  * Sends a notice to someone other than the sender. Someone who hasn't
  * messaged this number in the last day gets a template instead, since
  * WhatsApp accepts anything else but never delivers it: the notice's own
- * template, or else its text inside the general notice template.
+ * template, or else its text inside the general notice template, with the
+ * link's address written out since that template has no button.
  */
 export async function sendNotice(deps: NoticeDeps, note: Notice, fromNumberId?: string): Promise<void> {
   if (note.text && deps.emailCopy?.waIds.includes(note.to)) {
-    await deps.emailCopy.send(note.text).catch((err) => console.warn(`Couldn't email a copy of the alert to ...${note.to.slice(-4)}:`, String(err)));
+    await deps.emailCopy.send(note.text, note.link).catch((err) => console.warn(`Couldn't email a copy of the alert to ...${note.to.slice(-4)}:`, String(err)));
   }
+  const spelledOut = note.link ? `${note.text}\n${note.link.label}: ${note.link.url}` : note.text;
   const template =
-    note.template ?? (deps.noticeTemplate && note.text ? { ...deps.noticeTemplate, bodyParams: [asTemplateValue(note.text)] } : undefined);
+    note.template ?? (deps.noticeTemplate && note.text ? { ...deps.noticeTemplate, bodyParams: [asTemplateValue(spelledOut)] } : undefined);
   if (template && !(await canMessageFreely(deps.store, note.to, fromNumberId ?? deps.defaultNumberId))) {
     await sendTemplateAndRecord(deps, note.to, template, fromNumberId);
     return;
   }
-  if (note.text) await sendAndRecord(deps, note.to, note.text, fromNumberId);
+  if (note.text && note.link) await sendLinkAndRecord(deps, note.to, note.text, note.link, fromNumberId);
+  else if (note.text) await sendAndRecord(deps, note.to, note.text, fromNumberId);
   for (const image of note.images ?? []) await sendImageAndRecord(deps, note.to, image, fromNumberId);
   if (note.buttons) await sendButtonsAndRecord(deps, note.to, note.buttons, fromNumberId);
 }

@@ -1,7 +1,7 @@
 // yarnOga's own WhatsApp alerts (new sign-ups, numbers to connect) as a
 // branded email: the kind of alert, the business in large type, the key facts
-// picked out as tiles, a WhatsApp button for the person concerned, then the
-// whole alert as sent. Same look as the welcome emails (layout.ts).
+// picked out as tiles, the alert's own button (e.g. open the chat) and a
+// WhatsApp button for the person concerned, then the whole alert as sent. Same look as the welcome emails (layout.ts).
 
 import { BG, DARK, FONT, FOREST, HEAD, INK, LEAF, MUTED, NEON, TEXT, esc, inline } from "./layout.js";
 
@@ -47,7 +47,10 @@ export function readAlert(text: string): AlertCard {
 
 const LAGOS = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Lagos", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
 
-export function renderAlertEmail(text: string, opts: { imageBase?: string; now?: Date } = {}): { subject: string; html: string; text: string } {
+export function renderAlertEmail(
+  text: string,
+  opts: { imageBase?: string; now?: Date; link?: { label: string; url: string } } = {},
+): { subject: string; html: string; text: string } {
   const card = readAlert(text);
   const plain = strip(text).trim();
   const when = LAGOS.format(opts.now ?? new Date());
@@ -64,9 +67,10 @@ export function renderAlertEmail(text: string, opts: { imageBase?: string; now?:
 <div style="font:700 18px/1.3 ${HEAD};color:${NEON};margin-top:8px;word-break:break-word">${esc(value)}</div></td></tr></table></td>`;
   const rows: string[] = [];
   for (let i = 0; i < facts.length; i += 2) rows.push(`<tr>${tile(facts[i])}${facts[i + 1] ? tile(facts[i + 1]) : '<td width="50%"></td>'}</tr>`);
-  const button = card.waId
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 4px"><tr><td bgcolor="${NEON}" style="background-color:${NEON};border-radius:6px"><a href="https://wa.me/${card.waId}" style="display:inline-block;padding:14px 22px;font:700 16px/1.2 ${FONT};color:${INK};text-decoration:none">Message them on WhatsApp &rarr;</a></td></tr></table>`
-    : "";
+  const buttonTo = (href: string, label: string) =>
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0 4px"><tr><td bgcolor="${NEON}" style="background-color:${NEON};border-radius:6px"><a href="${esc(href)}" style="display:inline-block;padding:14px 22px;font:700 16px/1.2 ${FONT};color:${INK};text-decoration:none">${esc(label)} &rarr;</a></td></tr></table>`;
+  const button =
+    (opts.link ? buttonTo(opts.link.url, opts.link.label) : "") + (card.waId ? buttonTo(`https://wa.me/${card.waId}`, "Message them on WhatsApp") : "");
   const message = strip(text)
     .split(/\n{2,}/)
     .map((p) => `<p style="margin:0 0 12px;font:15px/1.6 ${FONT};color:${TEXT}">${inline(p).replace(/\n/g, "<br>")}</p>`)
@@ -91,14 +95,20 @@ ${message}${button}
 <span style="color:#a9b0a8">A copy of the WhatsApp alert, sent because this address is set as SIGNUP_ALERT_EMAIL.</span>
 </td></tr></table></td></tr></table></body></html>`;
 
-  const lines = [plain, "", ...facts.map(([l, v]) => `${l}: ${v}`), ...(card.waId ? [`WhatsApp them: https://wa.me/${card.waId}`] : [])];
+  const lines = [
+    plain,
+    "",
+    ...facts.map(([l, v]) => `${l}: ${v}`),
+    ...(opts.link ? [`${opts.link.label}: ${opts.link.url}`] : []),
+    ...(card.waId ? [`WhatsApp them: https://wa.me/${card.waId}`] : []),
+  ];
   return { subject, html, text: lines.join("\n") };
 }
 
 /** Sends each WhatsApp alert it's given as a branded email. */
 export function emailedAlert(send: (subject: string, text: string, html: string) => Promise<void>, opts: { imageBase?: string } = {}) {
-  return (text: string) => {
-    const e = renderAlertEmail(text, opts);
+  return (text: string, link?: { label: string; url: string }) => {
+    const e = renderAlertEmail(text, { ...opts, link });
     return send(e.subject, e.text, e.html);
   };
 }

@@ -189,6 +189,23 @@ describe("WhatsApp client", () => {
     });
   });
 
+  it("sends a button that opens a web page", async () => {
+    const bodies: unknown[] = [];
+    const fakeFetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.l" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    await client.sendLink("2348012345678", "Ada would like to talk to someone.", { label: "Open chat in your inbox", url: "https://app.yarnoga.com/home/inbox/c1" });
+
+    const [sent] = bodies as Array<{ interactive: Record<string, any> }>;
+    expect(sent!.interactive).toEqual({
+      type: "cta_url",
+      body: { text: "Ada would like to talk to someone." },
+      action: { name: "cta_url", parameters: { display_text: "Open chat in your i…", url: "https://app.yarnoga.com/home/inbox/c1" } },
+    });
+  });
+
   it("puts a card's picture on top of its buttons", async () => {
     const bodies: unknown[] = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {

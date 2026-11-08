@@ -111,6 +111,10 @@ function setup(
       sent.push({ to, body: `[location request] ${body}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
+    async sendLink(to, body, link) {
+      sent.push({ to, body: `[link] ${body} | ${link.label} ${link.url}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
     async downloadMedia(mediaId) {
       if (mediaId === "broken") throw new Error("download failed");
       return { data: new Blob(["audio"]), mimeType: "audio/ogg" };
