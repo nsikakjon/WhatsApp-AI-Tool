@@ -88,7 +88,7 @@ export interface Config {
    * Oko, Jay's farm and land app at /farm/ (FARM_PASSWORD, at least 12
    * characters). Data stays on the phone; the server only hands out the app.
    */
-  farm?: { password: string };
+  farm?: { password: string; copernicus?: { clientId: string; clientSecret: string } };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -502,7 +502,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
               : undefined,
         }
       : undefined,
-    farm: env.FARM_PASSWORD ? { password: longPassword(env, "FARM_PASSWORD") } : undefined,
+    farm: env.FARM_PASSWORD
+      ? {
+          password: longPassword(env, "FARM_PASSWORD"),
+          copernicus:
+            env.COPERNICUS_CLIENT_ID?.trim() && env.COPERNICUS_CLIENT_SECRET?.trim()
+              ? { clientId: env.COPERNICUS_CLIENT_ID.trim(), clientSecret: env.COPERNICUS_CLIENT_SECRET.trim() }
+              : undefined,
+        }
+      : undefined,
     inbox: inboxSettings(env.INBOX_PASSWORD),
     groq: env.GROQ_API_KEY
       ? { apiKey: env.GROQ_API_KEY, model: env.GROQ_WHISPER_MODEL || "whisper-large-v3" }

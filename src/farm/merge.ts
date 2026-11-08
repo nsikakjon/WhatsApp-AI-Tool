@@ -13,7 +13,7 @@
 const LISTS = ["beacons", "features", "scouts", "records", "tasks"] as const;
 const MAPS = ["f", "checks", "taskState"] as const;
 /** Kept on the phone only: weather is fetched per phone, the rest is app bookkeeping. */
-const LOCAL_ONLY = ["wx", "demo", "_dirty", "_ver", "_synced", "_owner", "_role", "_ownerName"];
+const LOCAL_ONLY = ["wx", "sat", "demo", "_dirty", "_ver", "_synced", "_owner", "_role", "_ownerName"];
 const MAX_DELETED = 1000;
 
 type Obj = Record<string, unknown>;
