@@ -1,7 +1,7 @@
 "use strict";
 /* =====================================================================
    OKO by yarnOga: farm & land app (personal edition)
-   Data lives on this phone (IndexedDB). Weather: Open-Meteo.
+   Data lives on this phone (IndexedDB). Weather: Open-Meteo, through the server.
    ===================================================================== */
 const APP_NAME = "Oko";
 const $ = s=>document.querySelector(s), $$ = s=>[...document.querySelectorAll(s)];
@@ -173,38 +173,63 @@ function render(){
 (()=>{ const d=$("#dock"); const k={home:"home",map:"map",new:"plus",tasks:"tasks",settings:"user"};
   d.querySelectorAll("button").forEach(b=>{ b.innerHTML=ic(k[b.dataset.go]); b.onclick=()=>{ if(b.dataset.go==="new") return newFieldSheet(); go({name:b.dataset.go}); }; }); })();
 
-/* ---------------- weather ---------------- */
+/* ---------------- weather ----------------
+   Logged-in phones get weather from yarnOga's server (/farm/api/weather), which
+   asks Open-Meteo (paid key there for the public app) and shares answers between
+   nearby fields. With no server (preview, or not switched on) the phone asks
+   Open-Meteo's free service itself. Either way the last answer is kept in p.wx
+   for offline use. */
 const wxBusy={};
 function wxFor(p){ return p.wx || null; }
+const WX_DIRECT={forecast:"https://api.open-meteo.com/v1/forecast", archive:"https://archive-api.open-meteo.com/v1/archive"};
+// "server", "direct", or null (not logged in: wait for the invite; keep the cached copy)
+function wxSource(){ return Sync.mode==="on"? "server" : Sync.mode==="local"? "direct" : null; }
+async function wxServer(path, c){
+  const r=await fetch(`api/${path}?lat=${c.lat.toFixed(4)}&lon=${c.lon.toFixed(4)}`,{credentials:"same-origin"});
+  if(r.status===503){ const j=await r.json().catch(()=>({})); if(j.configured===false) return "direct"; }
+  if(!r.ok) throw new Error("wx "+r.status); return r.json();
+}
 async function refreshWx(p, force=false){
   const c=centroid(p); if(!c) return;
   const key=`${c.lat.toFixed(2)},${c.lon.toFixed(2)}`;
   if(!force && p.wx && !p.wx.sample && p.wx.key===key && Date.now()-p.wx.at<2*3600e3) return;
+  let src=wxSource(); if(!src) return;
   if(wxBusy[p.id]) return; wxBusy[p.id]=true;
   try{
-    const u=`https://api.open-meteo.com/v1/forecast?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}`+
-      `&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m`+
-      `&hourly=relative_humidity_2m,soil_moisture_3_to_9cm`+
-      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,et0_fao_evapotranspiration`+
-      `&past_days=31&forecast_days=8&timezone=Africa%2FLagos`;
-    const r=await fetch(u); if(!r.ok) throw new Error("wx "+r.status); const j=await r.json();
-    const rhDaily=j.daily.time.map((_,i)=>{ const a=j.hourly.relative_humidity_2m.slice(i*24,i*24+24).filter(v=>v!=null); return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; });
-    const nowIdx=j.hourly.time.indexOf(j.current.time.slice(0,13)+":00");
-    const soil=j.hourly.soil_moisture_3_to_9cm[nowIdx>=0?nowIdx:j.hourly.time.length-1];
-    p.wx={at:Date.now(),key,current:j.current,daily:j.daily,rhDaily,soil,monthly:p.wx&&p.wx.key===key?p.wx.monthly:null};
+    let w=src==="server"? await wxServer("weather",c) : "direct";
+    if(w==="direct") w=await wxDirect(c,key);
+    p.wx={at:Date.now(),key,current:w.current,daily:w.daily,rhDaily:w.rhDaily,soil:w.soil,monthly:p.wx&&p.wx.key===key?p.wx.monthly:null};
     saveLocal(p); rerenderSoft();
   }catch(e){ /* offline or blocked: keep cache */ }
   finally{ wxBusy[p.id]=false; }
 }
+async function wxDirect(c,key){
+  const u=`${WX_DIRECT.forecast}?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}`+
+    `&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m`+
+    `&hourly=relative_humidity_2m,soil_moisture_3_to_9cm`+
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,et0_fao_evapotranspiration`+
+    `&past_days=31&forecast_days=8&timezone=Africa%2FLagos`;
+  const r=await fetch(u); if(!r.ok) throw new Error("wx "+r.status); const j=await r.json();
+  const rhDaily=j.daily.time.map((_,i)=>{ const a=j.hourly.relative_humidity_2m.slice(i*24,i*24+24).filter(v=>v!=null); return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; });
+  const nowIdx=j.hourly.time.indexOf(j.current.time.slice(0,13)+":00");
+  const soil=j.hourly.soil_moisture_3_to_9cm[nowIdx>=0?nowIdx:j.hourly.time.length-1];
+  return {key,current:j.current,daily:j.daily,rhDaily,soil};
+}
 async function refreshMonthly(p){
   const c=centroid(p); if(!c||!p.wx||p.wx.sample) return;
   if(p.wx.monthly && Date.now()-p.wx.monthly.at<7*86400e3) return;
+  const src=wxSource(); if(!src) return;
   try{
-    const end=new Date(Date.now()-6*86400e3), start=new Date(end.getFullYear()-1,end.getMonth()+1,1);
-    const r=await fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}&start_date=${ymd(start)}&end_date=${ymd(end)}&daily=precipitation_sum&timezone=Africa%2FLagos`);
-    if(!r.ok) throw 0; const j=await r.json(); const m={};
-    j.daily.time.forEach((t,i)=>{ const k=t.slice(0,7); m[k]=(m[k]||0)+(j.daily.precipitation_sum[i]||0); });
-    p.wx.monthly={at:Date.now(), months:Object.keys(m).sort().map(k=>[k,m[k]])}; saveLocal(p); rerenderSoft();
+    let months=src==="server"? await wxServer("weather/monthly",c) : "direct";
+    if(months==="direct"){
+      const end=new Date(Date.now()-6*86400e3), start=new Date(end.getFullYear()-1,end.getMonth()+1,1);
+      const r=await fetch(`${WX_DIRECT.archive}?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}&start_date=${ymd(start)}&end_date=${ymd(end)}&daily=precipitation_sum&timezone=Africa%2FLagos`);
+      if(!r.ok) throw 0; const j=await r.json(); const m={};
+      j.daily.time.forEach((t,i)=>{ const k=t.slice(0,7); m[k]=(m[k]||0)+(j.daily.precipitation_sum[i]||0); });
+      months=Object.keys(m).sort().map(k=>[k,m[k]]);
+    } else months=months.months;
+    if(!Array.isArray(months)) throw 0;
+    p.wx.monthly={at:Date.now(), months}; saveLocal(p); rerenderSoft();
   }catch(e){}
 }
 let softT=null;

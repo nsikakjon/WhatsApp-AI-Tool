@@ -315,7 +315,8 @@ describe("loadConfig", () => {
 
   it("switches the farm app on with a long password", () => {
     expect(loadConfig(base).farm).toBeUndefined();
-    expect(loadConfig({ ...base, FARM_PASSWORD: "a long enough pass" }).farm).toEqual({ password: "a long enough pass", copernicus: undefined });
+    expect(loadConfig({ ...base, FARM_PASSWORD: "a long enough pass" }).farm).toEqual({ password: "a long enough pass", copernicus: undefined, openMeteoApiKey: undefined });
+    expect(loadConfig({ ...base, FARM_PASSWORD: "a long enough pass", OPEN_METEO_API_KEY: " om-key " }).farm?.openMeteoApiKey).toBe("om-key");
     expect(loadConfig({ ...base, FARM_PASSWORD: "a long enough pass", COPERNICUS_CLIENT_ID: "sh-abc", COPERNICUS_CLIENT_SECRET: "secret" }).farm?.copernicus).toEqual({ clientId: "sh-abc", clientSecret: "secret" });
     expect(() => loadConfig({ ...base, FARM_PASSWORD: "short" })).toThrow(/FARM_PASSWORD/);
   });

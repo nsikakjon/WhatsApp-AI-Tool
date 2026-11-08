@@ -88,7 +88,12 @@ export interface Config {
    * Oko, Jay's farm and land app at /farm/ (FARM_PASSWORD, at least 12
    * characters). Data stays on the phone; the server only hands out the app.
    */
-  farm?: { password: string; copernicus?: { clientId: string; clientSecret: string } };
+  farm?: {
+    password: string;
+    copernicus?: { clientId: string; clientSecret: string };
+    /** A paid Open-Meteo key (OPEN_METEO_API_KEY). Without it, field weather uses Open-Meteo's free, non-commercial service. */
+    openMeteoApiKey?: string;
+  };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -509,6 +514,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             env.COPERNICUS_CLIENT_ID?.trim() && env.COPERNICUS_CLIENT_SECRET?.trim()
               ? { clientId: env.COPERNICUS_CLIENT_ID.trim(), clientSecret: env.COPERNICUS_CLIENT_SECRET.trim() }
               : undefined,
+          openMeteoApiKey: env.OPEN_METEO_API_KEY?.trim() || undefined,
         }
       : undefined,
     inbox: inboxSettings(env.INBOX_PASSWORD),
