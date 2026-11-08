@@ -34,6 +34,13 @@ export interface FieldRow {
   deletedAt: Date | null;
 }
 
+export interface SatelliteRow {
+  boundaryKey: string;
+  series: Array<{ date: string; mean: number; min: number; max: number; clear: number }>;
+  fetchedAt: Date;
+  imageDate: string | null;
+}
+
 export interface FarmStore {
   user(id: string): Promise<FarmUser | null>;
   createUser(name: string, role: FarmRole): Promise<FarmUser>;
@@ -74,6 +81,12 @@ export interface FarmStore {
 
   savePhoto(fieldId: string, data: Uint8Array, mimeType: string, by: string): Promise<string>;
   photo(id: string): Promise<{ fieldId: string; data: Uint8Array; mimeType: string } | null>;
+
+  /** The last satellite results for a field (migration 0077). */
+  satellite(fieldId: string): Promise<SatelliteRow | null>;
+  /** Saves new results; `image` replaces the field's picture when given. */
+  saveSatellite(fieldId: string, row: SatelliteRow, image: Uint8Array | null): Promise<void>;
+  satelliteImage(fieldId: string): Promise<Uint8Array | null>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +100,7 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
   const fields = new Map<string, FieldRow>();
   const members = new Map<string, Set<string>>();
   const photos = new Map<string, { fieldId: string; data: Uint8Array; mimeType: string }>();
+  const sats = new Map<string, { row: SatelliteRow; image: Uint8Array | null }>();
   let clock = 0;
   const tick = () => new Date(Date.now() + ++clock);
 
@@ -151,6 +165,9 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
     },
     async savePhoto(fieldId, data, mimeType) { const id = randomUUID(); photos.set(id, { fieldId, data, mimeType }); return id; },
     async photo(id) { return photos.get(id) ?? null; },
+    async satellite(fieldId) { return sats.get(fieldId)?.row ?? null; },
+    async saveSatellite(fieldId, row, image) { sats.set(fieldId, { row, image: image ?? sats.get(fieldId)?.image ?? null }); },
+    async satelliteImage(fieldId) { return sats.get(fieldId)?.image ?? null; },
   };
   return store;
 }
@@ -300,6 +317,29 @@ export function createSupabaseFarmStore(db: SupabaseClient): FarmStore {
       const file = await db.storage.from(BUCKET).download(r.path);
       if (file.error || !file.data) return null;
       return { fieldId: r.field_id, data: new Uint8Array(await file.data.arrayBuffer()), mimeType: r.mime_type };
+    },
+
+    async satellite(fieldId) {
+      const r = check(await db.from("farm_satellite").select("boundary_key,series,fetched_at,image_date").eq("field_id", fieldId).maybeSingle(), "satellite") as
+        | { boundary_key: string; series: SatelliteRow["series"]; fetched_at: string; image_date: string | null }
+        | null;
+      return r ? { boundaryKey: r.boundary_key, series: r.series ?? [], fetchedAt: new Date(r.fetched_at), imageDate: r.image_date } : null;
+    },
+    async saveSatellite(fieldId, row, image) {
+      const path = `${fieldId}/satellite.png`;
+      if (image) {
+        const up = await db.storage.from(BUCKET).upload(path, image, { contentType: "image/png", upsert: true });
+        if (up.error) throw new Error(`Farm satellite picture upload failed: ${up.error.message}`);
+      }
+      const values: Record<string, unknown> = { field_id: fieldId, boundary_key: row.boundaryKey, series: row.series, fetched_at: row.fetchedAt.toISOString(), image_date: row.imageDate };
+      if (image) values.image_path = path;
+      check(await db.from("farm_satellite").upsert(values, { onConflict: "field_id" }), "save satellite");
+    },
+    async satelliteImage(fieldId) {
+      const r = check(await db.from("farm_satellite").select("image_path").eq("field_id", fieldId).maybeSingle(), "satellite picture") as { image_path: string | null } | null;
+      if (!r?.image_path) return null;
+      const file = await db.storage.from(BUCKET).download(r.image_path);
+      return file.error || !file.data ? null : new Uint8Array(await file.data.arrayBuffer());
     },
   };
   return store;
