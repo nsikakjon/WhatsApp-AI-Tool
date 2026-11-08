@@ -10,11 +10,17 @@ export interface SignupPageOptions {
   graphApiVersion: string;
   /** Show the email box after connecting. */
   askEmail?: boolean;
+  /** Opened from a business's own link (it signed up by chat): the number goes to it and its bot switches on. */
+  business?: { id: string; name: string; token: string };
 }
 
 const TIPS = "Send me setup tips and yarnOga news. One email a week at most. Unsubscribe any time.";
 
 const SITE = "https://yarnoga.com";
+
+function esc(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+}
 
 /** Puts a value inside a <script> safely (no early </script>). */
 function js(value: unknown): string {
@@ -22,6 +28,7 @@ function js(value: unknown): string {
 }
 
 export function renderSignupPage(opts: SignupPageOptions): string {
+  const b = opts.business;
   return `<!doctype html>
 <html lang="en-NG">
 <head>
@@ -116,7 +123,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
 </header>
 <main class="shell">
   <section class="intro">
-    <p class="eyebrow">Connect your number</p>
+    <p class="eyebrow">${b ? `Connect ${esc(b.name)}` : "Connect your number"}</p>
     <h1>Put your WhatsApp number to <span class="hl">work.</span></h1>
     <p class="lede">Connect your business's WhatsApp number to yarnOga, and our AI sales assistant answers your customers on it:
     price quotes from your own price list, orders, invoices and payment links, day and night.</p>
@@ -128,8 +135,8 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       </div>
       <div>
         <h3>What happens next</h3>
-        <p>Your business appears in yarnOga with the assistant switched off, so customers get no automatic replies yet. We add your price list with you,
-        you test it, and then we switch it on.</p>
+        ${b ? `<p>Your price list is already in yarnOga, so your assistant switches on as soon as you finish here, and we send you a WhatsApp message to say it's live.</p>` : `<p>Your business appears in yarnOga with the assistant switched off, so customers get no automatic replies yet. We add your price list with you,
+        you test it, and then we switch it on.</p>`}
       </div>
       <div>
         <h3>You stay in control</h3>
@@ -162,12 +169,12 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       </fieldset>
       <ol class="steps" id="steps-app">
         <li>Keep the phone with the WhatsApp Business app nearby (version 2.24.17 or newer).</li>
-        <li>Log in with the Facebook account that manages your business, then choose your business.</li>
+        <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Choose to connect your existing WhatsApp Business app and scan the QR code with it.</li>
       </ol>
       <ol class="steps" id="steps-new" hidden>
         <li>Get a fresh SIM (any network) that has never had WhatsApp on it, and keep the phone with it nearby.</li>
-        <li>Log in with the Facebook account that manages your business, then choose your business.</li>
+        <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Enter the number and the code Meta sends to it.</li>
       </ol>
       <button class="btn" id="go" disabled>
@@ -181,7 +188,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
 
     <div id="done" class="flow done" hidden>
       <p class="eyebrow">Connected</p>
-      <h2>Your number is connected.</h2>
+      <h2 id="d-title">Your number is connected.</h2>
       <dl>
         <dt>Number</dt><dd id="d-number"></dd>
         <dt>Name</dt><dd id="d-name"></dd>
@@ -191,7 +198,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
         <p>Your number's two-step verification PIN. Write it down: you need it if you ever move the number.</p>
         <p class="pin" id="d-pin"></p>
       </div>
-      <p class="muted">The assistant is switched off for now, so customers get no automatic replies yet. We'll get in touch to add your
+      <p class="muted" id="d-next">The assistant is switched off for now, so customers get no automatic replies yet. We'll get in touch to add your
       price list and switch it on. Questions? <a href="mailto:support@yarnoga.com">support@yarnoga.com</a></p>
       <form id="email-box" class="flow tight" hidden>
         <label class="field">Your email, for receipts and messages about your account
@@ -219,6 +226,8 @@ export function renderSignupPage(opts: SignupPageOptions): string {
   const CONFIG_ID = ${js(opts.configId)};
   const ASK_EMAIL = ${js(Boolean(opts.askEmail))};
   const VERSION = ${js(opts.graphApiVersion)};
+  const BUSINESS = ${js(b ? { business: b.id, token: b.token } : {})};
+  const BUSINESS_NAME = ${js(b?.name ?? "")};
   const $ = (id) => document.getElementById(id);
   const button = $("go");
   const status = $("status");
@@ -271,13 +280,19 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       const res = await fetch("/signup/complete", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code, ...session }),
+        body: JSON.stringify({ code, ...session, ...BUSINESS }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Something went wrong.");
       $("d-number").textContent = body.number || "Not shown by Meta yet";
       $("d-name").textContent = body.name || "Not shown by Meta yet";
       $("d-id").textContent = body.phoneNumberId;
+      if (BUSINESS.business) {
+        $("d-title").textContent = body.live ? "Your assistant is live." : "Your number is connected.";
+        $("d-next").textContent = body.live
+          ? "Customers who message this number now get answers from your price list. We've sent the details to you on WhatsApp."
+          : "We couldn't switch your assistant on. Please email support@yarnoga.com or message us on WhatsApp and we'll finish it for you.";
+      }
       if (body.pin) { $("d-pin").textContent = body.pin; $("pin-box").hidden = false; }
       $("form").hidden = true;
       $("done").hidden = false;
@@ -324,7 +339,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       response_type: "code",
       override_default_response_type: true,
       extras: {
-        setup: {},
+        setup: BUSINESS_NAME ? { business: { name: BUSINESS_NAME } } : {},
         featureType: kind() === "app" ? "whatsapp_business_app_onboarding" : "",
         sessionInfoVersion: "3",
       },

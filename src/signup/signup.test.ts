@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSignup } from "./index.js";
+import { createSignup, signupLink } from "./index.js";
 import type { Connection } from "./store.js";
 
 const silent = { info() {}, error() {} };
@@ -30,6 +30,7 @@ function setup(
     return json(404, {});
   }) as typeof fetch;
   const added: string[] = [];
+  const linked: string[] = [];
   const app = createSignup({
     app: { appId: "APPID", appSecret: "APPSECRET", graphApiVersion: "v23.0" },
     configId: "CONFIG",
@@ -39,6 +40,13 @@ function setup(
       return true;
     },
     saveEmail,
+    forBusiness: {
+      name: async (id) => (id === BIZ ? "Mama Cakes" : null),
+      connected: async (id, c) => {
+        linked.push(`${id} ${c.phoneNumberId}`);
+        return true;
+      },
+    },
     perVisitorDailyLimit: limits?.perVisitor,
     dailyLimit: limits?.total,
     fetch: fakeFetch,
@@ -50,8 +58,10 @@ function setup(
       headers: { "content-type": "application/json", "x-forwarded-for": visitor },
       body: JSON.stringify(body),
     });
-  return { app, saved, calls, added, complete };
+  return { app, saved, calls, added, linked, complete };
 }
+
+const BIZ = "0b6f2c1e-1234-4abc-9def-000000000001";
 
 const finished = { code: "AQB-code_123", waba_id: "1463401605808243", phone_number_id: "1341325682404019", coexistence: true };
 
@@ -155,5 +165,31 @@ describe("sign-up page", () => {
     expect(saved).toEqual([{ phoneNumberId: finished.phone_number_id, email: "ada@gmail.com", tips: true }]);
     expect((await post({ phone_number_id: finished.phone_number_id, token: body.emailToken, email: "ada@gamil.com", tips: true })).status).toBe(400);
     expect((await post({ phone_number_id: "999", token: body.emailToken, email: "x@y.com", tips: true })).status).toBe(403);
+  });
+});
+
+describe("a business's own sign-up link", () => {
+  const link = new URL(signupLink("APPSECRET", "https://app.example.com", BIZ));
+
+  it("names the business and sends the number to it, switched on", async () => {
+    const { app, added, linked, complete } = setup();
+    const html = await (await app.request(`/${link.search}`)).text();
+    expect(html).toContain("Connect Mama Cakes");
+    expect(html).toContain("switches on as soon as you finish");
+    expect(html).toContain(`setup: BUSINESS_NAME`);
+    expect(html).toContain(`const BUSINESS_NAME = "Mama Cakes"`);
+    const res = await complete({ ...finished, business: BIZ, token: link.searchParams.get("t") });
+    expect(await res.json()).toMatchObject({ phoneNumberId: finished.phone_number_id, live: true });
+    expect(linked).toEqual([`${BIZ} ${finished.phone_number_id}`]);
+    expect(added).toEqual([]);
+  });
+
+  it("ignores a link with the wrong token", async () => {
+    const { app, added, linked, complete } = setup();
+    const html = await (await app.request(`/?b=${BIZ}&t=wrong`)).text();
+    expect(html).not.toContain("Mama Cakes");
+    await complete({ ...finished, business: BIZ, token: "wrong" });
+    expect(linked).toEqual([]);
+    expect(added).toEqual([finished.phone_number_id]);
   });
 });

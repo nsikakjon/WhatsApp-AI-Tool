@@ -15,7 +15,7 @@ import {
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
-import { FRESH_NUMBER_NOTE, NEW_SIM_STEPS, type createNumberCollector } from "./numbers.js";
+import { CONNECT_NUMBER_NOTE, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, type createNumberCollector } from "./numbers.js";
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
@@ -102,6 +102,8 @@ export interface ChatSignupOptions {
   askEmail?: (a: { waId: string; businessId: string }) => Promise<string | null>;
   /** QUOTE_NUMBER_QUEUE: new owners are asked for a new SIM's number, which goes on the staff queue. */
   numbers?: ReturnType<typeof createNumberCollector>;
+  /** The business's own link to connect its number with Facebook (/signup). Off when not given. */
+  connectLink?: (businessId: string) => string;
   /** QUOTE_DEMO_SIGNUP_GATE: demo visitors sign up after the delivery question to finish their order. */
   signUpToContinue?: boolean;
   now?: () => Date;
@@ -434,7 +436,9 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         "",
         AFTER,
         "",
-        opts.numbers
+        opts.connectLink
+          ? connectSteps(opts.connectLink(businessId), Boolean(opts.numbers))
+          : opts.numbers
           ? NEW_SIM_STEPS
           : "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
         ...(demoOrder ? ["", "Your demo order is still here: send *yes* to finish it and see the invoice your customers get."] : []),
@@ -442,7 +446,10 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       ].join("\n"),
       ...alert(
         `New quote bot sign-up: ${signup.businessName} (${signup.description}), +${waId}, ${items.length} items${signup.referralCode ? `, code ${signup.referralCode}` : ""}. ` +
-          (opts.numbers
+          (opts.connectLink
+            ? "It's switched off until they connect a number with Facebook (it then goes live by itself)" +
+              (opts.numbers ? " or send a new SIM's number for /quote-setup/numbers." : ".")
+            : opts.numbers
             ? "It's switched off until their new number is connected. They've been asked for it, and it will show on /quote-setup/numbers."
             : "It's switched off until their number is connected: add its Phone number ID on /quote-setup and switch it on."),
       ),
@@ -485,7 +492,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return {
       text:
         "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\n" +
-        (opts.numbers ? `${FRESH_NUMBER_NOTE}\n\n` : "") +
+        (opts.connectLink ? `${CONNECT_NUMBER_NOTE}\n\n` : opts.numbers ? `${FRESH_NUMBER_NOTE}\n\n` : "") +
         "First, what's your business called?",
     };
   }

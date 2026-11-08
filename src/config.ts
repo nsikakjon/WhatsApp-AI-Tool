@@ -206,6 +206,11 @@ export interface Config {
      * publicUrl (PUBLIC_URL) puts a link to the steps in staff alerts.
      */
     numberQueue?: { publicUrl?: string; staffPassword?: string };
+    /**
+     * The server's https address (PUBLIC_URL), when the sign-up page is on
+     * too: new owners get their own link to connect their number with Facebook.
+     */
+    connectUrl?: string;
   };
   /**
    * Broadcasts to customers who opted in (a paid add-on for quote bot
@@ -575,6 +580,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
                 staffPassword: env.QUOTE_NUMBERS_PASSWORD ? longPassword(env, "QUOTE_NUMBERS_PASSWORD") : undefined,
               }
             : undefined,
+          connectUrl: env.META_SIGNUP_CONFIG_ID?.trim() && env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined,
         }
       : undefined,
     quoteOrderBoard: /^(true|yes|on|1)$/i.test(env.QUOTE_ORDER_BOARD ?? "")

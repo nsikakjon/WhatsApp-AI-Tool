@@ -20,6 +20,15 @@ export interface SignupDeps {
   /** Adds the number to yarnOga as a switched-off business; true if it was new. */
   onConnected?: (connection: Connection) => Promise<boolean>;
   /**
+   * Businesses that signed up by chat get their own link (signupLink). The
+   * page shows their name, and the number goes to that business instead of a new one.
+   */
+  forBusiness?: {
+    name: (businessId: string) => Promise<string | null>;
+    /** Puts the number on the business and switches it on; false when another business has the number. */
+    connected: (businessId: string, connection: Connection) => Promise<boolean>;
+  };
+  /**
    * Saves the email the owner types after connecting, for receipts and, if
    * ticked, setup tips. "bad" or "typo" when it doesn't look right. Off when not given.
    */
@@ -39,12 +48,31 @@ export function createSignup(deps: SignupDeps) {
   const now = deps.now ?? (() => new Date());
   const limiter = createDailyLimiter(deps.perVisitorDailyLimit ?? 5, deps.dailyLimit ?? 50);
 
-  app.get("/", (c) => {
+  app.get("/", async (c) => {
     c.header("Cache-Control", "no-store");
+    const businessId = linkedBusiness(c.req.query("b"), c.req.query("t"));
+    const businessName = businessId ? await deps.forBusiness!.name(businessId).catch((err) => {
+      log.error("Couldn't read the business for a sign-up link:", err);
+      return null;
+    }) : null;
     return c.html(
-      renderSignupPage({ appId: deps.app.appId, configId: deps.configId, graphApiVersion: deps.app.graphApiVersion, askEmail: Boolean(deps.saveEmail) }),
+      renderSignupPage({
+        appId: deps.app.appId,
+        configId: deps.configId,
+        graphApiVersion: deps.app.graphApiVersion,
+        askEmail: Boolean(deps.saveEmail) && !businessName,
+        business: businessId && businessName ? { name: businessName, id: businessId, token: c.req.query("t")! } : undefined,
+      }),
     );
   });
+
+  /** The business a sign-up link is for, when its token is right. */
+  function linkedBusiness(id: unknown, token: unknown): string | undefined {
+    if (!deps.forBusiness) return undefined;
+    const businessId = matching(id, /^[0-9a-f-]{36}$/i);
+    const t = matching(token, /^[\w-]{1,64}$/);
+    return businessId && t && sameToken(t, businessToken(deps.app.appSecret, businessId)) ? businessId : undefined;
+  }
 
   app.post("/complete", async (c) => {
     c.header("Cache-Control", "no-store");
@@ -82,6 +110,15 @@ export function createSignup(deps: SignupDeps) {
     }
     log.info(`Connected WhatsApp number ${phoneNumberId} (account ${wabaId}, coexistence: ${coexistence})`);
 
+    const businessId = linkedBusiness(body.business, body.token);
+    if (businessId) {
+      const live = await deps.forBusiness!.connected(businessId, connection).catch((err) => {
+        log.error(`Couldn't put ${phoneNumberId} on business ${businessId}:`, err);
+        return false;
+      });
+      return c.json({ number: connection.displayNumber ?? null, name: connection.verifiedName ?? null, phoneNumberId, coexistence, pin: pin ?? null, live });
+    }
+
     const added = await deps.onConnected?.(connection).catch((err) => {
       log.error(`Couldn't add ${phoneNumberId} as a business:`, err);
       return false;
@@ -118,6 +155,15 @@ export function createSignup(deps: SignupDeps) {
   });
 
   return app;
+}
+
+/** A business's own link to connect its number on /signup. */
+export function signupLink(appSecret: string, publicUrl: string, businessId: string): string {
+  return `${publicUrl}/signup?b=${businessId}&t=${businessToken(appSecret, businessId)}`;
+}
+
+function businessToken(secret: string, businessId: string): string {
+  return createHmac("sha256", secret).update(`signup-business:${businessId}`).digest("base64url").slice(0, 32);
 }
 
 function emailToken(secret: string, phoneNumberId: string): string {
