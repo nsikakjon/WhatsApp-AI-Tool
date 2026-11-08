@@ -11,7 +11,7 @@ export interface SignupPageOptions {
   /** Show the email box after connecting. */
   askEmail?: boolean;
   /** Opened from a business's own link (it signed up by chat): the number goes to it and its bot switches on. */
-  business?: { id: string; name: string; token: string };
+  business?: { id: string; name: string; token: string; keepApp: boolean };
 }
 
 const TIPS = "Send me setup tips and yarnOga news. One email a week at most. Unsubscribe any time.";
@@ -157,22 +157,22 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       <fieldset>
         <legend>How is your number used today?</legend>
         <label class="option">
-          <input type="radio" name="kind" value="app" checked>
-          <b>It's on the WhatsApp Business app</b>
-          <span>Keep using the app on your phone. The assistant answers alongside you and steps back in a chat when you reply yourself.</span>
-        </label>
-        <label class="option">
-          <input type="radio" name="kind" value="new">
+          <input type="radio" name="kind" value="new" checked>
           <b>It's a new number</b>
           <span>A fresh SIM that has never been on WhatsApp. A number already on WhatsApp or the WhatsApp Business app can't be used this way. You get a code by SMS or call to prove it's yours, and it won't work in the WhatsApp app afterwards.</span>
         </label>
+        ${b && !b.keepApp ? "" : `<label class="option">
+          <input type="radio" name="kind" value="app">
+          <b>It's on the WhatsApp Business app</b>
+          <span>Keep using the app on your phone. The assistant answers alongside you and steps back in a chat when you reply yourself. Not available for Nigerian (+234) numbers: Meta doesn't allow it there yet.</span>
+        </label>`}
       </fieldset>
-      <ol class="steps" id="steps-app">
+      <ol class="steps" id="steps-app" hidden>
         <li>Keep the phone with the WhatsApp Business app nearby (version 2.24.17 or newer).</li>
         <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Choose to connect your existing WhatsApp Business app and scan the QR code with it.</li>
       </ol>
-      <ol class="steps" id="steps-new" hidden>
+      <ol class="steps" id="steps-new">
         <li>Get a fresh SIM (any network) that has never had WhatsApp on it, and keep the phone with it nearby.</li>
         <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Enter the number and the code Meta sends to it.</li>

@@ -15,7 +15,7 @@ import {
 import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type PriceListItem } from "./pricelist.js";
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
-import { CONNECT_NUMBER_NOTE, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, type createNumberCollector } from "./numbers.js";
+import { connectNumberNote, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, type createNumberCollector } from "./numbers.js";
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
@@ -437,7 +437,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         AFTER,
         "",
         opts.connectLink
-          ? connectSteps(opts.connectLink(businessId), Boolean(opts.numbers))
+          ? connectSteps(opts.connectLink(businessId), Boolean(opts.numbers), waId)
           : opts.numbers
           ? NEW_SIM_STEPS
           : "Last step: your customers need your WhatsApp number to reach the bot. The yarnOga team will message you shortly to connect it.",
@@ -492,7 +492,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return {
       text:
         "Let's set up your WhatsApp quote bot. It takes a few minutes, and you can send *cancel* any time.\n\n" +
-        (opts.connectLink ? `${CONNECT_NUMBER_NOTE}\n\n` : opts.numbers ? `${FRESH_NUMBER_NOTE}\n\n` : "") +
+        (opts.connectLink ? `${connectNumberNote(waId)}\n\n` : opts.numbers ? `${FRESH_NUMBER_NOTE}\n\n` : "") +
         "First, what's your business called?",
     };
   }
