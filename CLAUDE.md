@@ -15,6 +15,10 @@ that business. Three products are built on one shared WhatsApp core:
 3. **Real estate lead qualifier**: chats with property enquiries, asks qualifying
    questions and hands promising leads to an agent.
 
+Alongside them, **Oko** (the farm and land app at `/farm/`) is a separate
+product that shares the server, Railway and Supabase but not the WhatsApp core.
+When working on it, read `farm-app/CLAUDE.md` first.
+
 The owner is not a developer, so explanations matter as much as the code.
 
 ## Stack
