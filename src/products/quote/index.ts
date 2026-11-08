@@ -78,6 +78,8 @@ export interface QuoteProductOptions {
   orderPrefix: string;
   /** WhatsApp number (digits only) that gets new-order alerts. Optional. */
   ownerWaId?: string;
+  /** The owner app's page for a customer's chat, so alerts can open it (the owner app's inbox). */
+  chatLink?: (contactId: string) => string;
   catalog: CatalogStore;
   orders: OrderStore;
   ai: Understander;
@@ -420,7 +422,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const closed = await closedNote(lang);
       return {
         text: closed ? `${t.teamNotified(opts.businessName)}\n\n${closed}` : t.teamNotified(opts.businessName),
-        notify: [{ to: opts.ownerWaId, text: own.talkRequest(msg.contactName ?? own.aCustomer(), showWaId(msg.from)) }],
+        notify: [
+          {
+            to: opts.ownerWaId,
+            text: own.talkRequest(msg.contactName ?? own.aCustomer(), showWaId(msg.from), Boolean(opts.chatLink)),
+            ...(opts.chatLink ? { link: { label: own.openChat(), url: opts.chatLink(contactId) } } : {}),
+          },
+        ],
       };
     }
     const ask = welcomeAsk(text);

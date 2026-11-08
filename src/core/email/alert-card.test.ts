@@ -41,4 +41,12 @@ describe("renderAlertEmail", () => {
     expect(e.html).toContain("Ada's Cakes");
     expect(e.text).toContain("Received: Sat 7 Nov, 11:00 pm");
   });
+
+  it("adds the alert's own button, such as the steps for a number to connect", () => {
+    const link = { label: "Open steps", url: "https://app.yarnoga.com/quote-setup/numbers/biz-1" };
+    const e = renderAlertEmail("New number to connect for *Ada's Cakes*: 0803 123 4567.\nOwner's WhatsApp: +2348031234567", { link });
+    expect(e.html).toContain(`href="${link.url}"`);
+    expect(e.html).toContain("Open steps &rarr;");
+    expect(e.text).toContain(`Open steps: ${link.url}`);
+  });
 });

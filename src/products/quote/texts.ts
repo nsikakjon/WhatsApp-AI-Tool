@@ -76,7 +76,8 @@ export interface QuoteTexts {
   poweredBy(): string;
   // Owner
   aCustomer(): string;
-  talkRequest(who: string, number: string): string;
+  talkRequest(who: string, number: string, inbox: boolean): string;
+  openChat(): string;
   manualQuote(who: string, number: string): string;
   wantsToOrder(who: string, number: string, ref: string): string;
   total(total: string): string;
@@ -201,7 +202,9 @@ const en: QuoteTexts = {
   defaultHelp: (names) => `I can give you a quote for: ${names}. Tell me what you need and how many.`,
   poweredBy: () => "_Powered by yarnOga · yarnoga.com_",
   aCustomer: () => "A customer",
-  talkRequest: (who, number) => `${who} (${number}) would like to talk to someone. Please reply to them on WhatsApp.`,
+  talkRequest: (who, number, inbox) =>
+    `${who} (${number}) would like to talk to someone. ${inbox ? "Tap the button to carry on the chat in your inbox." : "Please reply to them on WhatsApp."}`,
+  openChat: () => "Open chat",
   manualQuote: (who, number) => `Quote request from ${who} (${number}), please reply to them with a price:`,
   wantsToOrder: (who, number, ref) => `${who} (${number}) wants to order ${ref}:`,
   total: (total) => `Total: ${total}`,
@@ -343,7 +346,9 @@ const fr: QuoteTexts = {
   defaultHelp: (names) => `Je peux vous faire un devis pour : ${names}. Dites-moi ce qu'il vous faut et en quelle quantité.`,
   poweredBy: () => "_Propulsé par yarnOga · yarnoga.com_",
   aCustomer: () => "Un client",
-  talkRequest: (who, number) => `${who} (${number}) voudrait parler à quelqu'un. Répondez-lui sur WhatsApp.`,
+  talkRequest: (who, number, inbox) =>
+    `${who} (${number}) voudrait parler à quelqu'un. ${inbox ? "Touchez le bouton pour continuer la discussion dans votre boîte de réception." : "Répondez-lui sur WhatsApp."}`,
+  openChat: () => "Ouvrir la discussion",
   manualQuote: (who, number) => `Demande de devis de ${who} (${number}), répondez-lui avec un prix :`,
   wantsToOrder: (who, number, ref) => `${who} (${number}) veut commander ${ref} :`,
   total: (total) => `Total : ${total}`,

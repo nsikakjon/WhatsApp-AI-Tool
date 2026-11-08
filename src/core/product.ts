@@ -1,4 +1,4 @@
-import type { OutgoingAudio, OutgoingButtons, OutgoingImage, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
+import type { OutgoingAudio, OutgoingButtons, OutgoingImage, OutgoingLink, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
 // The contract every product module (echo, quote bot, site reporter, lead
@@ -39,6 +39,8 @@ export interface Reply {
 export interface Notice {
   to: string;
   text: string;
+  /** A button under the text that opens this page, e.g. the chat in the owner app's inbox. */
+  link?: OutgoingLink;
   images?: OutgoingImage[];
   buttons?: OutgoingButtons;
   /**

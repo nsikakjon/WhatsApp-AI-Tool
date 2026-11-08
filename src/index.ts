@@ -415,6 +415,9 @@ const sheetsFor = (businessId: string) => sheetSync && { ownerCommand: (msg: Inc
 // The owners' and staff app (OWNER_APP, migration 0049). Its extra alert
 // numbers get a copy of every alert the bot sends the owner.
 const ownerApp = config.activeProduct === "quote" ? config.ownerApp : undefined;
+// A customer's chat in the owner app's inbox, for buttons on owner alerts ("talk to someone").
+const chatLinkFor = (businessId: string) =>
+  ownerApp ? (contactId: string) => `${ownerApp.publicUrl.replace(/\/+$/, "")}/home/inbox/${contactId}?b=${businessId}` : undefined;
 async function alertNumbersFor(businessId: string): Promise<string[]> {
   if (!ownerApp) return [];
   const { data, error } = await supabase.from("quote_alert_numbers").select("wa_id").eq("business_id", businessId);
@@ -498,6 +501,7 @@ if (config.activeProduct === "quote" && config.quote) {
     businessName: config.quote.businessName,
     orderPrefix: config.quote.orderPrefix,
     ownerWaId: config.quote.ownerWaId,
+    chatLink: chatLinkFor(DEFAULT_BUSINESS_ID),
     businessDetails: config.quote.businessDetails,
     paymentDetails: config.quote.paymentDetails,
     branding: createSupabaseBranding(supabase, mainBusinessId),
@@ -593,6 +597,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     businessName: business.name,
     orderPrefix: business.orderPrefix,
     ownerWaId: business.ownerWaId ?? undefined,
+    chatLink: chatLinkFor(business.id),
     businessDetails: business.businessDetails ?? undefined,
     paymentDetails: business.paymentDetails ?? undefined,
     branding: createSupabaseBranding(supabase, business.id),
@@ -1376,7 +1381,7 @@ const app = createApp({
               displayNumber: async (id) => (await phoneDetails(fetch, config.whatsapp, id, config.whatsapp.accessToken)).displayNumber ?? null,
               register: (id, pin) => registerNumber(fetch, config.whatsapp, id, config.whatsapp.accessToken, pin),
             },
-            send: (to, text) => sendNotice(outbox, { to, text }, config.quoteChatSignup!.phoneNumberId),
+            send: (to, text, link) => sendNotice(outbox, { to, text, link }, config.quoteChatSignup!.phoneNumberId),
           }
         : undefined,
     }

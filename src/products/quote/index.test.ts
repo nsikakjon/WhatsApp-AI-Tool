@@ -523,6 +523,25 @@ describe("welcome and menu", () => {
     expect(team.notify?.[0]).toMatchObject({ to: OWNER, text: expect.stringContaining("Ada (+2348012345678) would like to talk to someone") });
   });
 
+  it("puts an Open chat button on the talk-to-someone alert", async () => {
+    const product = createQuoteProduct({
+      businessName: "KahnPrints",
+      orderPrefix: "KP",
+      ownerWaId: OWNER,
+      chatLink: (contactId) => `https://app.yarnoga.com/home/inbox/${contactId}?b=biz-1`,
+      catalog: { activeVariants: async () => variants },
+      orders: memoryOrders().store,
+      ai: { understand: async () => Promise.reject(new Error("unused")) },
+      log: { error() {} },
+    });
+    const team = (await product.handle(text("talk to someone"), ctx))!;
+    expect(team.notify?.[0]).toMatchObject({
+      to: OWNER,
+      text: expect.stringContaining("Tap the button to carry on the chat in your inbox."),
+      link: { label: "Open chat", url: `https://app.yarnoga.com/home/inbox/${ctx.contactId}?b=biz-1` },
+    });
+  });
+
   it("shows only what the plan includes", async () => {
     const product = createQuoteProduct({
       businessName: "Mama Cakes",

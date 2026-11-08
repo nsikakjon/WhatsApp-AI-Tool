@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MessageStore } from "../db/store.js";
-import type { OutgoingTemplate, WhatsAppClient } from "./client.js";
+import type { OutgoingLink, OutgoingTemplate, WhatsAppClient } from "./client.js";
 import { sendNotice } from "./outbox.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -8,7 +8,7 @@ const HOUR = 60 * 60 * 1000;
 // The owner last wrote to the flyer line an hour ago and to the quotes line two days ago.
 function setup() {
   const lastWrote: Record<string, Date> = { flyer: new Date(Date.now() - HOUR), quotes: new Date(Date.now() - 48 * HOUR) };
-  const sent: Array<{ kind: "text" | "template"; to: string; from?: string; text?: string; template?: OutgoingTemplate }> = [];
+  const sent: Array<{ kind: "text" | "template" | "link"; to: string; from?: string; text?: string; template?: OutgoingTemplate; link?: OutgoingLink }> = [];
   const store = {
     upsertContact: async () => "contact-1",
     recordOutbound: async () => {},
@@ -18,6 +18,10 @@ function setup() {
   const whatsapp = {
     sendText: async (to: string, text: string, from?: string) => {
       sent.push({ kind: "text", to, from, text });
+      return { waMessageId: "m", raw: {} };
+    },
+    sendLink: async (to: string, text: string, link: OutgoingLink, from?: string) => {
+      sent.push({ kind: "link", to, from, text, link });
       return { waMessageId: "m", raw: {} };
     },
     sendTemplate: async (to: string, template: OutgoingTemplate, from?: string) => {
@@ -67,6 +71,26 @@ describe("sendNotice", () => {
     await expect(sendNotice(deps, alert, "quotes")).rejects.toThrow("WhatsApp down");
     await sendNotice(deps, { ...alert, to: "2348000000009" }, "flyer").catch(() => {});
     expect(emailed).toEqual([alert.text]);
+  });
+
+  it("puts a link under the text as a button, and spells it out in the template and the email", async () => {
+    const { store, whatsapp, sent } = setup();
+    const emailed: unknown[] = [];
+    const link = { label: "Open chat", url: "https://app.yarnoga.com/home/inbox/c1?b=biz-1" };
+    const note = { to: alert.to, text: "Lukuman (+2348000000002) would like to talk to someone.", link };
+    const deps = { store, whatsapp, noticeTemplate: ownerAlert, emailCopy: { waIds: [alert.to], send: async (...args: unknown[]) => void emailed.push(args) } };
+    await sendNotice(deps, note, "flyer");
+    await sendNotice(deps, note, "quotes");
+    expect(sent).toEqual([
+      { kind: "link", to: alert.to, from: "flyer", text: note.text, link },
+      {
+        kind: "template",
+        to: alert.to,
+        from: "quotes",
+        template: { ...ownerAlert, bodyParams: [`${note.text} · Open chat: ${link.url}`] },
+      },
+    ]);
+    expect(emailed[0]).toEqual([note.text, link]);
   });
 
   it("prefers the notice's own template", async () => {

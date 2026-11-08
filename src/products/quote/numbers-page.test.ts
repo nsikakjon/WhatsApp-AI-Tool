@@ -39,7 +39,7 @@ function setUp(meta: { shows?: string | null; registerFails?: boolean } = {}) {
       return list[i]!;
     },
   } as unknown as SetupStore;
-  const sent: Array<{ to: string; text: string }> = [];
+  const sent: Array<{ to: string; text: string; link?: { label: string; url: string } }> = [];
   const registered: Array<{ id: string; pin: string }> = [];
   const app = createQuoteSetup({
     password: PASSWORD,
@@ -59,7 +59,7 @@ function setUp(meta: { shows?: string | null; registerFails?: boolean } = {}) {
           registered.push({ id, pin });
         },
       },
-      send: async (to, text) => void sent.push({ to, text }),
+      send: async (to, text, link) => void sent.push({ to, text, link }),
     },
   });
   const post = (path: string, fields: Record<string, string> = {}) =>
@@ -131,7 +131,13 @@ describe("numbers to connect", () => {
     await q.store.addStaff("Ada", "2348033333333");
     await post("/assign", { assignedTo: "s2" });
     expect(q.rows.get(GEM)?.assignedTo).toBe("s2");
-    expect(sent).toEqual([{ to: "2348033333333", text: expect.stringContaining(`https://app.yarnoga.com/quote-setup/numbers/${GEM}`) }]);
+    expect(sent).toEqual([
+      {
+        to: "2348033333333",
+        text: expect.stringContaining("New number to connect for *Glittering Gem*"),
+        link: { label: "Open steps", url: `https://app.yarnoga.com/quote-setup/numbers/${GEM}` },
+      },
+    ]);
   });
 
   it("adds and removes staff", async () => {
