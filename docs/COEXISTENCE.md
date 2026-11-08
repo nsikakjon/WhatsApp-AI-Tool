@@ -28,12 +28,11 @@ of the messages you send from the app. That needs the steps below.
 
 ## Before you start: things to know
 
-1. **Nigeria may not be supported yet.** Meta doesn't publish an official
-   country list. Some guides say Nigerian (+234) numbers were added in 2026,
-   while other, newer guides still list Nigeria as not supported. The only way
-   to be sure is to try the sign-up in step 6: if Meta doesn't offer the
-   "connect your existing WhatsApp Business app" option for the number, it isn't
-   available yet.
+1. **Nigeria.** Meta's guide "Onboard WhatsApp Business app users"
+   (checked 8 Nov 2026) lists no countries left out, and Meta's developer
+   assistant has said both yes and no. If Meta's window doesn't offer
+   "connect your existing WhatsApp Business app" for a +234 number, use a new
+   SIM instead.
 2. **The number has to live in the WhatsApp Business app first.** Coexistence
    works the other way round from what we did before: you start with a number
    already in the app, then connect it to the bot. Guides say Meta wants the
