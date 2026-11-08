@@ -14,6 +14,7 @@ import { createDoorScreens, type DoorDeps } from "./products/quote/tickets/door.
 import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
+import { createFarm, type FarmDeps } from "./farm/index.js";
 import { createEmailRoutes } from "./core/email/routes.js";
 import { createShopPage, type ShopDeps } from "./products/quote/shop.js";
 import { createProcessedCounter, type ProcessedCounterDeps } from "./core/payments/processed.js";
@@ -49,6 +50,8 @@ export function createApp(
     screenShield?: boolean;
     /** The money processed figure for yarnoga.com at /processed (PROCESSED_COUNTER_MIN_NAIRA). */
     processed?: ProcessedCounterDeps;
+    /** Oko, Jay's farm and land app at /farm/ (FARM_PASSWORD). */
+    farm?: FarmDeps;
   } = {},
 ) {
   const app = new Hono();
@@ -128,6 +131,13 @@ export function createApp(
   if (more.shop) app.route("/", createShopPage(more.shop));
 
   if (more.processed) app.route("/processed", createProcessedCounter(more.processed));
+
+  // Oko, the farm and land app. Its files load from addresses relative to the
+  // page, so /farm must become /farm/ first.
+  if (more.farm) {
+    app.get("/farm", (c) => c.redirect("/farm/", 301));
+    app.route("/farm", createFarm(more.farm));
+  }
 
   return app;
 }
