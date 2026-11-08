@@ -169,12 +169,12 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       </fieldset>
       <ol class="steps" id="steps-app">
         <li>Keep the phone with the WhatsApp Business app nearby (version 2.24.17 or newer).</li>
-        <li>Log in with the Facebook account that manages your business, then choose your business.</li>
+        <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Choose to connect your existing WhatsApp Business app and scan the QR code with it.</li>
       </ol>
       <ol class="steps" id="steps-new" hidden>
         <li>Get a fresh SIM (any network) that has never had WhatsApp on it, and keep the phone with it nearby.</li>
-        <li>Log in with the Facebook account that manages your business, then choose your business.</li>
+        <li>Log in with the Facebook account that manages your business, then choose your business. No website? Use your Instagram or Facebook page link.</li>
         <li>Enter the number and the code Meta sends to it.</li>
       </ol>
       <button class="btn" id="go" disabled>
@@ -227,6 +227,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
   const ASK_EMAIL = ${js(Boolean(opts.askEmail))};
   const VERSION = ${js(opts.graphApiVersion)};
   const BUSINESS = ${js(b ? { business: b.id, token: b.token } : {})};
+  const BUSINESS_NAME = ${js(b?.name ?? "")};
   const $ = (id) => document.getElementById(id);
   const button = $("go");
   const status = $("status");
@@ -338,7 +339,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
       response_type: "code",
       override_default_response_type: true,
       extras: {
-        setup: {},
+        setup: BUSINESS_NAME ? { business: { name: BUSINESS_NAME } } : {},
         featureType: kind() === "app" ? "whatsapp_business_app_onboarding" : "",
         sessionInfoVersion: "3",
       },

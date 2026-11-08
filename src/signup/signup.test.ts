@@ -176,6 +176,8 @@ describe("a business's own sign-up link", () => {
     const html = await (await app.request(`/${link.search}`)).text();
     expect(html).toContain("Connect Mama Cakes");
     expect(html).toContain("switches on as soon as you finish");
+    expect(html).toContain(`setup: BUSINESS_NAME`);
+    expect(html).toContain(`const BUSINESS_NAME = "Mama Cakes"`);
     const res = await complete({ ...finished, business: BIZ, token: link.searchParams.get("t") });
     expect(await res.json()).toMatchObject({ phoneNumberId: finished.phone_number_id, live: true });
     expect(linked).toEqual([`${BIZ} ${finished.phone_number_id}`]);

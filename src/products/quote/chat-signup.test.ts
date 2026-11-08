@@ -333,6 +333,7 @@ describe("chat sign-up on the quotes number", () => {
     await say("Cupcakes 600");
     const done = await say("YES");
     expect(done.text).toContain("*Connect with Facebook*");
+    expect(done.text).toContain("Instagram or Facebook page link");
     expect(done.text).toContain("https://app.example.com/signup?b=biz-1&t=tok");
     expect(done.text).toContain("*Or send us a new SIM's number*");
     expect(done.notify?.[0]?.text).toContain("connect a number with Facebook");

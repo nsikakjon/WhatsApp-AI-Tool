@@ -104,6 +104,7 @@ export function connectSteps(link: string, newSim: boolean): string {
     "*Connect with Facebook* (about 5 minutes)",
     "Open this link, log in with the Facebook account that runs your business and follow Meta's steps. " +
       "You can connect the number on your WhatsApp Business app and keep using the app, or a new number. Your bot goes live as soon as you finish.",
+    "No website? When Meta asks for one, paste your business's Instagram or Facebook page link instead.",
     link,
     ...(newSim
       ? [
