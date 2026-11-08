@@ -264,6 +264,12 @@ function insights(field, wx, now=new Date()){
     else if(S.tomorrow>=5) add("info","Rain tomorrow",`About ${Math.round(S.tomorrow)} mm expected. Spray today, or wait for a dry window.`);
     if((m===12||m<=2) && S.rain30<10) add("med","Harmattan fire risk","Keep fire breaks clear and talk to your neighbours about bush burning.");
   }
+  // satellite: a clear drop in greenness compared with recent clear views
+  const ser=field.sat?.series;
+  if(ser && ser.length>=4){
+    const last=ser[ser.length-1], prev=ser.slice(-4,-1).map(x=>x.mean).sort((a,b)=>a-b)[1];
+    if(prev-last.mean>=0.1) add("med","Satellite: field looks less green",`Greenness fell from about ${prev.toFixed(2)} to ${last.mean.toFixed(2)} (${last.date}). Walk the field: it could be pests, disease, drought, pruning or harvest.`);
+  }
   // scouting follow-ups
   const sc=(field.scouts||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
   if(field.crop?.id){
