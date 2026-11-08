@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canKeepApp, connectSteps, createNumberCollector, nextStaff, phoneFromText, type ConnectStaff, type NumberRequest } from "./numbers.js";
+import { createNumberCollector, nextStaff, phoneFromText, type ConnectStaff, type NumberRequest } from "./numbers.js";
 import { memoryQueue } from "./numbers-testing.js";
 
 const OWNER = { businessId: "biz-1", businessName: "Glittering Gem", ownerWaId: "2348011111111" };
@@ -97,14 +97,5 @@ describe("collecting the new SIM's number in the chat", () => {
     await numbers.opened("biz-1");
     expect(await say("try")).toBeNull();
     expect((await say("number"))?.text).toMatch(/fresh SIM/);
-  });
-});
-
-describe("keeping the WhatsApp Business app (coexistence)", () => {
-  it("isn't offered for Nigerian numbers, which Meta doesn't allow", () => {
-    expect(canKeepApp("2348031234567")).toBe(false);
-    expect(canKeepApp("254712345678")).toBe(true);
-    expect(connectSteps("https://x/signup", true, "2348031234567")).not.toContain("keep using the app");
-    expect(connectSteps("https://x/signup", true, "254712345678")).toContain("keep using the app");
   });
 });

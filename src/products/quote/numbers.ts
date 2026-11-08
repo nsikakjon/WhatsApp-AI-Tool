@@ -80,23 +80,10 @@ export const FRESH_NUMBER_NOTE =
   "Before we start: your bot needs its own WhatsApp number, a fresh SIM that has never been on WhatsApp (any network). " +
   "Your own number can't be used, because it already has WhatsApp on it. You can get the SIM later; I'll ask for the number at the end.";
 
-/**
- * Meta doesn't let Nigerian (+234) numbers stay in the WhatsApp Business app
- * while the bot answers on them (coexistence), so owners there aren't offered it.
- */
-export function canKeepApp(waId: string): boolean {
-  return !waId.startsWith("234");
-}
-
 /** FRESH_NUMBER_NOTE when owners can also connect with Facebook on /signup. */
-export function connectNumberNote(waId: string): string {
-  return (
-    "Before we start: at the end you'll connect the WhatsApp number your bot answers on, with Facebook. " +
-    (canKeepApp(waId)
-      ? "If your business uses the WhatsApp Business app, you can connect that number and keep using the app. Or use a fresh SIM that has never been on WhatsApp."
-      : "Use a fresh SIM that has never been on WhatsApp (any network), so you keep your own WhatsApp. You can get it later.")
-  );
-}
+export const CONNECT_NUMBER_NOTE =
+  "Before we start: at the end you'll connect the WhatsApp number your bot answers on. " +
+  "If your business uses the WhatsApp Business app, you can connect that number with Facebook and keep using the app. Or use a fresh SIM that has never been on WhatsApp.";
 
 export const NEW_SIM_STEPS =
   "Last step: a WhatsApp number just for your bot, so your customers can reach it.\n\n" +
@@ -110,16 +97,13 @@ export const NEW_SIM_STEPS =
  * /signup), with sending a new SIM's number as the other way when the number
  * queue is on.
  */
-export function connectSteps(link: string, newSim: boolean, waId: string): string {
+export function connectSteps(link: string, newSim: boolean): string {
   return [
     "Last step: connect the WhatsApp number your customers will message.",
     "",
     "*Connect with Facebook* (about 5 minutes)",
     "Open this link, log in with the Facebook account that runs your business and follow Meta's steps. " +
-      (canKeepApp(waId)
-        ? "You can connect the number on your WhatsApp Business app and keep using the app, or a new number. "
-        : "Use a fresh SIM that has never been on WhatsApp, in a phone that can get SMS. A number already on WhatsApp stops working in the app once it's connected. ") +
-      "Your bot goes live as soon as you finish.",
+      "You can connect the number on your WhatsApp Business app and keep using the app, or a new number. Your bot goes live as soon as you finish.",
     "No website? When Meta asks for one, paste your business's Instagram or Facebook page link instead.",
     link,
     ...(newSim
@@ -166,13 +150,13 @@ export function createNumberCollector(opts: NumberCollectorOptions) {
       if (!request || request.status === "registered" || request.status === "live") return null;
       if (ASK_NUMBER.test(text.trim())) {
         if (request.number) return { text: `We have *${localNumber(request.number)}* for your bot. Send a different number to change it.` };
-        return { text: opts.connectLink ? connectSteps(opts.connectLink(b.businessId), true, b.ownerWaId) : NEW_SIM_STEPS };
+        return { text: opts.connectLink ? connectSteps(opts.connectLink(b.businessId), true) : NEW_SIM_STEPS };
       }
       const number = phoneFromText(text);
       if (!number) return null;
       if (number === b.ownerWaId) {
         return {
-          text: opts.connectLink && canKeepApp(number)
+          text: opts.connectLink
             ? `That's the number you're chatting from. To use it for your bot and keep the WhatsApp Business app, connect it with Facebook here:\n${opts.connectLink(b.businessId)}\n\nOr send the number of a new SIM that has never had WhatsApp on it.`
             : "That's the number you're chatting from. Your bot needs a new SIM that has never had WhatsApp on it, so you keep your own WhatsApp. Send the new SIM's number when you have it.",
         };

@@ -327,7 +327,7 @@ describe("chat sign-up on the quotes number", () => {
     const q = memoryQueue();
     const connectLink = (id: string) => `https://app.example.com/signup?b=${id}&t=tok`;
     const { say } = setUp(CUPCAKES, { numbers: createNumberCollector({ store: q.store, connectLink }), connectLink });
-    expect((await say("sign up")).text).toContain("with Facebook. Use a fresh SIM");
+    expect((await say("sign up")).text).toContain("connect that number with Facebook and keep using the app");
     await say("cancel");
     await signUpToPrices(say);
     await say("Cupcakes 600");
@@ -338,8 +338,7 @@ describe("chat sign-up on the quotes number", () => {
     expect(done.text).toContain("*Or send us a new SIM's number*");
     expect(done.notify?.[0]?.text).toContain("connect a number with Facebook");
     expect((await say("number")).text).toContain("https://app.example.com/signup?b=biz-1&t=tok");
-    expect(done.text).not.toContain("keep using the app");
-    expect((await say(OWNER)).text).toMatch(/number you're chatting from.*needs a new SIM/s);
+    expect((await say(OWNER)).text).toMatch(/number you're chatting from.*connect it with Facebook/s);
   });
 
   describe("asking demo visitors to sign up after the delivery question", () => {

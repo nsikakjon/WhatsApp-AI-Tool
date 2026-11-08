@@ -118,7 +118,6 @@ import { createSocials } from "./dashboard/socials.js";
 import { createConnectionAccounts, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { signupLink } from "./signup/index.js";
 import { connectSignedUpBusiness } from "./products/quote/connect.js";
-import { canKeepApp } from "./products/quote/numbers.js";
 import { phoneDetails, registerNumber } from "./signup/meta.js";
 import { createNumberCollector, createSupabaseNumberQueue } from "./products/quote/numbers.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
@@ -1347,10 +1346,7 @@ const app = createApp({
       // Businesses that signed up by chat connect from their own link and go live.
       forBusiness: connectLink
         ? {
-            get: async (id) => {
-              const b = await createSupabaseBusinesses(supabase).get(id);
-              return b ? { name: b.name, keepApp: !b.ownerWaId || canKeepApp(b.ownerWaId) } : null;
-            },
+            name: async (id) => (await createSupabaseBusinesses(supabase).get(id))?.name ?? null,
             connected: async (id, c) => {
               const result = await connectSignedUpBusiness(
                 { businesses: createSupabaseBusinesses(supabase), setup: createSupabaseSetup(supabase), queue: numberQueue },
