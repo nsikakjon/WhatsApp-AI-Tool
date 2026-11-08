@@ -28,11 +28,12 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 | `farm-app/js/survey.js` | Land maths and exports (area, legs, setback, DXF, CSV, KML, GeoJSON, report) |
 | `farm-app/js/sync.js` | Login by invite, background sync, photo upload, sharing, admin view (phone side) |
 | `farm-app/js/satellite.js` | Satellite crop health card (phone side) |
-| `farm-app/js/app.js` | Screens, routing, sheets, weather (Open-Meteo), demo farms |
+| `farm-app/js/app.js` | Screens, routing, sheets, weather (from the server; straight from Open-Meteo only with no server), demo farms |
 | `farm-app/sw.js` | Offline support. **Bump `C="oko-vN"` whenever any file in `farm-app/` changes**, or phones keep the old version |
 | `src/farm/index.ts` | Serves the files and the API under `/farm/api/` |
 | `src/farm/store.ts` | Database layer (Supabase + in-memory for tests) |
 | `src/farm/merge.ts` | How two phones' copies of a field are combined |
+| `src/farm/weather.ts` | Open-Meteo weather (server side, cached; paid key `OPEN_METEO_API_KEY` stays on the server) |
 | `src/farm/satellite.ts` | Sentinel-2 NDVI from Copernicus (server side; keys never reach phones) |
 | `supabase/migrations/0076_farm.sql`, `0077_farm_satellite.sql` | Oko's tables (`farm_*`) and the private `farm-photos` bucket |
 | `scripts/preview-farm.ts` | Runs Oko locally with fake data: `npx tsx scripts/preview-farm.ts` |
@@ -73,6 +74,5 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 
 ## Ideas Jay has mentioned for later
 
-Public launch next year (switch Open-Meteo to a paid plan, check Esri imagery
-terms), an AI farm assistant on the existing Claude setup, WhatsApp alerts
+Public launch next year (the launch checklist is in `docs/FARM.md`), an AI farm assistant on the existing Claude setup, WhatsApp alerts
 through the shared core, more testers in farms.

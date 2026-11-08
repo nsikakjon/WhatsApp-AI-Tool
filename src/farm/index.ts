@@ -8,6 +8,7 @@ import { clientIp, createLoginThrottle, guardedBasicAuth } from "../core/securit
 import { cleanField, mergeField } from "./merge.js";
 import type { FarmStore, FarmUser, FieldRow } from "./store.js";
 import { ringHectares, type Satellite } from "./satellite.js";
+import { readPoint, type Weather } from "./weather.js";
 
 // Oko: the farm and land app at /farm/.
 //
@@ -33,6 +34,8 @@ export interface FarmDeps {
   now?: () => Date;
   /** Satellite crop health (COPERNICUS_CLIENT_ID / _SECRET). */
   satellite?: Satellite;
+  /** Field weather from Open-Meteo (free, or paid with OPEN_METEO_API_KEY). Without it, phones ask Open-Meteo themselves. */
+  weather?: Weather;
 }
 
 export const FARM_DIR = fileURLToPath(new URL("../../farm-app/", import.meta.url));
@@ -317,6 +320,22 @@ export function createFarm(deps: FarmDeps) {
     if (!img) return c.json({ error: "Not found." }, 404);
     return new Response(new Uint8Array(img), { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400" } });
   });
+
+  /* ---------- weather ---------- */
+  // Logged-in phones only, so the paid key's allowance can't be used by anyone on the internet.
+  const weatherRoute = (kind: "forecast" | "monthly") => async (c: Context) => {
+    if (!deps.weather) return c.json({ configured: false }, 503);
+    const pt = readPoint(c.req.query("lat"), c.req.query("lon"));
+    if (!pt) return c.json({ error: "Bad location." }, 400);
+    try {
+      return c.json(kind === "forecast" ? await deps.weather.forecast(pt.lat, pt.lon) : await deps.weather.monthly(pt.lat, pt.lon));
+    } catch (err) {
+      log.error("Farm weather request failed:", err);
+      return c.json({ error: "The weather service didn't answer. Try again later." }, 502);
+    }
+  };
+  api.get("/weather", weatherRoute("forecast"));
+  api.get("/weather/monthly", weatherRoute("monthly"));
 
   /* ---------- admin ---------- */
   api.use("/admin/*", async (c, next) => {

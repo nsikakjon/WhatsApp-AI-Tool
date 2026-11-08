@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { createFarm } from "../src/farm/index.js";
 import { memoryFarmStore } from "../src/farm/store.js";
 import { createSatellite } from "../src/farm/satellite.js";
+import { createWeather } from "../src/farm/weather.js";
 
 const PORT = 4646;
 
@@ -48,6 +49,7 @@ app.route(
     password: "preview-password",
     store: memoryFarmStore(),
     satellite: createSatellite({ clientId: "preview", clientSecret: "preview" }, fakeCopernicus),
+    weather: createWeather(), // the real free Open-Meteo service
   }),
 );
 serve({ fetch: app.fetch, port: PORT });

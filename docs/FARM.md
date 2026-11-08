@@ -11,7 +11,9 @@ public product later.
   for cocoa, or "Month 7 · Root bulking, about 150 days to harvest" for cassava.
 - **Weather** for each field: rain over the last 7 and 30 days, the 7-day
   forecast, temperature, humidity and soil moisture. It comes from
-  Open-Meteo, which is free and needs no key.
+  Open-Meteo through yarnOga's server, which keeps each answer for an hour
+  and shares it between fields close together. The phone keeps the last
+  answer, so it still shows with no signal.
 - **What needs attention:** alerts worked out from the weather, the month and
   the crop's age. Examples: black pod risk when cocoa has had several wet,
   humid days; a water deficit for oil palm; green mite and mealybug in the
@@ -125,9 +127,58 @@ the database.
 - Crop advice is a planning guide based on common extension advice (CRIN,
   NIFOR, IITA). Chemical products and rates must follow the label and the
   local ADP / extension officer.
-- Open-Meteo's free weather service is for non-commercial use. Before making
-  Oko public, switch to their paid plan (or another provider). The satellite
-  map uses Esri imagery, so check its terms before going public too.
+- Open-Meteo's free weather service is for non-commercial use, and the
+  satellite map uses Esri imagery. Both need sorting out before Oko goes
+  public: see the launch checklist below.
+
+## Launch checklist (private trial to public)
+
+Work through this before anyone can use Oko without an invite.
+
+**Weather (Open-Meteo)**
+- [ ] Buy an Open-Meteo API plan at **open-meteo.com > Pricing** (the
+  smallest plan covers far more than Oko needs, since the server shares one
+  answer per ~1 km square per hour). Copy the API key.
+- [ ] On Railway, add `OPEN_METEO_API_KEY` and redeploy. The start-up log
+  then says `farm app: on (weather: Open-Meteo paid)`. Phones never see the key.
+- [ ] Open a field on your phone and check the weather still loads.
+- [ ] Keep the "Weather data by Open-Meteo.com (CC BY 4.0)" line in Settings.
+
+**Satellite background map (Esri World Imagery)**
+- [ ] The map loads Esri's imagery straight from `server.arcgisonline.com`
+  with no account. That's fine for a trial, but a public app needs Esri's
+  permission: make an **ArcGIS Location Platform** account (it has a free
+  monthly allowance of map tiles), create an API key limited to the
+  basemap service and the `app.yarnoga.com` address, and have a developer
+  add the key to the map in `farm-app/js/app.js` (bump `sw.js` too).
+- [ ] Or switch to another satellite map with clear commercial terms
+  (for example Mapbox or MapTiler). Either way, keep the imagery credit on
+  the map.
+
+**Satellite crop health (Copernicus)**
+- [ ] Sentinel-2 data itself is free for any use, commercial too. The limit
+  is the Copernicus account's monthly allowance of **requests and
+  processing units** (shown on the Copernicus dashboard; around 10,000
+  requests a month at the time of writing).
+- [ ] Each field that someone opens uses about 2 requests every 12 hours,
+  so roughly 120 a month. That's room for about 80 busy fields. Check the
+  dashboard each month as farms join; before you get near the limit, either
+  apply for more through Copernicus or switch to a paid Sentinel Hub plan.
+- [ ] The card already shows the last good reading if the service is
+  refused, so nothing breaks, but readings stop updating.
+
+**From trial to public access**
+- [ ] Decide how people join: keep invite links, or add open sign-up
+  (needs a developer: a sign-up screen and a limit on accounts per phone
+  number or address).
+- [ ] Rewrite the welcome screen. Today it tells testers that you can see
+  every farm in the trial; a public app needs a short privacy notice
+  (what is stored, who sees it, how to delete it) to meet the Nigeria Data
+  Protection Act, and simple terms of use.
+- [ ] Add a way for someone to delete their account and farms.
+- [ ] Turn on Supabase backups (Point in Time Recovery or the daily backup
+  on a paid plan) before real farms depend on it.
+- [ ] Put a support contact (WhatsApp or email) in Settings.
 
 ## For a developer
 
@@ -145,6 +196,12 @@ the database.
   of a field. Logins are a random token in an `HttpOnly` cookie; only its hash
   is stored. Requests that change things must carry `X-Oko: 1` and come from
   the same site.
+- Weather: `src/farm/weather.ts` asks Open-Meteo (free, or paid with
+  `OPEN_METEO_API_KEY`) and keeps answers in memory: forecasts for an hour,
+  monthly rain for a day, one per ~1 km square. Phones call
+  `/farm/api/weather` and `/farm/api/weather/monthly` (logged in only).
+  Without a server (the preview) the phone asks Open-Meteo's free service
+  itself.
 - Satellite: `src/farm/satellite.ts` calls the Copernicus Statistical and
   Process APIs (keys stay on the server); the phone side is `farm-app/js/satellite.js`.
 - Ideas for the public version: an AI farm assistant using the existing
