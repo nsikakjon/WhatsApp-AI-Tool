@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#163b27">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Oko by yarnOga: Farms &amp; Land</title>
+<link rel="manifest" href="manifest.json" crossorigin="use-credentials">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app"></div>
+
+<nav class="dock" id="dock">
+  <button data-go="home" aria-label="Home"></button>
+  <button data-go="map" aria-label="Map"></button>
+  <button data-go="new" class="plus" aria-label="Add field"></button>
+  <button data-go="tasks" aria-label="Tasks"></button>
+  <button data-go="settings" aria-label="Settings"></button>
+</nav>
+
+<!-- generic sheet -->
+<div class="modal" id="mSheet"><div class="sheet" id="sheetBody"></div></div>
+
+<!-- GPS capture -->
+<div class="modal" id="mGps"><div class="sheet">
+  <h2 id="gpsTitle">Capturing position</h2>
+  <p class="muted small">Stand on the spot and hold the phone still, screen up and away from your body.</p>
+  <div class="gpsbig" id="gpsAcc">—</div>
+  <div class="muted small" id="gpsInfo">Waiting for GPS…</div>
+  <div class="progress" style="margin:12px 0 16px"><i id="gpsBar" style="width:0"></i></div>
+  <div class="grid2"><button class="btn sec" id="gpsCancel">Cancel</button><button class="btn" id="gpsDone" disabled>Save now</button></div>
+</div></div>
+
+<!-- Point editor -->
+<div class="modal" id="mPoint"><div class="sheet">
+  <div class="head"><h2 id="ptTitle">Point</h2><button class="ibtn" data-close aria-label="Close">✕</button></div>
+  <label class="f">Label</label><input id="pLabel" placeholder="e.g. B1 or SC/LA 2345">
+  <div id="pTypeWrap"><label class="f">Feature type</label>
+    <select id="pType">
+      <option>Gate / access</option><option>Tree</option><option>Electric pole</option><option>Transformer</option><option>Existing building</option><option>Fence / wall corner</option>
+      <option>Drain / culvert</option><option>Road edge</option><option>Water / borehole</option><option>Septic / soakaway</option><option>Spot level</option><option>Other</option>
+    </select></div>
+  <label class="f">Coordinate entry</label>
+  <select id="pMode">
+    <option value="gps">GPS (captured)</option>
+    <option value="ll">Latitude / longitude (WGS84, decimal)</option>
+    <option value="utmw">UTM – WGS84</option>
+    <option value="utmm">UTM – Minna datum (survey plan)</option>
+  </select>
+  <div id="pLL" class="grid2"><div><label class="f">Latitude</label><input id="pLat" inputmode="decimal" placeholder="6.4474"></div><div><label class="f">Longitude</label><input id="pLon" inputmode="decimal" placeholder="3.4723"></div></div>
+  <div id="pUTM" class="hidden">
+    <div class="grid2"><div><label class="f">Easting (m)</label><input id="pE" inputmode="decimal" placeholder="552000.00"></div><div><label class="f">Northing (m)</label><input id="pN" inputmode="decimal" placeholder="712000.00"></div></div>
+    <label class="f">UTM zone</label><select id="pZone"><option value="31">31N (west of 6°E: Lagos, Ogun, Oyo, Ondo…)</option><option value="32">32N (6°E–12°E: Edo, Delta, Rivers, Abuja…)</option><option value="33">33N (east of 12°E)</option></select>
+  </div>
+  <div id="pGpsInfo" class="muted small" style="margin-top:6px"></div>
+  <label class="f">Notes</label><textarea id="pNotes" placeholder="Beacon condition, tree species/girth, building storeys…"></textarea>
+  <label class="f">Photo</label>
+  <div class="row">
+    <img id="pImg" class="hidden" style="width:72px;height:72px;object-fit:cover;border-radius:14px;flex:0 0 72px" alt="">
+    <label class="btn sec sm" style="margin:0">Add photo<input type="file" id="pPhoto" accept="image/*" capture="environment" class="hidden"></label>
+    <button class="btn soft sm hidden" id="pPhotoDel">Remove</button>
+  </div>
+  <div class="sp16"></div>
+  <div class="grid2"><button class="btn danger" id="pDelete">Delete</button><button class="btn" id="pSave">Save</button></div>
+</div></div>
+
+<!-- Confirm -->
+<div class="modal" id="mConfirm"><div class="sheet">
+  <h2 id="cfTitle">Are you sure?</h2><p class="muted" id="cfText"></p>
+  <div class="grid2"><button class="btn sec" id="cfNo">Cancel</button><button class="btn danger" id="cfYes">Delete</button></div>
+</div></div>
+
+<!-- Report preview -->
+<div class="modal" id="mReport"><div class="sheet" style="max-width:900px">
+  <div class="head"><h2>Site report</h2><button class="btn sm" id="repPrint">Print</button><button class="ibtn" data-close aria-label="Close">✕</button></div>
+  <div id="repBody"></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/geo.js"></script>
+<script src="js/crops.js"></script>
+<script src="js/survey.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
