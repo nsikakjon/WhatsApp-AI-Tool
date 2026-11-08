@@ -124,8 +124,10 @@ migration 0050. See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 A phone app at `/farm/` for cocoa, oil palm, cassava, plantain, maize and yam
 fields in southern Nigeria: crop calendar, weather and pest alerts, scouting
 walks, harvest and cost records, plus land surveys (GPS beacons, area, DXF
-drawings for architects, a drive-to pin for Google Maps / Google Earth). Data
-stays on the phone. Switched on by `FARM_PASSWORD`. See [docs/FARM.md](docs/FARM.md).
+drawings for architects, a drive-to pin for Google Maps / Google Earth). Works
+offline and syncs through Supabase; testers join with invite links and farms
+can be shared with helpers. Switched on by `FARM_PASSWORD`; needs migration
+0076. See [docs/FARM.md](docs/FARM.md).
 
 ## Monitoring
 

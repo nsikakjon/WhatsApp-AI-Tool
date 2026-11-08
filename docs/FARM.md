@@ -38,24 +38,52 @@ public product later.
 
 ## Where the data lives
 
-On the phone (in the browser's storage), **not** on the server or in
-Supabase. That keeps it private and lets it work offline on the farm. The
-catch: clearing the browser's data or losing the phone loses it. Use
-**Settings > Back up everything** now and then and keep the file somewhere
-safe (Google Drive, email it to yourself).
+Each phone keeps its own working copy, so the app works with no signal on
+the farm. When there's signal, it **syncs with yarnOga's database**
+(Supabase). Fields are then safe if a phone is lost, and everyone on a farm
+sees the same thing. Photos go to a private storage bucket and are only shown
+to people on that farm.
+
+If two people change the same field while offline, nothing is lost. Both
+phones' scouting walks, harvests, costs and tasks are kept, and anything
+either of them deleted stays deleted.
+
+Demo farms stay on the phone that loaded them and never sync.
+
+## Who can use it
+
+- **You (admin):** open `https://app.yarnoga.com/farm/admin` once on each of
+  your phones and type `FARM_PASSWORD` (any username). You can see every farm in
+  the trial under **Testers' farms**, and invite testers from **Settings >
+  Trial testers**.
+- **Testers:** in **Settings > Trial testers**, type their name and tap
+  **Invite**, then **Send on WhatsApp**. They tap the link, type their name and
+  they're in. No password. Each link works once and expires after 14 days.
+  The welcome screen tells them that you can see farms in the trial.
+- **Helpers on a farm** (a manager or worker): the farm's owner opens the
+  field, taps the pencil (edit) > **Invite a helper**, and sends that link.
+  Helpers see and edit only that farm. The owner can remove them from the same
+  place, and helpers can leave.
+- **Switching someone off:** Settings > Trial testers > **Switch off** logs
+  them out straight away.
+- Anyone else who opens `/farm/` sees "Private trial" and can only look
+  around with demo farms on their own phone.
 
 ## Switching it on
 
-1. Pick a password of at least 12 characters.
-2. On Railway, open the service > **Variables**, add `FARM_PASSWORD` with that
-   password, and let it redeploy.
-3. On your phone, open `https://app.yarnoga.com/farm/` in Chrome (Android) or
-   Safari (iPhone). Type any username and the password.
-4. Add it to the home screen: Chrome menu (⋮) > **Install app** / **Add to
-   Home screen**, or Safari **Share > Add to Home Screen**.
-5. Allow location when it asks (needed for GPS and the field weather).
+1. **Database:** Supabase > SQL Editor > New query > paste all of
+   `supabase/migrations/0076_farm.sql` > **Run**. It adds the farm tables
+   and a private `farm-photos` bucket. Running it again is safe.
+2. **Password:** on Railway, open the service > **Variables** and add
+   `FARM_PASSWORD` (at least 12 characters). This is your admin password.
+3. Open `https://app.yarnoga.com/farm/admin` on your phone and type the
+   password. Then add the app to your home screen: Chrome menu (⋮) >
+   **Install app**, or Safari **Share > Add to Home Screen**.
+4. Fields you made on that phone before logging in upload as yours on the
+   first sync.
 
-To switch it off, delete `FARM_PASSWORD`.
+To switch the farm app off, delete `FARM_PASSWORD`. The saved data stays in
+the database.
 
 ## Good to know
 
@@ -80,6 +108,11 @@ To switch it off, delete `FARM_PASSWORD`.
   datum conversions, checked against the EPSG:26331 and EPSG:32631/32632 transforms.
 - When you change any file in `/farm-app`, bump `C="oko-v1"` in
   `farm-app/sw.js` so phones pick up the new version.
-- Ideas for the public version: save fields to Supabase per user, satellite
-  crop-health maps (Sentinel-2 NDVI), an AI farm assistant using the existing
-  Claude setup, and WhatsApp alerts through the shared core.
+- Sync: `farm-app/js/sync.js` (phone) and `src/farm/index.ts` (API under
+  `/farm/api/`). `src/farm/merge.ts` holds the rules for combining two copies
+  of a field. Logins are a random token in an `HttpOnly` cookie; only its hash
+  is stored. Requests that change things must carry `X-Oko: 1` and come from
+  the same site.
+- Ideas for the public version: satellite crop-health maps (Sentinel-2 NDVI),
+  an AI farm assistant using the existing Claude setup, and WhatsApp alerts
+  through the shared core.
