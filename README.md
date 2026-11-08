@@ -119,6 +119,14 @@ business**); Jay reviews and approves them at `/compliance`, with an optional
 CAC register check through Dojah. Switched on by `COMPLIANCE_PASSWORD`; needs
 migration 0050. See [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
+## Oko: farm and land app (Jay's personal tool)
+
+A phone app at `/farm/` for cocoa, oil palm, cassava, plantain, maize and yam
+fields in southern Nigeria: crop calendar, weather and pest alerts, scouting
+walks, harvest and cost records, plus land surveys (GPS beacons, area, DXF
+drawings for architects, a drive-to pin for Google Maps / Google Earth). Data
+stays on the phone. Switched on by `FARM_PASSWORD`. See [docs/FARM.md](docs/FARM.md).
+
 ## Monitoring
 
 `/health/full` and `/status` check the database, WhatsApp and the AI; Jay gets
