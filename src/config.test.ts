@@ -313,6 +313,12 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, SIGNUP_ALERT_EMAIL: "jay", RESEND_API_KEY: "re_x" })).toThrow("SIGNUP_ALERT_EMAIL");
   });
 
+  it("switches the farm app on with a long password", () => {
+    expect(loadConfig(base).farm).toBeUndefined();
+    expect(loadConfig({ ...base, FARM_PASSWORD: "a long enough pass" }).farm).toEqual({ password: "a long enough pass" });
+    expect(() => loadConfig({ ...base, FARM_PASSWORD: "short" })).toThrow(/FARM_PASSWORD/);
+  });
+
   it("switches the compliance page on with a long password, and Dojah when both keys are set", () => {
     expect(loadConfig(base).compliance).toBeUndefined();
     expect(() => loadConfig({ ...base, COMPLIANCE_PASSWORD: "short" })).toThrow("COMPLIANCE_PASSWORD");
