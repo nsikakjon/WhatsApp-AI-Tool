@@ -116,6 +116,8 @@ import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
 import { createConnectionAccounts, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { signupLink } from "./signup/index.js";
+import { connectSignedUpBusiness } from "./products/quote/connect.js";
 import { phoneDetails, registerNumber } from "./signup/meta.js";
 import { createNumberCollector, createSupabaseNumberQueue } from "./products/quote/numbers.js";
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
@@ -664,6 +666,11 @@ if (quoteBusinesses) {
 const chatSignup = config.quoteChatSignup;
 // Their new SIM's number goes on the staff queue at /quote-setup/numbers (QUOTE_NUMBER_QUEUE).
 const numberQueue = chatSignup?.numberQueue && quoteBusinesses ? createSupabaseNumberQueue(supabase) : undefined;
+// With the sign-up page on, they can connect their number with Facebook from their own link instead.
+const connectLink =
+  chatSignup?.connectUrl && config.signup && quoteBusinesses
+    ? (businessId: string) => signupLink(config.whatsapp.appSecret, chatSignup.connectUrl!, businessId)
+    : undefined;
 if (chatSignup && quoteBusinesses) {
   const businesses = createSupabaseBusinesses(supabase);
   product = withChatSignup(product, {
@@ -674,8 +681,9 @@ if (chatSignup && quoteBusinesses) {
     alertWaId: chatSignup.alertWaId,
     signUpToContinue: chatSignup.signUpToContinue,
     numbers: numberQueue
-      ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl })
+      ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl, connectLink })
       : undefined,
+    connectLink,
     sheets: sheetSync,
     askEmail: emailAsker
       ? ({ waId, businessId }) =>
@@ -1333,6 +1341,25 @@ const app = createApp({
               if (err instanceof NumberTakenError) return false;
               throw err;
             }
+          }
+        : undefined,
+      // Businesses that signed up by chat connect from their own link and go live.
+      forBusiness: connectLink
+        ? {
+            name: async (id) => (await createSupabaseBusinesses(supabase).get(id))?.name ?? null,
+            connected: async (id, c) => {
+              const result = await connectSignedUpBusiness(
+                { businesses: createSupabaseBusinesses(supabase), setup: createSupabaseSetup(supabase), queue: numberQueue },
+                id,
+                c,
+                config.quoteChatSignup?.alertWaId,
+              );
+              if (result.kind !== "live") return false;
+              for (const note of result.notify) {
+                await sendNotice(outbox, note, config.quoteChatSignup!.phoneNumberId).catch((err) => console.error(`Couldn't send the connected message to ...${note.to.slice(-4)}:`, err));
+              }
+              return true;
+            },
           }
         : undefined,
       saveEmail:
