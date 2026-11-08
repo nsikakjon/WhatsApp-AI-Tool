@@ -400,7 +400,7 @@ function fieldView(){
   </div>`;
 }
 function afterField(){
-  const p=P; if(p.kind==="crop"){ refreshWx(p); }
+  const p=P; if(p.kind==="crop"){ refreshWx(p); Sat.maybeRefresh(p); }
   if((route.tab||"")==="land"||p.kind==="land"&&!route.tab) afterLand();
 }
 
@@ -443,6 +443,7 @@ function overviewTab(p){
     <button class="ibtn dark" data-act="tab" data-tab="records" aria-label="Records">${ic("arrow")}</button></div></div>
   ${stageCard}
   <div class="card"><h2>What needs attention</h2>${ins.length?ins.map(i=>`<div class="ins ${i.level}"><div class="dot">${ic(i.level==="high"?"alert":i.level==="med"?"bug":"info")}</div><div><b>${esc(i.title)}</b><span>${esc(i.text)}</span></div></div>`).join(""):`<p class="muted small">All clear for now.</p>`}</div>
+  ${Sat.card(p)}
   ${rainCard(p,S)}
   ${healthCard(p)}
   <div class="card"><h2>${esc(c.name)} notes</h2>${c.tips.map(t=>`<div class="ins info"><div class="dot">${ic("leaf")}</div><div><span style="color:var(--ink)">${esc(t)}</span></div></div>`).join("")}
