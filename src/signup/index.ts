@@ -24,8 +24,7 @@ export interface SignupDeps {
    * page shows their name, and the number goes to that business instead of a new one.
    */
   forBusiness?: {
-    /** Its name, and whether its owner's country lets the number stay in the WhatsApp Business app. */
-    get: (businessId: string) => Promise<{ name: string; keepApp: boolean } | null>;
+    name: (businessId: string) => Promise<string | null>;
     /** Puts the number on the business and switches it on; false when another business has the number. */
     connected: (businessId: string, connection: Connection) => Promise<boolean>;
   };
@@ -52,7 +51,7 @@ export function createSignup(deps: SignupDeps) {
   app.get("/", async (c) => {
     c.header("Cache-Control", "no-store");
     const businessId = linkedBusiness(c.req.query("b"), c.req.query("t"));
-    const business = businessId ? await deps.forBusiness!.get(businessId).catch((err) => {
+    const businessName = businessId ? await deps.forBusiness!.name(businessId).catch((err) => {
       log.error("Couldn't read the business for a sign-up link:", err);
       return null;
     }) : null;
@@ -61,8 +60,8 @@ export function createSignup(deps: SignupDeps) {
         appId: deps.app.appId,
         configId: deps.configId,
         graphApiVersion: deps.app.graphApiVersion,
-        askEmail: Boolean(deps.saveEmail) && !business,
-        business: businessId && business ? { ...business, id: businessId, token: c.req.query("t")! } : undefined,
+        askEmail: Boolean(deps.saveEmail) && !businessName,
+        business: businessId && businessName ? { name: businessName, id: businessId, token: c.req.query("t")! } : undefined,
       }),
     );
   });

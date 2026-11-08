@@ -41,7 +41,7 @@ function setup(
     },
     saveEmail,
     forBusiness: {
-      get: async (id) => (id === BIZ ? { name: "Mama Cakes", keepApp: false } : null),
+      name: async (id) => (id === BIZ ? "Mama Cakes" : null),
       connected: async (id, c) => {
         linked.push(`${id} ${c.phoneNumberId}`);
         return true;
@@ -176,7 +176,6 @@ describe("a business's own sign-up link", () => {
     const html = await (await app.request(`/${link.search}`)).text();
     expect(html).toContain("Connect Mama Cakes");
     expect(html).toContain("switches on as soon as you finish");
-    expect(html).not.toContain('value="app"');
     expect(html).toContain(`setup: BUSINESS_NAME`);
     expect(html).toContain(`const BUSINESS_NAME = "Mama Cakes"`);
     const res = await complete({ ...finished, business: BIZ, token: link.searchParams.get("t") });
