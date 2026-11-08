@@ -36,6 +36,38 @@ public product later.
 - Exports: a **DXF drawing** for AutoCAD/ArchiCAD, a printable site report, CSV,
   Google Earth KML and GeoJSON.
 
+## Satellite crop health
+
+Each field with a boundary gets a **Satellite crop health** card on its
+Overview. It comes from the European Sentinel-2 satellites, which photograph
+every field in Nigeria about every 5 days at 10 m detail.
+
+- **Greenness (NDVI)** runs from about 0 (bare soil) to about 0.9 (dense,
+  healthy canopy). Mature cocoa and oil palm usually read 0.65–0.85; young
+  cassava reads much lower until its canopy closes.
+- **The map** colours the field from brown (bare or stressed) to dark green.
+  Grey squares were hidden by cloud. The **trend** shows every clear view in
+  the last 12 months.
+- If greenness drops by 0.1 or more against recent views, **What needs
+  attention** says so and suggests walking the field.
+- **Clouds:** southern Nigeria is cloudy for much of the rains. A date only
+  counts when at least half the field could be seen, so there can be weeks
+  without a new reading in June–October.
+- The server asks the satellite service at most twice a day per field and
+  keeps the answer, and the phone keeps the last answer for offline use.
+- Demo farms show an invented example, marked **Sample**.
+
+**Switching it on (free):**
+1. Make an account at **dataspace.copernicus.eu**.
+2. Open the **Dashboard**, then **User settings > OAuth clients > Create**. Name
+   it "yarnOga farm", pick "Never expire", and copy the **client id** and
+   **secret** (the secret is only shown once).
+3. On Railway, add `COPERNICUS_CLIENT_ID` and `COPERNICUS_CLIENT_SECRET`.
+4. In Supabase, run `supabase/migrations/0077_farm_satellite.sql` (after 0076).
+
+The free account comes with a monthly allowance of processing units, which
+is plenty for a trial. Check usage on the Copernicus dashboard as testers join.
+
 ## Where the data lives
 
 Each phone keeps its own working copy, so the app works with no signal on
@@ -113,6 +145,7 @@ the database.
   of a field. Logins are a random token in an `HttpOnly` cookie; only its hash
   is stored. Requests that change things must carry `X-Oko: 1` and come from
   the same site.
-- Ideas for the public version: satellite crop-health maps (Sentinel-2 NDVI),
-  an AI farm assistant using the existing Claude setup, and WhatsApp alerts
-  through the shared core.
+- Satellite: `src/farm/satellite.ts` calls the Copernicus Statistical and
+  Process APIs (keys stay on the server); the phone side is `farm-app/js/satellite.js`.
+- Ideas for the public version: an AI farm assistant using the existing
+  Claude setup, and WhatsApp alerts through the shared core.
