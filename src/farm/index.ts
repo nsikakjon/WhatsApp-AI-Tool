@@ -7,6 +7,7 @@ import { join, resolve, sep } from "node:path";
 import { clientIp, createLoginThrottle, guardedBasicAuth } from "../core/security/guard.js";
 import { cleanField, mergeField } from "./merge.js";
 import type { FarmStore, FarmUser, FieldRow } from "./store.js";
+import { ringHectares, type Satellite } from "./satellite.js";
 
 // Oko: the farm and land app at /farm/.
 //
@@ -30,6 +31,8 @@ export interface FarmDeps {
   readFile?: (path: string) => Promise<Uint8Array>;
   log?: Pick<Console, "info" | "error">;
   now?: () => Date;
+  /** Satellite crop health (COPERNICUS_CLIENT_ID / _SECRET). */
+  satellite?: Satellite;
 }
 
 export const FARM_DIR = fileURLToPath(new URL("../../farm-app/", import.meta.url));
@@ -74,6 +77,7 @@ export function createFarm(deps: FarmDeps) {
   const now = deps.now ?? (() => new Date());
   const store = deps.store;
   const badTokens = createLoginThrottle(20, 15 * 60 * 1000);
+  const satBusy = new Map<string, Promise<unknown>>();
 
   app.onError((err, c) => {
     log.error("Farm app request failed:", err);
@@ -268,6 +272,52 @@ export function createFarm(deps: FarmDeps) {
     return new Response(new Uint8Array(p.data), { headers: { "Content-Type": p.mimeType, "Cache-Control": "private, max-age=31536000, immutable" } });
   });
 
+  /* ---------- satellite crop health ---------- */
+  api.get("/fields/:id/satellite", async (c) => {
+    const user = c.get("user");
+    const field = await store!.field(c.req.param("id"));
+    if (!field || field.deletedAt || !(await access(user, field))) return c.json({ error: "Not found." }, 404);
+    if (!deps.satellite) return c.json({ configured: false });
+    const ring = boundaryRing(field.data);
+    if (!ring) return c.json({ configured: true, needsBoundary: true });
+    if (ringHectares(ring) > SAT_MAX_HA) return c.json({ configured: true, error: `Fields over ${SAT_MAX_HA} ha aren't supported yet.` });
+    const key = ring.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
+    const cached = await store!.satellite(field.id);
+    const fresh = cached && cached.boundaryKey === key && now().getTime() - cached.fetchedAt.getTime() < SAT_REFRESH_MS;
+    if (fresh) return c.json(satOut(field.id, cached));
+    let job = satBusy.get(field.id);
+    if (!job) {
+      job = (async () => {
+        const to = now();
+        const series = await deps.satellite!.ndviSeries(ring, new Date(to.getTime() - 365 * 86400_000), to);
+        const latest = series[series.length - 1];
+        const sameImage = cached && cached.boundaryKey === key && latest && cached.imageDate === latest.date;
+        const image = latest && !sameImage ? await deps.satellite!.ndviImage(ring, latest.date) : null;
+        const row = { boundaryKey: key, series, fetchedAt: to, imageDate: latest ? latest.date : null };
+        await store!.saveSatellite(field.id, row, image);
+        return row;
+      })().finally(() => satBusy.delete(field.id));
+      satBusy.set(field.id, job);
+    }
+    try {
+      const row = (await job) as Awaited<ReturnType<FarmStore["satellite"]>>;
+      return c.json(satOut(field.id, row!));
+    } catch (err) {
+      log.error("Farm satellite request failed:", err);
+      if (cached && cached.boundaryKey === key) return c.json({ ...satOut(field.id, cached), stale: true });
+      return c.json({ configured: true, error: "The satellite service didn't answer. Try again later." }, 502);
+    }
+  });
+
+  api.get("/fields/:id/satellite.png", async (c) => {
+    const user = c.get("user");
+    const field = await store!.field(c.req.param("id"));
+    if (!field || !(await access(user, field))) return c.json({ error: "Not found." }, 404);
+    const img = await store!.satelliteImage(field.id);
+    if (!img) return c.json({ error: "Not found." }, 404);
+    return new Response(new Uint8Array(img), { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400" } });
+  });
+
   /* ---------- admin ---------- */
   api.use("/admin/*", async (c, next) => {
     if (c.get("user").role !== "admin") return c.json({ error: "Only Jay can see this." }, 403);
@@ -344,6 +394,27 @@ export function createFarm(deps: FarmDeps) {
     if (user.role === "admin") return "admin";
     return (await store!.isMember(field.id, user.id)) ? "helper" : null;
   }
+}
+
+const SAT_MAX_HA = 2000;
+const SAT_REFRESH_MS = 12 * 3600_000;
+
+/** The field's boundary as [lon, lat] points, when it has one. */
+export function boundaryRing(data: Record<string, unknown>): Array<[number, number]> | null {
+  const b = Array.isArray(data.beacons) ? (data.beacons as Array<{ lat?: unknown; lon?: unknown }>) : [];
+  const ring = b
+    .map((p) => [Number(p.lon), Number(p.lat)] as [number, number])
+    .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180);
+  return ring.length >= 3 ? ring : null;
+}
+function satOut(fieldId: string, row: NonNullable<Awaited<ReturnType<FarmStore["satellite"]>>>) {
+  return {
+    configured: true,
+    series: row.series,
+    latest: row.series[row.series.length - 1] ?? null,
+    imageUrl: row.imageDate ? `api/fields/${fieldId}/satellite.png?d=${row.imageDate}` : null,
+    fetchedAt: row.fetchedAt.toISOString(),
+  };
 }
 
 function fieldOut(r: FieldRow, owners: Map<string, string>) {
