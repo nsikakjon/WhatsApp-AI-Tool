@@ -151,6 +151,7 @@ import {
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
 import { createSupabaseVerifications } from "./compliance/store.js";
+import { createSupabaseFarmStore } from "./farm/store.js";
 import { createDojahRegistry } from "./compliance/registry.js";
 import type { ComplianceDeps } from "./compliance/index.js";
 import type { Notice } from "./core/product.js";
@@ -1478,7 +1479,7 @@ const app = createApp({
   processed: config.processedCounterMinKobo
     ? { totalKobo: createSupabaseProcessedTotal(supabase), minKobo: config.processedCounterMinKobo }
     : undefined,
-  farm: config.farm,
+  farm: config.farm ? { password: config.farm.password, store: createSupabaseFarmStore(supabase) } : undefined,
 });
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.

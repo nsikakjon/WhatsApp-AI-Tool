@@ -97,7 +97,10 @@ function normalize(p){
   return p;
 }
 let saveT={};
-function touch(p=P){ if(!p) return; p.updated=Date.now(); clearTimeout(saveT[p.id]); saveT[p.id]=setTimeout(()=>Store.put(p),250); }
+function saveLocal(p=P){ if(!p) return; clearTimeout(saveT[p.id]); saveT[p.id]=setTimeout(()=>Store.put(p),250); }
+/** A change the user made: saved here, then synced. */
+function touch(p=P){ if(!p) return; p.updated=Date.now(); p._dirty=true; p._rev=(p._rev||0)+1; saveLocal(p); if(typeof Sync!=="undefined") Sync.schedule(); }
+const forget=(p,id)=>{ p.deleted=[...(p.deleted||[]),id]; };
 async function loadAll(){
   const all=await Store.all();
   const s=all.find(x=>x.id==="__settings"); if(s) settings=Object.assign(settings,s);
@@ -156,10 +159,13 @@ function back(){ try{ if(history.state && history.length>1){ history.back(); ret
 function render(){
   const el=$("#app");
   $$("#dock button").forEach(b=>b.classList.toggle("on",b.dataset.go===route.name));
+  const gate = typeof Sync!=="undefined" && Sync.mode==="gate";
+  $("#dock").classList.toggle("hidden",gate);
+  if(gate) { el.innerHTML=Sync.gateView(); return; }
   if(route.name==="home") el.innerHTML=homeView();
   else if(route.name==="map") { el.innerHTML=mapView(); afterMap(); }
   else if(route.name==="tasks") el.innerHTML=tasksView();
-  else if(route.name==="settings") el.innerHTML=settingsView();
+  else if(route.name==="settings") { el.innerHTML=settingsView(); Sync.loadAdmin(); }
   else if(route.name==="field"){ if(!P){ route={name:"home"}; return render(); } el.innerHTML=fieldView(); afterField(); }
   bindForms();
 }
@@ -186,7 +192,7 @@ async function refreshWx(p, force=false){
     const nowIdx=j.hourly.time.indexOf(j.current.time.slice(0,13)+":00");
     const soil=j.hourly.soil_moisture_3_to_9cm[nowIdx>=0?nowIdx:j.hourly.time.length-1];
     p.wx={at:Date.now(),key,current:j.current,daily:j.daily,rhDaily,soil,monthly:p.wx&&p.wx.key===key?p.wx.monthly:null};
-    touch(p); rerenderSoft();
+    saveLocal(p); rerenderSoft();
   }catch(e){ /* offline or blocked: keep cache */ }
   finally{ wxBusy[p.id]=false; }
 }
@@ -198,7 +204,7 @@ async function refreshMonthly(p){
     const r=await fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat.toFixed(4)}&longitude=${c.lon.toFixed(4)}&start_date=${ymd(start)}&end_date=${ymd(end)}&daily=precipitation_sum&timezone=Africa%2FLagos`);
     if(!r.ok) throw 0; const j=await r.json(); const m={};
     j.daily.time.forEach((t,i)=>{ const k=t.slice(0,7); m[k]=(m[k]||0)+(j.daily.precipitation_sum[i]||0); });
-    p.wx.monthly={at:Date.now(), months:Object.keys(m).sort().map(k=>[k,m[k]])}; touch(p); rerenderSoft();
+    p.wx.monthly={at:Date.now(), months:Object.keys(m).sort().map(k=>[k,m[k]])}; saveLocal(p); rerenderSoft();
   }catch(e){}
 }
 let softT=null;
@@ -277,7 +283,7 @@ function taskWindow(){ const t=new Date(); t.setHours(0,0,0,0); return [new Date
 function setTaskStatus(fid,tid,status){
   const p=fieldById(fid); if(!p) return;
   const c=p.tasks.find(t=>t.id===tid);
-  if(c) c.status=status; else { if(status==="todo") delete p.taskState[tid]; else p.taskState[tid]=status; }
+  if(c) c.status=status; else p.taskState[tid]=status;
   touch(p);
 }
 const nextStatus=s=>s==="todo"?"doing":s==="doing"?"done":"todo";
@@ -322,9 +328,11 @@ function homeView(){
   const [from,to]=taskWindow();
   const tasks=fields.flatMap(f=>allTasks(f,from,to)).filter(t=>t.status!=="done" && t.date<=ymd(new Date(Date.now()+7*DAY)))
     .sort((a,b)=>(a.status==="doing"?-1:0)-(b.status==="doing"?-1:0) || a.date.localeCompare(b.date)).slice(0,10);
+  const meId=Sync.me?.id; const isMine=f=>!f._synced||!f._owner||f._owner===meId;
+  const mine=fields.filter(isMine), others=fields.filter(f=>!isMine(f));
   const alerts=fields.filter(f=>f.kind==="crop").flatMap(f=>insights(f,wxFor(f)).filter(i=>i.level==="high").map(i=>({...i,f})) ).slice(0,4);
   return `
-  <div class="topbar"><div class="loc">${ic("pin")} ${esc(loc||"Nigeria")}</div><button class="avatar" data-act="go" data-r="settings">${esc((settings.name||"J")[0].toUpperCase())}</button></div>
+  <div class="topbar"><div class="loc">${ic("pin")} ${esc(loc||"Nigeria")}<span style="margin-left:auto">${Sync.chip()}</span></div><button class="avatar" data-act="go" data-r="settings">${esc((settings.name||"J")[0].toUpperCase())}</button></div>
   <div class="wrap">
     <div class="wx-hero">
       <div class="hello">${greeting()}${settings.name?", "+esc(settings.name):""}</div>
@@ -344,7 +352,8 @@ function homeView(){
       return `<button class="tcard ${t.status==="doing"?"doing":""}" data-act="open" data-id="${t.fieldId}" data-tab="tasks"><div class="when">${ic("cal")} ${relDay(t.date)}</div><div class="tt">${esc(t.title)}</div><div class="fn">${esc(p?.f.name||"")}</div><span class="status ${t.status==="doing"?"":over?"over":"todo"}">${t.status==="doing"?"In progress":over?"Overdue":"Not started"}</span></button>`;}).join("")}</div>`
       :`<div class="card muted small">No tasks due this week.</div>`}
     <div class="sec-h"><h2>Your fields</h2><button class="link" data-act="go" data-r="map">View map</button></div>
-    ${fields.map(fieldCard).join("")}`
+    ${mine.map(fieldCard).join("")||`<div class="card muted small">None yet. Tap + to add one.</div>`}
+    ${others.length?`<div class="sec-h"><h2>${Sync.me?.role==="admin"?"Testers' farms":"Shared with you"}</h2></div>${others.map(fieldCard).join("")}`:""}`
     :`<div class="card" style="text-align:center;padding:26px 18px">
         <div style="width:64px;height:64px;margin:0 auto 10px;color:var(--forest2)">${cropIc("cocoa")}</div>
         <h2 style="font-size:19px">Welcome to ${APP_NAME}</h2>
@@ -361,7 +370,7 @@ function fieldCard(p){
   return `<button class="fcard" data-act="open" data-id="${p.id}"><div class="thumb">${art.svg}</div>
     <div class="body"><div class="nm">${esc(p.f.name||"Untitled")}</div>
       <div class="co">${cc&&cc.src!=="state"?`${cc.lat.toFixed(4)}°N, ${cc.lon.toFixed(4)}°E`:esc([p.f.area,p.f.state].filter(Boolean).join(", "))}</div>
-      <div>${c?`<span class="chip">${esc(c.name)} · ${esc(st?.label||"Not planted")}</span>`:`<span class="chip grey">Land</span>`}</div>
+      <div>${c?`<span class="chip">${esc(c.name)} · ${esc(st?.label||"Not planted")}</span>`:`<span class="chip grey">Land</span>`}${p._synced&&p._owner&&p._owner!==Sync.me?.id?` <span class="chip grey">${esc(p._ownerName||"Shared")}</span>`:""}</div>
       <div class="meta">${ha?`<span class="mini">${ic("ruler")} ${ha<10?ha.toFixed(2):ha.toFixed(1)} ha</span>`:""}
         ${p.crop?`<span class="mini">${ic("tasks")} ${open} tasks</span>`:`<span class="mini">${ic("pin")} ${p.beacons.length} beacons</span>`}
         ${p.scouts.length?`<span class="mini">${ic("leaf")} ${p.scouts.length}</span>`:""}</div></div></button>`;
@@ -425,7 +434,7 @@ function overviewTab(p){
     <div class="metric"><div class="ic">${ic("soil")}</div><div class="l">Soil moisture</div><div class="v">${wx?.soil!=null?Math.round(wx.soil*100):"—"}<small>%</small></div></div>
   </div>
   <div class="card"><div class="crop-card">
-    <div class="pic">${photo?`<img src="${photo}" alt="">`:cropIc(p.crop.id)}</div>
+    <div class="pic">${photo?`<img src="${photoSrc(photo)}" alt="">`:cropIc(p.crop.id)}</div>
     <div class="grow" style="flex:1;min-width:0"><div class="t">${esc(c.name)} ${esc(fieldCode(p))}</div>
       <div class="s">${esc(p.crop.variety||c.latin)}${p.crop.planted?` · planted ${fmtDate(p.crop.planted,{month:"short",year:"numeric"})}`:""}</div>
       <div class="s" style="margin-top:4px">${c.perennial? "Harvest: "+esc(c.harvestNote) : st&&st.daysToHarvest>0? "Expected harvest: "+st.harvestDate.toLocaleDateString("en-GB",{month:"long",year:"numeric"}) : "In harvest window"}</div>
@@ -483,7 +492,7 @@ function scoutTab(p){
       <div class="s">${s.issues?.length?s.issues.map(esc).join(" · "):"No problems seen"}</div>
       ${Object.entries(s.m||{}).filter(([,v])=>v!==""&&v!=null).length?`<div class="s">${Object.entries(s.m).filter(([,v])=>v!==""&&v!=null).map(([k,v])=>`${esc(c.measures.find(x=>x.k===k)?.l||k)}: <b>${esc(v)}</b>`).join(" · ")}</div>`:""}
       ${s.notes?`<div class="s">${esc(s.notes)}</div>`:""}</div>
-    ${s.photo?`<img src="${s.photo}" alt="">`:""}</div>`).join("")}</div>`
+    ${s.photo?`<img src="${photoSrc(s.photo)}" alt="">`:""}</div>`).join("")}</div>`
   :`<div class="card empty">${ic("leaf")}<div>Walk the field every 1–2 weeks and log what you see: pests, disease, plant health. It builds a history you can compare.</div></div>`}`;
 }
 function scoutSheet(id){
@@ -496,7 +505,7 @@ function scoutSheet(id){
   <label class="f">What did you see?</label><div class="pills" id="scIss">${c.issues.map(i=>`<button class="${s.issues?.includes(i)?"on":""}">${esc(i)}</button>`).join("")}</div>
   ${c.measures.map(mm=>`<label class="f">${esc(mm.l)}</label><input inputmode="decimal" data-m="${mm.k}" value="${esc(s.m?.[mm.k]??"")}">`).join("")}
   <label class="f">Notes</label><textarea id="scNotes" placeholder="Where in the field, how bad, what you did">${esc(s.notes||"")}</textarea>
-  <label class="f">Photo</label><div class="row"><img id="scImg" class="${s.photo?"":"hidden"}" src="${s.photo||""}" style="width:72px;height:72px;object-fit:cover;border-radius:14px" alt="">
+  <label class="f">Photo</label><div class="row"><img id="scImg" class="${s.photo?"":"hidden"}" src="${photoSrc(s.photo)}" style="width:72px;height:72px;object-fit:cover;border-radius:14px" alt="">
   <label class="btn sec sm" style="margin:0">${ic("camera")} ${s.photo?"Change":"Add photo"}<input type="file" accept="image/*" capture="environment" class="hidden" id="scPhoto"></label></div>
   <div class="sp16"></div><div class="grid2">${id?`<button class="btn danger" data-act="scdel">Delete</button>`:`<button class="btn sec" data-close>Cancel</button>`}<button class="btn" data-act="scsave">Save</button></div>`);
   $("#scRate").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; window._scout.health=+b.dataset.v; $$("#scRate button").forEach(x=>x.classList.toggle("on",x===b)); };
@@ -608,7 +617,7 @@ function pointsList(arr,kind){
     <div class="b"><div class="t">${esc(pt.label||(kind==="b"?"B"+(i+1):pt.type))}${kind==="f"&&pt.type&&pt.label!==pt.type?` <span class="muted small">${esc(pt.type)}</span>`:""}</div>
       <div class="s">E ${f2(xy.E)} · N ${f2(xy.N)} (UTM ${z}N)</div>
       <div style="margin-top:3px">${accChip(pt)} ${pt.notes?`<span class="s">${esc(pt.notes)}</span>`:""}</div></div>
-    ${pt.photo?`<img src="${pt.photo}" alt="">`:""}
+    ${pt.photo?`<img src="${photoSrc(pt.photo)}" alt="">`:""}
     <div class="col" style="gap:4px"><button class="btn soft sm" data-act="editpt" data-k="${kind}" data-id="${pt.id}">Edit</button>
       ${kind==="b"?`<div class="row" style="gap:4px"><button class="btn soft sm" data-act="mv" data-id="${pt.id}" data-d="-1" ${i===0?"disabled":""}>↑</button><button class="btn soft sm" data-act="mv" data-id="${pt.id}" data-d="1" ${i===arr.length-1?"disabled":""}>↓</button></div>`:""}</div></div>`; }).join("");
 }
@@ -759,10 +768,10 @@ function tasksView(){
   ${fields.length?tasksBlock(list,true):`<div class="card empty">${ic("tasks")}<div>Add a field and its crop calendar shows up here.</div></div>`}</div>`;
 }
 function settingsView(){
-  return `<div class="topbar"><h1 style="margin:0;font-size:24px;flex:1">Settings</h1></div><div class="wrap">
+  return `<div class="topbar"><h1 style="margin:0;font-size:24px;flex:1">Settings</h1></div><div class="wrap">${Sync.settingsCards()}
   <div class="card"><label class="f" style="margin-top:0">Your name</label><input id="stName" value="${esc(settings.name||"")}" placeholder="Jay">
     <label class="f">Default state (for weather before a field is located)</label><select id="stState">${Object.keys(STATES).map(s=>`<option ${s===settings.state?"selected":""}>${s}</option>`).join("")}</select></div>
-  <div class="card"><h2>Your data</h2><p class="muted small">Fields are saved on this phone only. Back up now and then, especially before changing phones.</p>
+  <div class="card"><h2>Your data</h2><p class="muted small">${Sync.mode==="on"?"Your fields sync to yarnOga's server, so they're safe if you lose or change phones. Demo farms stay on this phone only. A backup file is still handy to keep.":"Fields are saved on this phone only. Back up now and then, especially before changing phones."}</p>
     <div class="col"><button class="btn block" data-act="backupall">${ic("dl")} Back up everything</button>
     <label class="btn sec block" style="margin:0">Restore a backup<input type="file" id="importFile" accept=".json,application/json" class="hidden"></label>
     ${fields.some(f=>f.demo)?`<button class="btn danger block" data-act="cleardemo">Remove demo farms</button>`:`<button class="btn soft block" data-act="demo">Load demo farms</button>`}</div><div id="copyArea"></div></div>
@@ -789,7 +798,8 @@ function newFieldSheet(edit=false){
   <div class="grid2"><div><label class="f">State</label><select id="nfState">${Object.keys(STATES).map(s=>`<option ${s===(p?.f.state||settings.state)?"selected":""}>${s}</option>`).join("")}</select></div><div><label class="f">Town / area</label><input id="nfTown" value="${esc(p?.f.area||"")}"></div></div>
   <div class="sp16"></div>
   <button class="btn block" data-act="nfsave" data-edit="${edit?1:""}">${edit?"Save changes":"Create"}</button>
-  ${edit?`<div class="sp8"></div><button class="btn danger block" data-act="delfield">Delete this field</button>`:""}`);
+  ${edit?`<div id="helpersWrap"></div><div class="sp8"></div><button class="btn danger block" data-act="delfield">${p._role==="helper"?"Leave this farm":"Delete this field"}</button>`:""}`);
+  if(edit) Sync.helpersBlock(p).then(h=>{ const w=$("#helpersWrap"); if(w){ w.innerHTML=h; Sync.loadHelpers(p); } });
   $("#nfKind").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; window._nf.kind=b.dataset.k; $$("#nfKind button").forEach(x=>x.classList.toggle("on",x===b)); $("#nfCrop").classList.toggle("hidden",b.dataset.k!=="crop"); };
   $("#nfCrops").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; window._nf.crop=b.dataset.c; $$("#nfCrops button").forEach(x=>x.classList.toggle("on",x===b)); $("#nfVar").innerHTML=varOpts(b.dataset.c); };
 }
@@ -801,7 +811,7 @@ async function saveFieldSheet(edit){
   else { p.crop=null; p.code=null; }
   fieldCode(p);
   if(!edit) fields.unshift(p);
-  await Store.put(p); closeSheet(); P=p;
+  touch(p); await Store.put(p); closeSheet(); P=p;
   if(!edit){ go({name:"field",id:p.id,tab:p.kind==="crop"?"overview":"land"}); toast(p.kind==="crop"?"Field created: the crop calendar is in Tasks":"Land created: walk the boundary or type the beacons"); }
   else { route.tab=tabsFor(p).some(t=>t[0]===route.tab)?route.tab:tabsFor(p)[0][0]; render(); }
 }
@@ -837,7 +847,7 @@ function fillCoordInputs(){
     else { $("#pE").value=""; $("#pN").value=""; } }
 }
 $("#pMode").onchange=fillCoordInputs;
-function setPhoto(src){ edit.point.photo=src||null; $("#pImg").src=src||""; $("#pImg").classList.toggle("hidden",!src); $("#pPhotoDel").classList.toggle("hidden",!src); }
+function setPhoto(src){ edit.point.photo=src||null; $("#pImg").src=photoSrc(src); $("#pImg").classList.toggle("hidden",!src); $("#pPhotoDel").classList.toggle("hidden",!src); }
 $("#pPhotoDel").onclick=()=>setPhoto(null);
 $("#pPhoto").onchange=async e=>{ const f=e.target.files[0]; e.target.value=""; if(!f) return; try{ setPhoto(await downscale(f,1024,.72)); }catch(err){ toast("Couldn't read that photo"); } };
 $("#pSave").onclick=()=>{
@@ -857,7 +867,7 @@ $("#pSave").onclick=()=>{
   touch(); closeM("#mPoint"); render(); toast("Saved");
 };
 $("#pDelete").onclick=async()=>{ if(!await confirmBox("Delete point?",`"${edit.point.label}" will be removed.`)) return;
-  const k=edit.kind==="b"?"beacons":"features"; P[k]=P[k].filter(x=>x.id!==edit.point.id); touch(); closeM("#mPoint"); render(); };
+  const k=edit.kind==="b"?"beacons":"features"; forget(P,edit.point.id); P[k]=P[k].filter(x=>x.id!==edit.point.id); touch(); closeM("#mPoint"); render(); };
 
 let gpsWatch=null;
 function startGps(kind, onDone){
@@ -907,7 +917,18 @@ const ACT={
   open:d=>{ P=fieldById(d.id); go({name:"field",id:d.id,tab:d.tab||null}); },
   tab:d=>{ route={...route,tab:d.tab}; try{ history.replaceState(route,""); }catch(e){} render(); },
   editfield:()=>newFieldSheet(true), nfsave:d=>saveFieldSheet(!!d.edit),
-  delfield:async()=>{ closeSheet(); if(!await confirmBox("Delete field?",`"${P.f.name}" and all its records will be removed from this phone.`)) return; await Store.del(P.id); fields=fields.filter(f=>f!==P); P=null; go({name:"home"}); },
+  delfield:async()=>{ closeSheet(); const helper=P._role==="helper";
+    if(!await confirmBox(helper?"Leave this farm?":"Delete field?", helper?`You'll stop seeing "${P.f.name}". The owner keeps it.`:`"${P.f.name}" and all its records will be deleted${P._synced?" for everyone on it":" from this phone"}.`, helper?"Leave":"Delete")) return;
+    await Sync.deleteField(P); await Store.del(P.id); fields=fields.filter(f=>f!==P); P=null; go({name:"home"}); },
+  leavefield:()=>ACT.delfield(),
+  syncnow:()=>{ Sync.run(); toast("Syncing…"); },
+  logout:async()=>{ if(!await confirmBox("Log out?","Synced fields are removed from this phone; they come back when you log in again. Changes not yet synced will be lost.","Log out")) return; Sync.logout(); },
+  invitetester:()=>Sync.invite("app",$("#invName")?.value.trim()),
+  toggleuser:d=>Sync.toggleUser(d.id,!!d.off),
+  invitehelper:()=>{ closeSheet(); Sync.invite("field"); },
+  rmhelper:d=>Sync.removeHelper(d.id),
+  gatelink:()=>{ const v=$("#gateLink").value; const t=(v.match(/invite=([A-Za-z0-9_-]{30,60})/)||[])[1]; if(!t) return toast("That doesn't look like an invite link"); Sync.joinSheet(t); },
+  localonly:async()=>{ settings.localOnly=true; saveSettings(); Sync.mode="local"; if(!fields.length) await loadDemo(); else render(); },
   mapfield:()=>{ mapFocus=P.id; go({name:"map"}); },
   rain:d=>{ rainMode=d.m; const y=scrollY; render(); scrollTo(0,y); },
   scout:d=>scoutSheet(d.id),
@@ -915,7 +936,7 @@ const ACT={
     $$("#sheetBody [data-m]").forEach(i=>s.m[i.dataset.m]=i.value.trim());
     const isNew=s.isNew; delete s.isNew; if(isNew) P.scouts.push(s); else P.scouts[P.scouts.findIndex(x=>x.id===s.id)]=s;
     touch(); closeSheet(); render(); toast("Scouting saved"); },
-  scdel:async()=>{ closeSheet(); if(!await confirmBox("Delete scouting?","This entry will be removed.")) return; P.scouts=P.scouts.filter(x=>x.id!==window._scout.id); touch(); render(); },
+  scdel:async()=>{ closeSheet(); if(!await confirmBox("Delete scouting?","This entry will be removed.")) return; forget(P,window._scout.id); P.scouts=P.scouts.filter(x=>x.id!==window._scout.id); touch(); render(); },
   tdone:d=>{ const p=fieldById(d.f); const cur=(p.tasks.find(t=>t.id===d.t)?.status)||p.taskState[d.t]||"todo"; setTaskStatus(d.f,d.t,cur==="done"?"todo":"done"); const y=scrollY; render(); scrollTo(0,y); },
   tcycle:d=>{ const p=fieldById(d.f); const cur=(p.tasks.find(t=>t.id===d.t)?.status)||p.taskState[d.t]||"todo"; setTaskStatus(d.f,d.t,nextStatus(cur)); const y=scrollY; render(); scrollTo(0,y); },
   addtask:()=>{ if(!fields.length) return toast("Add a field first"); addTaskSheet(route.name==="field"?P.id:null); },
@@ -927,7 +948,7 @@ const ACT={
     if(d.type==="harvest"){ r.qty=parseFloat($("#rcQ").value); if(!(r.qty>0)) return toast("Enter the quantity"); r.unit=$("#rcU").value; r.priceKobo=toKobo($("#rcP").value); }
     else { r.category=$("#rcC").value; r.amountKobo=toKobo($("#rcA").value); if(!(r.amountKobo>0)) return toast("Enter the amount"); }
     if(d.new) P.records.push(r); else P.records[P.records.findIndex(x=>x.id===r.id)]=r; touch(); closeSheet(); render(); },
-  recdel:async d=>{ closeSheet(); if(!await confirmBox("Delete record?","")) return; P.records=P.records.filter(x=>x.id!==d.id); touch(); render(); },
+  recdel:async d=>{ closeSheet(); if(!await confirmBox("Delete record?","")) return; forget(P,d.id); P.records=P.records.filter(x=>x.id!==d.id); touch(); render(); },
   gpsb:()=>startGps("b"), gpsf:()=>startGps("f"),
   manb:()=>editPoint("b",{id:uid(),src:P.f.planDatum==="minna"?"utmm":P.f.planDatum==="wgs84"?"utmw":"ll"},true),
   manf:()=>editPoint("f",{id:uid(),src:"ll",type:"Gate / access"},true),
@@ -964,7 +985,8 @@ document.addEventListener("change",async e=>{
   if(e.target.id==="stState"){ settings.state=e.target.value; saveSettings(); }
   if(e.target.id==="importFile"){ const f=e.target.files[0]; e.target.value=""; if(!f) return;
     try{ const j=JSON.parse(await f.text()); let list=j.fields||(j.project?[j.project]:null); if(!list) throw 0;
-      for(const p of list){ normalize(p); if(fieldById(p.id)) p.id=uid(); await Store.put(p); }
+      for(const p of list){ normalize(p); if(fieldById(p.id)) p.id=uid(); delete p._synced; delete p._ver; p._dirty=!p.demo; await Store.put(p); }
+      Sync.schedule();
       if(j.settings){ Object.assign(settings,j.settings,{id:"__settings"}); saveSettings(); }
       await loadAll(); render(); toast(`Restored ${list.length} field${list.length>1?"s":""}`);
     }catch(err){ toast("That file isn't a backup from this app"); } }
@@ -1007,6 +1029,11 @@ async function loadDemo(){
 (async()=>{
   await loadAll();
   try{ history.replaceState(route,""); }catch(e){}
+  await Sync.init();
   render();
+  Sync.run(); setInterval(()=>Sync.run(),60000);
+  addEventListener("online",()=>Sync.run());
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) Sync.run(); });
+  addEventListener("hashchange",()=>{ const t=(location.hash.match(/invite=([A-Za-z0-9_-]{30,60})/)||[])[1]; if(t) Sync.joinSheet(t); });
   if(location.protocol==="https:" && "serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js").catch(()=>{}); }catch(e){} }
 })();

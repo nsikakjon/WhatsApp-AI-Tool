@@ -213,7 +213,7 @@ ${R.F.length?`<h2>Site features</h2><table><tr><th>Feature</th><th>Type</th><th 
 <h2>Site conditions</h2>
 ${present.length?`<p><b>Present:</b> ${present.map(esc).join(" · ")}</p>`:""}
 ${[["Access & frontage",P.f.access],["Flooding / drainage",P.f.flood],["Neighbours & surroundings",P.f.neighbours],["Notes",P.f.notes]].filter(r=>r[1]).map(([k,v])=>`<p><b>${k}:</b> ${esc(v)}</p>`).join("")}
-${[...R.B,...R.F].some(p=>p.photo)?`<h2>Photos</h2><div class="photos">${[...R.B,...R.F].filter(p=>p.photo).map(p=>`<figure><img src="${p.photo}"><figcaption>${esc(p.label||p.type)}${p.notes?" – "+esc(p.notes):""}</figcaption></figure>`).join("")}</div>`:""}
+${[...R.B,...R.F].some(p=>p.photo)?`<h2>Photos</h2><div class="photos">${[...R.B,...R.F].filter(p=>p.photo).map(p=>`<figure><img src="${new URL(photoSrc(p.photo),location.href).href}"><figcaption>${esc(p.label||p.type)}${p.notes?" – "+esc(p.notes):""}</figcaption></figure>`).join("")}</div>`:""}
 <p class="disc">Preliminary record captured with Oko by yarnOga${R.worstAcc!=null?`; phone-GPS positions are accurate to roughly ±${R.worstAcc.toFixed(1)} m or worse`:""}. This is not a registered survey. For title, C of O, building-plan approval or setting out, use a survey plan signed by a SURCON-registered surveyor.</p>
 </div>`;
   const css=`.r{font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1d2421;max-width:820px;margin:0 auto}
