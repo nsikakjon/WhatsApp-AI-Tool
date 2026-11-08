@@ -52,8 +52,10 @@ describe("collecting the new SIM's number in the chat", () => {
     expect(reply?.text).toMatch(/We've got \*0803 123 4567\*.*keep WhatsApp off it/s);
     expect(q.rows.get("biz-1")).toMatchObject({ number: "2348031234567", status: "new", assignedTo: "s1" });
     expect(reply?.notify?.map((n) => n.to)).toEqual(["2348022222222", "2348099999999"]);
-    expect(reply?.notify?.[0]?.text).toContain("https://app.yarnoga.com/quote-setup/numbers/biz-1");
-    expect(reply?.notify?.[1]?.text).toContain("Assigned to Tolu.");
+    const steps = { label: "Open steps", url: "https://app.yarnoga.com/quote-setup/numbers/biz-1" };
+    expect(reply?.notify?.[0]).toMatchObject({ link: steps });
+    expect(reply?.notify?.[0]?.text).not.toContain("https://");
+    expect(reply?.notify?.[1]).toMatchObject({ link: steps, text: expect.stringContaining("Assigned to Tolu.") });
   });
 
   it("says so when nobody is there to assign it to", async () => {

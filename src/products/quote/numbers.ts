@@ -136,11 +136,13 @@ export function createNumberCollector(opts: NumberCollectorOptions) {
       }
       const notify: Notice[] = [];
       const job = { ...request, number, businessName: b.businessName, ownerWaId: b.ownerWaId };
-      if (assigned) notify.push({ to: assigned.waId, text: staffAlert(job, opts.publicUrl) });
+      const alert = staffAlert(job, opts.publicUrl);
+      if (assigned) notify.push({ to: assigned.waId, ...alert });
       if (opts.alertWaId && opts.alertWaId !== assigned?.waId) {
         notify.push({
           to: opts.alertWaId,
-          text: `${staffAlert(job, opts.publicUrl)}\n\n${assigned ? `Assigned to ${assigned.name}.` : "Nobody is assigned: add staff on the queue page to share these out."}`,
+          ...alert,
+          text: `${alert.text}\n\n${assigned ? `Assigned to ${assigned.name}.` : "Nobody is assigned: add staff on the queue page to share these out."}`,
         });
       }
       return {
@@ -153,15 +155,19 @@ export function createNumberCollector(opts: NumberCollectorOptions) {
   };
 }
 
-/** The WhatsApp message to the person connecting a number. */
-export function staffAlert(r: Pick<NumberRequest, "businessId" | "businessName" | "number" | "ownerWaId">, publicUrl?: string): string {
-  return [
+/** The WhatsApp message to the person connecting a number, with a button to its steps page. */
+export function staffAlert(
+  r: Pick<NumberRequest, "businessId" | "businessName" | "number" | "ownerWaId">,
+  publicUrl?: string,
+): Pick<Notice, "text" | "link"> {
+  const text = [
     `New number to connect for *${r.businessName}*: ${r.number ? localNumber(r.number) : "not sent yet"}.`,
     r.ownerWaId ? `Owner's WhatsApp: +${r.ownerWaId}` : "",
-    publicUrl ? `Steps: ${publicUrl}/quote-setup/numbers/${r.businessId}` : "Steps: /quote-setup/numbers on the bot's website.",
+    publicUrl ? "" : "Steps: /quote-setup/numbers on the bot's website.",
   ]
     .filter(Boolean)
     .join("\n");
+  return publicUrl ? { text, link: { label: "Open steps", url: `${publicUrl}/quote-setup/numbers/${r.businessId}` } } : { text };
 }
 
 type RequestRow = {

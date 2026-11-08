@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import { isLimitedLogin } from "../../core/security/guard.js";
 import { localNumber } from "./emails.js";
 import { isOpen, phoneFromText, staffAlert, type NumberQueueStore, type NumberRequest, type NumberStatus } from "./numbers.js";
+import type { OutgoingLink } from "../../core/whatsapp/client.js";
 import { esc, page } from "./setup.js";
 import { NumberTakenError, type BusinessStore, type SetupStore } from "./store.js";
 
@@ -27,7 +28,7 @@ export interface NumberQueueDeps {
   reservedNumberIds: string[];
   meta: MetaNumbers;
   /** Sends a WhatsApp message from the yarnOga sign-up number. */
-  send(to: string, text: string): Promise<void>;
+  send(to: string, text: string, link?: OutgoingLink): Promise<void>;
   publicUrl?: string;
   log?: Pick<Console, "error">;
 }
@@ -103,7 +104,10 @@ ${admin ? staffSection(staff) : ""}`,
     const id = String((await c.req.parseBody()).assignedTo ?? "");
     const person = (await deps.store.staff()).find((s) => s.id === id) ?? null;
     await deps.store.update(r.businessId, { assignedTo: person?.id ?? null });
-    if (person && person.id !== r.assignedTo && r.number) await tell(person.waId, staffAlert(r, deps.publicUrl));
+    if (person && person.id !== r.assignedTo && r.number) {
+      const alert = staffAlert(r, deps.publicUrl);
+      await tell(person.waId, alert.text, alert.link);
+    }
     return c.redirect(`/quote-setup/numbers/${r.businessId}?done=assigned`, 303);
   });
 
@@ -181,9 +185,9 @@ ${admin ? staffSection(staff) : ""}`,
     return UUID.test(id) ? deps.store.get(id) : null;
   }
 
-  async function tell(to: string, text: string): Promise<void> {
+  async function tell(to: string, text: string, link?: OutgoingLink): Promise<void> {
     try {
-      await deps.send(to, text);
+      await deps.send(to, text, link);
     } catch (err) {
       log.error(`Couldn't message ${to} about a number to connect:`, err);
     }
