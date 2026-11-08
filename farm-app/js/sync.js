@@ -75,11 +75,11 @@ const Sync = (()=>{
   }
 
   /* ---------- push / pull ---------- */
-  const strip=p=>{ const d={...p}; ["wx","demo","_dirty","_rev","_ver","_synced","_owner","_ownerName","_role","updated","created"].forEach(k=>delete d[k]); return d; };
+  const strip=p=>{ const d={...p}; ["wx","sat","demo","_dirty","_rev","_ver","_synced","_owner","_ownerName","_role","updated","created"].forEach(k=>delete d[k]); return d; };
   function adopt(local, row){
-    const keep={wx:local?.wx};
+    const keep={wx:local?.wx, sat:local?.sat};
     const p=normalize({...row.data, id:row.id});
-    if(keep.wx) p.wx=keep.wx;
+    if(keep.wx) p.wx=keep.wx; if(keep.sat) p.sat=keep.sat;
     p._synced=true; p._ver=row.version; p._owner=row.ownerId; p._ownerName=row.ownerName; p._role=row.access; p._dirty=false; p._rev=local?._rev||0;
     p.updated=Date.parse(row.updatedAt)||Date.now(); p.created=local?.created||p.updated;
     return p;
