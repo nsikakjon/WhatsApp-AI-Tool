@@ -32,6 +32,7 @@ import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
 import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
+import { createSupabaseDemoFollowUps, sendDemoFollowUps } from "./products/quote/demo-followup.js";
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
 import { createSupabasePayReminders, sendPayReminders } from "./products/quote/payreminders.js";
 import { createSupabaseRenewals, sendRenewalReminders } from "./products/quote/renewals.js";
@@ -104,6 +105,7 @@ import { createSupabaseMarkStore } from "./bottest/store.js";
 import {
   canMessageFreely,
   sendAndRecord,
+  sendButtonsAndRecord,
   sendImageAndRecord,
   asTemplateValue,
   sendNotice,
@@ -1929,8 +1931,28 @@ if (followUps && followUpConfig) {
   });
 }
 
+// Every 15 minutes, one follow-up to people who chatted to the quotes number
+// and went quiet without signing up (QUOTE_DEMO_FOLLOW_UP).
+if (chatSignup?.followUp && quoteBusinesses) {
+  const deps = { store, whatsapp };
+  const numberId = chatSignup.phoneNumberId;
+  const demoFollowUps = createSupabaseDemoFollowUps(supabase);
+  const signups = createSupabaseSignups(supabase);
+  runEvery(15 * 60 * 1000, async () => {
+    await sendDemoFollowUps({
+      numberId,
+      store: demoFollowUps,
+      signup: (waId) => signups.get(waId),
+      isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
+      sendText: (to, text) => sendAndRecord(deps, to, text, numberId),
+      sendButtons: (to, message) => sendButtonsAndRecord(deps, to, message, numberId),
+      skipWaId: chatSignup.alertWaId,
+    });
+  });
+}
+
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? "on" : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? (chatSignup.followUp ? "on, with follow-ups" : "on") : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

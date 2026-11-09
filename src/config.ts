@@ -200,6 +200,8 @@ export interface Config {
     alertWaId?: string;
     /** Demo visitors sign up after the delivery question to finish their order. Off unless QUOTE_DEMO_SIGNUP_GATE is true. */
     signUpToContinue: boolean;
+    /** One follow-up for visitors who go quiet without signing up (migration 0078). Off unless QUOTE_DEMO_FOLLOW_UP is true. */
+    followUp: boolean;
     /**
      * New owners are asked for a new SIM's number, and staff connect it from
      * /quote-setup/numbers (migration 0071). Only set when QUOTE_NUMBER_QUEUE is true.
@@ -574,6 +576,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           phoneNumberId: env.QUOTE_SIGNUP_PHONE_NUMBER_ID.trim(),
           alertWaId: env.QUOTE_SIGNUP_ALERT_WA_ID?.replace(/\D/g, "") || undefined,
           signUpToContinue: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_SIGNUP_GATE ?? ""),
+          followUp: /^(true|yes|on|1)$/i.test(env.QUOTE_DEMO_FOLLOW_UP ?? ""),
           numberQueue: /^(true|yes|on|1)$/i.test(env.QUOTE_NUMBER_QUEUE ?? "")
             ? {
                 publicUrl: env.PUBLIC_URL?.trim() ? publicUrl(env.PUBLIC_URL.trim()) : undefined,
