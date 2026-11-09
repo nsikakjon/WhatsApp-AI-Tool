@@ -44,8 +44,8 @@ export interface DemoFollowUpDeps {
   isPaused: (contactId: string) => Promise<boolean>;
   sendText: (to: string, text: string) => Promise<void>;
   sendButtons: (to: string, message: OutgoingButtons) => Promise<void>;
-  /** The yarnOga team's alert number, never followed up. */
-  skipWaId?: string;
+  /** The yarnOga team's alert number: never followed up, and "Set it up for me" tells it. */
+  alertWaId?: string;
   now?: Date;
   log?: Pick<Console, "error">;
 }
@@ -58,13 +58,13 @@ export async function sendDemoFollowUps(deps: DemoFollowUpDeps): Promise<number>
   const visitors = await deps.store.quiet(deps.numberId, new Date(now.getTime() - MAX_QUIET_MS), new Date(now.getTime() - QUIET_MS));
   let sent = 0;
   for (const v of visitors) {
-    if (v.waId === deps.skipWaId) continue;
+    if (v.waId === deps.alertWaId) continue;
     try {
       const signup = await deps.signup(v.waId);
       if (signup?.businessId) continue;
       if (await deps.isPaused(v.contactId)) continue;
       if (!(await deps.store.claim(v.contactId))) continue;
-      const message = demoFollowUp(v.name, signup);
+      const message = demoFollowUp(v.name, signup, Boolean(deps.alertWaId));
       if (message.buttons.length) await deps.sendButtons(v.waId, message);
       else await deps.sendText(v.waId, message.body);
       sent++;
@@ -78,7 +78,7 @@ export async function sendDemoFollowUps(deps: DemoFollowUpDeps): Promise<number>
 const SIGN_UP_BUTTON = { id: "sign up", title: "Sign up free" };
 
 /** The follow-up: where they stopped signing up (no buttons), or the offer to sign up. */
-export function demoFollowUp(name: string | null, signup: Signup | null): OutgoingButtons {
+export function demoFollowUp(name: string | null, signup: Signup | null, offerSetUp: boolean): OutgoingButtons {
   const first = name?.trim().split(/\s+/)[0];
   const hi = `Hi${first ? ` ${first}` : ""}, it's yarnOga.`;
   if (signup && signup.step !== "done") {
@@ -89,8 +89,8 @@ export function demoFollowUp(name: string | null, signup: Signup | null): Outgoi
     body:
       `${hi} Still thinking about a WhatsApp assistant for your own business? ` +
       "It answers your customers with your own prices at any hour, sends quotes and invoices, takes orders and payment, and every order comes to you.\n\n" +
-      "It's free to start and takes about 5 minutes, right here in this chat.",
-    buttons: [SIGN_UP_BUTTON],
+      `It's free to start and takes about 5 minutes, right here in this chat${offerSetUp ? ", or we can set it up for you" : ""}.`,
+    buttons: offerSetUp ? [SIGN_UP_BUTTON, { id: "set it up for me", title: "Set it up for me" }] : [SIGN_UP_BUTTON],
   };
 }
 

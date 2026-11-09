@@ -142,6 +142,25 @@ describe("chat sign-up on the quotes number", () => {
     expect((await bot.handle(msg("And mugs?"), ctx(3)))?.text).toBe("Demo shop here.");
   });
 
+  it("meets an ad's \"Can I get more info on this?\" with yarnOga, not the demo shop", async () => {
+    const { say } = setUp();
+    const reply = await say("Hello! Can I get more info on this?");
+    expect(reply.buttons?.body).toMatch(/This is yarnOga\..*What do you sell\?$/s);
+    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["sign up", "see it as a customer", "set it up for me"]);
+    expect((await say("Do you have more details on the 20 mugs?")).text).toBe("Demo shop here.");
+  });
+
+  it("hands someone who asks us to set it up to the yarnOga team, once a day", async () => {
+    const { say, mem } = setUp();
+    await say("Hello! Can I get more info on this?");
+    await say("cakes");
+    const reply = await say("set it up for me", { contactName: "Ada Obi" });
+    expect(reply.text).toMatch(/^No problem\. Someone from the yarnOga team will message you here today/);
+    expect(reply.notify).toEqual([{ to: "2348099999999", text: expect.stringMatching(/^Set-up request on the quotes line: Ada Obi, \+\d+, sells cakes\./) }]);
+    expect((await say("set it up for me")).notify).toBeUndefined();
+    expect(mem.rows.size).toBe(0);
+  });
+
   describe("guiding a visitor from hi to sign-up", () => {
     const shop: Product = {
       name: "quote",

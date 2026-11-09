@@ -1946,7 +1946,7 @@ if (chatSignup?.followUp && quoteBusinesses) {
       isPaused: async (contactId) => isPauseActive(await store.botPause(contactId, numberId), new Date()),
       sendText: (to, text) => sendAndRecord(deps, to, text, numberId),
       sendButtons: (to, message) => sendButtonsAndRecord(deps, to, message, numberId),
-      skipWaId: chatSignup.alertWaId,
+      alertWaId: chatSignup.alertWaId,
     });
   });
 }

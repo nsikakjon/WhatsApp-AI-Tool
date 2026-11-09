@@ -30,7 +30,7 @@ function setup(visitors: QuietVisitor[], signups: Record<string, Signup> = {}, p
     isPaused: async (contactId) => paused.includes(contactId),
     sendText: async (to, body) => void sent.push({ to, body, buttons: [] }),
     sendButtons: async (to, m) => void sent.push({ to, body: m.body, buttons: m.buttons.map((b) => b.id) }),
-    skipWaId: "2340000000000",
+    alertWaId: "2340000000000",
     now: MORNING,
     log: { error: () => {} },
   };
@@ -44,7 +44,7 @@ describe("demo follow-ups", () => {
     const { deps, sent, asked } = setup([ADA]);
     expect(await sendDemoFollowUps(deps)).toBe(1);
     expect(asked()).toEqual({ from: new Date("2026-11-09T11:00:00Z"), to: new Date("2026-11-10T06:00:00Z") });
-    expect(sent[0]).toMatchObject({ to: ADA.waId, buttons: ["sign up"] });
+    expect(sent[0]).toMatchObject({ to: ADA.waId, buttons: ["sign up", "set it up for me"] });
     expect(sent[0]!.body).toMatch(/^Hi Ada, it's yarnOga\. Still thinking about a WhatsApp assistant/);
     expect(await sendDemoFollowUps(deps)).toBe(0);
   });
