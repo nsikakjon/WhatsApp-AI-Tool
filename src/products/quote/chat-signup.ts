@@ -133,8 +133,10 @@ const ASK_REFERRAL = "Do you have a referral code? Send it now, or send *no* to 
 const ASK_PRICES =
   "Now your prices. Type them, send a voice note, or send a photo of your price list, for example:\n" +
   "_Cupcakes ₦600 each, box of 6 for ₦3,500. Birthday cakes from ₦25,000, minimum 2 boxes._\n\n" +
-  `Prefer a spreadsheet? Copy our Google Sheet template (${TEMPLATE_SHEET_URL}) or download the CSV (${TEMPLATE_CSV_URL}) and fill it in. ` +
-  'Then send the CSV file here, or send the link to your Google Sheet, shared as "Anyone with the link" can view.';
+  `Have them in a spreadsheet? Send the CSV file or your Google Sheet link (shared as "Anyone with the link"). Templates: ${TEMPLATE_SHEET_URL} or ${TEMPLATE_CSV_URL}`;
+
+const SEND_PRICES_ANOTHER_WAY =
+  "I can't read that here. Please send a *photo* of your price list, a voice note, or type each item with its price, for example _Polo shirt 15k, Shoes 30k_.";
 
 export function withChatSignup(next: Product, opts: ChatSignupOptions): Product {
   const now = opts.now ?? (() => new Date());
@@ -341,7 +343,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       images = [{ mediaType: type as DraftImageType, data: Buffer.from(await file.data.arrayBuffer()).toString("base64") }];
       ownerText = null;
     } else if (!text) {
-      return { text: msg.type === "audio" ? "Sorry, I couldn't make out that voice note. Could you type your prices instead?" : ASK_PRICES };
+      if (msg.type === "audio") return { text: "Sorry, I couldn't make out that voice note. Could you type your prices instead?" };
+      return { text: msg.type === "text" ? ASK_PRICES : SEND_PRICES_ANOTHER_WAY };
     }
     if (text.length > MAX_DRAFT_TEXT) return { text: "That's a long list. Please send it in parts, or as a photo or CSV file." };
 
@@ -377,9 +380,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   }
 
   async function showDraft(waId: string, csv: string, flags: string[], sheetUrl: string | null = null): Promise<Reply> {
-    const { items, problems } = readPriceList(parseCsv(csv));
-    if (!items.length && !problems.length) {
-      return { text: "I didn't find any products or prices in that. Please add more detail, or send a clearer photo." };
+    const table = parseCsv(csv);
+    const { items, problems } = readPriceList(table);
+    // Headings only: nothing was found, which is a question for the owner, not a list to fix.
+    if (!items.length && (!problems.length || table.length <= 1)) {
+      return { text: flags[0] || "I didn't find any products or prices in that. Send each item with its price, for example _Polo shirt 15k_, or a clearer photo." };
     }
     await opts.store.save(waId, { draftCsv: csv, ...(opts.sheets ? { sheetUrl } : {}) });
     if (problems.length) {

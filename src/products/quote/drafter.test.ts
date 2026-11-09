@@ -58,6 +58,14 @@ describe("amountsInText", () => {
 });
 
 describe("draftToCsv", () => {
+  it("cuts a product name that is too long for the price list, so it can still be saved", () => {
+    const long = "Premium quality polo shirt with embroidered logo on the chest and matching short available in all sizes";
+    const { csv } = draftToCsv({ rows: [{ product: long, option: "Standard", minQuantity: null, fromQuantity: null, price: "15000" }], notes: null }, null);
+    const { items, problems } = readPriceList(parseCsv(csv));
+    expect(problems).toEqual([]);
+    expect(items[0]!.product).toBe("Premium quality polo shirt with embroidered logo on the chest and matching short");
+  });
+
   const draft = {
     rows: [
       { product: "Flyers", option: "A5, glossy", minQuantity: 50, fromQuantity: 50, price: "₦120" },

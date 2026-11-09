@@ -559,7 +559,7 @@ describe("chat sign-up on the quotes number", () => {
     await say("sign up");
     await say("Mama Hampers");
     await say("gift hampers");
-    expect((await say("skip")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
+    expect((await say("skip")).text).toMatch(/Templates: https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy or https/);
     const reply = await say("here https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing");
     expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);
     expect(ai.calls).toHaveLength(0);
@@ -597,6 +597,13 @@ describe("chat sign-up on the quotes number", () => {
     const xlsx = { data: new Blob(["PK"]), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
     const reply = await bot.handle(msg("", { type: "document", mediaId: "m1", text: undefined }), ctx(1, xlsx));
     expect(reply?.text).toMatch(/save the spreadsheet as CSV/);
+  });
+
+  it("asks for a photo or typed prices when a video comes, and passes on the AI's question when it finds no item", async () => {
+    const { say } = setUp({ rows: [], notes: "What is the item that costs ₦25,000 called?" });
+    await signUpToPrices(say);
+    expect((await say("", { type: "video", mediaId: "m1" })).text).toMatch(/^I can't read that here\. Please send a \*photo\*/);
+    expect((await say("This one is 25k")).text).toBe("What is the item that costs ₦25,000 called?");
   });
 
   it("stops on cancel", async () => {
