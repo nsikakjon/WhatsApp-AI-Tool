@@ -142,6 +142,25 @@ describe("chat sign-up on the quotes number", () => {
     expect((await bot.handle(msg("And mugs?"), ctx(3)))?.text).toBe("Demo shop here.");
   });
 
+  it("meets an ad's \"Can I get more info on this?\" with yarnOga, not the demo shop", async () => {
+    const { say } = setUp();
+    const reply = await say("Hello! Can I get more info on this?");
+    expect(reply.buttons?.body).toMatch(/This is yarnOga\..*What do you sell\?$/s);
+    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["sign up", "see it as a customer", "set it up for me"]);
+    expect((await say("Do you have more details on the 20 mugs?")).text).toBe("Demo shop here.");
+  });
+
+  it("hands someone who asks us to set it up to the yarnOga team, once a day", async () => {
+    const { say, mem } = setUp();
+    await say("Hello! Can I get more info on this?");
+    await say("cakes");
+    const reply = await say("set it up for me", { contactName: "Ada Obi" });
+    expect(reply.text).toMatch(/^No problem\. Someone from the yarnOga team will message you here today/);
+    expect(reply.notify).toEqual([{ to: "2348099999999", text: expect.stringMatching(/^Set-up request on the quotes line: Ada Obi, \+\d+, sells cakes\./) }]);
+    expect((await say("set it up for me")).notify).toBeUndefined();
+    expect(mem.rows.size).toBe(0);
+  });
+
   describe("guiding a visitor from hi to sign-up", () => {
     const shop: Product = {
       name: "quote",
@@ -540,7 +559,7 @@ describe("chat sign-up on the quotes number", () => {
     await say("sign up");
     await say("Mama Hampers");
     await say("gift hampers");
-    expect((await say("skip")).text).toMatch(/Google Sheet template \(https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy\)/);
+    expect((await say("skip")).text).toMatch(/Templates: https:\/\/docs\.google\.com\/spreadsheets\/d\/.+\/copy or https/);
     const reply = await say("here https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing");
     expect(links).toEqual(["https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"]);
     expect(ai.calls).toHaveLength(0);
@@ -578,6 +597,13 @@ describe("chat sign-up on the quotes number", () => {
     const xlsx = { data: new Blob(["PK"]), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
     const reply = await bot.handle(msg("", { type: "document", mediaId: "m1", text: undefined }), ctx(1, xlsx));
     expect(reply?.text).toMatch(/save the spreadsheet as CSV/);
+  });
+
+  it("asks for a photo or typed prices when a video comes, and passes on the AI's question when it finds no item", async () => {
+    const { say } = setUp({ rows: [], notes: "What is the item that costs ₦25,000 called?" });
+    await signUpToPrices(say);
+    expect((await say("", { type: "video", mediaId: "m1" })).text).toMatch(/^I can't read that here\. Please send a \*photo\*/);
+    expect((await say("This one is 25k")).text).toBe("What is the item that costs ₦25,000 called?");
   });
 
   it("stops on cancel", async () => {

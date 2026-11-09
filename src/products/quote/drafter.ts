@@ -71,7 +71,13 @@ The most important rule: only copy prices the owner actually wrote or that are i
 
 Skip anything that isn't something they sell (phone numbers, addresses, bank details, slogans). Keep at most ${MAX_DRAFT_ROWS} rows.
 
-In notes, tell the owner in one or two short, plain sentences anything they should check: words you couldn't read, prices that looked unclear, or items you left without a price. Use null when there's nothing to flag.`;
+Keep product names short (a few words, never more than 80 letters): put long descriptions in option, or leave them out.
+
+When the owner gives a price range for an item ("Polo 15k to 25k"), use the lowest price and say so in notes, asking which kinds cost more (for example "plain polo 15k, designer polo 25k") so each gets its own row.
+
+When a message gives a price but doesn't say what the item is ("this one is 25k"), write no row for it and ask in notes what the item is called.
+
+In notes, speak to the owner as "you", in one or two short, plain sentences, about anything they should check: words you couldn't read, prices that looked unclear, or items you left without a price. Use null when there's nothing to flag.`;
 }
 
 export function createClaudeDrafter(opts: { apiKey: string; model: string; client?: Anthropic }): PriceListDrafter {
@@ -145,9 +151,12 @@ export function draftToCsv(draft: PriceListDraft, ownerText: string | null): { c
   let droppedPrices = 0;
   const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const clean = (v: string) => v.replace(/\s+/g, " ").trim();
+  // The price list takes names up to 80 letters and options up to 120: a longer
+  // one is cut at a word, so the owner corrects a name instead of meeting an error.
+  const cut = (v: string, max: number) => (v.length <= max ? v : v.slice(0, max + 1).replace(/\s+\S*$/, "").slice(0, max));
   const rows = [["Product", "Option", "Minimum order", "From quantity", "Price (naira)"]];
   for (const r of draft.rows) {
-    const product = clean(r.product);
+    const product = cut(clean(r.product), 80);
     if (!product) continue;
     let price = r.price ? clean(r.price).replace(/^(₦|ngn|n)\s*/i, "") : "";
     if (price && known) {
@@ -158,7 +167,7 @@ export function draftToCsv(draft: PriceListDraft, ownerText: string | null): { c
       }
     }
     const whole = (n: number | null) => (n !== null && Number.isInteger(n) && n >= 1 ? String(n) : "");
-    rows.push([product, clean(r.option), whole(r.minQuantity), whole(r.fromQuantity), price]);
+    rows.push([product, cut(clean(r.option), 120), whole(r.minQuantity), whole(r.fromQuantity), price]);
   }
   return { csv: rows.map((r) => r.map(quote).join(",")).join("\n") + "\n", droppedPrices };
 }

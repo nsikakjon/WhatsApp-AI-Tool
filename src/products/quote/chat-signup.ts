@@ -133,8 +133,10 @@ const ASK_REFERRAL = "Do you have a referral code? Send it now, or send *no* to 
 const ASK_PRICES =
   "Now your prices. Type them, send a voice note, or send a photo of your price list, for example:\n" +
   "_Cupcakes ₦600 each, box of 6 for ₦3,500. Birthday cakes from ₦25,000, minimum 2 boxes._\n\n" +
-  `Prefer a spreadsheet? Copy our Google Sheet template (${TEMPLATE_SHEET_URL}) or download the CSV (${TEMPLATE_CSV_URL}) and fill it in. ` +
-  'Then send the CSV file here, or send the link to your Google Sheet, shared as "Anyone with the link" can view.';
+  `Have them in a spreadsheet? Send the CSV file or your Google Sheet link (shared as "Anyone with the link"). Templates: ${TEMPLATE_SHEET_URL} or ${TEMPLATE_CSV_URL}`;
+
+const SEND_PRICES_ANOTHER_WAY =
+  "I can't read that here. Please send a *photo* of your price list, a voice note, or type each item with its price, for example _Polo shirt 15k, Shoes 30k_.";
 
 export function withChatSignup(next: Product, opts: ChatSignupOptions): Product {
   const now = opts.now ?? (() => new Date());
@@ -151,9 +153,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   const started = new Map<string, number>();
   const visitor = (waId: string): Visitor => {
     let v = visitors.get(waId);
-    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null }));
+    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null }));
     return v;
   };
+  // "Set it up for me" only shows when there's someone to tell.
+  const guestButtons = opts.alertWaId ? [...GUEST_BUTTONS, SET_UP_BUTTON] : GUEST_BUTTONS;
 
   return {
     name: next.name,
@@ -171,6 +175,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       }
 
       if (signup?.trying) return tryReply(signup, msg, ctx, text);
+      if (opts.alertWaId && !signup?.businessId && SET_UP_FOR_ME.test(text)) return setUpForMe(msg, signup);
 
       if (!signup || signup.step === "done") {
         if (signup?.businessId) {
@@ -193,23 +198,23 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           if (signup?.businessId) return { text: answer };
           const v = visitor(msg.from);
           v.unclear = 0;
-          return { text: "", buttons: { body: v.askedSells ? `${answer}\n\nWhat do you sell?` : answer, buttons: GUEST_BUTTONS } };
+          return { text: "", buttons: { body: v.askedSells ? `${answer}\n\nWhat do you sell?` : answer, buttons: guestButtons } };
         }
         const gate = opts.signUpToContinue && !signup?.businessId;
         if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
         const ask = welcomeAsk(text);
         const guest = !signup?.businessId;
         if (guest && AS_CUSTOMER.test(text)) return showDemo(msg, ctx);
-        if (guest && ask === "greeting") {
+        if (guest && (ask === "greeting" || wantsToKnowMore(text))) {
           visitor(msg.from).askedSells = true;
-          return intro(msg.contactName);
+          return intro(msg.contactName, guestButtons);
         }
         if (guest && visitor(msg.from).askedSells) {
           if (GO_AHEAD.test(text.toLowerCase().replace(/[.!]+$/, ""))) return startSignup(msg.from);
           const answer = whatTheySell(msg, text);
           if (answer) {
             Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
-            return pitch(answer);
+            return pitch(answer, guestButtons);
           }
           if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN, stage: "unclear" };
           visitor(msg.from).askedSells = false;
@@ -224,7 +229,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           if (reply.stage !== "unclear") visitor(msg.from).unclear = 0;
           else if (ctx.history.length === 0) {
             visitor(msg.from).askedSells = true;
-            return intro(msg.contactName);
+            return intro(msg.contactName, guestButtons);
           } else {
             const nudge = unclear(msg.from);
             if (nudge) return nudge;
@@ -338,7 +343,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
       images = [{ mediaType: type as DraftImageType, data: Buffer.from(await file.data.arrayBuffer()).toString("base64") }];
       ownerText = null;
     } else if (!text) {
-      return { text: msg.type === "audio" ? "Sorry, I couldn't make out that voice note. Could you type your prices instead?" : ASK_PRICES };
+      if (msg.type === "audio") return { text: "Sorry, I couldn't make out that voice note. Could you type your prices instead?" };
+      return { text: msg.type === "text" ? ASK_PRICES : SEND_PRICES_ANOTHER_WAY };
     }
     if (text.length > MAX_DRAFT_TEXT) return { text: "That's a long list. Please send it in parts, or as a photo or CSV file." };
 
@@ -374,9 +380,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   }
 
   async function showDraft(waId: string, csv: string, flags: string[], sheetUrl: string | null = null): Promise<Reply> {
-    const { items, problems } = readPriceList(parseCsv(csv));
-    if (!items.length && !problems.length) {
-      return { text: "I didn't find any products or prices in that. Please add more detail, or send a clearer photo." };
+    const table = parseCsv(csv);
+    const { items, problems } = readPriceList(table);
+    // Headings only: nothing was found, which is a question for the owner, not a list to fix.
+    if (!items.length && (!problems.length || table.length <= 1)) {
+      return { text: flags[0] || "I didn't find any products or prices in that. Send each item with its price, for example _Polo shirt 15k_, or a clearer photo." };
     }
     await opts.store.save(waId, { draftCsv: csv, ...(opts.sheets ? { sheetUrl } : {}) });
     if (problems.length) {
@@ -545,7 +553,27 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     const today = now().toISOString().slice(0, 10);
     if (v.unclear < 2 || v.nudgedOn === today) return null;
     Object.assign(v, { unclear: 0, nudgedOn: today, askedSells: false });
-    return { text: "", buttons: { body: NUDGE, buttons: GUEST_BUTTONS }, stage: "unclear" };
+    return { text: "", buttons: { body: NUDGE, buttons: guestButtons }, stage: "unclear" };
+  }
+
+  /** Hands the visitor to the yarnOga team, who set the bot up with them. Tells the team once a day per person. */
+  function setUpForMe(msg: IncomingMessage, signup: Signup | null): Reply {
+    const v = visitor(msg.from);
+    const today = now().toISOString().slice(0, 10);
+    if (v.setUpAskedOn === today) return { text: "Got it. Someone from the yarnOga team will message you here shortly." };
+    Object.assign(v, { setUpAskedOn: today, askedSells: false, unclear: 0 });
+    const name = msg.contactName?.trim();
+    const sells = signup?.description ?? v.sells;
+    const business = signup?.businessName;
+    return {
+      text:
+        "No problem. Someone from the yarnOga team will message you here today and set up your assistant with you.\n\n" +
+        "To get ready, have your prices to hand (a price list, a photo of one, or just tell us what you charge).",
+      ...alert(
+        `Set-up request on the quotes line: ${name ? `${name}, ` : ""}+${msg.from}` +
+          `${business ? `, ${business}` : ""}${sells ? `, sells ${sells}` : ""}. They asked us to set their bot up for them: message them from the inbox today.`,
+      ),
+    };
   }
 
   function alert(text: string): Pick<Reply, "notify"> {
@@ -570,6 +598,8 @@ interface Visitor {
   /** Messages in a row the bot couldn't use. */
   unclear: number;
   nudgedOn: string | null;
+  /** The day they last asked the team to set it up for them. */
+  setUpAskedOn: string | null;
 }
 
 const SEE_DEMO = "see it as a customer";
@@ -580,6 +610,14 @@ const GO_AHEAD = /^(ok+a*y*|okay|yes|yeah|yea|yep|sure|alright|go ahead|let'?s g
 /** How long a repeated "sign up" counts as sent with the first. */
 const REPEAT_MS = 2 * 60_000;
 const GUEST_BUTTONS = [SIGN_UP_BUTTON, { id: SEE_DEMO, title: "See it as a customer" }];
+const SET_UP_BUTTON = { id: "set it up for me", title: "Set it up for me" };
+const SET_UP_FOR_ME = /^(set it up for me|set (it|me) up|do it for me|help me set (it )?up)[.!]*$/i;
+/** Asking about the offer rather than the shop: "Can I get more info on this?" (WhatsApp's text for ad chats), "tell me more". */
+const KNOW_MORE = /\b(more info(rmation)?|info on this|tell me more|more details|know more|i('m| am) interested|interested in (this|it|your))\b/i;
+
+function wantsToKnowMore(text: string): boolean {
+  return text.length <= 60 && !/\d/.test(text) && KNOW_MORE.test(text);
+}
 const WHAT_IT_DOES =
   "yarnOga gives your business a WhatsApp assistant that answers your customers, sends quotes and invoices, takes orders and payments, and keeps every order in one place.";
 const ASK_SELLS_AGAIN = "Tell me in a few words what your business sells, for example _cakes_, _shoes_ or _printing_.";
@@ -606,19 +644,19 @@ function changeExample(items: PriceListItem[]): string {
   return `${first.product.toLowerCase()} ${formatNaira(kobo + step).replace("₦", "")}`;
 }
 
-function intro(contactName: string | undefined): Reply {
+function intro(contactName: string | undefined, buttons = GUEST_BUTTONS): Reply {
   const first = contactName?.trim().split(/\s+/)[0];
-  return { text: "", buttons: { body: `Hi${first ? ` ${first}` : ""}! This is yarnOga. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\nWhat do you sell?`, buttons: GUEST_BUTTONS } };
+  return { text: "", buttons: { body: `Hi${first ? ` ${first}` : ""}! This is yarnOga. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\nWhat do you sell?`, buttons } };
 }
 
-function pitch(sells: string): Reply {
+function pitch(sells: string, buttons = GUEST_BUTTONS): Reply {
   return {
     text: "",
     buttons: {
       body:
         `For *${sells}*, your assistant answers "how much?" with your own prices, sends the quote, takes the order and delivery address, sends the invoice with a pay link, and puts every order on your dashboard. ` +
         "Your customers do it all in WhatsApp, where they already chat with you.\n\nIt's free to start. Sign up here in about 5 minutes, or see it as your customer would first.",
-      buttons: GUEST_BUTTONS,
+      buttons,
     },
   };
 }

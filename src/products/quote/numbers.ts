@@ -83,7 +83,8 @@ export const FRESH_NUMBER_NOTE =
 /** FRESH_NUMBER_NOTE when owners can also connect with Facebook on /signup. */
 export const CONNECT_NUMBER_NOTE =
   "Before we start: at the end you'll connect the WhatsApp number your bot answers on. " +
-  "If your business uses the WhatsApp Business app, you can connect that number with Facebook and keep using the app. Or use a fresh SIM that has never been on WhatsApp.";
+  "If your business uses the WhatsApp Business app, you can connect that number with Facebook and keep using the app. " +
+  "A number on ordinary WhatsApp can't be connected as it is: move it to the free WhatsApp Business app first (your chats come with you). Or use a fresh SIM that has never been on WhatsApp.";
 
 export const NEW_SIM_STEPS =
   "Last step: a WhatsApp number just for your bot, so your customers can reach it.\n\n" +
@@ -104,6 +105,7 @@ export function connectSteps(link: string, newSim: boolean): string {
     "*Connect with Facebook* (about 5 minutes)",
     "Open this link, log in with the Facebook account that runs your business and follow Meta's steps. " +
       "You can connect the number on your WhatsApp Business app and keep using the app, or a new number. Your bot goes live as soon as you finish.",
+    "On ordinary WhatsApp (the green one, not WhatsApp Business)? That number can't be connected as it is. Install the free WhatsApp Business app, move your number into it (your chats come with you), then open the link.",
     "No website? When Meta asks for one, paste your business's Instagram or Facebook page link instead.",
     link,
     ...(newSim

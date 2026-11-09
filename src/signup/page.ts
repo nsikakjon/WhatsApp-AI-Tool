@@ -159,7 +159,7 @@ export function renderSignupPage(opts: SignupPageOptions): string {
         <label class="option">
           <input type="radio" name="kind" value="app" checked>
           <b>It's on the WhatsApp Business app</b>
-          <span>Keep using the app on your phone. The assistant answers alongside you and steps back in a chat when you reply yourself.</span>
+          <span>Keep using the app on your phone. The assistant answers alongside you and steps back in a chat when you reply yourself. On ordinary WhatsApp? Move your number to the free WhatsApp Business app first (your chats come with you), then come back here.</span>
         </label>
         <label class="option">
           <input type="radio" name="kind" value="new">
