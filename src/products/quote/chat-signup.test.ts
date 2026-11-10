@@ -161,6 +161,34 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.rows.size).toBe(0);
   });
 
+  describe("saying YES to a price list saved with problems", () => {
+    const long = "Polo shirts and shorts in all sizes and colours, prices depending on your order, same as the short ones";
+    const stuck = async (draftCsv: string) => {
+      const t = setUp();
+      await t.mem.store.save(OWNER, { step: "prices", businessName: "King billy global venture", description: "clothes", draftCsv });
+      return t;
+    };
+
+    it("cuts a product name that is too long, from before names were cut, and saves the list", async () => {
+      const { say, created, setup } = await stuck(`Product,Price (naira)\n"${long}",15000\nShoes,30000\n`).then((t) => ({ ...t, created: t.mem.created }));
+      await say("Yes");
+      expect(created).toHaveLength(1);
+      const saved = setup.lists.get("biz-1")!;
+      expect(saved.map((i) => i.product)).toEqual([expect.stringMatching(/^Polo shirts and shorts/), "Shoes"]);
+      expect(saved[0]!.product.length).toBeLessThanOrEqual(80);
+    });
+
+    it("says what's wrong, then gets the yarnOga team on a second YES", async () => {
+      const { say } = await stuck("Product,Price (naira)\nPolo,lots\n");
+      const first = await say("Yes");
+      expect(first.text).toMatch(/^That list still needs fixing:\n• /);
+      expect(first.notify).toBeUndefined();
+      const second = await say("Yes");
+      expect(second.text).toMatch(/^Let me get someone from the yarnOga team/);
+      expect(second.notify?.[0]?.text).toContain("Their price list can't be saved");
+    });
+  });
+
   describe("an owner asking how to connect their WhatsApp", () => {
     const unsure: Product = { name: "quote", handle: async () => ({ text: "Which item do you want?", stage: "unclear" }) };
     const owner = async (extra: Partial<ChatSignupOptions> = {}) => {
