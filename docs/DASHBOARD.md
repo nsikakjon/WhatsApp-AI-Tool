@@ -14,6 +14,12 @@ database each time you open or refresh it.
 
 Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 
+If the password is refused: the username doesn't matter (leave it empty or
+type anything), so it's the password. Copy it again from Railway, in case it
+was changed when the secrets were rotated. After 5 wrong tries from one
+connection the page refuses every password for 15 minutes, so wait before
+trying again.
+
 ## What it shows
 
 | Section | Numbers |
@@ -78,6 +84,25 @@ How the figures are worked out:
   entries (₦1,370 until you add one).
 - "Pays a month" is the plan's monthly list price, not money received. A
   branch counts under its main shop. Owner test screens aren't counted.
+
+## Tally sheet
+
+A page at `/dashboard/tally` (same password; **Tally sheet** link in the top
+bar) for door-to-door sales days, filled in on the phone between shops:
+
+- **Add a shop**: name, type, where it is, and four ticks: owner in,
+  interested, signed up, live today. Ticking a later step ticks the earlier
+  ones. Add a follow-up day for an owner who said "not now".
+- The day's tiles show shops visited, interested and live against the day's
+  goal (20 visited, 5 interested, 2 live).
+- Each shop's row can be changed later: change the ticks or the follow-up day
+  and press **Save** on that row.
+- **Follow-ups** lists every shop with a follow-up day that isn't live yet,
+  soonest first, marked **Due** from that day on.
+- **Every day out** totals each day, and the day picker opens an earlier day.
+
+Run `supabase/migrations/0079_door_visits.sql` once in Supabase first. No
+Railway setting is needed.
 
 ## Plan editor
 
