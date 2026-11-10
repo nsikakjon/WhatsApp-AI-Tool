@@ -686,6 +686,13 @@ if (chatSignup && quoteBusinesses) {
       ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl, connectLink })
       : undefined,
     connectLink,
+    // The Demo Shop's inbox holds these chats.
+    chatLink: ownerApp
+      ? async (contactId) => {
+          const demo = await businesses.findByPhoneNumberId(chatSignup.phoneNumberId);
+          return demo ? chatLinkFor(demo.id)?.(contactId) : undefined;
+        }
+      : undefined,
     sheets: sheetSync,
     askEmail: emailAsker
       ? ({ waId, businessId }) =>

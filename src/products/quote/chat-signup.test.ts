@@ -161,6 +161,76 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.rows.size).toBe(0);
   });
 
+  describe("an owner asking how to connect their WhatsApp", () => {
+    const unsure: Product = { name: "quote", handle: async () => ({ text: "Which item do you want?", stage: "unclear" }) };
+    const owner = async (extra: Partial<ChatSignupOptions> = {}) => {
+      const t = setUp(CUPCAKES, { connectLink: (id) => `https://yarnoga.com/connect/${id}`, ...extra });
+      await t.mem.store.save(OWNER, { step: "done", businessId: "biz-9", businessName: "NaNa's Home Essentials" });
+      return t;
+    };
+
+    it("answers in code: keep the WhatsApp Business app, open the link, log in with Facebook", async () => {
+      const { say } = await owner();
+      const reply = await say("Wait how do i move this to my WhatsApp business account?");
+      expect(reply.text).toMatch(/^You don't need to move your number or your chats\. Keep using your WhatsApp Business app/);
+      expect(reply.text).toContain("https://yarnoga.com/connect/biz-9");
+      expect(reply.text).toContain("Log in with the Facebook account");
+      expect(reply.text).not.toMatch(/install the free WhatsApp Business app/i);
+      expect(reply.stage).toBeUndefined();
+    });
+
+    it("gets the yarnOga team, with a button to the chat, when they ask again", async () => {
+      const { say } = await owner({ chatLink: async (contactId) => `https://app.yarnoga.com/home/inbox/${contactId}` });
+      await say("I have 2 WhatsApp installed already. So i need to know how to connect it with this one");
+      const reply = await say("I'm not moving any chat. I only need to connect all of this here to the business account that's it", { contactName: "NaNa" });
+      expect(reply.text).toMatch(/^Let me get someone from the yarnOga team to help you/);
+      expect(reply.stage).toBeUndefined();
+      expect(reply.notify).toEqual([
+        {
+          to: "2348099999999",
+          text: expect.stringMatching(/^Help needed on the quotes line: NaNa, \+\d+, NaNa's Home Essentials\. They asked how to connect/),
+          link: { label: "Open chat", url: "https://app.yarnoga.com/home/inbox/c1" },
+        },
+      ]);
+      const again = await say("how do I link my number?");
+      expect(again.text).toBe("The yarnOga team has your message and will reply here shortly.");
+      expect(again.notify).toBeUndefined();
+    });
+
+    it("tells a visitor they connect at the end of sign-up and keep their app", async () => {
+      const { say } = setUp(CUPCAKES, { connectLink: (id) => `https://yarnoga.com/connect/${id}` });
+      const reply = await say("Can I connect my WhatsApp Business number?");
+      expect(reply.buttons?.body).toMatch(/^You connect your number at the end of sign-up/);
+      expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["sign up"]);
+    });
+
+    it("leaves shop questions to the shop", async () => {
+      const { say } = await owner();
+      expect((await say("Do you deliver to Lekki?")).text).toBe("Demo shop here.");
+      expect((await say("Send the price to my whatsapp")).text).toBe("Demo shop here.");
+    });
+
+    it("gets the team after two replies in a row the bot couldn't answer, instead of going quiet", async () => {
+      const mem = memoryStore();
+      await mem.store.save(OWNER, { step: "done", businessId: "biz-9", businessName: "NaNa's Home Essentials" });
+      const bot = withChatSignup(unsure, {
+        numberId: NUMBER,
+        store: mem.store,
+        setup: memorySetup().setup,
+        drafter: drafter(CUPCAKES).d,
+        alertWaId: "2348099999999",
+        now: () => new Date("2026-11-10T09:00:00Z"),
+        log: { error: () => {} },
+      });
+      const first = await bot.handle(msg("Answer me"), ctx());
+      expect(first).toEqual({ text: "Which item do you want?", stage: "unclear" });
+      const second = await bot.handle(msg("Hey im waiting"), ctx());
+      expect(second?.text).toMatch(/^Let me get someone from the yarnOga team/);
+      expect(second?.stage).toBeUndefined();
+      expect(second?.notify?.[0]?.text).toContain("The bot couldn't answer their last two messages");
+    });
+  });
+
   describe("guiding a visitor from hi to sign-up", () => {
     const shop: Product = {
       name: "quote",
