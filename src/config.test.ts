@@ -320,6 +320,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base, FARM_PASSWORD: "short" })).toThrow(/FARM_PASSWORD/);
   });
 
+  it("switches the farm assistant on with the Anthropic key, unless FARM_ASSISTANT=off", () => {
+    const farm = { ...base, FARM_PASSWORD: "a long enough pass" };
+    expect(loadConfig({ ...farm, ANTHROPIC_API_KEY: "" }).farm?.assistant).toBeUndefined();
+    expect(loadConfig({ ...farm, ANTHROPIC_API_KEY: "sk-ant-x", ANTHROPIC_MODEL: "" }).farm?.assistant).toEqual({ anthropicApiKey: "sk-ant-x", model: "claude-haiku-5-5", dailyLimit: 30 });
+    expect(loadConfig({ ...farm, ANTHROPIC_API_KEY: "sk-ant-x", FARM_ASSISTANT_DAILY_LIMIT: "5" }).farm?.assistant?.dailyLimit).toBe(5);
+    expect(loadConfig({ ...farm, ANTHROPIC_API_KEY: "sk-ant-x", FARM_ASSISTANT: "off" }).farm?.assistant).toBeUndefined();
+  });
+
   it("switches the compliance page on with a long password, and Dojah when both keys are set", () => {
     expect(loadConfig(base).compliance).toBeUndefined();
     expect(() => loadConfig({ ...base, COMPLIANCE_PASSWORD: "short" })).toThrow("COMPLIANCE_PASSWORD");

@@ -88,7 +88,12 @@ export interface Config {
    * Oko, Jay's farm and land app at /farm/ (FARM_PASSWORD, at least 12
    * characters). Data stays on the phone; the server only hands out the app.
    */
-  farm?: { password: string; copernicus?: { clientId: string; clientSecret: string } };
+  farm?: {
+    password: string;
+    copernicus?: { clientId: string; clientSecret: string };
+    /** The AI farm assistant: on when ANTHROPIC_API_KEY is set, unless FARM_ASSISTANT=off. */
+    assistant?: { anthropicApiKey: string; model: string; dailyLimit: number };
+  };
   /** Staff inbox web page at /inbox. Unset (switched off) when INBOX_PASSWORD is missing. */
   inbox?: { password: string };
   /** Voice note transcription. Unset when GROQ_API_KEY is missing (voice notes then aren't understood). */
@@ -515,6 +520,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           copernicus:
             env.COPERNICUS_CLIENT_ID?.trim() && env.COPERNICUS_CLIENT_SECRET?.trim()
               ? { clientId: env.COPERNICUS_CLIENT_ID.trim(), clientSecret: env.COPERNICUS_CLIENT_SECRET.trim() }
+              : undefined,
+          assistant:
+            env.ANTHROPIC_API_KEY?.trim() && !/^(false|no|off|0)$/i.test(env.FARM_ASSISTANT ?? "")
+              ? {
+                  anthropicApiKey: env.ANTHROPIC_API_KEY.trim(),
+                  model: env.ANTHROPIC_MODEL || "claude-haiku-5-5",
+                  dailyLimit: wholeNumber(env, "FARM_ASSISTANT_DAILY_LIMIT", 30),
+                }
               : undefined,
         }
       : undefined,
