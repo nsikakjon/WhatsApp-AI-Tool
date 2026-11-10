@@ -104,6 +104,8 @@ export interface ChatSignupOptions {
   numbers?: ReturnType<typeof createNumberCollector>;
   /** The business's own link to connect its number with Facebook (/signup). Off when not given. */
   connectLink?: (businessId: string) => string;
+  /** The chat in the owner app's inbox, for the button on alerts to the yarnOga team. */
+  chatLink?: (contactId: string) => Promise<string | undefined>;
   /** QUOTE_DEMO_SIGNUP_GATE: demo visitors sign up after the delivery question to finish their order. */
   signUpToContinue?: boolean;
   now?: () => Date;
@@ -153,7 +155,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   const started = new Map<string, number>();
   const visitor = (waId: string): Visitor => {
     let v = visitors.get(waId);
-    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null }));
+    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null, connectHelpOn: null }));
     return v;
   };
   // "Set it up for me" only shows when there's someone to tell.
@@ -184,6 +186,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           const owner = { businessId: signup.businessId, businessName: signup.businessName ?? "your business", ownerWaId: msg.from };
           const numberReply = opts.numbers ? await opts.numbers.received(owner, text) : null;
           if (numberReply) return numberReply;
+          if (asksToConnect(text)) return connectHelp(msg, ctx, signup);
           if (SIGN_UP.test(text)) return { text: `You've already signed up as *${signup.businessName}*.\n\n${AFTER}` };
           if (TRY.test(text)) return startTrying(signup, msg);
           if (PRICES.test(text)) {
@@ -192,6 +195,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             return { text: current.length ? `Tell me what to change, or send your whole new list.\n\n${preview(current)}` : ASK_PRICES };
           }
         }
+        if (!signup?.businessId && asksToConnect(text)) return connectHelp(msg, ctx, signup);
         if (SIGN_UP.test(text)) return startSignup(msg.from);
         const answer = yarnOgaAnswer(text);
         if (answer) {
@@ -224,6 +228,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         if (gate && reply?.stage === "delivery_chosen") {
           waiting.add(msg.from);
           return askToSignUp(reply);
+        }
+        if (signup?.businessId && reply) {
+          if (reply.stage !== "unclear") visitor(msg.from).unclear = 0;
+          else if (++visitor(msg.from).unclear >= 2) {
+            visitor(msg.from).unclear = 0;
+            const handOff = await toTeam(msg, ctx, signup, "The bot couldn't answer their last two messages");
+            if (handOff) return handOff;
+          }
         }
         if (guest && reply) {
           if (reply.stage !== "unclear") visitor(msg.from).unclear = 0;
@@ -576,6 +588,57 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     };
   }
 
+  /**
+   * How to connect their number, in code so the AI never guesses (it once told
+   * an owner to move her number and chats). Asked again the same day, the
+   * yarnOga team is told to help instead.
+   */
+  async function connectHelp(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null): Promise<Reply> {
+    const v = visitor(msg.from);
+    const today = now().toISOString().slice(0, 10);
+    const businessId = signup?.businessId;
+    if (v.connectHelpOn === today || (businessId && !opts.connectLink)) {
+      const handOff = await toTeam(msg, ctx, signup, "They asked how to connect their WhatsApp number");
+      if (handOff) return handOff;
+    }
+    v.connectHelpOn = today;
+    v.unclear = 0;
+    if (businessId && opts.connectLink) return { text: connectAnswer(opts.connectLink(businessId)) };
+    return { text: "", buttons: { body: CONNECT_LATER, buttons: [SIGN_UP_BUTTON] } };
+  }
+
+  /**
+   * Tells the yarnOga team to message this person, with a button to their chat,
+   * once a day per person. Null when there's no one to tell.
+   */
+  async function toTeam(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null, why: string): Promise<Reply | null> {
+    if (!opts.alertWaId) return null;
+    const v = visitor(msg.from);
+    const today = now().toISOString().slice(0, 10);
+    if (v.setUpAskedOn === today) return { text: TEAM_COMING };
+    Object.assign(v, { setUpAskedOn: today, unclear: 0 });
+    const name = msg.contactName?.trim();
+    const business = signup?.businessName;
+    let url: string | undefined;
+    try {
+      url = await opts.chatLink?.(ctx.contactId);
+    } catch (err) {
+      log.error("Could not make the inbox link for the team alert:", err);
+    }
+    return {
+      text: "Let me get someone from the yarnOga team to help you with this. They'll message you here shortly.",
+      notify: [
+        {
+          to: opts.alertWaId,
+          text:
+            `Help needed on the quotes line: ${name ? `${name}, ` : ""}+${msg.from}${business ? `, ${business}` : ""}. ${why}. ` +
+            `Their last message: "${(msg.text ?? "").trim().slice(0, 300)}"\n\nPlease message them from the inbox.`,
+          ...(url ? { link: { label: "Open chat", url } } : {}),
+        },
+      ],
+    };
+  }
+
   function alert(text: string): Pick<Reply, "notify"> {
     return opts.alertWaId ? { notify: [{ to: opts.alertWaId, text }] } : {};
   }
@@ -591,6 +654,32 @@ function askToSignUp({ stage: _, ...reply }: Reply): Reply {
   return { ...reply, buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON, ...keep] } };
 }
 
+/** "How do I connect my WhatsApp Business to this?", "move this to my business account". */
+const CONNECT_VERB = /\b(connect\w*|link|linking|mov(e|ing)|transfer\w*|switch\w*|integrat\w*|hook (it )?up)\b/i;
+const CONNECT_WHAT = /\b(whats ?app|wa business|business (account|app)|(my|this|our|the) (number|line))\b/i;
+
+function asksToConnect(text: string): boolean {
+  return text.length <= 300 && CONNECT_VERB.test(text) && CONNECT_WHAT.test(text);
+}
+
+function connectAnswer(link: string): string {
+  return [
+    "You don't need to move your number or your chats. Keep using your WhatsApp Business app exactly as it is, and the assistant answers alongside you.",
+    "",
+    "To connect it (about 5 minutes):",
+    `1. Open your link: ${link}`,
+    "2. Log in with the Facebook account that runs your business. No website? When Meta asks, paste your Instagram or Facebook page link.",
+    "3. Choose to connect your existing WhatsApp Business app, then scan the QR code with the app on your phone.",
+    "",
+    "Have ordinary WhatsApp on the same phone too? That one stays as it is. Your bot goes live as soon as you finish. Stuck on a step? Tell me and someone from the yarnOga team will help.",
+  ].join("\n");
+}
+
+const CONNECT_LATER =
+  "You connect your number at the end of sign-up, with Facebook, in about 5 minutes. If your business uses the WhatsApp Business app, you keep using it: your number and chats stay as they are.\n\n" +
+  "Sign up free here first, then I'll send you the link.";
+const TEAM_COMING = "The yarnOga team has your message and will reply here shortly.";
+
 interface Visitor {
   /** The intro asked what they sell and the answer hasn't come yet. */
   askedSells: boolean;
@@ -598,7 +687,9 @@ interface Visitor {
   /** Messages in a row the bot couldn't use. */
   unclear: number;
   nudgedOn: string | null;
-  /** The day they last asked the team to set it up for them. */
+  /** The day they were last sent the steps to connect their number. */
+  connectHelpOn: string | null;
+  /** The day the yarnOga team was last told to message them (set it up, or help). */
   setUpAskedOn: string | null;
 }
 
