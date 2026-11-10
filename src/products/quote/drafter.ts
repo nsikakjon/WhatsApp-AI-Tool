@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { parseCsv } from "../../core/sheets.js";
 import { nairaToKobo } from "./pricelist.js";
 
 // "Describe your business, AI drafts the price list." On the owner setup
@@ -149,11 +150,6 @@ export function amountsInText(text: string): Set<number> {
 export function draftToCsv(draft: PriceListDraft, ownerText: string | null): { csv: string; droppedPrices: number } {
   const known = ownerText === null ? null : amountsInText(ownerText);
   let droppedPrices = 0;
-  const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  const clean = (v: string) => v.replace(/\s+/g, " ").trim();
-  // The price list takes names up to 80 letters and options up to 120: a longer
-  // one is cut at a word, so the owner corrects a name instead of meeting an error.
-  const cut = (v: string, max: number) => (v.length <= max ? v : v.slice(0, max + 1).replace(/\s+\S*$/, "").slice(0, max));
   const rows = [["Product", "Option", "Minimum order", "From quantity", "Price (naira)"]];
   for (const r of draft.rows) {
     const product = cut(clean(r.product), 80);
@@ -169,5 +165,21 @@ export function draftToCsv(draft: PriceListDraft, ownerText: string | null): { c
     const whole = (n: number | null) => (n !== null && Number.isInteger(n) && n >= 1 ? String(n) : "");
     rows.push([product, cut(clean(r.option), 120), whole(r.minQuantity), whole(r.fromQuantity), price]);
   }
-  return { csv: rows.map((r) => r.map(quote).join(",")).join("\n") + "\n", droppedPrices };
+  return { csv: toCsv(rows), droppedPrices };
 }
+
+/**
+ * A saved draft with its product names and options cut to fit, for drafts
+ * saved before names were cut (they could never be saved otherwise).
+ */
+export function fitDraftCsv(csv: string): string {
+  const [head = [], ...rest] = parseCsv(csv);
+  return toCsv([head, ...rest.map(([product = "", option = "", ...more]) => [cut(clean(product), 80), cut(clean(option), 120), ...more])]);
+}
+
+const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const toCsv = (rows: string[][]) => rows.map((r) => r.map(quote).join(",")).join("\n") + "\n";
+const clean = (v: string) => v.replace(/\s+/g, " ").trim();
+// The price list takes names up to 80 letters and options up to 120: a longer
+// one is cut at a word, so the owner corrects a name instead of meeting an error.
+const cut = (v: string, max: number) => (v.length <= max ? v : v.slice(0, max + 1).replace(/\s+\S*$/, "").slice(0, max));

@@ -50,10 +50,16 @@ describe("demo follow-ups", () => {
   });
 
   it("tells someone part way through signing up where they stopped", async () => {
-    const { deps, sent } = setup([ADA], { [ADA.waId]: signup({ step: "prices", businessName: "Ada's Cakes", draftCsv: "x" }) });
+    const { deps, sent } = setup([ADA], { [ADA.waId]: signup({ step: "prices", businessName: "Ada's Cakes", draftCsv: "Product,Price (naira)\nCupcakes,600\n" }) });
     await sendDemoFollowUps(deps);
     expect(sent[0]!.buttons).toEqual([]);
     expect(sent[0]!.body).toMatch(/\*Ada's Cakes\*.*Reply \*YES\* to save it/s);
+  });
+
+  it("asks for the prices again, not YES, when the waiting list can't be saved", async () => {
+    const { deps, sent } = setup([ADA], { [ADA.waId]: signup({ step: "prices", businessName: "Ada's Cakes", draftCsv: "Product,Price (naira)\nCupcakes,lots\n" }) });
+    await sendDemoFollowUps(deps);
+    expect(sent[0]!.body).toMatch(/Send your prices to finish/);
   });
 
   it("leaves out people who signed up, chats staff took over and the team's own number", async () => {

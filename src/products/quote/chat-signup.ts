@@ -8,6 +8,7 @@ import {
   MAX_DRAFT_IMAGE_BYTES,
   MAX_DRAFT_TEXT,
   draftToCsv,
+  fitDraftCsv,
   type DraftImage,
   type DraftImageType,
   type PriceListDrafter,
@@ -155,7 +156,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   const started = new Map<string, number>();
   const visitor = (waId: string): Visitor => {
     let v = visitors.get(waId);
-    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null, connectHelpOn: null }));
+    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null, connectHelpOn: null, stuckOn: null }));
     return v;
   };
   // "Set it up for me" only shows when there's someone to tell.
@@ -321,7 +322,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   };
 
   async function pricesStep(signup: Signup, msg: IncomingMessage, ctx: ProductContext, text: string): Promise<Reply> {
-    if (YES.test(text) && signup.draftCsv) return confirm(signup, msg.from);
+    if (YES.test(text) && signup.draftCsv) return confirm(signup, msg.from, msg, ctx);
 
     const sheetLink = text.match(SHEET_LINK)?.[0];
     if (sheetLink && sheetCsvUrl(sheetLink)) {
@@ -415,9 +416,22 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     };
   }
 
-  async function confirm(signup: Signup, waId: string): Promise<Reply> {
-    const { items, problems } = readPriceList(parseCsv(signup.draftCsv!));
-    if (problems.length || !items.length) return { text: "That list still needs fixing. Tell me the corrections, or send it again." };
+  async function confirm(signup: Signup, waId: string, msg: IncomingMessage, ctx: ProductContext): Promise<Reply> {
+    const { items, problems } = readPriceList(parseCsv(fitDraftCsv(signup.draftCsv!)));
+    if (problems.length || !items.length) {
+      // Saying YES to a list that can't be saved twice in a day: a person helps instead.
+      const v = visitor(waId);
+      const today = now().toISOString().slice(0, 10);
+      if (v.stuckOn === today) {
+        const handOff = await toTeam(msg, ctx, signup, "Their price list can't be saved and they've said YES twice");
+        if (handOff) return handOff;
+      }
+      v.stuckOn = today;
+      const list = problems.slice(0, 5).map((p) => `• ${p.message}`).join("\n");
+      return {
+        text: `That list still needs fixing${list ? `:\n${list}` : "."}\n\nSend your prices again, one item per line, for example _Polo shirt 15k_.`,
+      };
+    }
 
     if (signup.businessId) {
       await opts.setup.replacePriceList(signup.businessId, items);
@@ -689,6 +703,8 @@ interface Visitor {
   nudgedOn: string | null;
   /** The day they were last sent the steps to connect their number. */
   connectHelpOn: string | null;
+  /** The day they last said YES to a price list that can't be saved. */
+  stuckOn: string | null;
   /** The day the yarnOga team was last told to message them (set it up, or help). */
   setUpAskedOn: string | null;
 }

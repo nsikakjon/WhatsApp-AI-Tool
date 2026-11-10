@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OutgoingButtons } from "../../core/whatsapp/client.js";
 import type { Signup } from "./chat-signup.js";
 import { lagosHour } from "./followups.js";
+import { parseCsv } from "../../core/sheets.js";
+import { fitDraftCsv } from "./drafter.js";
+import { readPriceList } from "./pricelist.js";
 
 // One follow-up for people who chatted to the yarnOga quotes number (the Demo
 // Shop and sign-up line, often straight from an ad) and went quiet without
@@ -104,7 +107,7 @@ function carryOn(s: Signup): string {
     case "referral":
       return "Do you have a referral code? Send it, or send *no* to carry on.";
     default:
-      return s.draftCsv
+      return s.draftCsv && readyToSave(s.draftCsv)
         ? "Your price list is ready. Reply *YES* to save it, or tell me what to change."
         : "Send your prices to finish: type them, send a voice note, or a photo of your price list.";
   }
@@ -146,4 +149,10 @@ export function createSupabaseDemoFollowUps(db: SupabaseClient): DemoFollowUpSto
       throw new Error(`marking the demo follow-up failed: ${error.message}`);
     },
   };
+}
+
+/** Only a list that YES can save is called ready. */
+function readyToSave(csv: string): boolean {
+  const { items, problems } = readPriceList(parseCsv(fitDraftCsv(csv)));
+  return items.length > 0 && problems.length === 0;
 }
