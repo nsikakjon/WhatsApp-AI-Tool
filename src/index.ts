@@ -157,6 +157,9 @@ import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsap
 import { createSupabaseVerifications } from "./compliance/store.js";
 import { createSupabaseFarmStore } from "./farm/store.js";
 import { createSatellite } from "./farm/satellite.js";
+import { createFieldAlerts } from "./farm/alerts.js";
+import { createWeather } from "./farm/weather.js";
+import { createSatelliteCache } from "./farm/sat-cache.js";
 import { createDojahRegistry } from "./compliance/registry.js";
 import type { ComplianceDeps } from "./compliance/index.js";
 import type { Notice } from "./core/product.js";
@@ -1267,6 +1270,10 @@ const dashboardNumbers = [
   ...(chatSignup ? [{ id: chatSignup.phoneNumberId, label: "Quotes demo and sign-up" }] : []),
 ];
 
+// Oko, the farm and land app (FARM_PASSWORD).
+const farmStore = config.farm ? createSupabaseFarmStore(supabase) : undefined;
+const farmSatellite = config.farm?.copernicus ? createSatellite(config.farm.copernicus) : undefined;
+
 const app = createApp({
   verifyToken: config.whatsapp.verifyToken,
   appSecret: config.whatsapp.appSecret,
@@ -1516,14 +1523,32 @@ const app = createApp({
   processed: config.processedCounterMinKobo
     ? { totalKobo: createSupabaseProcessedTotal(supabase), minKobo: config.processedCounterMinKobo }
     : undefined,
-  farm: config.farm
+  farm: farmStore
     ? {
-        password: config.farm.password,
-        store: createSupabaseFarmStore(supabase),
-        satellite: config.farm.copernicus ? createSatellite(config.farm.copernicus) : undefined,
+        password: config.farm!.password,
+        store: farmStore,
+        satellite: farmSatellite,
+        whatsappAlerts: !!config.farm!.alerts,
       }
     : undefined,
 });
+
+// Oko's daily WhatsApp alerts to field owners who switched them on
+// (FARM_WHATSAPP_ALERTS). Checked hourly; each day's run starts at 7am Nigeria time.
+if (farmStore && config.farm?.alerts) {
+  const farmAlertConfig = config.farm.alerts;
+  const farmAlerts = createFieldAlerts({
+    store: farmStore,
+    weather: createWeather(),
+    satellite: farmSatellite ? createSatelliteCache({ store: farmStore, satellite: farmSatellite, now: () => new Date() }) : undefined,
+    appUrl: farmAlertConfig.appUrl,
+    send: (to, text) =>
+      sendNotice({ store, whatsapp, noticeTemplate: farmAlertConfig.template, defaultNumberId: config.whatsapp.phoneNumberId }, { to, text }),
+  });
+  runEvery(60 * 60 * 1000, async () => {
+    await farmAlerts.tick();
+  });
+}
 
 // The welcome and setup-tip emails: every 15 minutes, whatever is due.
 if (emailConfig && emailStore) {
