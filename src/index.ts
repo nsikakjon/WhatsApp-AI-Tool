@@ -125,6 +125,7 @@ import { createNumberCollector, createSupabaseNumberQueue } from "./products/quo
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabaseTallyStore } from "./dashboard/tally.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
 import { createSupabasePlanEditor } from "./dashboard/plans.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
@@ -1298,6 +1299,7 @@ const app = createApp({
       ads: adLeadReader ? createSupabaseAdsSource(supabase, adLeadReader, dashboardNumbers) : undefined,
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
+      tally: createSupabaseTallyStore(supabase),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
       numberQueue: Boolean(numberQueue && config.quoteSetup),
       socials: createSocials({

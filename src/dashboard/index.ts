@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { guardedBasicAuth } from "../core/security/guard.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { renderDashboard } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
-import type { StatsSource } from "./stats.js";
+import { lagosDays, type StatsSource } from "./stats.js";
+import { parseProgress, parseVisitForm, pickDay, renderTally, summariseTally, type TallyStore } from "./tally.js";
 import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
@@ -27,6 +28,8 @@ export interface DashboardDeps {
   costs?: ShopCostSource;
   /** Leads from WhatsApp ads on every number (AD_LEADS). */
   ads?: AdsSource;
+  /** The door-to-door tally sheet at /dashboard/tally. */
+  tally?: TallyStore;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
@@ -73,7 +76,7 @@ export function createDashboard(deps: DashboardDeps) {
         }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
-      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans), deps.numberQueue, ads));
+      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans), deps.numberQueue, ads, Boolean(deps.tally)));
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
@@ -114,6 +117,75 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToMoney("Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToMoney(), 303);
+  });
+
+  // The door-to-door tally sheet: add a shop, update its ticks, remove it.
+  const today = () => lagosDays(deps.now?.() ?? new Date(), 1)[0]!.date;
+  const backToTally = (day: string, problem?: string) =>
+    `/dashboard/tally?day=${day}${problem ? `&problem=${encodeURIComponent(problem)}` : ""}#day`;
+  const tallyAllowed = (c: Context) =>
+    Boolean(deps.tally) && fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"));
+
+  app.get("/tally", async (c) => {
+    if (!deps.tally) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const now = today();
+    const day = pickDay(c.req.query("day"), now);
+    const tally = await deps.tally
+      .list()
+      .then((visits) => summariseTally(visits, day))
+      .catch((err) => {
+        log.error("Tally sheet failed to load:", err);
+        return "error" as const;
+      });
+    return c.html(renderTally(tally, now, day, c.req.query("problem")?.slice(0, 200)));
+  });
+
+  app.post("/tally", async (c) => {
+    if (!tallyAllowed(c)) return c.text("Not allowed.", 403);
+    const form = await c.req.parseBody();
+    const day = pickDay(typeof form.date === "string" ? form.date : undefined, today());
+    const visit = parseVisitForm(form);
+    if ("problem" in visit) return c.redirect(backToTally(day, visit.problem), 303);
+    try {
+      await deps.tally!.add(visit);
+    } catch (err) {
+      log.error("Couldn't save a door visit:", err);
+      return c.redirect(backToTally(day, "Couldn't save that just now. Please try again."), 303);
+    }
+    return c.redirect(backToTally(day), 303);
+  });
+
+  app.post("/tally/:id", async (c) => {
+    if (!tallyAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    const form = await c.req.parseBody();
+    const day = pickDay(typeof form.day === "string" ? form.day : undefined, today());
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToTally(day), 303);
+    const progress = parseProgress(form);
+    if ("problem" in progress) return c.redirect(backToTally(day, progress.problem), 303);
+    try {
+      await deps.tally!.update(id, progress);
+    } catch (err) {
+      log.error("Couldn't update a door visit:", err);
+      return c.redirect(backToTally(day, "Couldn't save that just now. Please try again."), 303);
+    }
+    return c.redirect(backToTally(day), 303);
+  });
+
+  app.post("/tally/:id/delete", async (c) => {
+    if (!tallyAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    const form = await c.req.parseBody();
+    const day = pickDay(typeof form.day === "string" ? form.day : undefined, today());
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToTally(day), 303);
+    try {
+      await deps.tally!.remove(id);
+    } catch (err) {
+      log.error("Couldn't remove a door visit:", err);
+      return c.redirect(backToTally(day, "Couldn't remove that just now. Please try again."), 303);
+    }
+    return c.redirect(backToTally(day), 303);
   });
 
   // The plan editor: one form per plan, each saved on its own.

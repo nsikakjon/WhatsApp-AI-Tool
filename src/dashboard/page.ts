@@ -43,7 +43,7 @@ function shortDay(isoDate: string): string {
 }
 
 /** look: "glow" for the headline number, "loss" for money going the wrong way. */
-function tile(label: string, value: string, note = "", look: "" | "glow" | "loss" = ""): string {
+export function tile(label: string, value: string, note = "", look: "" | "glow" | "loss" = ""): string {
   return `<div class="tile${look ? ` ${look}` : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
     note ? `<div class="note">${esc(note)}</div>` : ""
   }</div>`;
@@ -362,6 +362,7 @@ export function renderDashboard(
   planEditor = false,
   numberQueue = false,
   ads?: AdsReport | "error",
+  tallySheet = false,
 ): string {
   const w = s.whatsapp;
   const f = s.flyers;
@@ -473,6 +474,7 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
       .filter(([, , shown]) => shown)
       .map(([id, label]) => `<a href="#${id}">${label}</a>`)
       .join("") +
+    (tallySheet ? `<a href="/dashboard/tally">Tally sheet</a>` : "") +
     (planEditor ? `<a href="/dashboard/plans">Edit plans</a>` : "") +
     (numberQueue ? `<a href="/quote-setup/numbers">Numbers to connect</a>` : "");
 
