@@ -32,18 +32,20 @@ describe("socials", () => {
   });
 
   it("reads Instagram, Facebook, YouTube and TikTok numbers", async () => {
+    const calls: string[] = [];
     const socials = createSocials({
       meta: { token: "SYS", pageId: "123", graphApiVersion: "v23.0" },
       youtube: { apiKey: "YTKEY", handle: "yarnoga" },
       tiktok: { clientKey: "ck", clientSecret: "cs", refreshToken: "rt" },
       fetch: fakeFetch([
-        ["/123?", { access_token: "PAGE", followers_count: 210, fan_count: 190, instagram_business_account: { id: "IG1" } }],
+        ["/123?fields=access_token&", { access_token: "PAGE" }],
+        ["/123?", { followers_count: 210, fan_count: 190, instagram_business_account: { id: "IG1" } }],
         ["/IG1/insights", { data: [{ name: "reach", total_value: { value: 5400 } }, { name: "accounts_engaged", total_value: { value: 320 } }] }],
         ["/IG1?", { followers_count: 860, media_count: 42 }],
         ["googleapis.com/youtube", { items: [{ statistics: { subscriberCount: "75", viewCount: "9100", videoCount: "12" } }] }],
         ["oauth/token", { access_token: "AT", refresh_token: "rt" }],
         ["user/info", { data: { user: { follower_count: 1500, following_count: 3, likes_count: 22000, video_count: 30 } }, error: { code: "ok" } }],
-      ]),
+      ], calls),
     });
     const [ig, fb, tt, yt] = await socials.load(NOW);
     expect(ig.status).toBe("live");
@@ -54,6 +56,7 @@ describe("socials", () => {
       ["Accounts engaged", 320],
     ]);
     expect(fb.stats.map((s) => s.value)).toEqual([210, 190]);
+    expect(calls.filter((u) => u.includes("followers_count")).every((u) => u.endsWith("access_token=PAGE"))).toBe(true);
     expect(tt.stats.map((s) => [s.label, s.value])).toEqual([
       ["Followers", 1500],
       ["Likes", 22000],
@@ -77,6 +80,7 @@ describe("socials", () => {
     const socials = createSocials({
       meta: { token: "SYS", pageId: "123", graphApiVersion: "v23.0" },
       fetch: fakeFetch([
+        ["/123?fields=access_token&", { access_token: "PAGE" }],
         ["/123?", { followers_count: 1, fan_count: 1, instagram_business_account: { id: "IG1" } }],
         ["/IG1/insights", { error: { message: "missing permission" } }, 403],
         ["/IG1?", { followers_count: 860, media_count: 42 }],
@@ -86,6 +90,16 @@ describe("socials", () => {
     expect(ig.status).toBe("live");
     expect(ig.stats).toHaveLength(2);
     expect(ig.problem).toContain("missing permission");
+  });
+
+  it("says to assign the Page when Meta gives no Page token", async () => {
+    const socials = createSocials({
+      meta: { token: "SYS", pageId: "123", graphApiVersion: "v23.0" },
+      fetch: fakeFetch([["/123?fields=access_token&", { id: "123" }]]),
+    });
+    const [ig, fb] = await socials.load(NOW);
+    expect([ig.status, fb.status]).toEqual(["error", "error"]);
+    expect(fb.problem).toContain("assign it the Page");
   });
 
   it("asks for the TikTok sign-in when the app keys are set but not connected", async () => {
