@@ -43,10 +43,11 @@ function shortDay(isoDate: string): string {
 }
 
 /** look: "glow" for the headline number, "loss" for money going the wrong way. */
-export function tile(label: string, value: string, note = "", look: "" | "glow" | "loss" = ""): string {
-  return `<div class="tile${look ? ` ${look}` : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
+export function tile(label: string, value: string, note = "", look: "" | "glow" | "loss" = "", href = ""): string {
+  const tag = href ? "a" : "div";
+  return `<${tag}${href ? ` href="/dashboard${href}"` : ""} class="tile${look ? ` ${look}` : ""}"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
     note ? `<div class="note">${esc(note)}</div>` : ""
-  }</div>`;
+  }</${tag}>`;
 }
 
 function sentTable(rows: NumberUse[] | null): string {
@@ -316,8 +317,7 @@ function profitSection(view: ProfitView | undefined): string {
   const options = (list: string[]) => list.map((c) => `<option value="${esc(c)}">`).join("");
   const today = lagosDays(view.now, 1)[0].date;
   const rate = (p.lastUsdRateKobo / 100).toString();
-  const form = `<form class="entry" method="post" action="/dashboard/money">
-<h3>Add an entry</h3>
+  const form = `<details class="add"${view.problem ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
 <label>Date <input type="date" name="date" value="${today}" required></label>
 <label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income">In (income)</option></select></label>
 <label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"></label>
@@ -329,7 +329,7 @@ function profitSection(view: ProfitView | undefined): string {
 <label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
 <label class="wide">Notes <input name="notes" maxlength="500"></label>
 <button type="submit">Save entry</button>
-</form>`;
+</form></details>`;
   return section(
     "money",
     title,
@@ -353,17 +353,23 @@ ${form}`,
   );
 }
 
-export function renderDashboard(
-  s: DashboardStats,
-  socialAccounts: SocialAccount[] = [],
-  website?: WebsiteStats | "error",
-  profit?: ProfitView,
-  costs?: ShopCosts | "error",
-  planEditor = false,
-  numberQueue = false,
-  ads?: AdsReport | "error",
-  tallySheet = false,
-): string {
+export type DashboardTab = "overview" | "money" | "marketing" | "products";
+export const DASHBOARD_TABS: DashboardTab[] = ["overview", "money", "marketing", "products"];
+
+export interface DashboardView {
+  tab?: DashboardTab;
+  socials?: SocialAccount[];
+  website?: WebsiteStats | "error";
+  profit?: ProfitView;
+  costs?: ShopCosts | "error";
+  ads?: AdsReport | "error";
+  planEditor?: boolean;
+  numberQueue?: boolean;
+  tallySheet?: boolean;
+}
+
+export function renderDashboard(s: DashboardStats, view: DashboardView = {}): string {
+  const { tab = "overview", socials: socialAccounts = [], website, profit, costs, ads, planEditor, numberQueue, tallySheet } = view;
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -450,33 +456,65 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     `<div class="socials">${socialAccounts.map(socialCard).join("")}</div>`,
   );
 
-  const glance = `<div class="tiles glance" aria-label="At a glance">
-${tile("People on WhatsApp", num(w.contacts), `${num(w.newContacts7)} new this week`, "glow")}
-${tile("Messages received", num(w.inbound30), "last 30 days")}
-${tile("Flyer groups", num(f.groups), `${num(f.paidGroups)} on a paid plan`)}
-${website && website !== "error" ? tile("Website visitors today", num(website.visitorsToday), `${num(website.views30)} page views in 30 days`) : tile("Sales assistant orders", num(q.paid), "paid, all time")}
-</div>`;
+  const glanceTiles = [
+    profit && profit.pnl !== "error"
+      ? tile(profit.pnl.netKobo < 0 ? "Loss so far" : "Profit so far", signedNaira(profit.pnl.netKobo), "income minus costs, all time", profit.pnl.netKobo < 0 ? "loss" : "glow", "?tab=money")
+      : "",
+    tile("People on WhatsApp", num(w.contacts), `${num(w.newContacts7)} new this week`, profit ? "" : "glow", "?tab=products#whatsapp"),
+    ads && ads !== "error"
+      ? tile("Leads from ads", num(ads.ads.reduce((sum, a) => sum + a.leads7, 0)), "this week", "", "?tab=marketing#ads")
+      : "",
+    website && website !== "error"
+      ? tile("Website visitors today", num(website.visitorsToday), `${num(website.views30)} page views in 30 days`, "", "?tab=marketing#website")
+      : "",
+    tile("Flyer groups", num(f.groups), `${num(f.paidGroups)} on a paid plan`, "", "?tab=products#flyers"),
+    tile("Messages received", num(w.inbound30), "last 30 days", "", "?tab=products#whatsapp"),
+  ].join("");
 
-  const jumps: [string, string, boolean][] = [
-    ["money", "Money", Boolean(profit)],
-    ["costs", "Shop costs", Boolean(costs)],
-    ["ads", "Ads", Boolean(ads)],
-    ["whatsapp", "WhatsApp", true],
-    ["flyers", "Flyers", true],
-    ["quotes", "Sales assistant", true],
-    ["reporter", "Site reporter", true],
-    ["leads", "Leads", true],
-    ["website", "Website", Boolean(website)],
-    ["socials", "Socials", true],
+  const checks = [
+    ...(costs && costs !== "error"
+      ? costs.shops.filter((x) => x.losing).map((x) => [`${x.name} will cost more than it pays this month`, "?tab=money#costs"])
+      : []),
+    ...[
+      [profit?.pnl === "error", "Profit and loss couldn't load", "?tab=money#money"],
+      [costs === "error", "Shop costs couldn't load", "?tab=money#costs"],
+      [ads === "error", "Leads from ads couldn't load", "?tab=marketing#ads"],
+      [website === "error", "Website visits couldn't load", "?tab=marketing#website"],
+    ]
+      .filter(([bad]) => bad)
+      .map(([, text, href]) => [text, href]),
+    ...socialAccounts.filter((a) => a.status === "error").map((a) => [`${a.name} numbers couldn't load`, "?tab=marketing#socials"]),
+  ] as [string, string][];
+  const needsLook = `<section id="checks"><h2>Needs a look</h2>${
+    checks.length
+      ? `<ul class="checks">${checks.map(([text, href]) => `<li><a href="${href}">${esc(text)}</a></li>`).join("")}</ul>`
+      : `<p class="intro all-clear">Nothing needs you right now: no shop is losing money and every section loaded.</p>`
+  }</section>`;
+
+  const tools: [string, string, string, boolean][] = [
+    ["/dashboard/tally", "Tally sheet", "Shops visited on a door-to-door day, and who to go back to.", Boolean(tallySheet)],
+    ["/dashboard/plans", "Edit plans", "Prices, limits and features of every plan.", Boolean(planEditor)],
+    ["/quote-setup/numbers", "Numbers to connect", "Shops waiting for their WhatsApp number to be set up.", Boolean(numberQueue)],
+  ];
+  const shownTools = tools.filter(([, , , shown]) => shown);
+  const toolCards = shownTools.length
+    ? `<section id="tools"><h2>Tools</h2><div class="tools">${shownTools
+        .map(([href, name, about]) => `<a class="tool" href="${href}"><b>${esc(name)}</b><span>${esc(about)}</span></a>`)
+        .join("")}</div></section>`
+    : "";
+
+  const tabs: [DashboardTab, string, string][] = [
+    ["overview", "Overview", `${needsLook}${toolCards}`],
+    ["money", "Money", `${profitSection(profit)}${costsSection(costs)}`],
+    ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${socials}`],
+    ["products", "Products", `${whatsapp}${flyers}${quotes}${reporter}${leads}`],
   ];
   const nav =
-    jumps
-      .filter(([, , shown]) => shown)
-      .map(([id, label]) => `<a href="#${id}">${label}</a>`)
+    tabs
+      .map(([id, label]) => `<a href="/dashboard${id === "overview" ? "" : `?tab=${id}`}"${id === tab ? ' aria-current="page"' : ""}>${label}</a>`)
       .join("") +
-    (tallySheet ? `<a href="/dashboard/tally">Tally sheet</a>` : "") +
-    (planEditor ? `<a href="/dashboard/plans">Edit plans</a>` : "") +
-    (numberQueue ? `<a href="/quote-setup/numbers">Numbers to connect</a>` : "");
+    (shownTools.length ? `<span class="sep" aria-hidden="true"></span>` : "") +
+    shownTools.map(([href, name]) => `<a class="tool-link" href="${href}">${esc(name)}</a>`).join("");
 
   return pageShell({
     title: "yarnOga analytics",
@@ -484,19 +522,32 @@ ${website && website !== "error" ? tile("Website visitors today", num(website.vi
     heading: "yarn<b>Oga</b> analytics",
     badge: "Live from the database",
     nav,
-    body: `${glance}
-${profitSection(profit)}
-${costsSection(costs)}
-${adsSection(ads)}
-${whatsapp}
-${flyers}
-${quotes}
-${reporter}
-${leads}
-${websiteSection(website)}
-${socials}
+    body: `${tab === "overview" ? `<div class="tiles glance" aria-label="At a glance">${glanceTiles}</div>` : ""}
+${tabs.find(([id]) => id === tab)![2]}
 <footer>Refresh the page for the latest numbers. "Last 30 days" and "this week" count back from the moment the page loaded.</footer>`,
+    css: DASHBOARD_CSS,
   });
 }
+
+const DASHBOARD_CSS = `@media (min-width:900px) { .glance { grid-template-columns:repeat(3,1fr); } }
+.jump a[aria-current] { background:var(--lime); color:var(--limeink); border-color:transparent; }
+.jump .sep { flex:none; width:1px; margin:4px 6px; background:var(--line2); }
+.jump a.tool-link { border-style:dashed; }
+a.tile { display:block; color:inherit; text-decoration:none; transition:border-color .15s, transform .15s; }
+a.tile:hover { border-color:var(--line2); transform:translateY(-1px); }
+a.tile .label:after { content:" ›"; color:var(--dim); }
+.checks { list-style:none; margin:12px 0 0; padding:0; display:grid; gap:8px; }
+.checks a { display:block; padding:14px 16px; border-radius:12px; background:var(--redsoft); border:1px solid rgba(255,138,122,.26); color:var(--text); text-decoration:none; }
+.checks a:hover { border-color:var(--red); }
+.all-clear { margin-top:8px; }
+.tools { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:12px; }
+.tool { display:flex; flex-direction:column; gap:6px; padding:18px; border-radius:14px; background:var(--glass),var(--surface); border:1px solid var(--line); color:var(--text); text-decoration:none; }
+.tool b { font:600 15px/1.3 var(--accent); color:var(--lime); }
+.tool span { color:var(--muted); font-size:13.5px; }
+.tool:hover { border-color:rgba(198,255,31,.35); }
+details.add { margin-top:16px; }
+details.add > summary { display:inline-block; padding:11px 18px; border-radius:10px; background:var(--limesoft); color:var(--lime); font:600 14px/1 var(--accent); border:1px solid rgba(198,255,31,.25); list-style:none; }
+details.add > summary::-webkit-details-marker { display:none; }
+details.add[open] > summary { margin-bottom:0; }`;
 
 export { pageShell };

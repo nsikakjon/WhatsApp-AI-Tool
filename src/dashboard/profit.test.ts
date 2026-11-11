@@ -128,7 +128,7 @@ describe("profit and loss on the dashboard", () => {
 
   it("shows profit or loss from the entries, and says income isn't recorded automatically", async () => {
     const { app } = setup([line(1, "2026-10-11", "expense", 8243290, "Setup")]);
-    const html = await (await app.request("/", { headers: auth })).text();
+    const html = await (await app.request("/?tab=money", { headers: auth })).text();
     expect(html).toContain('id="money"');
     expect(html).toContain("Loss so far");
     expect(html).toContain("−₦82,432.90");
@@ -142,7 +142,7 @@ describe("profit and loss on the dashboard", () => {
       post("/money", { date: "2026-10-16", kind: "income", item: "Standard plan", amount: "4,500", currency: "NGN", rate: "1370" }),
     );
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/dashboard#money");
+    expect(res.headers.get("location")).toBe("/dashboard?tab=money#money");
     expect(money.lines).toMatchObject([{ kind: "income", amountKobo: 450000 }]);
   });
 
@@ -178,10 +178,11 @@ describe("profit and loss on the dashboard", () => {
       money,
       log: { error: () => {} },
     });
-    const res = await app.request("/", { headers: auth });
+    const res = await app.request("/?tab=money", { headers: auth });
     expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("0024_money_lines.sql");
-    expect(html).toContain("Sales assistant");
+    expect(await res.text()).toContain("0024_money_lines.sql");
+    const overview = await (await app.request("/", { headers: auth })).text();
+    expect(overview).toContain("Profit and loss couldn&#39;t load");
+    expect(overview).toContain("People on WhatsApp");
   });
 });

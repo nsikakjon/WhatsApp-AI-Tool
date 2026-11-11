@@ -81,8 +81,8 @@ describe("cost to serve each shop", () => {
   });
 
   it("shows on the dashboard with the loss-making shops and plans flagged", () => {
-    const html = renderDashboard(sampleStats(), [], undefined, undefined, costs);
-    expect(html).toContain('href="#costs"');
+    const html = renderDashboard(sampleStats(), { tab: "money", costs });
+    expect(html).toContain('id="costs"');
     expect(html).toContain("Cost to serve each shop");
     expect(html).toContain("Loses money");
     expect(html).toMatch(/Paid plans losing money<\/div><div class="value">1</);
@@ -90,7 +90,7 @@ describe("cost to serve each shop", () => {
   });
 
   it("says what to do when the costs can't load, and stays hidden when switched off", () => {
-    expect(renderDashboard(sampleStats(), [], undefined, undefined, "error")).toContain("migration 0065");
-    expect(renderDashboard(sampleStats())).not.toContain('id="costs"');
+    expect(renderDashboard(sampleStats(), { tab: "money", costs: "error" })).toContain("migration 0065");
+    expect(renderDashboard(sampleStats(), { tab: "money" })).not.toContain('id="costs"');
   });
 });

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono, type Context } from "hono";
-import { renderDashboard } from "./page.js";
+import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
@@ -76,7 +76,20 @@ export function createDashboard(deps: DashboardDeps) {
         }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
-      return c.html(renderDashboard(stats, socials, website, money && { pnl: money, now, problem }, costs, Boolean(deps.plans), deps.numberQueue, ads, Boolean(deps.tally)));
+      const asked = c.req.query("tab") as DashboardTab | undefined;
+      return c.html(
+        renderDashboard(stats, {
+          tab: asked && DASHBOARD_TABS.includes(asked) ? asked : "overview",
+          socials,
+          website,
+          profit: money && { pnl: money, now, problem },
+          costs,
+          ads,
+          planEditor: Boolean(deps.plans),
+          numberQueue: deps.numberQueue,
+          tallySheet: Boolean(deps.tally),
+        }),
+      );
     } catch (err) {
       log.error("Dashboard failed to load:", err);
       return c.text("The dashboard couldn't read the database just now. Please refresh in a minute.", 500);
@@ -87,7 +100,7 @@ export function createDashboard(deps: DashboardDeps) {
   // password to any site that posts a form here, so only forms sent from the
   // dashboard itself are accepted.
   const backToMoney = (problem?: string) =>
-    `/dashboard${problem ? `?problem=${encodeURIComponent(problem)}` : ""}#money`;
+    `/dashboard?tab=money${problem ? `&problem=${encodeURIComponent(problem)}` : ""}#money`;
 
   app.post("/money", async (c) => {
     if (!deps.money || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {

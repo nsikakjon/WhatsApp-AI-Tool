@@ -113,7 +113,7 @@ describe("socials", () => {
       youtube: { apiKey: "k", handle: "yarnoga" },
       fetch: fakeFetch([["googleapis", { items: [{ statistics: { subscriberCount: "75", viewCount: "9100", videoCount: "12" } }] }]]),
     }).load(NOW);
-    const html = renderDashboard(sampleStats(), accounts);
+    const html = renderDashboard(sampleStats(), { tab: "marketing", socials: accounts });
     expect(html).toContain("<b>9,100</b> Total views");
     expect(html).toContain("Not connected");
   });
