@@ -20,7 +20,7 @@ import { CONNECT_NUMBER_NOTE, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, ty
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
-import { welcomeAsk } from "./welcome.js";
+import { QUOTE_CHOICE, welcomeAsk } from "./welcome.js";
 
 // Sign-up by WhatsApp on the yarnOga quotes number. That number runs the demo
 // shop; a business owner who sends "sign up" is instead walked through:
@@ -35,6 +35,11 @@ import { welcomeAsk } from "./welcome.js";
 // created, on the Free plan and switched off until its own number is
 // connected, so prices still only reach customers once the owner has
 // confirmed them.
+//
+// The next question repeats the name with a Change name button, so a wrong
+// name can be put right before the business is created. Demo shop buttons
+// tapped part way through ("Get a quote", "Talk to someone") are never taken
+// as answers: "talk to someone" goes to the yarnOga team, the rest ask again.
 //
 // Afterwards the owner can send "try" to chat with their own bot as a
 // customer (test orders are not saved) and "prices" to change the list.
@@ -267,6 +272,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         return showDemo(msg, ctx);
       }
 
+      if (TALK_TO_SOMEONE.test(plainWords(text)) && !signup.businessId) {
+        const handOff = await toTeam(msg, ctx, signup, "They asked to talk to someone while signing up");
+        if (handOff) return handOff;
+      }
+
       if (CANCEL.test(text)) {
         if (signup.businessId) {
           await opts.store.save(msg.from, { step: "done", draftCsv: null });
@@ -274,6 +284,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         }
         await opts.store.remove(msg.from);
         return { text: "Okay, I've stopped the sign-up. Send *sign up* any time to start again." };
+      }
+
+      if (!signup.businessId && signup.step !== "prices") {
+        if (CHANGE_NAME.test(plainWords(text))) {
+          await opts.store.save(msg.from, { step: "name", businessName: null });
+          return { text: "No problem. What's your business called?" };
+        }
+        if (isMenuChoice(text)) return { text: `${MENU_CHOICE}\n\n${askAgain(signup)}` };
       }
 
       switch (signup.step) {
@@ -289,17 +307,17 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             // They told us what they sell before signing up.
             await opts.store.save(msg.from, { step: "referral", businessName: name });
             started.delete(msg.from);
-            const thanks = `Thanks, *${name}* it is.`;
-            return { text: looksLikePharmacy(name, signup.description) ? `${thanks}\n\n${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : `${thanks}\n\n${ASK_REFERRAL}` };
+            const thanks = `${nameIs(name)}\n\n`;
+            return withChangeName(looksLikePharmacy(name, signup.description) ? `${thanks}${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : `${thanks}${ASK_REFERRAL}`);
           }
           await opts.store.save(msg.from, { step: "about", businessName: name });
           started.delete(msg.from);
-          return { text: `Thanks. In a few words, what does *${name}* sell? For example: _cakes and pastries_ or _printed T-shirts and mugs_.` };
+          return withChangeName(`${nameIs(name)}\n\n${askAbout(name)}`);
         }
         case "about": {
           const about = text.replace(/\s+/g, " ");
           if (!about) return { text: "In a few words, what do you sell?" };
-          if (!isTrade(about)) return { text: `In a few words, what does *${signup.businessName}* sell or do? For example: _haircuts_, _cakes and pastries_ or _printed T-shirts and mugs_.` };
+          if (!isTrade(about)) return { text: askAbout(signup.businessName) };
           if (about.length > 120) return { text: "Please keep that short, a few words is enough (120 letters at most)." };
           await opts.store.save(msg.from, { step: "referral", description: about });
           return { text: looksLikePharmacy(signup.businessName, about) ? `${PHARMACY_WARNING}\n\n${ASK_REFERRAL}` : ASK_REFERRAL };
@@ -717,6 +735,35 @@ const GO_AHEAD = /^(ok+a*y*|okay|yes|yeah|yea|yep|sure|alright|go ahead|let'?s g
 /** How long a repeated "sign up" counts as sent with the first. */
 const REPEAT_MS = 2 * 60_000;
 const GUEST_BUTTONS = [SIGN_UP_BUTTON, { id: SEE_DEMO, title: "See it as a customer" }];
+/** The demo shop's own buttons and commands, which are never a business name or an answer at sign-up. */
+const TALK_TO_SOMEONE = /^(talk|speak|chat) (to|with) (a |an |the |your )?(someone|somebody|person|human|agent|real person|team|yarnoga team|customer (care|service))$/;
+const CHANGE_NAME = /^(change|edit|fix|wrong) (the |my )?(business )?name$/;
+const MENU_CHOICE = "That's one of the Demo Shop's options. Right now we're setting up *your own* bot.";
+const CHANGE_NAME_BUTTON = { id: "change name", title: "Change name" };
+
+function isMenuChoice(text: string): boolean {
+  const plain = plainWords(text);
+  return plain === QUOTE_CHOICE || plain === "get quote" || TALK_TO_SOMEONE.test(plain) || welcomeAsk(text) !== null;
+}
+
+function nameIs(name: string): string {
+  return `Thanks. Your business name is *${name}*. If that's not right, tap *Change name*.`;
+}
+
+function askAbout(name: string | null): string {
+  return `In a few words, what does *${name ?? "your business"}* sell or do? For example: _haircuts_, _cakes and pastries_ or _printed T-shirts and mugs_.`;
+}
+
+function askAgain(signup: Signup): string {
+  if (signup.step === "about") return askAbout(signup.businessName);
+  if (signup.step === "referral") return ASK_REFERRAL;
+  return "Please type the name of your business, for example _Mama Cakes_.";
+}
+
+function withChangeName(body: string): Reply {
+  return { text: "", buttons: { body, buttons: [CHANGE_NAME_BUTTON] } };
+}
+
 const SET_UP_BUTTON = { id: "set it up for me", title: "Set it up for me" };
 const SET_UP_FOR_ME = /^(set it up for me|set (it|me) up|do it for me|help me set (it )?up)[.!]*$/i;
 /** Asking about the offer rather than the shop: "Can I get more info on this?" (WhatsApp's text for ad chats), "tell me more". */
