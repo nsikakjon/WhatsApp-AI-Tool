@@ -38,7 +38,7 @@ describe("socials", () => {
       youtube: { apiKey: "YTKEY", handle: "yarnoga" },
       tiktok: { clientKey: "ck", clientSecret: "cs", refreshToken: "rt" },
       fetch: fakeFetch([
-        ["/123?fields=access_token&", { access_token: "PAGE" }],
+        ["/me/accounts", { data: [{ id: "123", name: "useyarnoga", access_token: "PAGE" }] }],
         ["/123?", { followers_count: 210, fan_count: 190, instagram_business_account: { id: "IG1" } }],
         ["/IG1/insights", { data: [{ name: "reach", total_value: { value: 5400 } }, { name: "accounts_engaged", total_value: { value: 320 } }] }],
         ["/IG1?", { followers_count: 860, media_count: 42 }],
@@ -80,7 +80,7 @@ describe("socials", () => {
     const socials = createSocials({
       meta: { token: "SYS", pageId: "123", graphApiVersion: "v23.0" },
       fetch: fakeFetch([
-        ["/123?fields=access_token&", { access_token: "PAGE" }],
+        ["/me/accounts", { data: [{ id: "123", name: "useyarnoga", access_token: "PAGE" }] }],
         ["/123?", { followers_count: 1, fan_count: 1, instagram_business_account: { id: "IG1" } }],
         ["/IG1/insights", { error: { message: "missing permission" } }, 403],
         ["/IG1?", { followers_count: 860, media_count: 42 }],
@@ -92,14 +92,15 @@ describe("socials", () => {
     expect(ig.problem).toContain("missing permission");
   });
 
-  it("says to assign the Page when Meta gives no Page token", async () => {
+  it("names the Pages the system user can see when it doesn't manage this one", async () => {
     const socials = createSocials({
       meta: { token: "SYS", pageId: "123", graphApiVersion: "v23.0" },
-      fetch: fakeFetch([["/123?fields=access_token&", { id: "123" }]]),
+      fetch: fakeFetch([["/me/accounts", { data: [{ id: "999", name: "Kahn Prints", access_token: "OTHER" }] }]]),
     });
     const [ig, fb] = await socials.load(NOW);
     expect([ig.status, fb.status]).toEqual(["error", "error"]);
-    expect(fb.problem).toContain("assign it the Page");
+    expect(fb.problem).toContain("It can see: Kahn Prints (999)");
+    expect(fb.problem).not.toContain("OTHER");
   });
 
   it("asks for the TikTok sign-in when the app keys are set but not connected", async () => {
