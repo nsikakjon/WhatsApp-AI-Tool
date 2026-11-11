@@ -28,10 +28,12 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 | `farm-app/js/survey.js` | Land maths and exports (area, legs, setback, DXF, CSV, KML, GeoJSON, report) |
 | `farm-app/js/sync.js` | Login by invite, background sync, photo upload, sharing, admin view (phone side) |
 | `farm-app/js/satellite.js` | Satellite crop health card (phone side) |
+| `farm-app/js/assistant.js` | Ask Oko chat sheet; builds the field summary the assistant sees (money as naira text) |
 | `farm-app/js/app.js` | Screens, routing, sheets, weather (Open-Meteo), demo farms |
 | `farm-app/sw.js` | Offline support. **Bump `C="oko-vN"` whenever any file in `farm-app/` changes**, or phones keep the old version |
 | `src/farm/index.ts` | Serves the files and the API under `/farm/api/` |
 | `src/farm/store.ts` | Database layer (Supabase + in-memory for tests) |
+| `src/farm/assistant.ts` | AI farm assistant: system prompt, trimming what the phone sends, and `withoutRates` (strips any application rate from answers) |
 | `src/farm/merge.ts` | How two phones' copies of a field are combined |
 | `src/farm/satellite.ts` | Sentinel-2 NDVI from Copernicus (server side; keys never reach phones) |
 | `supabase/migrations/0076_farm.sql`, `0077_farm_satellite.sql` | Oko's tables (`farm_*`) and the private `farm-photos` bucket |
@@ -40,7 +42,7 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 ## How it works (the parts that are easy to break)
 
 - **No build step.** `farm-app/` is plain HTML/CSS/JS loaded as classic
-  scripts in this order: geo, crops, survey, sync, satellite, app. They share
+  scripts in this order: geo, crops, survey, sync, satellite, assistant, app. They share
   globals (`fields`, `P`, `settings`, `route`, `render`, `touch`…). Keep it
   framework-free unless Jay agrees to a rewrite.
 - **The phone is the working copy.** Everything is saved to IndexedDB first and
@@ -59,7 +61,8 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 - **Demo farms** (`demo: true`) never sync. The claude.ai preview has no
   server, so the app must keep working with `Sync.mode === "local"`.
 - Crop advice is a planning guide (CRIN, NIFOR, IITA). Never give chemical
-  rates; point to the label and the ADP / extension officer.
+  rates; point to the label and the ADP / extension officer. The assistant's
+  prompt says so and `withoutRates` enforces it; keep both.
 
 ## Checking work
 
@@ -74,5 +77,5 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 ## Ideas Jay has mentioned for later
 
 Public launch next year (switch Open-Meteo to a paid plan, check Esri imagery
-terms), an AI farm assistant on the existing Claude setup, WhatsApp alerts
-through the shared core, more testers in farms.
+terms), WhatsApp alerts through the shared core, more testers in farms. The
+AI farm assistant (Ask Oko) is built; it could later read scouting photos.

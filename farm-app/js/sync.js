@@ -202,7 +202,7 @@ const Sync = (()=>{
   }
 
   return {
-    init, run, schedule, chip, gateView, settingsCards, loadAdmin, helpersBlock, loadHelpers, joinSheet,
+    init, run, schedule, call, chip, gateView, settingsCards, loadAdmin, helpersBlock, loadHelpers, joinSheet,
     get me(){ return me; }, get mode(){ return mode; }, set mode(v){ mode=v; },
     async deleteField(p){ if(mode==="on" && p._synced){ setPendingDeletes([...new Set([...pendingDeletes(),p.id])]); run(); } },
     invite(kind,name){ return makeInvite(kind==="field"?{kind,fieldId:P.id}:{kind,nameHint:name},kind==="field"?"Invite a helper":"Invite a tester"); },
