@@ -217,10 +217,14 @@ function genTasks(field, from, to){
   return out.map(x=>({id:`${field.id}:${x.rule.id}@${ymd(x.date)}`, rule:`${field.id}:${x.rule.id}`, every:x.rule.kind==="every"?x.rule.days:null, fieldId:field.id, title:x.rule.t, detail:x.rule.d, date:ymd(x.date), auto:true}));
 }
 
-/* ---------- weather summary + insights ---------- */
-function wxSummary(wx){
+/* ---------- weather summary + insights ----------
+   The server runs this same file for WhatsApp alerts (src/farm/rules.ts),
+   so keep it free of the page (no document, window or app.js globals).
+   Each alert has a kind: "crop" (crop + weather + season), "weather",
+   "sat" (satellite) or "scout" (from the farmer's own scouting). */
+function wxSummary(wx, now=new Date()){
   if(!wx||!wx.daily) return null;
-  const today=ymd(new Date()), D=wx.daily, idx=D.time.indexOf(today);
+  const today=ymd(now), D=wx.daily, idx=D.time.indexOf(today);
   const t=idx<0? D.time.length-8 : idx;
   const sum=(a,b)=>D.precipitation_sum.slice(Math.max(0,a),Math.max(0,b)).reduce((s,v)=>s+(v||0),0);
   const rh=wx.rhDaily||[];
@@ -233,9 +237,9 @@ function wxSummary(wx){
 }
 
 function insights(field, wx, now=new Date()){
-  const out=[]; const c=CROPS[field.crop?.id]; const m=now.getMonth()+1; const S=wxSummary(wx);
+  const out=[]; const c=CROPS[field.crop?.id]; const m=now.getMonth()+1; const S=wxSummary(wx,now);
   const st = c ? cropStage(field.crop.id, field.crop.planted, now) : null;
-  const add=(level,title,text)=>out.push({level,title,text});
+  const add=(level,title,text,kind="crop")=>out.push({level,title,text,kind});
   if(c && S){
     if(field.crop.id==="cocoa"){
       if(S.rainDays7>=4 && (S.rhAvg7??0)>=85) add("high","Black pod risk is high",`${S.rainDays7} wet days this week and humidity around ${Math.round(S.rhAvg7)}%. Do a sanitation harvest, remove black pods and keep the 3-weekly spray round.`);
@@ -260,24 +264,24 @@ function insights(field, wx, now=new Date()){
     if(field.crop.id==="yam" && st && st.days>=270) add("info","Ready for harvest","Harvest once the vines dry and store the tubers in a ventilated barn.");
   }
   if(S){
-    if(S.next3>50) add("high","Heavy rain coming",`${Math.round(S.next3)} mm forecast in the next 3 days. Hold off on fertiliser and sprays, and check the drains.`);
-    else if(S.tomorrow>=5) add("info","Rain tomorrow",`About ${Math.round(S.tomorrow)} mm expected. Spray today, or wait for a dry window.`);
-    if((m===12||m<=2) && S.rain30<10) add("med","Harmattan fire risk","Keep fire breaks clear and talk to your neighbours about bush burning.");
+    if(S.next3>50) add("high","Heavy rain coming",`${Math.round(S.next3)} mm forecast in the next 3 days. Hold off on fertiliser and sprays, and check the drains.`,"weather");
+    else if(S.tomorrow>=5) add("info","Rain tomorrow",`About ${Math.round(S.tomorrow)} mm expected. Spray today, or wait for a dry window.`,"weather");
+    if((m===12||m<=2) && S.rain30<10) add("med","Harmattan fire risk","Keep fire breaks clear and talk to your neighbours about bush burning.","weather");
   }
   // satellite: a clear drop in greenness compared with recent clear views
   const ser=field.sat?.series;
   if(ser && ser.length>=4){
     const last=ser[ser.length-1], prev=ser.slice(-4,-1).map(x=>x.mean).sort((a,b)=>a-b)[1];
-    if(prev-last.mean>=0.1) add("med","Satellite: field looks less green",`Greenness fell from about ${prev.toFixed(2)} to ${last.mean.toFixed(2)} (${last.date}). Walk the field: it could be pests, disease, drought, pruning or harvest.`);
+    if(prev-last.mean>=0.1) add("med","Satellite: field looks less green",`Greenness fell from about ${prev.toFixed(2)} to ${last.mean.toFixed(2)} (${last.date}). Walk the field: it could be pests, disease, drought, pruning or harvest.`,"sat");
   }
   // scouting follow-ups
   const sc=(field.scouts||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
   if(field.crop?.id){
-    if(!sc.length) add("info","No scouting yet","Walk the field and log what you see. It builds a health history.");
+    if(!sc.length) add("info","No scouting yet","Walk the field and log what you see. It builds a health history.","scout");
     else {
       const days=Math.round((now-parseYmd(sc[0].date))/DAY);
-      if(days>14) add("med",`Last scouted ${days} days ago`,"A walk-through every 1–2 weeks catches pests early.");
-      if(sc[0].issues?.length) add(sc[0].health<=2?"high":"med","Follow up on last scouting",sc[0].issues.join(", ")+".");
+      if(days>14) add("med",`Last scouted ${days} days ago`,"A walk-through every 1–2 weeks catches pests early.","scout");
+      if(sc[0].issues?.length) add(sc[0].health<=2?"high":"med","Follow up on last scouting",sc[0].issues.join(", ")+".","scout");
     }
   }
   const rank={high:0,med:1,info:2,low:3};

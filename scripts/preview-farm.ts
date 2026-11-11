@@ -48,6 +48,7 @@ app.route(
     password: "preview-password",
     store: memoryFarmStore(),
     satellite: createSatellite({ clientId: "preview", clientSecret: "preview" }, fakeCopernicus),
+    whatsappAlerts: true, // shows the Settings card; nothing is sent in the preview
   }),
 );
 serve({ fetch: app.fetch, port: PORT });

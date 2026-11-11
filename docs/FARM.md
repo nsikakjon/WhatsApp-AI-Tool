@@ -68,6 +68,40 @@ every field in Nigeria about every 5 days at 10 m detail.
 The free account comes with a monthly allowance of processing units, which
 is plenty for a trial. Check usage on the Copernicus dashboard as testers join.
 
+## WhatsApp alerts
+
+A field's owner can get a WhatsApp message in the morning when the field
+needs urgent attention, so they don't have to open the app to find out.
+
+- **What's sent:** the same "What needs attention" alerts the app shows, but
+  only the urgent ones: the red alerts (black pod risk, heavy rain coming,
+  young cocoa under dry-season stress, over-mature cassava…) and the
+  satellite showing the field less green. Season reminders and scouting
+  nudges stay in the app. Never chemical rates: the alerts point to the
+  label and the extension officer, like the app.
+- **When:** the server checks every switched-on field once a day from 7am
+  (Nigeria time), with fresh weather and satellite readings. Each field gets
+  at most one message a day, and the same alert isn't sent again for a week.
+- **Who gets it:** only the field's owner (not helpers, and not you as admin
+  for other people's farms).
+- **Switching it on (each person):** Settings > **WhatsApp alerts**: type
+  your WhatsApp number (0803… is fine), tap **Save**, then switch alerts on
+  for each field. Removing the number switches them all off.
+
+**Switching it on (once, for the server):**
+1. In Supabase, run `supabase/migrations/0078_farm_whatsapp_alerts.sql`
+   (after 0076 and 0077).
+2. WhatsApp only delivers a message from the bot to someone who hasn't
+   messaged it in the last day if it's an approved **template**. The alerts
+   use your owner-alert template (`OWNER_ALERT_TEMPLATE_NAME`, one value
+   `{{1}}`) unless you set a separate one: in WhatsApp Manager, create a
+   Utility template such as "Oko farm alert: {{1}}", and once Meta approves it
+   put its name in `FARM_ALERT_TEMPLATE_NAME` on Railway.
+3. On Railway, add `FARM_WHATSAPP_ALERTS` = `on`. The alerts come from
+   yarnOga's main WhatsApp number.
+
+To switch them off for everyone, delete `FARM_WHATSAPP_ALERTS`.
+
 ## Where the data lives
 
 Each phone keeps its own working copy, so the app works with no signal on
@@ -147,5 +181,9 @@ the database.
   the same site.
 - Satellite: `src/farm/satellite.ts` calls the Copernicus Statistical and
   Process APIs (keys stay on the server); the phone side is `farm-app/js/satellite.js`.
+- WhatsApp alerts: `src/farm/alerts.ts` runs the daily check. It doesn't
+  copy the alert rules: `src/farm/rules.ts` runs `farm-app/js/crops.js`
+  itself, so keep `crops.js` free of the page (no `document`/`window`).
+  Weather is fetched the phone's way in `src/farm/weather.ts`.
 - Ideas for the public version: an AI farm assistant using the existing
-  Claude setup, and WhatsApp alerts through the shared core.
+  Claude setup.

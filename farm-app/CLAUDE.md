@@ -33,8 +33,9 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 | `src/farm/index.ts` | Serves the files and the API under `/farm/api/` |
 | `src/farm/store.ts` | Database layer (Supabase + in-memory for tests) |
 | `src/farm/merge.ts` | How two phones' copies of a field are combined |
-| `src/farm/satellite.ts` | Sentinel-2 NDVI from Copernicus (server side; keys never reach phones) |
-| `supabase/migrations/0076_farm.sql`, `0077_farm_satellite.sql` | Oko's tables (`farm_*`) and the private `farm-photos` bucket |
+| `src/farm/satellite.ts`, `sat-cache.ts` | Sentinel-2 NDVI from Copernicus (server side; keys never reach phones), and the saved results |
+| `src/farm/alerts.ts`, `rules.ts`, `weather.ts` | Daily WhatsApp alerts to field owners. `rules.ts` runs `crops.js` on the server, so the rules live in one place |
+| `supabase/migrations/0076_farm.sql`, `0077_farm_satellite.sql`, `0078_farm_whatsapp_alerts.sql` | Oko's tables (`farm_*`) and the private `farm-photos` bucket |
 | `scripts/preview-farm.ts` | Runs Oko locally with fake data: `npx tsx scripts/preview-farm.ts` |
 
 ## How it works (the parts that are easy to break)
@@ -60,6 +61,10 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
   server, so the app must keep working with `Sync.mode === "local"`.
 - Crop advice is a planning guide (CRIN, NIFOR, IITA). Never give chemical
   rates; point to the label and the ADP / extension officer.
+- **`crops.js` also runs on the server** (`src/farm/rules.ts`) for WhatsApp
+  alerts. Keep it free of the page: no `document`, `window` or app.js
+  globals. Each alert has a kind (`crop`, `weather`, `sat`, `scout`); the
+  server sends the `high` ones and `sat`, never `scout`.
 
 ## Checking work
 
@@ -74,5 +79,5 @@ planned for late next year. The user-facing guide is `docs/FARM.md`.
 ## Ideas Jay has mentioned for later
 
 Public launch next year (switch Open-Meteo to a paid plan, check Esri imagery
-terms), an AI farm assistant on the existing Claude setup, WhatsApp alerts
-through the shared core, more testers in farms.
+terms), an AI farm assistant on the existing Claude setup, more testers in
+farms. (WhatsApp alerts are done: see docs/FARM.md.)

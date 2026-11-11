@@ -13,6 +13,8 @@ export interface FarmUser {
   disabled: boolean;
   createdAt: Date;
   lastSeen: Date | null;
+  /** Their WhatsApp number (digits with the country code, e.g. 2348031234567), for alerts. */
+  phone: string | null;
 }
 
 export interface FarmInvite {
@@ -87,6 +89,17 @@ export interface FarmStore {
   /** Saves new results; `image` replaces the field's picture when given. */
   saveSatellite(fieldId: string, row: SatelliteRow, image: Uint8Array | null): Promise<void>;
   satelliteImage(fieldId: string): Promise<Uint8Array | null>;
+
+  /* WhatsApp alerts (migration 0078) */
+  setPhone(userId: string, phone: string | null): Promise<void>;
+  /** The fields a user owns, with their alerts switch. */
+  alertSwitches(ownerId: string): Promise<Array<{ id: string; name: string | null; on: boolean }>>;
+  setAlertSwitch(fieldId: string, on: boolean): Promise<void>;
+  /** Ids of every field (not deleted) with alerts switched on. */
+  alertFieldIds(): Promise<string[]>;
+  /** Alerts sent for a field since `since` (their keys). */
+  sentAlerts(fieldId: string, since: Date): Promise<string[]>;
+  recordSentAlerts(fieldId: string, keys: string[], to: string, at?: Date): Promise<void>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -101,6 +114,8 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
   const members = new Map<string, Set<string>>();
   const photos = new Map<string, { fieldId: string; data: Uint8Array; mimeType: string }>();
   const sats = new Map<string, { row: SatelliteRow; image: Uint8Array | null }>();
+  const alertsOn = new Set<string>();
+  const sent: Array<{ fieldId: string; key: string; to: string; at: Date }> = [];
   let clock = 0;
   const tick = () => new Date(Date.now() + ++clock);
 
@@ -108,7 +123,7 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
     _fields: fields,
     async user(id) { return users.get(id) ?? null; },
     async createUser(name, role) {
-      const u: FarmUser = { id: randomUUID(), name, role, disabled: false, createdAt: new Date(), lastSeen: null };
+      const u: FarmUser = { id: randomUUID(), name, role, disabled: false, createdAt: new Date(), lastSeen: null, phone: null };
       users.set(u.id, u);
       return u;
     },
@@ -168,6 +183,16 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
     async satellite(fieldId) { return sats.get(fieldId)?.row ?? null; },
     async saveSatellite(fieldId, row, image) { sats.set(fieldId, { row, image: image ?? sats.get(fieldId)?.image ?? null }); },
     async satelliteImage(fieldId) { return sats.get(fieldId)?.image ?? null; },
+    async setPhone(id, phone) { const u = users.get(id); if (u) u.phone = phone; },
+    async alertSwitches(ownerId) {
+      return [...fields.values()]
+        .filter((f) => f.ownerId === ownerId && !f.deletedAt)
+        .map((f) => ({ id: f.id, name: typeof (f.data.f as { name?: unknown })?.name === "string" ? ((f.data.f as { name: string }).name) : null, on: alertsOn.has(f.id) }));
+    },
+    async setAlertSwitch(fieldId, on) { if (on) alertsOn.add(fieldId); else alertsOn.delete(fieldId); },
+    async alertFieldIds() { return [...alertsOn].filter((id) => fields.has(id) && !fields.get(id)!.deletedAt); },
+    async sentAlerts(fieldId, since) { return sent.filter((x) => x.fieldId === fieldId && x.at >= since).map((x) => x.key); },
+    async recordSentAlerts(fieldId, keys, to, at = new Date()) { for (const key of keys) sent.push({ fieldId, key, to, at }); },
   };
   return store;
 }
@@ -178,12 +203,12 @@ export function memoryFarmStore(): FarmStore & { _fields: Map<string, FieldRow> 
 
 const BUCKET = "farm-photos";
 
-type UserRow = { id: string; name: string; role: FarmRole; disabled: boolean; created_at: string; last_seen: string | null };
+type UserRow = { id: string; name: string; role: FarmRole; disabled: boolean; created_at: string; last_seen: string | null; phone: string | null };
 type FieldDb = { id: string; owner_id: string; data: Record<string, unknown>; version: number; updated_at: string; updated_by: string | null; deleted_at: string | null };
 
-const toUser = (r: UserRow): FarmUser => ({ id: r.id, name: r.name, role: r.role, disabled: r.disabled, createdAt: new Date(r.created_at), lastSeen: r.last_seen ? new Date(r.last_seen) : null });
+const toUser = (r: UserRow): FarmUser => ({ id: r.id, name: r.name, role: r.role, disabled: r.disabled, createdAt: new Date(r.created_at), lastSeen: r.last_seen ? new Date(r.last_seen) : null, phone: r.phone ?? null });
 const toField = (r: FieldDb): FieldRow => ({ id: r.id, ownerId: r.owner_id, data: r.data, version: r.version, updatedAt: new Date(r.updated_at), updatedBy: r.updated_by, deletedAt: r.deleted_at ? new Date(r.deleted_at) : null });
-const USER_COLS = "id,name,role,disabled,created_at,last_seen";
+const USER_COLS = "id,name,role,disabled,created_at,last_seen,phone";
 const FIELD_COLS = "id,owner_id,data,version,updated_at,updated_by,deleted_at";
 
 function check<T>(res: { data: T; error: { message: string } | null }, what: string): T {
@@ -340,6 +365,28 @@ export function createSupabaseFarmStore(db: SupabaseClient): FarmStore {
       if (!r?.image_path) return null;
       const file = await db.storage.from(BUCKET).download(r.image_path);
       return file.error || !file.data ? null : new Uint8Array(await file.data.arrayBuffer());
+    },
+
+    // The alerts columns are only read here, so the rest of the app keeps
+    // working before migration 0078 is run.
+    async setPhone(id, phone) { check(await db.from("farm_users").update({ phone }).eq("id", id), "save phone"); },
+    async alertSwitches(ownerId) {
+      const r = check(await db.from("farm_fields").select("id,name:data->f->>name,whatsapp_alerts").eq("owner_id", ownerId).is("deleted_at", null).order("updated_at"), "alert switches") as unknown as
+        Array<{ id: string; name: string | null; whatsapp_alerts: boolean }>;
+      return r.map((x) => ({ id: x.id, name: x.name ?? null, on: !!x.whatsapp_alerts }));
+    },
+    async setAlertSwitch(fieldId, on) { check(await db.from("farm_fields").update({ whatsapp_alerts: on }).eq("id", fieldId), "alert switch"); },
+    async alertFieldIds() {
+      const r = check(await db.from("farm_fields").select("id").eq("whatsapp_alerts", true).is("deleted_at", null), "alert fields") as Array<{ id: string }>;
+      return r.map((x) => x.id);
+    },
+    async sentAlerts(fieldId, since) {
+      const r = check(await db.from("farm_alerts_sent").select("alert_key").eq("field_id", fieldId).gte("sent_at", since.toISOString()), "sent alerts") as Array<{ alert_key: string }>;
+      return r.map((x) => x.alert_key);
+    },
+    async recordSentAlerts(fieldId, keys, to, at = new Date()) {
+      if (!keys.length) return;
+      check(await db.from("farm_alerts_sent").insert(keys.map((alert_key) => ({ field_id: fieldId, alert_key, sent_to: to, sent_at: at.toISOString() }))), "record alerts");
     },
   };
   return store;
