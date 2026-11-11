@@ -272,7 +272,28 @@ function moneyLineRow(l: MoneyLine): string {
   const who = [l.supplier, l.category].filter(Boolean).join(" · ");
   return `<tr><td>${esc(shortDay(l.date))}</td><td>${esc(l.item)}${who ? `<span class="small">${esc(who)}</span>` : ""}${
     l.notes ? `<span class="small">${esc(l.notes)}</span>` : ""
-  }</td><td class="${l.kind}">${sign}${esc(formatNaira(l.amountKobo))}${paid}</td><td><form method="post" action="/dashboard/money/${l.id}/delete" onsubmit="return confirm('Remove this entry?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+  }</td><td class="${l.kind}">${sign}${esc(formatNaira(l.amountKobo))}${paid}</td><td class="actions"><a href="/dashboard?tab=money&amp;edit=${l.id}#edit">Edit</a><form method="post" action="/dashboard/money/${l.id}/delete" onsubmit="return confirm('Remove this entry?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+}
+
+/** Hundredths as typed in the form: 1200000 -> "12000", 2018 -> "20.18". */
+function typedAmount(minor: number): string {
+  return minor % 100 ? `${Math.floor(minor / 100)}.${String(minor % 100).padStart(2, "0")}` : String(minor / 100);
+}
+
+/** The fields shared by "Add an entry" and "Edit"; filled in from the entry when editing. */
+function entryFields(today: string, usdRateKobo: number, line?: MoneyLine): string {
+  const value = (text: string | null | undefined) => (text ? ` value="${esc(text)}"` : "");
+  const chosen = (yes: boolean) => (yes ? " selected" : "");
+  const rate = typedAmount(line?.usdRateKobo ?? usdRateKobo);
+  return `<label>Date <input type="date" name="date" value="${line?.date ?? today}" required></label>
+<label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income"${chosen(line?.kind === "income")}>In (income)</option></select></label>
+<label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"${value(line?.item)}></label>
+<label>Paid to / from <input name="supplier" maxlength="200" placeholder="e.g. Railway"${value(line?.supplier)}></label>
+<label>Category <input name="category" list="money-categories" maxlength="60" placeholder="e.g. Marketing"${value(line?.category)}></label>
+<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18"${value(line && typedAmount(line.amountMinor))}></label>
+<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD"${chosen(line?.currency === "USD")}>Dollars ($)</option></select></label>
+<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
+<label class="wide">Notes <input name="notes" maxlength="500"${value(line?.notes)}></label>`;
 }
 
 export interface ProfitView {
@@ -280,6 +301,8 @@ export interface ProfitView {
   now: Date;
   /** Shown after a form that couldn't be saved. */
   problem?: string;
+  /** The entry whose edit form is open. */
+  editId?: number;
 }
 
 const EXPENSE_CATEGORIES = ["Setup", "Recurring", "One-off", "Marketing"];
@@ -316,18 +339,16 @@ function profitSection(view: ProfitView | undefined): string {
       : `<tr><td colspan="2">${esc(empty)}</td></tr>`;
   const options = (list: string[]) => list.map((c) => `<option value="${esc(c)}">`).join("");
   const today = lagosDays(view.now, 1)[0].date;
-  const rate = (p.lastUsdRateKobo / 100).toString();
-  const form = `<details class="add"${view.problem ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
-<label>Date <input type="date" name="date" value="${today}" required></label>
-<label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income">In (income)</option></select></label>
-<label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"></label>
-<label>Paid to / from <input name="supplier" maxlength="200" placeholder="e.g. Railway"></label>
-<label>Category <input name="category" list="money-categories" maxlength="60" placeholder="e.g. Recurring"></label>
-<datalist id="money-categories">${options([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])}</datalist>
-<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18"></label>
-<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD">Dollars ($)</option></select></label>
-<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
-<label class="wide">Notes <input name="notes" maxlength="500"></label>
+  const categories = `<datalist id="money-categories">${options([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])}</datalist>`;
+  const editing = p.lines.find((l) => l.id === view.editId);
+  const edit = editing
+    ? `<form id="edit" class="entry" method="post" action="/dashboard/money/${editing.id}"><h3>Edit: ${esc(editing.item)}</h3>
+${entryFields(today, p.lastUsdRateKobo, editing)}
+<div class="buttons"><button type="submit">Save changes</button><a href="/dashboard?tab=money#money">Cancel</a></div>
+</form>`
+    : "";
+  const form = `<details class="add"${view.problem && !editing ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
+${entryFields(today, p.lastUsdRateKobo)}
 <button type="submit">Save entry</button>
 </form></details>`;
   return section(
@@ -345,7 +366,8 @@ ${p.months[0] ? tile(`${monthName(p.months[0].month)} result`, signedNaira(p.mon
 <table class="plans"><thead><tr><th>Costs by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.expensesByCategory, "No costs yet")}</tbody></table>
 <table class="plans"><thead><tr><th>Income by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.incomeByCategory, "No income entered yet")}</tbody></table>
 </div>
-<details class="lines"${p.lines.length <= 10 ? " open" : ""}><summary>All entries (${num(p.lines.length)})</summary>
+${categories}${edit}
+<details class="lines"${p.lines.length <= 10 || editing ? " open" : ""}><summary>All entries (${num(p.lines.length)})</summary>
 <table class="plans wide"><thead><tr><th>Date</th><th>What</th><th>Amount</th><th></th></tr></thead><tbody>${
       p.lines.map(moneyLineRow).join("") || `<tr><td colspan="4">No entries yet</td></tr>`
     }</tbody></table></details>
@@ -548,6 +570,9 @@ a.tile .label:after { content:" ›"; color:var(--dim); }
 details.add { margin-top:16px; }
 details.add > summary { display:inline-block; padding:11px 18px; border-radius:10px; background:var(--limesoft); color:var(--lime); font:600 14px/1 var(--accent); border:1px solid rgba(198,255,31,.25); list-style:none; }
 details.add > summary::-webkit-details-marker { display:none; }
-details.add[open] > summary { margin-bottom:0; }`;
+details.add[open] > summary { margin-bottom:0; }
+td.actions { white-space:nowrap; }
+td.actions a { margin-right:12px; font-size:13px; }
+.entry .buttons { grid-column:1 / -1; display:flex; align-items:center; gap:18px; }`;
 
 export { pageShell };
