@@ -4,6 +4,7 @@ import { AD_REPORT_DAYS } from "../core/ads.js";
 import type { AdsReport } from "./ads.js";
 import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
+import { compareWithPlan, MARKETING_CATEGORY, PLAN_START, type Figures, type PlanComparison, type PlanMonth } from "./projection.js";
 import type { SocialAccount } from "./socials.js";
 import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
 import type { WebsiteStats } from "./visits.js";
@@ -375,6 +376,58 @@ ${form}`,
   );
 }
 
+function planComparison(view: ProfitView | undefined): PlanComparison | null {
+  if (!view || view.pnl === "error") return null;
+  return compareWithPlan(view.pnl.lines, lagosDays(view.now, 1)[0].date.slice(0, 7));
+}
+
+const costsOf = (f: Figures) => f.adsKobo + f.runningKobo;
+
+/** What happened, with what the plan expected underneath. */
+function againstPlan(actualKobo: number, plannedKobo: number, signed = false, moreIsBad = true): string {
+  const show = signed ? signedNaira : formatNaira;
+  const off = moreIsBad ? actualKobo > plannedKobo : actualKobo < plannedKobo;
+  return `<td${off ? ' class="expense"' : ""}>${esc(show(actualKobo))}<span class="small">plan ${esc(show(plannedKobo))}</span></td>`;
+}
+
+function planRow(m: PlanMonth): string {
+  const a = m.actual;
+  if (!a) {
+    return `<tr><td>${esc(monthName(m.month))}</td><td>${esc(formatNaira(m.planned.adsKobo))}</td><td>${esc(formatNaira(m.planned.runningKobo))}</td><td>${esc(formatNaira(m.planned.incomeKobo))}</td><td>${esc(signedNaira(m.planned.netKobo))}</td></tr>`;
+  }
+  return `<tr><td>${esc(monthName(m.month))}</td>${againstPlan(a.adsKobo, m.planned.adsKobo)}${againstPlan(a.runningKobo, m.planned.runningKobo)}${againstPlan(a.incomeKobo, m.planned.incomeKobo, false, false)}${againstPlan(a.netKobo, m.planned.netKobo, true, false)}</tr>`;
+}
+
+function planSection(plan: PlanComparison | null): string {
+  if (!plan) return "";
+  const intro = `Money in and out each month next to the Base case of the 28 Oct projection (accounts/yarnoga-projection-2026-10-28.xlsx), which starts in ${monthName(PLAN_START)}. Costs with the category ${MARKETING_CATEGORY} count as ads; every other cost counts as running costs (tools, servers, AI, Meta fees and so on). It updates as soon as an entry is added or edited above.`;
+  if (!plan.months.length) {
+    return section("plan", "Against the plan", intro, `<p class="intro">The plan starts in ${esc(monthName(PLAN_START))}.</p>`);
+  }
+  const c = plan.current;
+  const head = `<thead><tr><th>Month</th><th>Ads</th><th>Running costs</th><th>Income</th><th>Profit / loss</th></tr></thead>`;
+  const tiles = c
+    ? `${tile("Spent this month", formatNaira(costsOf(c.actual!)), `of ${formatNaira(costsOf(c.planned))} planned for ${monthName(c.month)}`, costsOf(c.actual!) > costsOf(c.planned) ? "loss" : "")}
+${tile("Ads this month", formatNaira(c.actual!.adsKobo), `of ${formatNaira(c.planned.adsKobo)} planned`, c.actual!.adsKobo > c.planned.adsKobo ? "loss" : "")}
+${tile("Income this month", formatNaira(c.actual!.incomeKobo), `of ${formatNaira(c.planned.incomeKobo)} planned`)}`
+    : "";
+  return section(
+    "plan",
+    "Against the plan",
+    intro,
+    `<div class="tiles">
+${tiles}
+${tile(`Since ${monthName(PLAN_START)}`, signedNaira(plan.actual.netKobo), `the plan expected ${signedNaira(plan.planned.netKobo)} by the end of this month`, plan.actual.netKobo < plan.planned.netKobo ? "loss" : "")}
+</div>
+<div class="scroll"><table class="plans wide">${head}<tbody>${plan.months.map(planRow).join("")}</tbody></table></div>
+${
+  plan.ahead.length
+    ? `<details class="lines"><summary>The rest of the plan, to ${esc(monthName(plan.ahead[plan.ahead.length - 1]!.month))}</summary><div class="scroll"><table class="plans wide">${head}<tbody>${plan.ahead.map(planRow).join("")}</tbody></table></div></details>`
+    : ""
+}`,
+  );
+}
+
 export type DashboardTab = "overview" | "money" | "marketing" | "products";
 export const DASHBOARD_TABS: DashboardTab[] = ["overview", "money", "marketing", "products"];
 
@@ -493,7 +546,10 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     tile("Messages received", num(w.inbound30), "last 30 days", "", "?tab=products#whatsapp"),
   ].join("");
 
+  const plan = planComparison(profit);
+  const overPlan = plan?.current && costsOf(plan.current.actual!) > costsOf(plan.current.planned);
   const checks = [
+    ...(overPlan ? [["Spending this month is over the plan", "?tab=money#plan"]] : []),
     ...(costs && costs !== "error"
       ? costs.shops.filter((x) => x.losing).map((x) => [`${x.name} will cost more than it pays this month`, "?tab=money#costs"])
       : []),
@@ -527,7 +583,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
 
   const tabs: [DashboardTab, string, string][] = [
     ["overview", "Overview", `${needsLook}${toolCards}`],
-    ["money", "Money", `${profitSection(profit)}${costsSection(costs)}`],
+    ["money", "Money", `${profitSection(profit)}${planSection(plan)}${costsSection(costs)}`],
     ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${socials}`],
     ["products", "Products", `${whatsapp}${flyers}${quotes}${reporter}${leads}`],
   ];
@@ -573,6 +629,7 @@ details.add > summary::-webkit-details-marker { display:none; }
 details.add[open] > summary { margin-bottom:0; }
 td.actions { white-space:nowrap; }
 td.actions a { margin-right:12px; font-size:13px; }
+td.actions form { display:inline; }
 .entry .buttons { grid-column:1 / -1; display:flex; align-items:center; gap:18px; }`;
 
 export { pageShell };

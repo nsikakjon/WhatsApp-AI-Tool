@@ -27,7 +27,7 @@ sheet, plan editor, numbers to connect) next to them:
 
 - **Overview**: the headline numbers (tap one to open its tab), a **Needs a
   look** list (shops losing money, sections that couldn't load) and the tools.
-- **Money**: profit and loss, and the cost to serve each shop.
+- **Money**: profit and loss, spending against the plan, and the cost to serve each shop.
 - **Marketing**: leads from ads, website visitors and socials.
 - **Products**: WhatsApp, flyers, sales assistant, site reporter and leads.
 
@@ -35,6 +35,7 @@ sheet, plan editor, numbers to connect) next to them:
 | Section | Numbers |
 | --- | --- |
 | Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |
+| Against the plan | each month's ads, running costs, income and profit or loss next to the Base case of the 28 Oct projection |
 | WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart, and messages each number sent this month with how many are past Meta's free 1,000 (needs migration 0043) |
 | yarnOga Flyers | groups, members, birthday flyers sent, groups per plan, what paid plans are worth per month at list price |
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
@@ -47,8 +48,8 @@ sheet, plan editor, numbers to connect) next to them:
 not money received: flyer payments aren't recorded in the database yet.
 
 Nothing on the page is estimated, except the shop costs below. Every other number is a count or sum of real rows.
-The dashboard only reads, except for the profit and loss entries you add or
-remove yourself.
+The dashboard only reads, except for the profit and loss entries you add,
+edit or remove yourself.
 
 ## Profit and loss
 
@@ -68,7 +69,19 @@ and press **Save entry**. For a dollar cost, choose Dollars and type the naira
 rate you paid at; the dashboard keeps both the dollar amount and its naira
 value. Monthly bills (Railway, hosting, Claude Pro) aren't added by themselves:
 add each one when it is paid, so the page never shows a cost that didn't
-happen. A wrong entry can be taken out with **Remove**.
+happen. To fix an entry (say, an ad payment saved as One-off instead of
+Marketing), press **Edit** next to it, change what's wrong and press **Save
+changes**. **Remove** takes an entry out altogether.
+
+## Against the plan
+
+Under profit and loss, each month from November 2026 shows what was actually
+spent and received next to the Base case of the projection spreadsheet
+(`accounts/yarnoga-projection-2026-10-28.xlsx`). Costs with the category
+**Marketing** count as ads; every other cost counts as running costs. A month
+that spends more than the plan shows on the Overview under "Needs a look".
+The planned figures live in `src/dashboard/projection.ts`: when the
+spreadsheet is rebuilt, those rows are replaced to match.
 
 ## Cost to serve each shop
 
