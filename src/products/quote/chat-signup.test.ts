@@ -298,7 +298,11 @@ describe("chat sign-up on the quotes number", () => {
       expect(ids(pitch)).toEqual(["sign up", "see it as a customer"]);
 
       await say("sign up");
-      expect((await say("Mama Cakes")).text).toBe("Thanks, *Mama Cakes* it is.\n\nDo you have a referral code? Send it now, or send *no* to carry on.");
+      const named = await say("Mama Cakes");
+      expect(named.buttons?.body).toBe(
+        "Thanks. Your business name is *Mama Cakes*. If that's not right, tap *Change name*.\n\nDo you have a referral code? Send it now, or send *no* to carry on.",
+      );
+      expect(ids(named)).toEqual(["change name"]);
       expect(mem.rows.get(OWNER)).toMatchObject({ step: "referral", businessName: "Mama Cakes", description: "cakes and small chops" });
     });
 
@@ -382,7 +386,7 @@ describe("chat sign-up on the quotes number", () => {
       expect(mem.rows.has(OWNER)).toBe(false);
 
       await say("sign up");
-      expect((await say("Shoe Palace")).text).toMatch(/^Thanks, \*Shoe Palace\* it is\./);
+      expect((await say("Shoe Palace")).buttons?.body).toMatch(/^Thanks\. Your business name is \*Shoe Palace\*\./);
       expect(mem.rows.get(OWNER)?.description).toBe("shoes");
     });
 
@@ -401,7 +405,7 @@ describe("chat sign-up on the quotes number", () => {
   it("walks an owner from sign up to a saved business on the Free plan", async () => {
     const { say, mem, setup, ai } = setUp();
     expect((await say("sign up")).text).toMatch(/what's your business called/i);
-    expect((await say("Mama  Cakes")).text).toMatch(/what does \*Mama Cakes\* sell/);
+    expect((await say("Mama  Cakes")).buttons?.body).toMatch(/what does \*Mama Cakes\* sell/);
     expect((await say("cakes and pastries")).text).toBe("Do you have a referral code? Send it now, or send *no* to carry on.");
     expect((await say("No")).text).toMatch(/Now your prices/);
 
@@ -419,6 +423,34 @@ describe("chat sign-up on the quotes number", () => {
     expect(mem.created).toEqual([{ name: "Mama Cakes", description: "cakes and pastries", orderPrefix: "MC", ownerWaId: OWNER, referralCode: null }]);
     expect(setup.lists.get("biz-1")).toHaveLength(3);
     expect(mem.rows.get(OWNER)).toMatchObject({ step: "done", businessId: "biz-1", draftCsv: null });
+  });
+
+  it("never takes the demo shop's buttons as answers, and lets the owner change the name", async () => {
+    const { say, mem } = setUp(CUPCAKES, { alertWaId: undefined });
+    await say("sign up");
+    expect((await say("Get a quote")).text).toMatch(/^That's one of the Demo Shop's options.*type the name of your business/s);
+    expect((await say("talk to someone")).text).toMatch(/type the name of your business/);
+    expect(mem.rows.get(OWNER)?.businessName).toBeNull();
+
+    await say("Jafar Prints");
+    expect((await say("get a quote")).text).toMatch(/what does \*Jafar Prints\* sell/);
+    expect(mem.rows.get(OWNER)).toMatchObject({ step: "about", description: null });
+
+    expect((await say("change name")).text).toBe("No problem. What's your business called?");
+    expect((await say("Jafar Printing Press")).buttons?.body).toMatch(/Your business name is \*Jafar Printing Press\*/);
+    await say("printed T-shirts and mugs");
+    expect((await say("Change name")).text).toMatch(/What's your business called/);
+    expect((await say("Jafar Print Hub")).buttons?.body).toMatch(/^Thanks\. Your business name is \*Jafar Print Hub\*\..*referral code/s);
+    expect(mem.rows.get(OWNER)).toMatchObject({ step: "referral", businessName: "Jafar Print Hub", description: "printed T-shirts and mugs" });
+  });
+
+  it("hands \"talk to someone\" part way through sign-up to the yarnOga team", async () => {
+    const { say, mem } = setUp();
+    await say("sign up");
+    const reply = await say("talk to someone");
+    expect(reply.text).toMatch(/someone from the yarnOga team/);
+    expect(reply.notify?.[0]?.text).toContain("talk to someone while signing up");
+    expect(mem.rows.get(OWNER)).toMatchObject({ step: "name", businessName: null });
   });
 
   it("asks for a new SIM's number after sign-up and puts it on the queue", async () => {
