@@ -91,21 +91,22 @@ export function createSocials(opts: SocialsOptions): SocialsSource {
     ];
 
     // Meta only lets the Page's own token read its followers and likes, so
-    // first swap the system user token for the Page's token.
+    // first look up the Page's token among the Pages the system user manages.
     let pageToken: string;
     try {
-      const access = await getJson(
-        `${graph}/${encodeURIComponent(meta.pageId)}?fields=access_token&access_token=${encodeURIComponent(meta.token)}`,
-      );
-      if (!access.access_token) {
+      const pages = await getJson(`${graph}/me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(meta.token)}`);
+      const list: { id: string; name?: string; access_token?: string }[] = pages.data ?? [];
+      const match = list.find((p) => p.id === meta.pageId);
+      if (!match?.access_token) {
+        const seen = list.map((p) => `${p.name ?? "?"} (${p.id})`).join(", ");
         return failed(
-          "The system user can't act for this Page yet: in Business settings > System users, assign it the Page (full control), then generate a new token.",
+          `The system user doesn't manage Page ${meta.pageId}. ${seen ? `It can see: ${seen}.` : "It can't see any Page."} In Business settings > System users > Assign assets, give it the Page with full control (or fix FACEBOOK_PAGE_ID).`,
         );
       }
-      pageToken = access.access_token;
+      pageToken = match.access_token;
       secrets.push(pageToken);
     } catch (err) {
-      return failed(`Meta said: ${reason(err)}`);
+      return failed(`Couldn't list the system user's Pages (the token needs pages_show_list). Meta said: ${reason(err)}`);
     }
 
     let page: any;
