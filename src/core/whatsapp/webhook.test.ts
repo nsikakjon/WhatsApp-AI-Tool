@@ -115,7 +115,7 @@ function setup(
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
     async sendCarousel(to, carousel) {
-      if (carousel.body === "FAIL") throw new Error("WhatsApp send failed (400): carousel not allowed");
+      if (carousel.body.startsWith("FAIL")) throw new Error("WhatsApp send failed (400): carousel not allowed");
       sent.push({ to, body: `[carousel] ${carousel.body} | ${carousel.cards.map((c) => c.button.id).join(", ")}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
@@ -568,10 +568,10 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(ok.sent.map((s) => s.body)).toEqual(["[carousel] Here's what we sell | I'd like Mugs, I'd like Cupcakes"]);
     expect(ok.outbound).toEqual(["Here's what we sell"]);
 
-    const refused = setup(showing("FAIL"));
+    const refused = setup(showing("FAIL Here's what we sell"));
     body = textWebhook("wamid.swipe2", "catalogue");
     await post(refused.app, body, sign(body));
-    expect(refused.sent.map((s) => s.body)).toEqual(["[buttons] Mugs | I'd like Mugs", "[buttons] Cupcakes | I'd like Cupcakes"]);
+    expect(refused.sent.map((s) => s.body)).toEqual(["FAIL Here's what we sell", "[buttons] Mugs | I'd like Mugs", "[buttons] Cupcakes | I'd like Cupcakes"]);
   });
 
   it("asks for the customer's number before asking where to deliver", async () => {

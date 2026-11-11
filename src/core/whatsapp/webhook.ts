@@ -412,9 +412,13 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   };
-  if (!(reply.carousel && (await sendCarousel(deps, to, contactId, reply.carousel, fromNumber, log)))) {
-    for (const card of reply.cards ?? []) await sendButtons(card);
+  const swiped = !!reply.carousel && (await sendCarousel(deps, to, contactId, reply.carousel, fromNumber, log));
+  if (reply.carousel && !swiped && !reply.text) {
+    // The swipe message carried the words above the cards; they go first on their own instead.
+    const sent = await deps.whatsapp.sendText(to, reply.carousel.body, fromNumber);
+    await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "text", body: reply.carousel.body, raw: sent.raw, businessNumberId: fromNumber });
   }
+  if (!swiped) for (const card of reply.cards ?? []) await sendButtons(card);
   if (reply.list) {
     const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);
     await deps.store.recordOutbound(contactId, {
