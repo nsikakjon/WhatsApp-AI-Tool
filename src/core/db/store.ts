@@ -15,6 +15,10 @@ export interface MessageStore {
    * Lets a customer who later hides their number keep the same chat, orders and history.
    */
   waIdForUser(userId: string): Promise<string | null>;
+  /** The number a customer with a hidden number shared with us (digits only), or null. Optional so test stores can leave it out. */
+  sharedPhone?(contactId: string): Promise<string | null>;
+  /** Saves the number a customer with a hidden number shared with us (migration 0080). */
+  saveSharedPhone?(contactId: string, phone: string): Promise<void>;
   /**
    * Saves an incoming message. Returns "duplicate" if we've already saved a
    * message with this WhatsApp ID, which means Meta re-sent the webhook and we
@@ -116,6 +120,18 @@ export function createSupabaseStore(db: SupabaseClient): MessageStore {
       const { data, error } = await db.from("contacts").select("wa_id").eq("user_id", userId).maybeSingle();
       if (error) return null;
       return (data?.wa_id as string | undefined) ?? null;
+    },
+
+    async sharedPhone(contactId) {
+      const { data, error } = await db.from("contacts").select("phone").eq("id", contactId).maybeSingle();
+      // Before migration 0080 there's no phone column: treat it as not shared yet.
+      if (error) return null;
+      return (data?.phone as string | null | undefined) ?? null;
+    },
+
+    async saveSharedPhone(contactId, phone) {
+      const { error } = await db.from("contacts").update({ phone, updated_at: new Date().toISOString() }).eq("id", contactId);
+      if (error) throw new Error(`saveSharedPhone failed: ${error.message}`);
     },
 
     async recordInbound(contactId, msg) {

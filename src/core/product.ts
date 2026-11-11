@@ -1,4 +1,4 @@
-import type { OutgoingAudio, OutgoingButtons, OutgoingImage, OutgoingLink, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
+import type { OutgoingAudio, OutgoingButtons, OutgoingCarousel, OutgoingImage, OutgoingLink, OutgoingList, OutgoingTemplate } from "./whatsapp/client.js";
 import type { IncomingMessage } from "./whatsapp/types.js";
 
 // The contract every product module (echo, quote bot, site reporter, lead
@@ -14,10 +14,17 @@ export interface Reply {
   audio?: OutgoingAudio;
   /** Cards (a picture, text and buttons each), e.g. products from a catalogue, sent after the pictures. */
   cards?: OutgoingButtons[];
+  /**
+   * The same cards as one message the customer swipes through, sent instead
+   * of `cards`. If WhatsApp turns it down, `cards` go out as before.
+   */
+  carousel?: OutgoingCarousel;
   /** A tappable list of choices, sent after the cards. */
   list?: OutgoingList;
   /** A message with up to 3 buttons, sent after the pictures. */
   buttons?: OutgoingButtons;
+  /** A message with a "Share your number" button, for a customer whose number is hidden. This is its text. */
+  contactRequest?: string;
   /** A message with a "Send location" button, sent last. This is its text. */
   locationRequest?: string;
   /**
@@ -69,6 +76,11 @@ export interface ProductContext {
    * answering (e.g. importing a whole spreadsheet). Errors are logged, not thrown.
    */
   sendLater(reply: Reply): Promise<void>;
+  /**
+   * The phone number (digits only) a customer with a hidden number shared
+   * with us, if they have. Unset for everyone whose WhatsApp ID is their number.
+   */
+  sharedPhone?: string;
   /** True if this person messaged us in the last day, so WhatsApp will deliver an ordinary message to them. */
   canMessageFreely(waId: string): Promise<boolean>;
 }
