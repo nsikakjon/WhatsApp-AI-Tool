@@ -35,15 +35,17 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
           contactName: names.get(from) ?? undefined,
           type: msg.type,
           // A tap on a list or button we sent comes back as the choice's id,
-          // which products treat like typed text. A tap on a template's quick
-          // reply button (e.g. "Stop promotions") comes back as its label.
+          // which products treat like typed text. A tap on a quick reply button
+          // comes back as type "button": its payload is our id on a swipe card
+          // ("I'd like Mugs", where the label is just "Order this"), and the
+          // label itself on a template button we gave no payload (e.g. "Stop promotions").
           text:
             msg.type === "text"
               ? msg.text?.body
               : msg.type === "interactive"
                 ? choiceId(msg.interactive)
                 : msg.type === "button"
-                  ? msg.button?.text || msg.button?.payload || undefined
+                  ? msg.button?.payload || msg.button?.text || undefined
                   : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
