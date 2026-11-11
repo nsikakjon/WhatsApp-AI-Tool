@@ -361,6 +361,22 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
     expect(seen).toMatchObject({ type: "button", text: "Stop promotions" });
   });
 
+  it("hands a tapped swipe card button to the product as its id, not its label", async () => {
+    let seen: IncomingMessage | undefined;
+    const spy: Product = { name: "spy", handle: async (msg) => ((seen = msg), null) };
+    const { app } = setup(spy);
+    const body = JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: "PNID" },
+        messages: [{ from: "2348012345678", id: "wamid.card-tap", timestamp: "1", type: "button",
+          button: { text: "Order this", payload: "I'd like Branded mugs" } }],
+      } }] }],
+    });
+    await post(app, body, sign(body));
+    expect(seen).toMatchObject({ type: "button", text: "I'd like Branded mugs" });
+  });
+
   it("saves the ad behind a chat started from a Click-to-WhatsApp ad, and still replies", async () => {
     const leads: Array<{ contactId: string; numberId?: string; adId: string }> = [];
     const adLeads: AdLeadStore = {

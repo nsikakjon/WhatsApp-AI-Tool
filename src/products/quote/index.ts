@@ -327,7 +327,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         case "catalogue": {
           const message = simple ? understanding.message : safeMessage(understanding.message);
           // A tap on a card's Order button names the product without a number: ask how many, don't show the card again.
-          const cards = opts.catalogue && !(message && isOrderTap(msg.text, variants)) ? await opts.catalogue.cards(variants, 1, understanding.show, lang) : null;
+          const cards = opts.catalogue && !isOrderTap(msg.text, variants) ? await opts.catalogue.cards(variants, 1, understanding.show, lang) : null;
           // Cards for the products they named come with the AI's question, e.g. "How many flyers do you need?".
           if (cards && message && understanding.show?.length) {
             if (cards.carousel) cards.carousel.body = message;
@@ -1046,6 +1046,8 @@ function namesAnItem(text: string, variants: Array<{ name: string }>): boolean {
 
 /** "I'd like T-shirts": what a card's Order button sends, naming one product on the price list. */
 function isOrderTap(text: string, variants: Variant[]): boolean {
+  // Just the button's label, if WhatsApp ever sends that instead: still never send the cards again.
+  if (/^(order this|commander)$/i.test(text.trim())) return true;
   const named = text.trim().match(/^(?:I'd like|Je voudrais) (.+)$/i)?.[1]?.toLowerCase();
   return !!named && variants.some((v) => v.name.split(":")[0]!.trim().toLowerCase() === named);
 }
