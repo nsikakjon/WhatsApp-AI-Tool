@@ -84,8 +84,8 @@ function bot(opts: { onPlan?: boolean; quantity?: number } = {}) {
       understand: async ({ text }) =>
         /^yes$/i.test(text)
           ? { intent: "confirm", items: [], message: null }
-          : /catalogue$|mugs\?/i.test(text)
-          ? { intent: "catalogue", items: [], show: /mugs/i.test(text) ? ["v-mug"] : [], message: "We sell T-shirts and mugs." }
+          : /catalogue$|mugs\?|^i want mugs|^i'd like mugs/i.test(text)
+          ? { intent: "catalogue", items: [], show: /mugs/i.test(text) ? ["v-mug"] : [], message: /mugs/i.test(text) ? "How many mugs would you like?" : "We sell T-shirts and mugs." }
           : {
               intent: "quote",
               items: [
@@ -170,6 +170,17 @@ describe("product cards", () => {
     expect(reply?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Mugs*"]);
   });
 
+  it("shows the card of a product the customer names without a number, and asks how many", async () => {
+    const { product } = bot();
+    const reply = await product.handle(msg(CUSTOMER, "I want mugs"), ctx);
+    expect(reply?.text).toBe("How many mugs would you like?");
+    expect(reply?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Mugs*"]);
+
+    // A tap on that card's Order button gets the question, not the same card again.
+    const tapped = await product.handle(msg(CUSTOMER, "I'd like Mugs"), ctx);
+    expect(tapped).toEqual({ text: "How many mugs would you like?" });
+  });
+
   it("sends cards without photos on a plan without them", async () => {
     const { product } = bot({ onPlan: false });
     const reply = await product.handle(msg(CUSTOMER, "catalogue"), ctx);
@@ -202,6 +213,59 @@ describe("product cards", () => {
     expect(second?.text).toBe("");
     expect(second?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Item 5*", "*Item 6*"]);
     expect(second?.buttons).toBeUndefined();
+  });
+
+  it("sends swipe cards, ten at a time, when switched on and every product has a photo", async () => {
+    const many: CatalogueItem[] = Array.from({ length: 12 }, (_, i) => ({
+      variantId: `v${i}`,
+      name: `Item ${String(i).padStart(2, "0")}: Standard`,
+      productId: `p${i}`,
+      productName: `Item ${String(i).padStart(2, "0")}`,
+      productDescription: i === 0 ? "Printed both sides.\nShips in 2 days." : null,
+      stock: null,
+      photoPath: `p/p${i}`,
+    }));
+    const mem = memory(many);
+    for (const item of many) mem.photos.set(item.photoPath!, new Uint8Array([9]));
+    const variants = [
+      { id: "v0", name: "Item 00: Standard", minQuantity: 10, tiers: [{ minQuantity: 10, unitPriceKobo: 500_000 }, { minQuantity: 50, unitPriceKobo: 420_000 }] },
+      { id: "v1", name: "Item 01: Standard", minQuantity: 1, tiers: [] },
+    ];
+    const catalogue = createCatalogue({ store: mem.store, carousel: true });
+
+    const first = await catalogue.cards(variants, 1);
+    expect(first?.text).toBe("");
+    expect(first?.carousel?.body).toContain("Tap *Order this*");
+    expect(first?.carousel?.cards).toHaveLength(10);
+    expect(first?.carousel?.cards[0]).toEqual({
+      image: { data: new Uint8Array([9]), mimeType: "image/jpeg" },
+      body: "*Item 00*\nFrom ₦4,200 each\nPrinted both sides.",
+      button: { id: "I'd like Item 00", title: "Order this" },
+    });
+    expect(first?.carousel?.cards[1]?.body).toBe("*Item 01*\nPrice on request");
+    // The one-by-one cards stay in the reply, in case WhatsApp turns the swipe message down.
+    expect(first?.cards).toHaveLength(10);
+    expect(first?.buttons?.body).toBe("That's 10 of 12 products.");
+
+    const second = await catalogue.cards(variants, 2);
+    expect(second?.carousel?.body).toBe("More from our price list.");
+    expect(second?.carousel?.cards.map((c) => c.button.id)).toEqual(["I'd like Item 10", "I'd like Item 11"]);
+
+    // One product without a photo: the usual cards, five at a time.
+    many[3]!.photoPath = null;
+    const mixed = await catalogue.cards(variants, 1);
+    expect(mixed?.carousel).toBeUndefined();
+    expect(mixed?.cards).toHaveLength(5);
+    expect(mixed?.text).toContain("Tap *Order this*");
+  });
+
+  it("keeps the usual cards for a single product, even with swipe cards on", async () => {
+    const mem = memory(items());
+    await mem.store.savePhoto("p-mug", new Uint8Array([1]), "image/jpeg");
+    const catalogue = createCatalogue({ store: mem.store, carousel: true });
+    const reply = await catalogue.cards([{ id: "v-mug", name: "Mugs: White", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 300_000 }] }], 1, ["v-mug"]);
+    expect(reply?.carousel).toBeUndefined();
+    expect(reply?.cards).toHaveLength(1);
   });
 
   it("sends the next page when the customer taps See more, without the AI", async () => {

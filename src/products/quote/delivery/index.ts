@@ -4,7 +4,7 @@ import type { Notice, ProductContext, Reply } from "../../../core/product.js";
 import type { IncomingMessage } from "../../../core/whatsapp/types.js";
 import { itemsAfterDiscount, type OrderDetails, type OrderStore, type SavedOrder } from "../store.js";
 import { deliveryNotice, riderStep, type RiderStep, type TemplateName } from "./status.js";
-import type { Delivery, DeliveryStore, Rider } from "./store.js";
+import { customerPhone, type Delivery, type DeliveryStore, type Rider } from "./store.js";
 import { mapLink, nigerianWaId, zoneForAddress, zoneForPin, type Zone } from "./zones.js";
 import { showWaId } from "../../../core/whatsapp/ids.js";
 import { DELIVERY_TEXTS } from "./texts.js";
@@ -73,7 +73,7 @@ export interface Dispatch {
   /** Rider updates, the owner's delivery commands and the customer's address. Null for anything else. */
   handle(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null>;
   /** Asks where to deliver before a quote becomes an order. Null once that's settled. */
-  beforeConfirm(order: SavedOrder, customer: { waId: string; name?: string }, lang?: Lang): Promise<Reply | null>;
+  beforeConfirm(order: SavedOrder, customer: { waId: string; name?: string; phone?: string }, lang?: Lang): Promise<Reply | null>;
   /** The delivery line on the invoice, already included in the order total. */
   charge(orderId: string): Promise<DeliveryCharge | null>;
   /** What the owner needs to know about delivering an order, and what to send next. */
@@ -97,6 +97,8 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
   // Owner and rider messages use the business's language.
   const t = DELIVERY_TEXTS[businessLang];
   const money = (minor: number) => formatMoney(minor, opts.currency ?? "NGN");
+  /** The customer's number for the owner or rider to call: "+234…", or "number hidden". */
+  const callOn = (d: Pick<Delivery, "customerWaId" | "customerPhone">) => showWaId(customerPhone(d) ?? d.customerWaId);
   const describe = (d: Pick<Delivery, "address" | "lat">, w = t) => d.address ?? (d.lat !== null ? w.pinnedLocation : w.addressGiven);
 
   return {
@@ -125,6 +127,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
           ownerWaId: opts.ownerWaId ?? null,
           customerWaId: customer.waId,
           customerName: customer.name ?? null,
+          customerPhone: customer.phone ?? null,
         }));
       if (d.status === "asking") return askForAddress(c);
       if (d.status === "needs_fee") return { text: c.confirmingFee(opts.businessName) };
@@ -188,8 +191,10 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
   async function customerStep(msg: IncomingMessage, ctx: ProductContext): Promise<Reply | null> {
     const order = await opts.orders.latestOpenQuote(ctx.contactId);
     if (!order) return null;
-    const d = await store.forOrder(order.id);
+    let d = await store.forOrder(order.id);
     if (!d) return null;
+    // The customer has just shared the number their WhatsApp ID hides: the rider and courier need it.
+    if (ctx.sharedPhone && d.customerPhone !== ctx.sharedPhone) d = (await store.update(d.id, [d.status], { customerPhone: ctx.sharedPhone })) ?? d;
     const text = msg.text?.trim() ?? "";
     const c = DELIVERY_TEXTS[guessLanguage(text) ?? businessLang];
 
@@ -258,7 +263,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
                 {
                   to: opts.ownerWaId,
                   text: [
-                    t.outsideZones(label, d.customerName ?? t.aCustomer, d.customerWaId, describe(updated)),
+                    t.outsideZones(label, d.customerName ?? t.aCustomer, callOn(d), describe(updated)),
                     mapLink(updated),
                     "",
                     t.replyFee(label, currencyName(opts.currency ?? "NGN", businessLang)),
@@ -284,7 +289,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
     try {
       const quote = await opts.courier!.service.quote(
         opts.courier!.from,
-        { name: d.customerName ?? "Customer", phone: d.customerWaId, address: where.address ?? `${where.lat},${where.lng}`, lat: where.lat, lng: where.lng },
+        { name: d.customerName ?? "Customer", phone: customerPhone(d) ?? d.customerWaId, address: where.address ?? `${where.lat},${where.lng}`, lat: where.lat, lng: where.lng },
         order.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitKobo: l.unitPriceKobo })),
       );
       if (!quote) return null;
@@ -488,7 +493,7 @@ export function createDispatch(opts: DispatchOptions): Dispatch {
       pickup: opts.pickup ?? opts.businessName,
       where: describe(d),
       map: mapLink(d),
-      customer: `${d.customerName ? `${d.customerName}, ` : ""}+${d.customerWaId}`,
+      customer: `${d.customerName ? `${d.customerName}, ` : ""}${callOn(d)}`,
       payment: order.status === "paid" ? t.paid : t.unpaid(money(order.totalKobo), opts.businessName),
       link: opts.links.rider(d),
     });

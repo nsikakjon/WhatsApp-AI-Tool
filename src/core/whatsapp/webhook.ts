@@ -5,9 +5,10 @@ import { isPauseActive, type MessageStore } from "../db/store.js";
 import type { Transcriber } from "../voice/transcribe.js";
 import type { UsageMeter } from "../usage.js";
 import type { Product, Reply } from "../product.js";
-import type { OutgoingButtons, WhatsAppClient } from "./client.js";
+import type { OutgoingButtons, OutgoingCarousel, WhatsAppClient } from "./client.js";
 import { canMessageFreely, sendImageAndRecord, sendNotice, type NoticeDeps } from "./outbox.js";
 import { extractFailedDeliveries, extractMessages, extractNumberAccounts, extractOwnerReplies } from "./parse.js";
+import { isPhoneNumber } from "./ids.js";
 import { isValidSignature } from "./signature.js";
 import type { IncomingMessage, OwnerReply } from "./types.js";
 
@@ -160,6 +161,8 @@ async function handleMessage(
     }
   }
 
+  const sharedPhone = isPhoneNumber(msg.from) ? undefined : await phoneBehindUsername(deps, contactId, msg, log);
+
   // The owner is chatting with this customer from the WhatsApp Business app:
   // the message is saved (above) but the bot stays out of it.
   if (await isPaused(deps, contactId, msg, log)) {
@@ -187,6 +190,7 @@ async function handleMessage(
         log.error(`Failed to send a follow-up to ${mask(msg.from)}:`, err);
       }
     },
+    ...(sharedPhone ? { sharedPhone } : {}),
     canMessageFreely: (waId: string) => canMessageFreely(deps.store, waId, fromNumber, now(deps)),
   };
 
@@ -334,6 +338,32 @@ async function isPaused(
   }
 }
 
+/**
+ * For a customer whose number is hidden behind a WhatsApp username: the number
+ * they shared with us. A contact card they send (a tap on "Share your number"
+ * arrives as one) is saved as their number.
+ */
+async function phoneBehindUsername(
+  deps: WebhookDeps,
+  contactId: string,
+  msg: IncomingMessage,
+  log: Pick<Console, "info" | "warn" | "error">,
+): Promise<string | undefined> {
+  try {
+    const shared = msg.sharedContacts?.map((c) => (c.phone ?? "").replace(/\D/g, "")).find((p) => p.length >= 7 && p.length <= 15);
+    if (shared && deps.store.saveSharedPhone) {
+      await deps.store.saveSharedPhone(contactId, shared);
+      log.info(`Saved the number ${mask(shared)} shared by ${mask(msg.from)}`);
+      return shared;
+    }
+    return (await deps.store.sharedPhone?.(contactId)) ?? undefined;
+  } catch (err) {
+    // E.g. migration 0080 hasn't been run: the customer still gets their answer.
+    log.error(`Couldn't save or read the number shared by ${mask(msg.from)}:`, err);
+    return undefined;
+  }
+}
+
 function now(deps: WebhookDeps): Date {
   return deps.now ? deps.now() : new Date();
 }
@@ -382,7 +412,13 @@ async function sendReply(
       businessNumberId: fromNumber,
     });
   };
-  for (const card of reply.cards ?? []) await sendButtons(card);
+  const swiped = !!reply.carousel && (await sendCarousel(deps, to, contactId, reply.carousel, fromNumber, log));
+  if (reply.carousel && !swiped && !reply.text) {
+    // The swipe message carried the words above the cards; they go first on their own instead.
+    const sent = await deps.whatsapp.sendText(to, reply.carousel.body, fromNumber);
+    await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "text", body: reply.carousel.body, raw: sent.raw, businessNumberId: fromNumber });
+  }
+  if (!swiped) for (const card of reply.cards ?? []) await sendButtons(card);
   if (reply.list) {
     const sent = await deps.whatsapp.sendList(to, reply.list, fromNumber);
     await deps.store.recordOutbound(contactId, {
@@ -394,6 +430,15 @@ async function sendReply(
     });
   }
   if (reply.buttons) await sendButtons(reply.buttons);
+  if (reply.contactRequest && deps.whatsapp.sendContactRequest) {
+    // Extra, like the voice note: the rest of the reply still goes out without it.
+    try {
+      const sent = await deps.whatsapp.sendContactRequest(to, reply.contactRequest, fromNumber);
+      await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "interactive", body: reply.contactRequest, raw: sent.raw, businessNumberId: fromNumber });
+    } catch (err) {
+      log.error(`Couldn't ask ${mask(to)} to share their number:`, err);
+    }
+  }
   if (reply.locationRequest) {
     const sent = await deps.whatsapp.sendLocationRequest(to, reply.locationRequest, fromNumber);
     await deps.store.recordOutbound(contactId, {
@@ -414,6 +459,28 @@ async function sendReply(
       log.error(`Failed to send notification to ${note.to}:`, err);
     }
   }
+}
+
+/** Sends swipe cards as one message. False when it couldn't go, so the cards are sent one by one instead. */
+async function sendCarousel(
+  deps: WebhookDeps,
+  to: string,
+  contactId: string,
+  carousel: OutgoingCarousel,
+  fromNumber: string | undefined,
+  log: Pick<Console, "info" | "warn" | "error">,
+): Promise<boolean> {
+  if (!deps.whatsapp.sendCarousel) return false;
+  let sent;
+  try {
+    sent = await deps.whatsapp.sendCarousel(to, carousel, fromNumber);
+  } catch (err) {
+    log.error(`WhatsApp turned down the swipe cards for ${mask(to)}; sending them one by one:`, err);
+    return false;
+  }
+  await deps.store.recordOutbound(contactId, { waMessageId: sent.waMessageId, type: "interactive", body: carousel.body, raw: sent.raw, businessNumberId: fromNumber });
+  log.info(`Sent ${carousel.cards.length} swipe cards to ${mask(to)}`);
+  return true;
 }
 
 /**

@@ -355,7 +355,7 @@ const botMessagesFor = (numberIds: string[], features?: PlanFeatures) =>
 
 // Product photos and stock (QUOTE_CATALOGUE), on the business's own price list.
 const catalogueFor = (businessId: string, features?: PlanFeatures, currency?: Currency) =>
-  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features, currency }) : undefined;
+  config.quoteCatalogue ? createCatalogue({ store: createSupabaseCatalogue(supabase, businessId), features, currency, carousel: config.quoteCarousel }) : undefined;
 
 // Each business's public shop page (QUOTE_SHOP): "shop" sends the owner its link.
 const shopConfig = config.activeProduct === "quote" ? config.quoteShop : undefined;

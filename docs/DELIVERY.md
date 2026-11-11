@@ -33,6 +33,18 @@ customer's door:
 - Continuous background tracking needs a rider app installed on the phone.
   That is a bigger project and isn't part of this.
 
+## Customers who hide their number
+
+WhatsApp now lets people hide their phone number behind a username. The bot
+can still chat with them, but has no number for the owner, the rider or a
+courier to call. When such a customer orders, the bot sends a **Share your
+number** button with the delivery question (or with the order confirmation
+when the shop doesn't deliver). One tap shares it; the bot thanks them and
+the number goes on the owner's order alert, the rider's job and page, and the
+courier booking. Customers whose number is visible never see the button.
+Needs migration `0080_shared_phone_numbers.sql`; until it is run, the button
+still goes out but the number isn't kept.
+
 ## Switching it on
 
 1. In Supabase, run `supabase/migrations/0030_quote_delivery.sql` (SQL Editor >

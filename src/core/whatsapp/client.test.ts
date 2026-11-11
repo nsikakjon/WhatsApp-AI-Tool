@@ -189,6 +189,56 @@ describe("WhatsApp client", () => {
     });
   });
 
+  it("sends swipe cards as one carousel, and a Share your number request", async () => {
+    const bodies: Array<{ interactive: Record<string, any>; recipient?: string }> = [];
+    let uploads = 0;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      if (url.endsWith("/media")) return new Response(JSON.stringify({ id: `media-${++uploads}` }), { status: 200 });
+      bodies.push(JSON.parse(init.body as string));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.c" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createWhatsAppClient({ accessToken: "T", phoneNumberId: "PNID", graphApiVersion: "v23.0", fetch: fakeFetch });
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg" };
+    await client.sendCarousel!("2348012345678", {
+      body: "Here's what we sell.",
+      cards: [
+        { image, body: "*Flyers*\nfrom ₦50 each\nline 3\nline 4", button: { id: "I'd like Flyers", title: "Order this" } },
+        { image, body: "*Banners*", button: { id: "I'd like Banners", title: "Order this" } },
+      ],
+    });
+    await client.sendContactRequest!("NG.1349120865530274", "Tap to share your number.");
+
+    const [carousel, request] = bodies;
+    expect(carousel!.interactive).toEqual({
+      type: "carousel",
+      body: { text: "Here's what we sell." },
+      action: {
+        cards: [
+          {
+            card_index: 0,
+            type: "cta_url",
+            header: { type: "image", image: { id: "media-1" } },
+            body: { text: "*Flyers*\nfrom ₦50 each\nline 3" },
+            action: { buttons: [{ type: "quick_reply", quick_reply: { id: "I'd like Flyers", title: "Order this" } }] },
+          },
+          {
+            card_index: 1,
+            type: "cta_url",
+            header: { type: "image", image: { id: "media-2" } },
+            body: { text: "*Banners*" },
+            action: { buttons: [{ type: "quick_reply", quick_reply: { id: "I'd like Banners", title: "Order this" } }] },
+          },
+        ],
+      },
+    });
+    expect(request!.recipient).toBe("NG.1349120865530274");
+    expect(request!.interactive).toEqual({
+      type: "request_contact_info",
+      body: { text: "Tap to share your number." },
+      action: { name: "request_contact_info" },
+    });
+  });
+
   it("sends a button that opens a web page", async () => {
     const bodies: unknown[] = [];
     const fakeFetch = (async (_url: string, init: RequestInit) => {

@@ -22,6 +22,10 @@ export interface QuoteTexts {
   voiceNotOnLine(): string;
   voiceUnclear(): string;
   sendRequest(): string;
+  /** Above the "Share your number" button, for a customer whose WhatsApp hides their number. */
+  shareNumber(business: string): string;
+  /** After they've shared it. `number` is "+234…". */
+  numberSaved(number: string): string;
   stopReminders(): string;
   ratingAsk(business: string, ref: string): string;
   orderAgainButton: string;
@@ -129,6 +133,8 @@ export interface QuoteTexts {
 const en: QuoteTexts = {
   voiceNotOnLine: () => "Sorry, I can't take voice notes on this line. Please type what you need (for example: 100 A5 flyers).",
   voiceUnclear: () => "Sorry, I couldn't make out that voice note. Could you type what you need (for example: 100 A5 flyers)?",
+  shareNumber: (b) => `Your WhatsApp hides your phone number. Tap the button below to share it, so ${b} can call you about this order if needed.`,
+  numberSaved: (n) => `Thank you, we've saved your number (${n}) for your orders.`,
   sendRequest: () => "Please send your request as a message or voice note (for example: 100 A5 flyers).",
   stopReminders: () => "Okay, I won't send you any more quote reminders. Message me any time you need a quote.",
   ratingAsk: (b, ref) => `How did we do with your order ${ref}? Your answer helps ${b} serve you better.`,
@@ -271,6 +277,8 @@ const en: QuoteTexts = {
 const fr: QuoteTexts = {
   voiceNotOnLine: () => "Désolé, je ne peux pas écouter les messages vocaux sur cette ligne. Écrivez-moi ce qu'il vous faut (par exemple : 100 flyers A5).",
   voiceUnclear: () => "Désolé, je n'ai pas compris ce message vocal. Pouvez-vous m'écrire ce qu'il vous faut (par exemple : 100 flyers A5) ?",
+  shareNumber: (b) => `Votre WhatsApp masque votre numéro. Touchez le bouton ci-dessous pour le partager, afin que ${b} puisse vous appeler au sujet de cette commande si besoin.`,
+  numberSaved: (n) => `Merci, nous avons enregistré votre numéro (${n}) pour vos commandes.`,
   sendRequest: () => "Envoyez votre demande par message ou par message vocal (par exemple : 100 flyers A5).",
   stopReminders: () => "D'accord, je ne vous enverrai plus de rappels de devis. Écrivez-moi quand vous voulez un devis.",
   ratingAsk: (b, ref) => `Comment s'est passée votre commande ${ref} ? Votre avis aide ${b} à mieux vous servir.`,
@@ -416,6 +424,8 @@ const pcm: QuoteTexts = {
   ...en,
   voiceNotOnLine: () => "Sorry, I no fit listen to voice note for this line. Abeg type wetin you need (like: 100 A5 flyers).",
   voiceUnclear: () => "Sorry, I no hear that voice note well. Abeg you fit type wetin you need (like: 100 A5 flyers)?",
+  shareNumber: (b) => `Your WhatsApp dey hide your phone number. Abeg tap the button wey dey below make you share am, so ${b} fit call you about this order if e need.`,
+  numberSaved: (n) => `Thank you, we don save your number (${n}) for your orders.`,
   sendRequest: () => "Abeg send wetin you need as message or voice note (like: 100 A5 flyers).",
   stopReminders: () => "No wahala, I no go send you quote reminder again. Message me anytime you need quote.",
   ratingAsk: (b, ref) => `How we take do your order ${ref}? Wetin you talk go help ${b} serve you better.`,
@@ -485,6 +495,8 @@ const ha: QuoteTexts = {
   ...en,
   voiceNotOnLine: () => "Yi hakuri, ba zan iya sauraron sakon murya a wannan layin ba. Don Allah ku rubuta abin da kuke bukata (misali: A5 flyers guda 100).",
   voiceUnclear: () => "Yi hakuri, ban ji sakon muryar nan sosai ba. Za ku iya rubuta abin da kuke bukata (misali: A5 flyers guda 100)?",
+  shareNumber: (b) => `WhatsApp dinku yana boye lambar wayarku. Ku taba madannin da ke kasa don ku tura ta, domin ${b} su iya kiran ku game da wannan odar idan ana bukata.`,
+  numberSaved: (n) => `Mun gode, mun adana lambarku (${n}) don odarku.`,
   sendRequest: () => "Don Allah ku turo abin da kuke bukata a rubuce ko da sakon murya (misali: A5 flyers guda 100).",
   stopReminders: () => "To shikenan, ba zan sake tura muku tunatarwar farashi ba. Ku turo sako kowane lokaci kuke son farashi.",
   ratingAsk: (b, ref) => `Yaya muka yi da odarku ${ref}? Amsarku za ta taimaka wa ${b} su kara inganta hidimarsu.`,
@@ -552,6 +564,8 @@ const sw: QuoteTexts = {
   ...en,
   voiceNotOnLine: () => "Samahani, siwezi kusikiliza ujumbe wa sauti kwenye laini hii. Tafadhali andika unachohitaji (mfano: A5 flyers 100).",
   voiceUnclear: () => "Samahani, sikusikia vizuri ujumbe huo wa sauti. Unaweza kuandika unachohitaji (mfano: A5 flyers 100)?",
+  shareNumber: (b) => `WhatsApp yako inaficha namba yako ya simu. Gusa kitufe hapa chini uishiriki, ili ${b} waweze kukupigia kuhusu oda hii ikihitajika.`,
+  numberSaved: (n) => `Asante, tumehifadhi namba yako (${n}) kwa oda zako.`,
   sendRequest: () => "Tafadhali tuma unachohitaji kwa maandishi au ujumbe wa sauti (mfano: A5 flyers 100).",
   stopReminders: () => "Sawa, sitakutumia tena vikumbusho vya bei. Tuma ujumbe wakati wowote ukitaka bei.",
   ratingAsk: (b, ref) => `Tulifanyaje kwenye oda yako ${ref}? Jibu lako litasaidia ${b} kuboresha huduma yao.`,

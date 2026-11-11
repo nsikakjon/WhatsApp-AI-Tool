@@ -306,6 +306,26 @@ describe("sending a rider out", () => {
     expect(reply?.text).toContain("isn't marked paid yet");
   });
 
+  it("asks a customer with a hidden number to share it with the address, and gives it to the rider", async () => {
+    const t = setup();
+    const HIDDEN = "NG.1349120865530274";
+    await t.product.handle(from(HIDDEN, "100 flyers"), ctx());
+    const asked = await t.product.handle(from(HIDDEN, "yes"), ctx());
+    expect(asked?.contactRequest).toContain("Tap the button below to share it");
+    expect(asked?.locationRequest).toContain("Tap *Send location*");
+
+    const shared = { ...ctx(), sharedPhone: "2348031112222" };
+    const card = from(HIDDEN, "", { type: "contacts", text: undefined, sharedContacts: [{ name: "Ada", phone: "2348031112222" }] });
+    expect((await t.product.handle(card, shared))?.text).toContain("saved your number (+2348031112222)");
+    expect(t.deliveries[0]?.customerPhone).toBe("2348031112222");
+
+    await t.product.handle(from(HIDDEN, "12 Allen Avenue, Ikeja"), shared);
+    await t.product.handle(from(HIDDEN, "yes"), shared);
+    await t.product.handle(from(OWNER, "add rider Musa 0803 123 4567"), ctx());
+    const reply = await t.product.handle(from(OWNER, "rider KP-1001 musa"), ctx());
+    expect(reply?.notify?.[0]?.text).toContain("Ada, +2348031112222");
+  });
+
   it("warns the owner when the rider hasn't messaged in the last day", async () => {
     const { product } = await confirmedWithRider();
     const reply = await product.handle(from(OWNER, "rider KP-1001 Musa"), ctx(false));

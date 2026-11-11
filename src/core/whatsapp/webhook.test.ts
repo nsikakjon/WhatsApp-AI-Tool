@@ -22,7 +22,14 @@ function memoryStore() {
   const inboundText = new Map<string, string>();
   const pauses = new Map<string, BotPause>();
   const userIds = new Map<string, string>();
+  const phones = new Map<string, string>();
   const store: MessageStore = {
+    async sharedPhone(contactId) {
+      return phones.get(contactId) ?? null;
+    },
+    async saveSharedPhone(contactId, phone) {
+      phones.set(contactId, phone);
+    },
     async upsertContact(waId, _name, userId) {
       if (!contacts.has(waId)) contacts.set(waId, `contact-${contacts.size + 1}`);
       if (userId && !userIds.has(userId)) userIds.set(userId, waId);
@@ -64,7 +71,7 @@ function memoryStore() {
       return pauses.get(`${contactId}:${businessNumberId}`) ?? null;
     },
   };
-  return { store, contacts, outbound, inboundText, pauses };
+  return { store, contacts, outbound, inboundText, pauses, phones };
 }
 
 function setup(
@@ -105,6 +112,15 @@ function setup(
     },
     async sendButtons(to, message) {
       sent.push({ to, body: `[buttons] ${message.body} | ${message.buttons.map((b) => b.id).join(", ")}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendCarousel(to, carousel) {
+      if (carousel.body.startsWith("FAIL")) throw new Error("WhatsApp send failed (400): carousel not allowed");
+      sent.push({ to, body: `[carousel] ${carousel.body} | ${carousel.cards.map((c) => c.button.id).join(", ")}` });
+      return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
+    },
+    async sendContactRequest(to, body) {
+      sent.push({ to, body: `[contact request] ${body}` });
       return { waMessageId: `wamid.out.${sent.length}`, raw: {} };
     },
     async sendLocationRequest(to, body) {
@@ -525,6 +541,67 @@ describe("POST /webhooks/whatsapp (incoming messages)", () => {
       "[buttons] 2 of 3 | catalogue page 2",
     ]);
     expect(outbound).toEqual(["Here's what we sell", "Mugs", "Cupcakes", "2 of 3"]);
+  });
+
+  it("sends swipe cards as one message, or one by one if WhatsApp turns them down", async () => {
+    const image = { data: new Uint8Array([1]), mimeType: "image/jpeg" };
+    const showing = (body: string): Product => ({
+      name: "showing",
+      handle: async () => ({
+        text: "",
+        cards: [
+          { image, body: "Mugs", buttons: [{ id: "I'd like Mugs", title: "Order this" }] },
+          { image, body: "Cupcakes", buttons: [{ id: "I'd like Cupcakes", title: "Order this" }] },
+        ],
+        carousel: {
+          body,
+          cards: [
+            { image, body: "Mugs", button: { id: "I'd like Mugs", title: "Order this" } },
+            { image, body: "Cupcakes", button: { id: "I'd like Cupcakes", title: "Order this" } },
+          ],
+        },
+      }),
+    });
+    const ok = setup(showing("Here's what we sell"));
+    let body = textWebhook("wamid.swipe", "catalogue");
+    await post(ok.app, body, sign(body));
+    expect(ok.sent.map((s) => s.body)).toEqual(["[carousel] Here's what we sell | I'd like Mugs, I'd like Cupcakes"]);
+    expect(ok.outbound).toEqual(["Here's what we sell"]);
+
+    const refused = setup(showing("FAIL Here's what we sell"));
+    body = textWebhook("wamid.swipe2", "catalogue");
+    await post(refused.app, body, sign(body));
+    expect(refused.sent.map((s) => s.body)).toEqual(["FAIL Here's what we sell", "[buttons] Mugs | I'd like Mugs", "[buttons] Cupcakes | I'd like Cupcakes"]);
+  });
+
+  it("asks for the customer's number before asking where to deliver", async () => {
+    const asking: Product = { name: "asking", handle: async () => ({ text: "", contactRequest: "Share your number", locationRequest: "Where?" }) };
+    const { app, sent } = setup(asking);
+    const body = textWebhook("wamid.ask", "yes");
+    await post(app, body, sign(body));
+    expect(sent.map((s) => s.body)).toEqual(["[contact request] Share your number", "[location request] Where?"]);
+  });
+
+  it("saves the number a customer with a hidden number shares, and hands it to the product", async () => {
+    const seen: Array<string | undefined> = [];
+    const spy: Product = { name: "spy", handle: async (_msg, ctx) => (seen.push(ctx.sharedPhone), null) };
+    const { app, phones } = setup(spy);
+    const send = (from: Record<string, string>, id: string, message: Record<string, unknown>) => {
+      const body = JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "PNID" }, messages: [{ ...from, id, timestamp: "1", ...message }] } }] }],
+      });
+      return post(app, body, sign(body));
+    };
+    const card = { type: "contacts", contacts: [{ name: { formatted_name: "Ada" }, phones: [{ phone: "+234 803 111 2222", wa_id: "2348031112222" }] }] };
+    const hidden = { from_user_id: "NG.1349120865530274" };
+    await send(hidden, "wamid.h1", { type: "text", text: { body: "Hi" } });
+    await send(hidden, "wamid.h2", card);
+    await send(hidden, "wamid.h3", { type: "text", text: { body: "Thanks" } });
+    // Someone whose number we can see is sharing a friend's card: nothing to save.
+    await send({ from: "2348012345678" }, "wamid.p1", card);
+    expect(seen).toEqual([undefined, "2348031112222", "2348031112222", undefined]);
+    expect([...phones.values()]).toEqual(["2348031112222"]);
   });
 
   it("sends a notice's template to someone who hasn't messaged in the last day", async () => {

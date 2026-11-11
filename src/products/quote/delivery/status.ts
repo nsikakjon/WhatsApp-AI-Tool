@@ -1,6 +1,6 @@
 import type { Lang } from "../../../core/i18n.js";
 import type { Notice } from "../../../core/product.js";
-import type { Delivery, DeliveryStatus, DeliveryStore } from "./store.js";
+import { customerPhone, type Delivery, type DeliveryStatus, type DeliveryStore } from "./store.js";
 import { showWaId } from "../../../core/whatsapp/ids.js";
 
 // A rider's progress on a job. The same steps run whether the rider taps a
@@ -43,6 +43,7 @@ export async function riderStep(
   const fr = opts.lang === "fr";
   const rider = delivery.riderName ?? delivery.courier?.name ?? (fr ? "Le livreur" : "The rider");
   const customer = delivery.customerName ?? showWaId(delivery.customerWaId);
+  const number = showWaId(customerPhone(delivery) ?? delivery.customerWaId);
   const ref = delivery.orderRef;
   const business = delivery.businessName;
   const forCustomer = fr
@@ -60,12 +61,12 @@ export async function riderStep(
     ? {
         picked_up: `${rider} a récupéré ${ref}.`,
         delivered: `✅ ${ref} livrée à ${customer} par ${rider}.`,
-        failed: `${rider} n'a pas pu livrer ${ref} à ${customer} (+${delivery.customerWaId}). Envoyez *rider ${ref} <nom>* pour réessayer, ou *cancel delivery ${ref}*.`,
+        failed: `${rider} n'a pas pu livrer ${ref} à ${customer} (${number}). Envoyez *rider ${ref} <nom>* pour réessayer, ou *cancel delivery ${ref}*.`,
       }[step]
     : {
         picked_up: `${rider} picked up ${ref}.`,
         delivered: `✅ ${ref} delivered to ${customer} by ${rider}.`,
-        failed: `${rider} couldn't deliver ${ref} to ${customer} (+${delivery.customerWaId}). Send *rider ${ref} <name>* to try again, or *cancel delivery ${ref}*.`,
+        failed: `${rider} couldn't deliver ${ref} to ${customer} (${number}). Send *rider ${ref} <name>* to try again, or *cancel delivery ${ref}*.`,
       }[step];
 
   const notices = [deliveryNotice(delivery.customerWaId, forCustomer, delivery, opts.template)];

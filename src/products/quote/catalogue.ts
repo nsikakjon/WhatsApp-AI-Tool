@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Lang } from "../../core/i18n.js";
 import { formatMoney, type Currency } from "../../core/money.js";
 import type { ProductContext, Reply } from "../../core/product.js";
-import type { OutgoingButtons, OutgoingImage } from "../../core/whatsapp/client.js";
+import type { OutgoingButtons, OutgoingCarousel, OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { PlanFeatures } from "./features.js";
 import { quoteLine, type QuoteLine, type Variant } from "./pricing.js";
@@ -22,6 +22,9 @@ import { quoteLine, type QuoteLine, type Variant } from "./pricing.js";
 // A customer who asks for the catalogue (or about one product) gets a card per
 // product: its photo, its options with prices from the price list, its
 // description and an "Order this" button. Five cards at a time, then "See more".
+// With QUOTE_CAROUSEL on, and a photo on every product, they come as one
+// message the customer swipes through instead: up to ten cards, each the photo,
+// the name, the lowest price on the price list and the Order button.
 
 /** At or below this many left, an item is running low (the same as the app's "low stock" tag). */
 export const LOW_STOCK = 5;
@@ -73,6 +76,8 @@ export interface Catalogue {
 const LIST_MAX = 40;
 const PHOTOS_MAX = 3;
 const CARDS_PER_PAGE = 5;
+/** The most cards WhatsApp puts in one swipe message. */
+const SWIPE_CARDS_PER_PAGE = 10;
 const OPTIONS_PER_CARD = 6;
 
 /** The "See more" button's id, which comes back as the customer's message. */
@@ -83,6 +88,8 @@ export function createCatalogue(opts: {
   features?: PlanFeatures;
   /** What prices on the cards are in (default naira). */
   currency?: Currency;
+  /** Sends the cards as one swipe message when every product has a photo (QUOTE_CAROUSEL). */
+  carousel?: boolean;
   log?: Pick<Console, "error">;
 }): Catalogue {
   const money = (minor: number) => formatMoney(minor, opts.currency ?? "NGN");
@@ -194,12 +201,16 @@ export function createCatalogue(opts: {
       const shown = [...products.values()].filter((options) => wanted.size === 0 || options.some((o) => wanted.has(o.variantId)));
       if (shown.length === 0) return null;
 
-      const pages = Math.ceil(shown.length / CARDS_PER_PAGE);
-      const current = Math.min(Math.max(page, 1), pages);
-      const start = (current - 1) * CARDS_PER_PAGE;
       const withPhotos = await onPlan();
+      // Every card in a swipe message needs a picture, so the page size only changes when all products have one.
+      const swipe = !!opts.carousel && withPhotos && shown.length >= 2 && shown.every((options) => options[0]!.photoPath);
+      const perPage = swipe ? SWIPE_CARDS_PER_PAGE : CARDS_PER_PAGE;
+      const pages = Math.ceil(shown.length / perPage);
+      const current = Math.min(Math.max(page, 1), pages);
+      const start = (current - 1) * perPage;
+      const onPage = shown.slice(start, start + perPage);
       const cards = await Promise.all(
-        shown.slice(start, start + CARDS_PER_PAGE).map(async (options): Promise<OutgoingButtons> => {
+        onPage.map(async (options): Promise<OutgoingButtons> => {
           const product = options[0]!;
           const prices = options
             .slice(0, OPTIONS_PER_CARD)
@@ -219,14 +230,17 @@ export function createCatalogue(opts: {
         }),
       );
       const shownTo = start + cards.length;
+      const intro =
+        current === 1
+          ? fr
+            ? "Voici ce que nous vendons. Touchez *Commander* sur ce qui vous plaît, ou dites-moi simplement ce qu'il vous faut et en quelle quantité."
+            : "Here's what we sell. Tap *Order this* on anything you like, or just tell me what you need and how many."
+          : "";
+      const carousel = swipe ? swipeCards(onPage, cards, intro || (fr ? "Suite de nos produits." : "More from our price list."), byId, lang) : null;
       return {
-        text:
-          current === 1
-            ? fr
-              ? "Voici ce que nous vendons. Touchez *Commander* sur ce qui vous plaît, ou dites-moi simplement ce qu'il vous faut et en quelle quantité."
-              : "Here's what we sell. Tap *Order this* on anything you like, or just tell me what you need and how many."
-            : "",
+        text: carousel ? "" : intro,
         cards,
+        ...(carousel ? { carousel } : {}),
         ...(current < pages
           ? {
               buttons: {
@@ -258,6 +272,29 @@ export function createCatalogue(opts: {
       }
     },
   };
+
+  /** The page's cards as one swipe message, or null if a photo couldn't be loaded or there's only one card. */
+  function swipeCards(
+    products: CatalogueItem[][],
+    cards: OutgoingButtons[],
+    body: string,
+    byId: Map<string, Variant>,
+    lang: Lang,
+  ): OutgoingCarousel | null {
+    if (cards.length < 2 || cards.some((c) => !c.image)) return null;
+    return {
+      body,
+      cards: products.map((options, i) => {
+        const product = options[0]!;
+        const description = product.productDescription?.trim().split("\n")[0];
+        return {
+          image: cards[i]!.image!,
+          body: [`*${product.productName}*`, fromPrice(options, byId, money, lang), ...(description ? [description] : [])].join("\n"),
+          button: cards[i]!.buttons[0]!,
+        };
+      }),
+    };
+  }
 
   async function cardPhoto(path: string): Promise<OutgoingImage | null> {
     try {
@@ -299,6 +336,19 @@ export function priceText(p: PriceFacts, money: (minor: number) => string, lang:
     p.bulk ? (fr ? `, ${money(p.bulk.unitKobo)} l'unité à partir de ${p.bulk.from}` : `, ${money(p.bulk.unitKobo)} each from ${p.bulk.from}`) : "",
     p.minQuantity > 1 ? ` (min. ${p.minQuantity})` : "",
   ].join("");
+}
+
+/** "from ₦4,200 each": the lowest price of one, at any quantity, across a product's options. */
+function fromPrice(options: CatalogueItem[], byId: Map<string, Variant>, money: (minor: number) => string, lang: Lang): string {
+  const fr = lang === "fr";
+  const prices = options.flatMap((o) => {
+    const variant = byId.get(o.variantId);
+    const facts = variant && priceFacts(variant);
+    return facts ? [facts.bulk?.unitKobo ?? facts.unitKobo] : [];
+  });
+  if (prices.length === 0) return fr ? "Prix sur demande" : "Price on request";
+  const lowest = money(Math.min(...prices));
+  return fr ? `À partir de ${lowest} l'unité` : `From ${lowest} each`;
 }
 
 /** "White, one-colour print: ₦5,000 each, ₦4,200 each from 50 (min. 10)" */

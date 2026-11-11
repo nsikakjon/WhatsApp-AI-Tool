@@ -42,6 +42,18 @@ export interface WhatsAppClient {
    * back as an ordinary location message.
    */
   sendLocationRequest(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends one message of 2 to 10 picture cards the person swipes sideways,
+   * each with its own reply button. A tap comes back like a button tap.
+   * Optional, so test fakes and older wrappers without it still work.
+   */
+  sendCarousel?(to: string, carousel: OutgoingCarousel, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
+  /**
+   * Sends a message with a "Share your number" button, for a customer whose
+   * number is hidden behind a WhatsApp username. One tap shares it, and it
+   * comes back as a contact card. Optional, like sendCarousel.
+   */
+  sendContactRequest?(to: string, body: string, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /** Sends a message with one button that opens a web page, e.g. a chat in the owner app's inbox. */
   sendLink(to: string, body: string, link: OutgoingLink, fromNumberId?: string): Promise<{ waMessageId: string; raw: unknown }>;
   /**
@@ -92,6 +104,16 @@ export interface OutgoingButtons {
   buttons: Array<{ id: string; title: string }>;
 }
 
+export interface OutgoingCarousel {
+  /** The message above the cards (up to 1024 characters). */
+  body: string;
+  /**
+   * 2 to 10 cards, each a picture, a short text (up to 160 characters and 3
+   * lines) and one button. Button ids must differ from card to card.
+   */
+  cards: Array<{ image: OutgoingImage; body: string; button: { id: string; title: string } }>;
+}
+
 export interface OutgoingLink {
   /** The button's label (up to 20 characters). */
   label: string;
@@ -135,6 +157,9 @@ export interface WhatsAppClientOptions {
 }
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+/** A carousel card's text: Meta takes at most 160 characters on at most 3 lines. */
+const cardText = (text: string) => cut(text.split("\n").slice(0, 3).join("\n"), 160);
 
 const HOUR = 60 * 60 * 1000;
 
@@ -316,6 +341,35 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
           body: { text: cut(body, 1024) },
           action: { name: "cta_url", parameters: { display_text: cut(link.label, 20), url: link.url } },
         },
+      });
+    },
+
+    async sendCarousel(to, carousel, fromNumberId) {
+      const cards = [];
+      for (const [i, card] of carousel.cards.slice(0, 10).entries()) {
+        cards.push({
+          card_index: i,
+          // Meta's docs give every media card this type, quick reply ones included.
+          type: "cta_url",
+          header: { type: "image", image: { id: await uploadImage(fromNumberId, card.image) } },
+          body: { text: cardText(card.body) },
+          action: {
+            buttons: [{ type: "quick_reply", quick_reply: { id: card.button.id.slice(0, 256), title: cut(card.button.title, 20) } }],
+          },
+        });
+      }
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: { type: "carousel", body: { text: cut(carousel.body, 1024) }, action: { cards } },
+      });
+    },
+
+    async sendContactRequest(to, body, fromNumberId) {
+      return send(fromNumberId, {
+        to,
+        type: "interactive",
+        interactive: { type: "request_contact_info", body: { text: cut(body, 1024) }, action: { name: "request_contact_info" } },
       });
     },
 

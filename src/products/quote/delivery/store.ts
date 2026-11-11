@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_BUSINESS_ID } from "../store.js";
+import { isPhoneNumber } from "../../../core/whatsapp/ids.js";
 import type { Zone } from "./zones.js";
 
 // Delivery zones, riders and deliveries (migration 0030), one business at a time.
@@ -30,6 +31,8 @@ export interface Delivery {
   ownerWaId: string | null;
   customerWaId: string;
   customerName: string | null;
+  /** The number the customer shared when their WhatsApp ID hides it (migration 0080). */
+  customerPhone?: string | null;
   status: DeliveryStatus;
   address: string | null;
   lat: number | null;
@@ -63,7 +66,7 @@ export interface CourierInfo {
 /** What is copied in when a delivery starts. */
 export type NewDelivery = Pick<
   Delivery,
-  "orderId" | "orderRef" | "businessName" | "fromNumberId" | "ownerWaId" | "customerWaId" | "customerName"
+  "orderId" | "orderRef" | "businessName" | "fromNumberId" | "ownerWaId" | "customerWaId" | "customerName" | "customerPhone"
 >;
 
 export interface DeliveryChange {
@@ -75,6 +78,12 @@ export interface DeliveryChange {
   feeKobo?: number | null;
   rider?: Rider;
   courier?: CourierInfo | null;
+  customerPhone?: string;
+}
+
+/** The customer's phone number, digits only: their WhatsApp ID, or the number they shared when it's hidden. Null if neither. */
+export function customerPhone(d: Pick<Delivery, "customerWaId" | "customerPhone">): string | null {
+  return d.customerPhone ?? (isPhoneNumber(d.customerWaId) ? d.customerWaId : null);
 }
 
 export interface DeliveryStore {
@@ -126,6 +135,8 @@ type DeliveryRow = {
   rider_lat: number | null;
   rider_lng: number | null;
   rider_seen_at: string | null;
+  // Missing until migration 0080.
+  customer_phone?: string | null;
   // Until migration 0056 the column is 0030's text 'own_rider'.
   courier?: CourierInfo | string | null;
 };
@@ -143,6 +154,7 @@ function toDelivery(row: DeliveryRow): Delivery {
     ownerWaId: row.owner_wa_id,
     customerWaId: row.customer_wa_id,
     customerName: row.customer_name,
+    customerPhone: row.customer_phone ?? null,
     status: row.status,
     address: row.address,
     lat: row.lat,
@@ -267,6 +279,7 @@ export function createSupabaseDeliveryStore(db: SupabaseClient, businessId = DEF
           owner_wa_id: d.ownerWaId,
           customer_wa_id: d.customerWaId,
           customer_name: d.customerName,
+          ...(d.customerPhone ? { customer_phone: d.customerPhone } : {}),
         },
         { onConflict: "order_id", ignoreDuplicates: true },
       );
@@ -289,6 +302,7 @@ export function createSupabaseDeliveryStore(db: SupabaseClient, businessId = DEF
       if (change.lng !== undefined) row.lng = change.lng;
       if (change.zoneName !== undefined) row.zone_name = change.zoneName;
       if (change.feeKobo !== undefined) row.fee_kobo = change.feeKobo;
+      if (change.customerPhone) row.customer_phone = change.customerPhone;
       if (change.courier !== undefined) {
         row.courier = change.courier;
         row.courier_order_id = change.courier?.orderId ?? null;
