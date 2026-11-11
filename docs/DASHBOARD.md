@@ -22,6 +22,16 @@ trying again.
 
 ## What it shows
 
+The page is split into four tabs along the top bar, with the tools (tally
+sheet, plan editor, numbers to connect) next to them:
+
+- **Overview**: the headline numbers (tap one to open its tab), a **Needs a
+  look** list (shops losing money, sections that couldn't load) and the tools.
+- **Money**: profit and loss, and the cost to serve each shop.
+- **Marketing**: leads from ads, website visitors and socials.
+- **Products**: WhatsApp, flyers, sales assistant, site reporter and leads.
+
+
 | Section | Numbers |
 | --- | --- |
 | Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |

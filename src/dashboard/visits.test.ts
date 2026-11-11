@@ -118,10 +118,13 @@ describe("website numbers on the dashboard", () => {
   });
 
   it("shows visitors, top pages and where they came from", () => {
-    const html = renderDashboard(sampleStats(), [], {
-      ...summariseVisitDays(days, NOW),
-      topPages: [{ path: "/flyers.html", views: 9 }],
-      topSources: [{ source: "", views: 6 }, { source: "www.google.com", views: 3 }],
+    const html = renderDashboard(sampleStats(), {
+      tab: "marketing",
+      website: {
+        ...summariseVisitDays(days, NOW),
+        topPages: [{ path: "/flyers.html", views: 9 }],
+        topSources: [{ source: "", views: 6 }, { source: "www.google.com", views: 3 }],
+      },
     });
     expect(html).toContain("Website (yarnoga.com)");
     expect(html).toContain("/flyers.html");
@@ -137,10 +140,10 @@ describe("website numbers on the dashboard", () => {
       now: () => NOW,
       log: { error: () => {} },
     });
-    const res = await app.request("/", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } });
+    const res = await app.request("/?tab=marketing", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } });
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("0016_site_visits.sql");
-    expect(html).toContain("₦12,500");
+    expect(html).toContain("Socials");
   });
 });

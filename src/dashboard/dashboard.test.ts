@@ -70,12 +70,12 @@ describe("messages sent per number", () => {
   });
 
   it("shows how far past Meta's free 1,000 each number is, or asks for the migration", () => {
-    const html = renderDashboard(sampleStats());
+    const html = renderDashboard(sampleStats(), { tab: "products" });
     expect(html).toContain("<td>Flyers</td><td>1,240</td><td>240</td><td>yarnOga</td>");
     expect(html).toContain("<td>Ada Prints</td><td>300</td><td>0</td><td>The business</td>");
     const before = sampleStats();
     before.whatsapp.sentThisMonth = null;
-    expect(renderDashboard(before)).toContain("once migration 0043 is run");
+    expect(renderDashboard(before, { tab: "products" })).toContain("once migration 0043 is run");
   });
 });
 
@@ -89,10 +89,11 @@ describe("dashboard page", () => {
   });
 
   it("shows live numbers with the right password", async () => {
-    const res = await app.request("/", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } });
+    const res = await app.request("/?tab=products", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } });
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("yarn<b>Oga</b> analytics");
+    expect(html).toContain('href="/dashboard?tab=products" aria-current="page"');
     expect(html).toContain("₦12,500");
     expect(html).toContain("₦4,500/mo");
   });
@@ -114,7 +115,7 @@ describe("dashboard page", () => {
   it("escapes text so nothing from the database can inject HTML", () => {
     const stats = sampleStats();
     stats.flyers.plans.push({ id: "<script>", groups: 0, monthlyPriceKobo: 0 });
-    expect(renderDashboard(stats)).not.toContain("<script>");
+    expect(renderDashboard(stats, { tab: "products" })).not.toContain("<script>");
   });
 });
 
@@ -135,15 +136,35 @@ describe("leads from ads", () => {
   };
 
   it("lists each ad with its leads and who's in a free window", () => {
-    const html = renderDashboard(sampleStats(), [], undefined, undefined, undefined, false, false, { ads: [ad], freeSentThisMonth: 31 });
-    expect(html).toContain('href="#ads"');
+    const html = renderDashboard(sampleStats(), { tab: "marketing", ads: { ads: [ad], freeSentThisMonth: 31 } });
+    expect(html).toContain('id="ads"');
     expect(html).toContain("Prices &#60;on&#62; WhatsApp");
     expect(html).toContain("<td>Demo Shop</td><td>4</td><td>7</td><td>9</td><td>2</td>");
     expect(html).toContain(">31<");
   });
 
   it("says when there are no leads yet, and hides the section when it's off", () => {
-    expect(renderDashboard(sampleStats(), [], undefined, undefined, undefined, false, false, { ads: [], freeSentThisMonth: 0 })).toContain("No one has messaged from an ad yet");
-    expect(renderDashboard(sampleStats())).not.toContain('id="ads"');
+    expect(renderDashboard(sampleStats(), { tab: "marketing", ads: { ads: [], freeSentThisMonth: 0 } })).toContain("No one has messaged from an ad yet");
+    expect(renderDashboard(sampleStats(), { tab: "marketing" })).not.toContain('id="ads"');
+  });
+});
+
+describe("dashboard tabs", () => {
+  it("opens on an overview that flags shops losing money and lists the tools", () => {
+    const losing = { name: "Ada Styles", plan: "Free", paysKobo: 0, aiReplies: 1, voiceNotes: 0, voiceMinutes: 0, sent: 1, cost: { aiKobo: 1, voiceKobo: 0, metaKobo: 0, totalKobo: 1 }, projectedKobo: 9, losing: true };
+    const html = renderDashboard(sampleStats(), {
+      costs: { month: "2026-10-01", usdRateKobo: 137000, shops: [losing], plans: [], otherNumbers: [] },
+      tallySheet: true,
+    });
+    expect(html).toContain("Ada Styles will cost more than it pays this month");
+    expect(html).toContain('class="tool" href="/dashboard/tally"');
+    expect(html).not.toContain('id="whatsapp"');
+  });
+
+  it("says when nothing needs a look, and falls back to the overview for an unknown tab", async () => {
+    expect(renderDashboard(sampleStats())).toContain("Nothing needs you right now");
+    const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, now: () => NOW });
+    const html = await (await app.request("/?tab=nope", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } })).text();
+    expect(html).toContain('href="/dashboard" aria-current="page"');
   });
 });
