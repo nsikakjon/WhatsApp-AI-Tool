@@ -4,6 +4,7 @@ import { AD_REPORT_DAYS } from "../core/ads.js";
 import type { AdsReport } from "./ads.js";
 import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
+import { compareWithPlan, MARKETING_CATEGORY, PLAN_START, type Figures, type PlanComparison, type PlanMonth } from "./projection.js";
 import type { SocialAccount } from "./socials.js";
 import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
 import type { WebsiteStats } from "./visits.js";
@@ -272,7 +273,28 @@ function moneyLineRow(l: MoneyLine): string {
   const who = [l.supplier, l.category].filter(Boolean).join(" · ");
   return `<tr><td>${esc(shortDay(l.date))}</td><td>${esc(l.item)}${who ? `<span class="small">${esc(who)}</span>` : ""}${
     l.notes ? `<span class="small">${esc(l.notes)}</span>` : ""
-  }</td><td class="${l.kind}">${sign}${esc(formatNaira(l.amountKobo))}${paid}</td><td><form method="post" action="/dashboard/money/${l.id}/delete" onsubmit="return confirm('Remove this entry?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+  }</td><td class="${l.kind}">${sign}${esc(formatNaira(l.amountKobo))}${paid}</td><td class="actions"><a href="/dashboard?tab=money&amp;edit=${l.id}#edit">Edit</a><form method="post" action="/dashboard/money/${l.id}/delete" onsubmit="return confirm('Remove this entry?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+}
+
+/** Hundredths as typed in the form: 1200000 -> "12000", 2018 -> "20.18". */
+function typedAmount(minor: number): string {
+  return minor % 100 ? `${Math.floor(minor / 100)}.${String(minor % 100).padStart(2, "0")}` : String(minor / 100);
+}
+
+/** The fields shared by "Add an entry" and "Edit"; filled in from the entry when editing. */
+function entryFields(today: string, usdRateKobo: number, line?: MoneyLine): string {
+  const value = (text: string | null | undefined) => (text ? ` value="${esc(text)}"` : "");
+  const chosen = (yes: boolean) => (yes ? " selected" : "");
+  const rate = typedAmount(line?.usdRateKobo ?? usdRateKobo);
+  return `<label>Date <input type="date" name="date" value="${line?.date ?? today}" required></label>
+<label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income"${chosen(line?.kind === "income")}>In (income)</option></select></label>
+<label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"${value(line?.item)}></label>
+<label>Paid to / from <input name="supplier" maxlength="200" placeholder="e.g. Railway"${value(line?.supplier)}></label>
+<label>Category <input name="category" list="money-categories" maxlength="60" placeholder="e.g. Marketing"${value(line?.category)}></label>
+<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18"${value(line && typedAmount(line.amountMinor))}></label>
+<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD"${chosen(line?.currency === "USD")}>Dollars ($)</option></select></label>
+<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
+<label class="wide">Notes <input name="notes" maxlength="500"${value(line?.notes)}></label>`;
 }
 
 export interface ProfitView {
@@ -280,6 +302,8 @@ export interface ProfitView {
   now: Date;
   /** Shown after a form that couldn't be saved. */
   problem?: string;
+  /** The entry whose edit form is open. */
+  editId?: number;
 }
 
 const EXPENSE_CATEGORIES = ["Setup", "Recurring", "One-off", "Marketing"];
@@ -316,18 +340,16 @@ function profitSection(view: ProfitView | undefined): string {
       : `<tr><td colspan="2">${esc(empty)}</td></tr>`;
   const options = (list: string[]) => list.map((c) => `<option value="${esc(c)}">`).join("");
   const today = lagosDays(view.now, 1)[0].date;
-  const rate = (p.lastUsdRateKobo / 100).toString();
-  const form = `<details class="add"${view.problem ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
-<label>Date <input type="date" name="date" value="${today}" required></label>
-<label>Money <select name="kind"><option value="expense">Out (a cost)</option><option value="income">In (income)</option></select></label>
-<label class="wide">What for <input name="item" required maxlength="200" placeholder="e.g. Railway, November"></label>
-<label>Paid to / from <input name="supplier" maxlength="200" placeholder="e.g. Railway"></label>
-<label>Category <input name="category" list="money-categories" maxlength="60" placeholder="e.g. Recurring"></label>
-<datalist id="money-categories">${options([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])}</datalist>
-<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18"></label>
-<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD">Dollars ($)</option></select></label>
-<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(rate)}"><span class="small">only used for dollar amounts</span></label>
-<label class="wide">Notes <input name="notes" maxlength="500"></label>
+  const categories = `<datalist id="money-categories">${options([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])}</datalist>`;
+  const editing = p.lines.find((l) => l.id === view.editId);
+  const edit = editing
+    ? `<form id="edit" class="entry" method="post" action="/dashboard/money/${editing.id}"><h3>Edit: ${esc(editing.item)}</h3>
+${entryFields(today, p.lastUsdRateKobo, editing)}
+<div class="buttons"><button type="submit">Save changes</button><a href="/dashboard?tab=money#money">Cancel</a></div>
+</form>`
+    : "";
+  const form = `<details class="add"${view.problem && !editing ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
+${entryFields(today, p.lastUsdRateKobo)}
 <button type="submit">Save entry</button>
 </form></details>`;
   return section(
@@ -345,11 +367,64 @@ ${p.months[0] ? tile(`${monthName(p.months[0].month)} result`, signedNaira(p.mon
 <table class="plans"><thead><tr><th>Costs by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.expensesByCategory, "No costs yet")}</tbody></table>
 <table class="plans"><thead><tr><th>Income by category</th><th>Total</th></tr></thead><tbody>${categoryRows(p.incomeByCategory, "No income entered yet")}</tbody></table>
 </div>
-<details class="lines"${p.lines.length <= 10 ? " open" : ""}><summary>All entries (${num(p.lines.length)})</summary>
+${categories}${edit}
+<details class="lines"${p.lines.length <= 10 || editing ? " open" : ""}><summary>All entries (${num(p.lines.length)})</summary>
 <table class="plans wide"><thead><tr><th>Date</th><th>What</th><th>Amount</th><th></th></tr></thead><tbody>${
       p.lines.map(moneyLineRow).join("") || `<tr><td colspan="4">No entries yet</td></tr>`
     }</tbody></table></details>
 ${form}`,
+  );
+}
+
+function planComparison(view: ProfitView | undefined): PlanComparison | null {
+  if (!view || view.pnl === "error") return null;
+  return compareWithPlan(view.pnl.lines, lagosDays(view.now, 1)[0].date.slice(0, 7));
+}
+
+const costsOf = (f: Figures) => f.adsKobo + f.runningKobo;
+
+/** What happened, with what the plan expected underneath. */
+function againstPlan(actualKobo: number, plannedKobo: number, signed = false, moreIsBad = true): string {
+  const show = signed ? signedNaira : formatNaira;
+  const off = moreIsBad ? actualKobo > plannedKobo : actualKobo < plannedKobo;
+  return `<td${off ? ' class="expense"' : ""}>${esc(show(actualKobo))}<span class="small">plan ${esc(show(plannedKobo))}</span></td>`;
+}
+
+function planRow(m: PlanMonth): string {
+  const a = m.actual;
+  if (!a) {
+    return `<tr><td>${esc(monthName(m.month))}</td><td>${esc(formatNaira(m.planned.adsKobo))}</td><td>${esc(formatNaira(m.planned.runningKobo))}</td><td>${esc(formatNaira(m.planned.incomeKobo))}</td><td>${esc(signedNaira(m.planned.netKobo))}</td></tr>`;
+  }
+  return `<tr><td>${esc(monthName(m.month))}</td>${againstPlan(a.adsKobo, m.planned.adsKobo)}${againstPlan(a.runningKobo, m.planned.runningKobo)}${againstPlan(a.incomeKobo, m.planned.incomeKobo, false, false)}${againstPlan(a.netKobo, m.planned.netKobo, true, false)}</tr>`;
+}
+
+function planSection(plan: PlanComparison | null): string {
+  if (!plan) return "";
+  const intro = `Money in and out each month next to the Base case of the 28 Oct projection (accounts/yarnoga-projection-2026-10-28.xlsx), which starts in ${monthName(PLAN_START)}. Costs with the category ${MARKETING_CATEGORY} count as ads; every other cost counts as running costs (tools, servers, AI, Meta fees and so on). It updates as soon as an entry is added or edited above.`;
+  if (!plan.months.length) {
+    return section("plan", "Against the plan", intro, `<p class="intro">The plan starts in ${esc(monthName(PLAN_START))}.</p>`);
+  }
+  const c = plan.current;
+  const head = `<thead><tr><th>Month</th><th>Ads</th><th>Running costs</th><th>Income</th><th>Profit / loss</th></tr></thead>`;
+  const tiles = c
+    ? `${tile("Spent this month", formatNaira(costsOf(c.actual!)), `of ${formatNaira(costsOf(c.planned))} planned for ${monthName(c.month)}`, costsOf(c.actual!) > costsOf(c.planned) ? "loss" : "")}
+${tile("Ads this month", formatNaira(c.actual!.adsKobo), `of ${formatNaira(c.planned.adsKobo)} planned`, c.actual!.adsKobo > c.planned.adsKobo ? "loss" : "")}
+${tile("Income this month", formatNaira(c.actual!.incomeKobo), `of ${formatNaira(c.planned.incomeKobo)} planned`)}`
+    : "";
+  return section(
+    "plan",
+    "Against the plan",
+    intro,
+    `<div class="tiles">
+${tiles}
+${tile(`Since ${monthName(PLAN_START)}`, signedNaira(plan.actual.netKobo), `the plan expected ${signedNaira(plan.planned.netKobo)} by the end of this month`, plan.actual.netKobo < plan.planned.netKobo ? "loss" : "")}
+</div>
+<div class="scroll"><table class="plans wide">${head}<tbody>${plan.months.map(planRow).join("")}</tbody></table></div>
+${
+  plan.ahead.length
+    ? `<details class="lines"><summary>The rest of the plan, to ${esc(monthName(plan.ahead[plan.ahead.length - 1]!.month))}</summary><div class="scroll"><table class="plans wide">${head}<tbody>${plan.ahead.map(planRow).join("")}</tbody></table></div></details>`
+    : ""
+}`,
   );
 }
 
@@ -471,7 +546,10 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     tile("Messages received", num(w.inbound30), "last 30 days", "", "?tab=products#whatsapp"),
   ].join("");
 
+  const plan = planComparison(profit);
+  const overPlan = plan?.current && costsOf(plan.current.actual!) > costsOf(plan.current.planned);
   const checks = [
+    ...(overPlan ? [["Spending this month is over the plan", "?tab=money#plan"]] : []),
     ...(costs && costs !== "error"
       ? costs.shops.filter((x) => x.losing).map((x) => [`${x.name} will cost more than it pays this month`, "?tab=money#costs"])
       : []),
@@ -505,7 +583,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
 
   const tabs: [DashboardTab, string, string][] = [
     ["overview", "Overview", `${needsLook}${toolCards}`],
-    ["money", "Money", `${profitSection(profit)}${costsSection(costs)}`],
+    ["money", "Money", `${profitSection(profit)}${planSection(plan)}${costsSection(costs)}`],
     ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${socials}`],
     ["products", "Products", `${whatsapp}${flyers}${quotes}${reporter}${leads}`],
   ];
@@ -548,6 +626,10 @@ a.tile .label:after { content:" ›"; color:var(--dim); }
 details.add { margin-top:16px; }
 details.add > summary { display:inline-block; padding:11px 18px; border-radius:10px; background:var(--limesoft); color:var(--lime); font:600 14px/1 var(--accent); border:1px solid rgba(198,255,31,.25); list-style:none; }
 details.add > summary::-webkit-details-marker { display:none; }
-details.add[open] > summary { margin-bottom:0; }`;
+details.add[open] > summary { margin-bottom:0; }
+td.actions { white-space:nowrap; }
+td.actions a { margin-right:12px; font-size:13px; }
+td.actions form { display:inline; }
+.entry .buttons { grid-column:1 / -1; display:flex; align-items:center; gap:18px; }`;
 
 export { pageShell };

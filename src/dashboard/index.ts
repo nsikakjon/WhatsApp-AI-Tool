@@ -14,7 +14,7 @@ import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok
 
 // The owner's analytics page at /dashboard. The browser asks for a password
 // (DASHBOARD_PASSWORD); any username works. It only reads from the database,
-// except for the profit and loss entries the owner adds or removes.
+// except for the profit and loss entries the owner adds, edits or removes.
 
 export interface DashboardDeps {
   password: string;
@@ -76,13 +76,14 @@ export function createDashboard(deps: DashboardDeps) {
         }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
+      const editId = Number(c.req.query("edit")) || undefined;
       const asked = c.req.query("tab") as DashboardTab | undefined;
       return c.html(
         renderDashboard(stats, {
           tab: asked && DASHBOARD_TABS.includes(asked) ? asked : "overview",
           socials,
           website,
-          profit: money && { pnl: money, now, problem },
+          profit: money && { pnl: money, now, problem, editId },
           costs,
           ads,
           planEditor: Boolean(deps.plans),
@@ -96,11 +97,11 @@ export function createDashboard(deps: DashboardDeps) {
     }
   });
 
-  // Adding and removing profit and loss entries. The browser re-sends the
+  // Adding, editing and removing profit and loss entries. The browser re-sends the
   // password to any site that posts a form here, so only forms sent from the
   // dashboard itself are accepted.
-  const backToMoney = (problem?: string) =>
-    `/dashboard?tab=money${problem ? `&problem=${encodeURIComponent(problem)}` : ""}#money`;
+  const backToMoney = (problem?: string, editId?: number) =>
+    `/dashboard?tab=money${editId ? `&edit=${editId}` : ""}${problem ? `&problem=${encodeURIComponent(problem)}` : ""}#${editId ? "edit" : "money"}`;
 
   app.post("/money", async (c) => {
     if (!deps.money || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
@@ -113,6 +114,23 @@ export function createDashboard(deps: DashboardDeps) {
     } catch (err) {
       log.error("Couldn't save a money line:", err);
       return c.redirect(backToMoney("Couldn't save that just now. Please try again."), 303);
+    }
+    return c.redirect(backToMoney(), 303);
+  });
+
+  app.post("/money/:id", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (!deps.money || !fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"))) {
+      return c.text("Not allowed.", 403);
+    }
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToMoney(), 303);
+    const line = parseMoneyForm(await c.req.parseBody());
+    if ("problem" in line) return c.redirect(backToMoney(line.problem, id), 303);
+    try {
+      await deps.money.update(id, line);
+    } catch (err) {
+      log.error("Couldn't change a money line:", err);
+      return c.redirect(backToMoney("Couldn't save that change just now. Please try again.", id), 303);
     }
     return c.redirect(backToMoney(), 303);
   });

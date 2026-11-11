@@ -35,6 +35,7 @@ export interface MoneyLine extends NewMoneyLine {
 export interface MoneyStore {
   list(): Promise<MoneyLine[]>;
   add(line: NewMoneyLine): Promise<void>;
+  update(id: number, line: NewMoneyLine): Promise<void>;
   remove(id: number): Promise<void>;
 }
 
@@ -111,7 +112,7 @@ export function usdToKobo(cents: number, usdRateKobo: number): number {
   return Number((BigInt(cents) * BigInt(usdRateKobo) + 50n) / 100n);
 }
 
-/** Turns the dashboard's "Add an entry" form into a line, or explains what's wrong. */
+/** Turns the dashboard's "Add an entry" or "Edit" form into a line, or explains what's wrong. */
 export function parseMoneyForm(form: Record<string, unknown>): NewMoneyLine | { problem: string } {
   const text = (name: string, max = 200) => {
     const value = form[name];
@@ -162,6 +163,21 @@ interface MoneyRow {
   notes: string | null;
 }
 
+function toRow(l: NewMoneyLine) {
+  return {
+    entry_date: l.date,
+    kind: l.kind,
+    item: l.item,
+    supplier: l.supplier,
+    category: l.category,
+    amount_minor: l.amountMinor,
+    currency: l.currency,
+    usd_rate_kobo: l.usdRateKobo,
+    amount_kobo: l.amountKobo,
+    notes: l.notes,
+  };
+}
+
 export function createSupabaseMoneyStore(db: SupabaseClient): MoneyStore {
   return {
     async list() {
@@ -184,19 +200,12 @@ export function createSupabaseMoneyStore(db: SupabaseClient): MoneyStore {
       }));
     },
     async add(l) {
-      const { error } = await db.from("money_lines").insert({
-        entry_date: l.date,
-        kind: l.kind,
-        item: l.item,
-        supplier: l.supplier,
-        category: l.category,
-        amount_minor: l.amountMinor,
-        currency: l.currency,
-        usd_rate_kobo: l.usdRateKobo,
-        amount_kobo: l.amountKobo,
-        notes: l.notes,
-      });
+      const { error } = await db.from("money_lines").insert(toRow(l));
       if (error) throw new Error(`Saving a money line failed: ${error.message}`);
+    },
+    async update(id, l) {
+      const { error } = await db.from("money_lines").update(toRow(l)).eq("id", id);
+      if (error) throw new Error(`Changing a money line failed: ${error.message}`);
     },
     async remove(id) {
       const { error } = await db.from("money_lines").delete().eq("id", id);

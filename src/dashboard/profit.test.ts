@@ -28,6 +28,9 @@ function memoryStore(lines: MoneyLine[] = []): MoneyStore & { lines: MoneyLine[]
     async add(l: NewMoneyLine) {
       this.lines.push({ ...l, id: this.lines.length + 1 });
     },
+    async update(id: number, l: NewMoneyLine) {
+      this.lines = this.lines.map((old) => (old.id === id ? { ...l, id } : old));
+    },
     async remove(id: number) {
       this.lines = this.lines.filter((l) => l.id !== id);
     },
@@ -151,6 +154,34 @@ describe("profit and loss on the dashboard", () => {
     const res = await app.request("/money", post("/money", { date: "2026-10-16", kind: "income", item: "x", amount: "", currency: "NGN" }));
     expect(res.headers.get("location")).toContain("problem=");
     expect(money.lines).toHaveLength(0);
+  });
+
+  it("opens an entry's edit form filled in with what was saved", async () => {
+    const meta = { ...line(3, "2026-11-02", "expense", 1200000, "One-off"), item: "Meta Ads", supplier: "Meta Ads" };
+    const { app } = setup([meta]);
+    const html = await (await app.request("/?tab=money&edit=3", { headers: auth })).text();
+    expect(html).toContain('action="/dashboard/money/3"');
+    expect(html).toContain('name="amount" inputmode="decimal" required placeholder="e.g. 4500 or 20.18" value="12000"');
+    expect(html).toContain('value="One-off"');
+    expect(html).toContain('value="2026-11-02"');
+  });
+
+  it("saves an edited entry, such as moving an ad payment to Marketing", async () => {
+    const { app, money } = setup([line(3, "2026-11-02", "expense", 1200000, "One-off")]);
+    const res = await app.request(
+      "/money/3",
+      post("/money/3", { date: "2026-11-02", kind: "expense", item: "Meta Ads", category: "Marketing", amount: "12000", currency: "NGN" }),
+    );
+    expect(res.headers.get("location")).toBe("/dashboard?tab=money#money");
+    expect(money.lines).toMatchObject([{ id: 3, category: "Marketing", amountKobo: 1200000 }]);
+  });
+
+  it("keeps the edit form open when a change can't be saved", async () => {
+    const { app, money } = setup([line(3, "2026-11-02", "expense", 1200000, "One-off")]);
+    const res = await app.request("/money/3", post("/money/3", { date: "2026-11-02", kind: "expense", item: "", amount: "1", currency: "NGN" }));
+    expect(res.headers.get("location")).toMatch(/^\/dashboard\?tab=money&edit=3&problem=.+#edit$/);
+    expect(money.lines[0].category).toBe("One-off");
+    expect((await app.request("/money/3", post("/money/3", {}, "https://evil.example"))).status).toBe(403);
   });
 
   it("removes an entry", async () => {
