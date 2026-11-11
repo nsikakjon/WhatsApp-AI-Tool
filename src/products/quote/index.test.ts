@@ -252,6 +252,39 @@ describe("quote product", () => {
     expect(again?.notify).toBeUndefined();
   });
 
+  it("asks a customer whose WhatsApp hides their number to share it, and puts it on the owner alert", async () => {
+    const hidden = (body: string, extra: Partial<IncomingMessage> = {}): IncomingMessage => ({ ...text(body), from: "NG.1349120865530274", ...extra });
+    const bot = (intent: "quote" | "confirm") =>
+      createQuoteProduct({
+        businessName: "KahnPrints",
+        orderPrefix: "KP",
+        ownerWaId: OWNER,
+        catalog: { activeVariants: async () => variants },
+        orders: mem.store,
+        ai: { understand: async () => ({ intent, items: [{ variantId: "v-flyer", quantity: 100 }], message: null }) },
+        renderDocument: fakeDocuments().render,
+      });
+    const mem = memoryOrders();
+    await bot("quote").handle(hidden("100 flyers"), ctx);
+    const asked = await bot("confirm").handle(hidden("yes"), ctx);
+    expect(asked?.contactRequest).toBe("Your WhatsApp hides your phone number. Tap the button below to share it, so KahnPrints can call you about this order if needed.");
+    expect(asked?.notify?.[0]?.text).toContain("New order KP-1001 from Ada (number hidden)");
+
+    // Their tap comes back as a contact card, which the core has already saved.
+    const shared = { ...ctx, sharedPhone: "2348031112222" };
+    const card = hidden("", { type: "contacts", text: undefined, sharedContacts: [{ name: "Ada", phone: "2348031112222" }] });
+    expect((await bot("quote").handle(card, shared))?.text).toBe("Thank you, we've saved your number (+2348031112222) for your orders.");
+
+    await bot("quote").handle(hidden("100 flyers"), shared);
+    const next = await bot("confirm").handle(hidden("yes"), shared);
+    expect(next?.contactRequest).toBeUndefined();
+    expect(next?.notify?.[0]?.text).toContain("New order KP-1002 from Ada (+2348031112222)");
+
+    // Customers whose WhatsApp ID is their number are never asked.
+    await bot("quote").handle(text("100 flyers"), ctx);
+    expect((await bot("confirm").handle(text("yes"), ctx))?.contactRequest).toBeUndefined();
+  });
+
   it("puts a discount code's line on the owner alert and the invoice", async () => {
     const quote = setup({ intent: "quote", items: [{ variantId: "v-flyer", quantity: 100 }], message: null });
     await quote.product.handle(text("100 flyers"), ctx);

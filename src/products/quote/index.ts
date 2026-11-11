@@ -22,7 +22,7 @@ import type { PlanFeatures } from "./features.js";
 import type { PlanGate } from "./plan.js";
 import type { BrandingStore, CatalogStore, OrderDetails, OrderStore, SavedOrder } from "./store.js";
 import type { Understander } from "./understand.js";
-import { showWaId } from "../../core/whatsapp/ids.js";
+import { isPhoneNumber, showWaId } from "../../core/whatsapp/ids.js";
 import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
 import { declineKind } from "./decline.js";
 import type { EventTickets } from "./tickets/index.js";
@@ -225,6 +225,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         if (proof) return proof;
       }
 
+      // A customer whose WhatsApp hides their number has just shared it (the core saved it).
+      if (msg.type === "contacts" && ctx.sharedPhone && !isPhoneNumber(msg.from)) return { text: t.numberSaved(`+${ctx.sharedPhone}`) };
+
       // Voice notes arrive here with `text` already filled in by the core.
       if (msg.type === "audio" && opts.features && !(await opts.features.has("voice_notes"))) {
         return { text: t.voiceNotOnLine() };
@@ -310,11 +313,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       let reply: Reply;
       switch (understanding.intent) {
         case "quote":
-          reply = walkIn.paused ? closedReply(t) : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t);
+          reply = walkIn.paused ? closedReply(t) : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone);
           if (!understanding.items.length) reply.stage = "unclear";
           break;
         case "confirm":
-          reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang);
+          reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang, ctx.sharedPhone);
           // Out of hours, the customer knows the order waits for opening time.
           if (!walkIn.on) await addClosedNote(reply, lang);
           break;
@@ -616,6 +619,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     name: string | undefined,
     waId: string,
     t: QuoteTexts,
+    phone?: string,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
@@ -646,7 +650,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         ? [
             {
               to: opts.ownerWaId,
-              text: [own.manualQuote(name ?? own.aCustomer(), `+${waId}`), ...manual.map((m) => `• ${m}`)].join("\n"),
+              text: [own.manualQuote(name ?? own.aCustomer(), showWaId(phone ?? waId)), ...manual.map((m) => `• ${m}`)].join("\n"),
             },
           ]
         : undefined;
@@ -681,8 +685,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     walkIn: WalkInMode,
     t: QuoteTexts,
     lang: Lang,
+    phone?: string,
   ): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
+    const number = showWaId(phone ?? waId);
+    // The owner, rider and courier need a number to call, which a WhatsApp username hides.
+    const askNumber = isPhoneNumber(waId) || phone ? undefined : t.shareNumber(opts.businessName);
     const noQuote = { text: t.noQuoteWaiting() };
     if (!order) return noQuote;
 
@@ -696,7 +704,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         {
           to: opts.ownerWaId,
           text: [
-            own.wantsToOrder(name ?? own.aCustomer(), `+${waId}`, ref(order)),
+            own.wantsToOrder(name ?? own.aCustomer(), number, ref(order)),
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
             ...(order.discount ? [discountLine(order.discount, money)] : []),
             own.total(money(order.totalKobo)),
@@ -717,8 +725,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const ticketsOnly = await isTicketsOnly(order);
     const dispatch = !ticketsOnly && !walkIn.on && opts.delivery && (await deliveryOnPlan()) ? opts.delivery : undefined;
     if (dispatch) {
-      const ask = await dispatch.beforeConfirm(order, { waId, name }, lang);
-      if (ask) return ask;
+      const ask = await dispatch.beforeConfirm(order, { waId, name, phone }, lang);
+      if (ask) return ask.locationRequest && askNumber ? { ...ask, contactRequest: askNumber } : ask;
     }
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
     const lowStock = (await opts.catalogue?.confirmed(order.id, order.lines)) ?? [];
@@ -755,6 +763,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           ? `${t.confirmedTotal(ref(order), total, next)}${payLine ? `\n\n${payLine}` : ""}`
           : t.confirmedContact(ref(order), total, opts.businessName, !dispatch),
       ...(invoice ? { images: [invoice] } : {}),
+      // With delivery, the number was asked for with the address.
+      ...(askNumber && !dispatch ? { contactRequest: askNumber } : {}),
     };
     const creditLine = await credit(t);
     if (creditLine) reply.text += `\n\n${creditLine}`;
@@ -764,7 +774,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         {
           to: opts.ownerWaId,
           text: [
-            own.newOrder(!!spot, ref(order), name ?? own.aCustomer(), `+${waId}`, spot?.table ?? null),
+            own.newOrder(!!spot, ref(order), name ?? own.aCustomer(), number, spot?.table ?? null),
             ...order.lines.map((l) => `• ${l.quantity} x ${l.name} = ${money(l.totalKobo)}`),
             ...(order.discount ? [discountLine(order.discount, money)] : []),
             ...(delivery ? [`• ${delivery.label} = ${money(delivery.feeKobo)}`] : []),

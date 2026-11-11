@@ -32,7 +32,8 @@ export interface DeliveryTexts {
   replyRider(label: string, first: string, all: string): string;
   aCustomer: string;
   theCustomer: string;
-  outsideZones(label: string, who: string, waId: string, where: string): string;
+  /** `number` is ready to show: "+234…" or "number hidden". */
+  outsideZones(label: string, who: string, number: string, where: string): string;
   replyFee(label: string, currencyName: string): string;
   yourRiders: string;
   noRiders: string;
@@ -119,7 +120,7 @@ const en: DeliveryTexts = {
   replyRider: (l, first, all) => `To send it out, reply *rider ${l} ${first}* (your riders: ${all}).`,
   aCustomer: "a customer",
   theCustomer: "The customer",
-  outsideZones: (l, who, w, where) => `${l}: ${who} (+${w}) wants delivery to ${where}, which isn't in any of your delivery zones.`,
+  outsideZones: (l, who, w, where) => `${l}: ${who} (${w}) wants delivery to ${where}, which isn't in any of your delivery zones.`,
   replyFee: (l, c) => `Reply *fee ${l} 2500* with the delivery fee in ${c} (or *fee ${l} 0* for free delivery).`,
   yourRiders: "Your riders:",
   noRiders: "You haven't added any riders yet. Send *add rider Musa 0803 123 4567*.",
@@ -227,7 +228,7 @@ const fr: DeliveryTexts = {
   replyRider: (l, first, all) => `Pour l'envoyer, répondez *rider ${l} ${first}* (vos livreurs : ${all}).`,
   aCustomer: "un client",
   theCustomer: "Le client",
-  outsideZones: (l, who, w, where) => `${l} : ${who} (+${w}) veut être livré à ${where}, qui n'est dans aucune de vos zones de livraison.`,
+  outsideZones: (l, who, w, where) => `${l} : ${who} (${w}) veut être livré à ${where}, qui n'est dans aucune de vos zones de livraison.`,
   replyFee: (l, c) => `Répondez *fee ${l} 2500* avec les frais de livraison en ${c} (ou *fee ${l} 0* pour une livraison gratuite).`,
   yourRiders: "Vos livreurs :",
   noRiders: "Vous n'avez pas encore ajouté de livreur. Envoyez *add rider Moussa +225 07 12 34 56 78*.",

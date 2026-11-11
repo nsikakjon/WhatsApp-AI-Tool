@@ -6,7 +6,7 @@ import type { Notice } from "../../../core/product.js";
 import type { TrackingLinks } from "./index.js";
 import type { Lang } from "../../../core/i18n.js";
 import { riderStep, type RiderStep, type TemplateName } from "./status.js";
-import type { Delivery, DeliveryStore } from "./store.js";
+import { customerPhone, type Delivery, type DeliveryStore } from "./store.js";
 import { mapLink } from "./zones.js";
 import { courierStep, isValidShipbubbleSignature } from "./shipbubble.js";
 
@@ -282,6 +282,7 @@ function customerPage(d: Delivery) {
 }
 
 function riderPage(d: Delivery) {
+  const phone = customerPhone(d);
   return page(
     `${d.orderRef} job`,
     html`<header><p class="crumb">${d.riderName ?? "Rider"}</p><h1>${d.orderRef} for ${d.businessName}</h1></header>
@@ -289,7 +290,7 @@ function riderPage(d: Delivery) {
   <div class="card">
     <div><strong>Deliver to:</strong> ${d.address ?? "the pinned location"}</div>
     <div><a href="${mapLink(d)}">Open in Google Maps</a></div>
-    <div><strong>Customer:</strong> ${d.customerName ?? ""} <a href="tel:+${d.customerWaId}">+${d.customerWaId}</a></div>
+    <div><strong>Customer:</strong> ${d.customerName ?? ""} ${phone ? html`<a href="tel:+${phone}">+${phone}</a>` : "(number hidden)"}</div>
   </div>
   <div class="card">
     <button class="primary" id="share">Start sharing my location</button>
