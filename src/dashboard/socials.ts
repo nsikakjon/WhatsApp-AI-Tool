@@ -85,21 +85,37 @@ export function createSocials(opts: SocialsOptions): SocialsSource {
     }
     const graph = `https://graph.facebook.com/${meta.graphApiVersion}`;
 
+    const failed = (problem: string): SocialAccount[] => [
+      { name: "Instagram", url: INSTAGRAM_URL, status: "error", stats: [], problem },
+      { name: "Facebook", url: FACEBOOK_URL, status: "error", stats: [], problem },
+    ];
+
+    // Meta only lets the Page's own token read its followers and likes, so
+    // first swap the system user token for the Page's token.
+    let pageToken: string;
+    try {
+      const access = await getJson(
+        `${graph}/${encodeURIComponent(meta.pageId)}?fields=access_token&access_token=${encodeURIComponent(meta.token)}`,
+      );
+      if (!access.access_token) {
+        return failed(
+          "The system user can't act for this Page yet: in Business settings > System users, assign it the Page (full control), then generate a new token.",
+        );
+      }
+      pageToken = access.access_token;
+      secrets.push(pageToken);
+    } catch (err) {
+      return failed(`Meta said: ${reason(err)}`);
+    }
+
     let page: any;
     try {
       page = await getJson(
-        `${graph}/${encodeURIComponent(meta.pageId)}?fields=access_token,followers_count,fan_count,instagram_business_account&access_token=${encodeURIComponent(meta.token)}`,
+        `${graph}/${encodeURIComponent(meta.pageId)}?fields=followers_count,fan_count,instagram_business_account&access_token=${encodeURIComponent(pageToken)}`,
       );
     } catch (err) {
-      const problem = `Meta said: ${reason(err)}`;
-      return [
-        { name: "Instagram", url: INSTAGRAM_URL, status: "error", stats: [], problem },
-        { name: "Facebook", url: FACEBOOK_URL, status: "error", stats: [], problem },
-      ];
+      return failed(`Meta said: ${reason(err)}`);
     }
-    // The Page's own token can read things the system user token can't (insights).
-    const pageToken: string = page.access_token ?? meta.token;
-    if (page.access_token) secrets.push(page.access_token);
 
     const facebook: SocialAccount = {
       name: "Facebook",
