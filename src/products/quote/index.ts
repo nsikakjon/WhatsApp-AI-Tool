@@ -324,11 +324,18 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         case "cancel":
           reply = await cancel(ctx.contactId, t);
           break;
-        case "catalogue":
-          reply = (opts.catalogue && (await opts.catalogue.cards(variants, 1, understanding.show, lang))) || {
-            text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t),
-          };
+        case "catalogue": {
+          const message = simple ? understanding.message : safeMessage(understanding.message);
+          // A tap on a card's Order button names the product without a number: ask how many, don't show the card again.
+          const cards = opts.catalogue && !(message && isOrderTap(msg.text, variants)) ? await opts.catalogue.cards(variants, 1, understanding.show, lang) : null;
+          // Cards for the products they named come with the AI's question, e.g. "How many flyers do you need?".
+          if (cards && message && understanding.show?.length) {
+            if (cards.carousel) cards.carousel.body = message;
+            else cards.text = message;
+          }
+          reply = cards || { text: message ?? defaultHelp(variants, t) };
           break;
+        }
         default:
           // The simple replies are written in code, not by the AI, so they can list items freely.
           reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t), stage: "unclear" };
@@ -1035,6 +1042,12 @@ const MONEY =
 function namesAnItem(text: string, variants: Array<{ name: string }>): boolean {
   const words = new Set(text.toLowerCase().match(/\p{L}{4,}/gu) ?? []);
   return variants.some((v) => (v.name.toLowerCase().match(/\p{L}{4,}/gu) ?? []).some((w) => words.has(w)));
+}
+
+/** "I'd like T-shirts": what a card's Order button sends, naming one product on the price list. */
+function isOrderTap(text: string, variants: Variant[]): boolean {
+  const named = text.trim().match(/^(?:I'd like|Je voudrais) (.+)$/i)?.[1]?.toLowerCase();
+  return !!named && variants.some((v) => v.name.split(":")[0]!.trim().toLowerCase() === named);
 }
 
 export function safeMessage(message: string | null): string | null {

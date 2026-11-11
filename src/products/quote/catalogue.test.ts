@@ -84,8 +84,8 @@ function bot(opts: { onPlan?: boolean; quantity?: number } = {}) {
       understand: async ({ text }) =>
         /^yes$/i.test(text)
           ? { intent: "confirm", items: [], message: null }
-          : /catalogue$|mugs\?/i.test(text)
-          ? { intent: "catalogue", items: [], show: /mugs/i.test(text) ? ["v-mug"] : [], message: "We sell T-shirts and mugs." }
+          : /catalogue$|mugs\?|^i want mugs|^i'd like mugs/i.test(text)
+          ? { intent: "catalogue", items: [], show: /mugs/i.test(text) ? ["v-mug"] : [], message: /mugs/i.test(text) ? "How many mugs would you like?" : "We sell T-shirts and mugs." }
           : {
               intent: "quote",
               items: [
@@ -168,6 +168,17 @@ describe("product cards", () => {
     const { product } = bot();
     const reply = await product.handle(msg(CUSTOMER, "how much are your mugs?"), ctx);
     expect(reply?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Mugs*"]);
+  });
+
+  it("shows the card of a product the customer names without a number, and asks how many", async () => {
+    const { product } = bot();
+    const reply = await product.handle(msg(CUSTOMER, "I want mugs"), ctx);
+    expect(reply?.text).toBe("How many mugs would you like?");
+    expect(reply?.cards?.map((c) => c.body.split("\n")[0])).toEqual(["*Mugs*"]);
+
+    // A tap on that card's Order button gets the question, not the same card again.
+    const tapped = await product.handle(msg(CUSTOMER, "I'd like Mugs"), ctx);
+    expect(tapped).toEqual({ text: "How many mugs would you like?" });
   });
 
   it("sends cards without photos on a plan without them", async () => {
