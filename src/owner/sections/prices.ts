@@ -221,6 +221,7 @@ document.querySelectorAll("[data-scan-into]").forEach((b) => {
   b.addEventListener("click", () => scanBarcodes((code) => { document.querySelector('[name="' + b.dataset.scanInto + '"]').value = code; }, false));
 });
 </script>` : ""}
+${product && ctx.can(c, "tools") ? `<p style="margin-top:24px"><a class="button ghost small" href="/home/flyers?p=${product.id}">Make a flyer for this product</a></p>` : ""}
 ${product && !readOnly ? `<form method="post" action="/home/prices/${product.id}/remove" style="margin-top:24px"><button class="danger small">Take this product off the price list</button></form>` : ""}`,
       problems.length ? 400 : 200,
     );

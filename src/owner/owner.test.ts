@@ -9,6 +9,7 @@ import { createOwnerApp } from "./index.js";
 import { barcodesTaken, readProductForm } from "./sections/prices.js";
 import { barcodeKey } from "./scanner.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
+import { flyerNumber, flyerPrice } from "./sections/flyers.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
 import { taxCsv, taxMonths, taxTotal, vatInside, yearMonths } from "./sections/tax.js";
 import { withOrders } from "./sections/ads.js";
@@ -1040,5 +1041,66 @@ describe("ads page", () => {
     const cookie = await login(off, OWNER);
     expect((await get(off, "/ads", cookie)).status).toBe(404);
     expect(await (await get(off, "/", cookie)).text()).not.toContain("/home/ads");
+  });
+});
+
+describe("business flyers", () => {
+  const tier = (unitPriceKobo: number, minQuantity = 1) => ({ minQuantity, unitPriceKobo });
+  const option = (tiers: Array<{ minQuantity: number; unitPriceKobo: number }>, stock: number | null = null, minQuantity = 1) => ({ name: "Standard", minQuantity, stock, tiers });
+  const product = (options: ReturnType<typeof option>[]) => ({ name: "Mug", description: null, category: null, unit: null, leadTimeDays: null, active: true, options });
+
+  it("prices a product from the price list: exact for one price, lowest for several", () => {
+    expect(flyerPrice(product([option([tier(300000)])]))).toEqual({ kobo: 300000, from: false });
+    expect(flyerPrice(product([option([tier(300000), tier(250000, 50)])]))).toEqual({ kobo: 250000, from: true });
+    expect(flyerPrice(product([option([tier(300000)]), option([tier(450000)])]))).toEqual({ kobo: 300000, from: true });
+    // Sold out and unpriced options don't count.
+    expect(flyerPrice(product([option([tier(100000)], 0), option([tier(450000)])]))).toEqual({ kobo: 450000, from: false });
+    expect(flyerPrice(product([option([])]))).toBeNull();
+  });
+
+  it("writes the number the way customers dial it", () => {
+    expect(flyerNumber("2347048971600")).toBe("0704 897 1600");
+    expect(flyerNumber("254712345678")).toBe("+254 712345678");
+  });
+
+  it("makes a flyer from ticked products and shows it on every design", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    const id = await s.prices.save(null, product([option([tier(300000)])]));
+    const page = await (await get(s, `/flyers?p=${id}`, cookie)).text();
+    expect(page).toContain(`value="${id}" checked`);
+    expect(page).toContain("₦3,000");
+
+    const body = new FormData();
+    body.set("headline", "Weekend offer");
+    body.set("product", id);
+    body.set("prices", "on");
+    body.set("colour", "#e8541e");
+    const made = await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    expect(made.status).toBe(303);
+    const at = made.headers.get("location")!;
+    expect(at).toMatch(/^\/home\/flyers\/[0-9a-f]{24}$/);
+    const path = at.replace("/home", "");
+    const designs = await (await get(s, path, cookie)).text();
+    for (const d of ["spotlight", "grid", "menu", "bold", "snapshots", "glass"]) expect(designs).toContain(`${at}/${d}.jpg?small=1`);
+    const jpg = await get(s, `${path}/grid.jpg`, cookie);
+    expect(jpg.headers.get("content-type")).toBe("image/jpeg");
+    expect(new Uint8Array(await jpg.arrayBuffer())[0]).toBe(0xff);
+    expect(await (await get(s, `${path}/grid`, cookie)).text()).toContain("Download");
+    expect(await (await get(s, `/flyers?from=${path.split("/")[2]}`, cookie)).text()).toContain('value="Weekend offer"');
+    // Unknown flyers and designs.
+    expect((await get(s, "/flyers/nope", cookie)).status).toBe(404);
+    expect((await get(s, `${path}/nope.jpg`, cookie)).status).toBe(404);
+  }, 20_000);
+
+  it("asks for something to show, and keeps riders out", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    const body = new FormData();
+    body.set("headline", "Weekend offer");
+    const res = await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("Tick a product or add a picture.");
+    expect(await (await get(s, "/flyers", await login(s, STAFF, "rider"))).text()).toContain("Not for your role");
   });
 });

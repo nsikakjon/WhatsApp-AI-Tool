@@ -22,6 +22,7 @@ import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTax } from "./sections/tax.js";
 import { registerAds } from "./sections/ads.js";
+import { registerFlyers } from "./sections/flyers.js";
 import { registerTools } from "./sections/tools.js";
 import { registerVerify } from "./sections/verify.js";
 import { can, ROLE_LABEL, type Permission } from "./roles.js";
@@ -343,6 +344,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerPay(app, ctx);
   registerMonthly(app, ctx);
   registerTools(app, ctx);
+  registerFlyers(app, ctx);
   registerTax(app, ctx);
   registerAds(app, ctx);
   registerVerify(app, ctx);

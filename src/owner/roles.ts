@@ -30,7 +30,7 @@ export type Permission =
   | "see_prices" // the price list, read only
   | "counter" // ring up a walk-in shopper's sale (QUOTE_COUNTER_SALES)
   | "edit_prices" // add and change products, prices and stock
-  | "tools" // test the bot (each test is an AI cost) and QR posters
+  | "tools" // test the bot (each test is an AI cost), QR posters and flyers
   | "pay_out"; // pay riders and staff from the payout balance (QUOTE_PAYOUTS); bank details stay owner-only
 
 const GRANTS: Record<Role, ReadonlySet<Permission>> = {
