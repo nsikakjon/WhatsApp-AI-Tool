@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AccountDirectory } from "../core/whatsapp/templates.js";
 
 export interface Connection {
   phoneNumberId: string;
@@ -32,6 +33,18 @@ export function createSupabaseConnectionStore(db: SupabaseClient): ConnectionSto
       if (error) throw new Error(`Saving the connected number failed: ${error.message}`);
     },
   };
+}
+
+/** Every number connected on /signup with its account and key, for making its message templates. */
+export function createConnectionDirectory(db: SupabaseClient): AccountDirectory {
+  const read = async (phoneNumberId?: string) => {
+    let q = db.from("whatsapp_connections").select("phone_number_id, waba_id, business_token");
+    if (phoneNumberId) q = q.eq("phone_number_id", phoneNumberId);
+    const { data, error } = await q;
+    if (error) throw new Error(`Reading whatsapp_connections failed: ${error.message}`);
+    return (data ?? []).map((r) => ({ phoneNumberId: r.phone_number_id as string, wabaId: r.waba_id as string, token: r.business_token as string }));
+  };
+  return { get: async (phoneNumberId) => (await read(phoneNumberId))[0] ?? null, list: () => read() };
 }
 
 /**

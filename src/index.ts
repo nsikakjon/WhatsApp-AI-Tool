@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { Lang } from "./core/i18n.js";
 import { formatNaira, type Currency } from "./core/money.js";
 import { serve } from "@hono/node-server";
@@ -120,7 +121,8 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
-import { createConnectionAccounts, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createConnectionAccounts, createConnectionDirectory, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
+import { createTemplateProvisioner } from "./core/whatsapp/templates.js";
 import { signupLink } from "./signup/index.js";
 import { connectSignedUpBusiness } from "./products/quote/connect.js";
 import { phoneDetails, registerNumber } from "./signup/meta.js";
@@ -288,6 +290,17 @@ const discountsFor = (businessId: string) => (config.quoteDiscountCodes ? create
 // is exactly as before.
 const broadcastConfig = config.broadcasts;
 const broadcastStore = broadcastConfig ? createSupabaseBroadcasts(supabase) : undefined;
+// Shops that connect their own number get the broadcast templates made in their own WhatsApp account,
+// and the ones already connected are checked every hour.
+const broadcastTemplates =
+  broadcastConfig && config.signup
+    ? createTemplateProvisioner({
+        app: { appId: config.signup.appId, appSecret: config.whatsapp.appSecret, graphApiVersion: config.whatsapp.graphApiVersion },
+        templates: { language: broadcastConfig.template.language, text: broadcastConfig.template.name, image: broadcastConfig.imageTemplateName },
+        accounts: createConnectionDirectory(supabase),
+        sample: async () => ({ data: await readFile(new URL("../assets/email/hero-flyers.jpg", import.meta.url)), mimeType: "image/jpeg" }),
+      })
+    : undefined;
 // Messages a month: the business's own broadcast_addons row, else its plan's
 // number. A branch has no plan of its own, so it gets a row or buys packs.
 async function broadcastLimit(businessId: string, branch: boolean): Promise<number | null> {
@@ -1242,9 +1255,10 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               return plan && { name: plan.name, orderLimit: plan.monthlyOrderLimit };
             },
             topUps: planParts.topUps,
-            // "Send to my customers" on a flyer: needs broadcasts with the picture template (BROADCAST_IMAGE_TEMPLATE_NAME).
+            // "Send to my customers" on a flyer: needs broadcasts with the picture template (BROADCAST_IMAGE_TEMPLATE_NAME),
+            // approved in the number's own WhatsApp account when the shop connected its own.
             sendFlyer:
-              broadcastConfig?.imageTemplateName && broadcastStore
+              broadcastConfig?.imageTemplateName && broadcastStore && (main || !broadcastTemplates || (await broadcastTemplates.ready(numberId)))
                 ? (() => {
                     const pictures = createPictureBroadcasts({ businessId: id, businessName: name, fromNumberId: main ? null : numberId, store: broadcastStore, monthlyLimit: (b) => broadcastLimit(b, Boolean(row?.branchOf)) });
                     return {
@@ -1385,6 +1399,9 @@ const app = createApp({
       },
       configId: config.signup.configId,
       store: createSupabaseConnectionStore(supabase),
+      afterConnect: broadcastTemplates
+        ? (c) => broadcastTemplates.ensure({ phoneNumberId: c.phoneNumberId, wabaId: c.wabaId, token: c.businessToken })
+        : undefined,
       // A newly connected number becomes a switched-off quote business, so it
       // shows on /quote-setup and the bot stays quiet on it until it's set up.
       onConnected: quoteBusinesses
@@ -1698,6 +1715,8 @@ if (flyerBot && flyerConfig) {
     }),
   );
 }
+
+if (broadcastTemplates) runEvery(60 * 60 * 1000, () => broadcastTemplates.sweep());
 
 // Every minute, send the next few messages of any confirmed broadcasts.
 if (broadcastConfig && broadcastStore) {

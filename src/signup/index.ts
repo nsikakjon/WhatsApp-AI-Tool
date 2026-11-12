@@ -17,6 +17,8 @@ export interface SignupDeps {
   /** The "Facebook Login for Business" configuration made for Embedded Signup. */
   configId: string;
   store: ConnectionStore;
+  /** Runs once a number is saved, e.g. to make its message templates. A failure here never fails the sign-up. */
+  afterConnect?: (connection: Connection) => Promise<void>;
   /** Adds the number to yarnOga as a switched-off business; true if it was new. */
   onConnected?: (connection: Connection) => Promise<boolean>;
   /**
@@ -109,6 +111,7 @@ export function createSignup(deps: SignupDeps) {
       return c.json({ error: "Meta didn't accept the connection." }, 502);
     }
     log.info(`Connected WhatsApp number ${phoneNumberId} (account ${wabaId}, coexistence: ${coexistence})`);
+    void deps.afterConnect?.(connection).catch((err) => log.error(`Couldn't run the steps after connecting ${phoneNumberId}:`, err));
 
     const businessId = linkedBusiness(body.business, body.token);
     if (businessId) {

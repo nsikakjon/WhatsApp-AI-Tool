@@ -118,6 +118,8 @@ sample picture for the review). The body and button are the same.
 
 With the picture template set, the owner app's Flyers page also gets a **Send to your customers** box on each finished flyer: the owner types a message and the flyer goes to everyone who opted in, counted against the same messages, with message packs to buy when there aren't enough.
 
+**Shops that connect their own number.** Templates belong to one WhatsApp account, so the two above only work from our numbers. With broadcasts on and `META_SIGNUP_CONFIG_ID` set, yarnOga makes both templates (same wording, Marketing, `Stop promotions` button, a sample picture for the picture one) in a shop's own account when it connects, and checks every connected shop once an hour, which also covers shops connected earlier. Meta still has to approve them, which takes minutes to a day: until the picture template is approved in a shop's own account, its owner app hides **Send to your customers**. A template Meta turns down is left alone and logged, because making it again under the same name would be refused. The text-only broadcast typed in WhatsApp (`broadcast ...`) does not wait for approval, so on a shop's own account it can fail until its templates are approved.
+
 ### 4. Switch it on (Railway)
 
 Add these Variables:
