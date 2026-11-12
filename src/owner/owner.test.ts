@@ -1170,3 +1170,44 @@ describe("business flyers on a plan with a monthly number", () => {
     expect(await (await s.app.request(`https://${HOST}/flyers/pack`, post({ pack: "flyers-10" }, staff))).text()).toContain("Only the business owner");
   }, 20_000);
 });
+
+describe("sending a flyer to customers", () => {
+  async function flyerPage(s: ReturnType<typeof setup>, cookie: string) {
+    const id = await s.prices.save(null, { name: "Mug", description: null, category: null, unit: null, leadTimeDays: null, active: true, options: [{ name: "Standard", minQuantity: 1, stock: null, tiers: [{ minQuantity: 1, unitPriceKobo: 300000 }] }] });
+    const body = new FormData();
+    body.set("headline", "Weekend offer");
+    body.set("product", id);
+    const made = await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    return `${made.headers.get("location")!.replace("/home", "")}/grid`;
+  }
+
+  it("sends the flyer and the owner's message to everyone opted in, owners only", async () => {
+    const send = vi.fn(async () => ({ outcome: "queued" as const, id: 7, recipients: 12 }));
+    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 12, left: 40 }), send } });
+    const cookie = await login(s, OWNER);
+    const page = await flyerPage(s, cookie);
+    const html = await (await get(s, page, cookie)).text();
+    expect(html).toContain("Send to 12 customers");
+    expect(html).toContain("40 messages left this month");
+    const res = await s.app.request(`https://${HOST}${page}/send`, post({ message: "Weekend offer on mugs" }, cookie));
+    expect(res.headers.get("location")).toBe(`/home${page}?msg=flyer_sent`);
+    const [message, jpeg, waId] = send.mock.calls[0] as unknown as [string, Uint8Array, string];
+    expect(message).toBe("Weekend offer on mugs");
+    expect(jpeg[0]).toBe(0xff);
+    expect(waId).toBe(OWNER);
+
+    const staff = await login(s, STAFF, "manager");
+    expect(await (await get(s, page, staff)).text()).not.toContain("Send to your customers");
+    expect(await (await s.app.request(`https://${HOST}${page}/send`, post({ message: "x" }, staff))).text()).toContain("Only the business owner");
+    expect(send).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  it("explains how customers opt in when nobody has, and hides it when broadcasts are off", async () => {
+    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 0, left: 40 }), send: vi.fn() } });
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, await flyerPage(s, cookie), cookie)).text()).toContain("send <b>JOIN</b>");
+    const off = setup();
+    const offCookie = await login(off, OWNER);
+    expect(await (await get(off, await flyerPage(off, offCookie), offCookie)).text()).not.toContain("Send to your customers");
+  }, 20_000);
+});

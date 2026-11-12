@@ -17,6 +17,8 @@ export interface WhatsAppClient {
     image: OutgoingImage,
     fromNumberId?: string,
   ): Promise<{ waMessageId: string; raw: unknown }>;
+  /** Uploads a picture to WhatsApp without sending it, and returns its media ID (kept by WhatsApp for 30 days). */
+  uploadImage(image: OutgoingImage, fromNumberId?: string): Promise<string>;
   /**
    * Sends a pre-approved template message, the only kind WhatsApp delivers
    * more than 24 hours after the person last messaged us.
@@ -245,6 +247,8 @@ export function createWhatsAppClient(opts: WhatsAppClientOptions): WhatsAppClien
     async sendText(to, body, fromNumberId) {
       return send(fromNumberId, { to, type: "text", text: { preview_url: false, body } });
     },
+
+    uploadImage: (image, fromNumberId) => uploadImage(fromNumberId, image),
 
     async sendImage(to, image, fromNumberId) {
       const mediaId = await uploadImage(fromNumberId, image);

@@ -66,6 +66,11 @@ export interface AppBusiness {
     packs(): Promise<AiPack[]>;
     link(packCode: string, waId: string): Promise<{ url: string } | null>;
   };
+  /** Sending a flyer to the customers who opted in to offers (broadcasts with a picture template); without it the button is hidden. */
+  sendFlyer?: {
+    reach(): Promise<{ optedIn: number; left: number } | null>;
+    send(body: string, jpeg: Uint8Array, waId: string): Promise<{ outcome: "queued"; id: number; recipients: number } | { outcome: "not_on_plan" | "nobody" | "limit_reached" }>;
+  };
   /** How many business flyers the plan makes a month, and flyer packs (migration 0082); without it flyers have no limit. */
   flyers?: import("../products/quote/flyer-packs.js").FlyerAllowance;
   /** Bot messages sent this month and the plan's allowance (null = no cap). */

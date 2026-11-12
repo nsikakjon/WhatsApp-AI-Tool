@@ -30,7 +30,7 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
-import { finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
+import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseDemoFollowUps, sendDemoFollowUps } from "./products/quote/demo-followup.js";
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
@@ -1226,6 +1226,18 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               return plan && { name: plan.name, orderLimit: plan.monthlyOrderLimit };
             },
             topUps: planParts.topUps,
+            // "Send to my customers" on a flyer: needs broadcasts with the picture template (BROADCAST_IMAGE_TEMPLATE_NAME).
+            sendFlyer:
+              broadcastConfig?.imageTemplateName && broadcastStore
+                ? (() => {
+                    const pictures = createPictureBroadcasts({ businessId: id, businessName: name, fromNumberId: main ? null : numberId, store: broadcastStore });
+                    return {
+                      reach: () => pictures.reach(),
+                      send: async (body: string, jpeg: Uint8Array, waId: string) =>
+                        pictures.send(body, await whatsapp.uploadImage({ data: jpeg, mimeType: "image/jpeg" }, numberId), waId),
+                    };
+                  })()
+                : undefined,
             flyers: features
               ? createFlyerAllowance({
                   businessId: id,
