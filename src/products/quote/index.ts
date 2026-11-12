@@ -1014,7 +1014,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     t: QuoteTexts = own,
     lang: Lang = businessLang,
     /** Paid through our pay link, so the business's bank details stay off the invoice and nobody pays round the link. */
-    payOnline = !!opts.payLink,
+    payOnline = false,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
