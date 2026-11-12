@@ -809,6 +809,11 @@ describe("counter sales", () => {
       expect(counter).toContain('href="/home/till"');
       expect(counter).toContain("Open the till");
       expect(counter).not.toContain("Till (works offline)");
+      // The rest of the menu sits under four headings, in the side menu and in the phone's "More".
+      for (const head of ["Selling", "Money", "Marketing", "Setup"]) {
+        expect(counter).toContain(`<p class="navhead">${head}</p>`);
+        expect(counter).toContain(`<p class="sheethead">${head}</p>`);
+      }
       expect(counter).toContain("offline till");
       expect(counter).toContain("sold 2 more than the stock showed");
       expect(counter).toContain("charged ₦480 each; the price list says ₦500");
