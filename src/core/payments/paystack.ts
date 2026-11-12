@@ -195,6 +195,22 @@ export function createPaystackBanks(config: PaystackConfig, fetchImpl: typeof fe
       const body = (await res.json().catch(() => ({}))) as { status?: boolean; data?: { account_name?: string } };
       return res.ok && body.status === true && body.data?.account_name ? body.data.account_name : null;
     },
+    /**
+     * Makes a subaccount for a shop's bank account and returns its code (ACCT_...).
+     * Its own share is 0%: each pay link says what stays with us (transaction_charge).
+     */
+    async createSubaccount(p: { businessName: string; bankCode: string; accountNumber: string }): Promise<string> {
+      const res = await fetchImpl(`${base}/subaccount`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ business_name: p.businessName, settlement_bank: p.bankCode, account_number: p.accountNumber, percentage_charge: 0 }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = (await res.json().catch(() => ({}))) as { status?: boolean; message?: string; data?: { subaccount_code?: string } };
+      const code = body.data?.subaccount_code;
+      if (!res.ok || body.status !== true || !code) throw new Error(`Paystack /subaccount failed (${res.status}): ${body.message ?? "no code returned"}`);
+      return code;
+    },
   };
 }
 
