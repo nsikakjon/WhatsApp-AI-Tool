@@ -26,6 +26,26 @@ import { quoteLine, type QuoteLine, type Variant } from "./pricing.js";
 // message the customer swipes through instead: up to ten cards, each the photo,
 // the name, the lowest price on the price list and the Order button.
 
+// A price list with 25 photos asks for all of them at once when its page
+// opens, and file storage turns a burst like that away ("too many requests").
+// So downloads take turns, a few at a time, and one that fails is tried again.
+const DOWNLOADS_AT_ONCE = 4;
+const RETRY_AFTER_MS = 400;
+let downloading = 0;
+const waiting: Array<() => void> = [];
+
+export async function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  if (downloading < DOWNLOADS_AT_ONCE) downloading++;
+  else await new Promise<void>((go) => waiting.push(go));
+  try {
+    return await work();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else downloading--;
+  }
+}
+
 /** At or below this many left, an item is running low (the same as the app's "low stock" tag). */
 export const LOW_STOCK = 5;
 
@@ -425,9 +445,15 @@ export function createSupabaseCatalogue(db: SupabaseClient, businessId: string):
         if (!res.ok) return null;
         return { data: new Uint8Array(await res.arrayBuffer()), mimeType: res.headers.get("content-type") === "image/png" ? "image/png" : "image/jpeg" };
       }
-      const { data, error } = await db.storage.from(FILES_BUCKET).download(path);
-      if (error || !data) return null;
-      return { data: new Uint8Array(await data.arrayBuffer()), mimeType: data.type === "image/png" ? "image/png" : "image/jpeg" };
+      return inTurn(async () => {
+        let file = await db.storage.from(FILES_BUCKET).download(path);
+        if (file.error) {
+          await new Promise((done) => setTimeout(done, RETRY_AFTER_MS));
+          file = await db.storage.from(FILES_BUCKET).download(path);
+        }
+        if (file.error || !file.data) return null;
+        return { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.data.type === "image/png" ? "image/png" : "image/jpeg" };
+      });
     },
     async takeStock(orderId) {
       const { error } = await db.rpc("quote_take_stock", { p_order_id: orderId });

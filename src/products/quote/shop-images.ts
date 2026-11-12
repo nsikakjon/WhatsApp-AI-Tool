@@ -27,8 +27,12 @@ async function cached(key: string, make: () => Promise<Buffer | null>): Promise<
     cache.set(key, hit);
     return hit.data;
   }
-  const data = await make();
-  if (!data) return null;
+  // If the picture can't be fetched again just now, the copy we already have is better than a gap on the page.
+  const data = await make().catch((err) => {
+    if (hit) return null;
+    throw err;
+  });
+  if (!data) return hit?.data ?? null;
   cache.set(key, { at: Date.now(), data });
   while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value!);
   return data;
