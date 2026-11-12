@@ -1,7 +1,7 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import jsQR from "jsqr";
 import { describe, expect, it } from "vitest";
-import { formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
+import { documentColours, formatDocDate, renderDocument, type DocumentInput } from "./documents.js";
 
 const base: DocumentInput = {
   kind: "invoice",
@@ -48,6 +48,20 @@ describe("invoices and receipts", () => {
 
   it("still draws when the logo file is broken", async () => {
     expect(isJpeg(await renderDocument({ ...base, logo: new Uint8Array([1, 2, 3]) }))).toBe(true);
+  });
+
+  it("draws in the shop's colour, darkened where it would be hard to read on white", async () => {
+    expect(isJpeg(await renderDocument({ ...base, accent: "#d62828" }))).toBe(true);
+    expect(documentColours("#d62828", "invoice")).toMatchObject({ stripe: "#d62828", text: "#d62828" });
+    const lime = documentColours("#c6ff1f", "invoice");
+    expect(lime.stripe).toBe("#c6ff1f");
+    expect(lime.text).not.toBe("#c6ff1f");
+    expect(documentColours(null, "receipt").text).toBe("#15803d");
+  });
+
+  it("prints the shop page and social pages at the bottom", async () => {
+    const socials = [{ network: "Instagram", url: "https://instagram.com/kahnprints" }, { network: "TikTok", url: "https://www.tiktok.com/@kahnprints" }];
+    expect(isJpeg(await renderDocument({ ...base, shopUrl: "https://app.yarnoga.com/shop/kahnprints", socials }))).toBe(true);
   });
 
   it("dates documents in Lagos time", () => {

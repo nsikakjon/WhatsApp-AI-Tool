@@ -1012,6 +1012,7 @@ describe("pay links", () => {
       catalog: { activeVariants: async () => variants },
       orders: quote.store,
       ai: { understand: async () => ({ intent: "confirm", items: [], message: null }) },
+      paymentDetails: "Bank 0000000000",
       renderDocument: docs.render,
       payLink,
       log: { error() {} },
@@ -1030,11 +1031,19 @@ describe("pay links", () => {
     expect(reply?.notify?.[0]?.text).toContain("sent a link to pay online");
   });
 
+  it("leaves the bank details off an invoice that comes with a pay link", async () => {
+    const { drawn } = await confirmWithLink(async () => "https://checkout.paystack.com/abc");
+    expect(drawn[0]).toMatchObject({ kind: "invoice" });
+    expect(drawn[0]?.paymentDetails).toBeUndefined();
+  });
+
   it("falls back to paying the business directly when Paystack is down", async () => {
-    const { reply } = await confirmWithLink(async () => {
+    const { reply, drawn } = await confirmWithLink(async () => {
       throw new Error("down");
     });
     expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001");
+    // Without a link, the bank details are the only way to pay, so they stay on.
+    expect(drawn[0]?.paymentDetails).toBe("Bank 0000000000");
     expect(reply?.notify?.[0]?.text).toContain("reply *paid KP-1001*");
   });
 

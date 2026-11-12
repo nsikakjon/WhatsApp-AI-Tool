@@ -26,6 +26,12 @@ export interface DocumentInput {
   businessName: string;
   /** The business logo (PNG, JPEG or WebP). Without one, the name stands alone. */
   logo?: Uint8Array;
+  /** The owner's colour from the owner app, e.g. "#e4572e". Without it, invoices stay in plain dark ink. */
+  accent?: string | null;
+  /** The shop's page on yarnOga, printed at the bottom so customers can browse and reorder. */
+  shopUrl?: string | null;
+  /** The shop's social pages, e.g. [{ network: "Instagram", url: "https://instagram.com/kahnprints" }]. */
+  socials?: Array<{ network: string; url: string }>;
   /** Address, phone or email printed under the business name. */
   businessDetails?: string;
   /** e.g. KP-1001 */
@@ -60,14 +66,14 @@ const WORDS = {
     customer: "Customer", item: "ITEM", qty: "QTY", unit: "UNIT PRICE", amount: "AMOUNT", totalDue: "TOTAL DUE", amountPaid: "AMOUNT PAID",
     paid: "PAID", awaiting: "AWAITING PAYMENT", howToPay: "HOW TO PAY", showWhenCollect: "SHOW THIS WHEN YOU COLLECT", forTable: "For",
     collectAt: "Collect at:", codeOnce: "Each code works once.", quoteRef: (ref: string) => `Please quote ${ref} when you pay. Thank you!`,
-    thanks: "Thank you for your business!", discount: "Discount", orderNotes: "ORDER DETAILS",
+    thanks: "Thank you for your business!", discount: "Discount", orderNotes: "ORDER DETAILS", shopOnline: "Shop online:",
   },
   fr: {
     invoice: "FACTURE", receipt: "REÇU", no: "N°", date: "Date", paidOn: "Payé le", billTo: "FACTURÉ À", receivedFrom: "REÇU DE",
     customer: "Client", item: "ARTICLE", qty: "QTÉ", unit: "PRIX UNITAIRE", amount: "MONTANT", totalDue: "TOTAL À PAYER", amountPaid: "MONTANT PAYÉ",
     paid: "PAYÉ", awaiting: "EN ATTENTE DE PAIEMENT", howToPay: "COMMENT PAYER", showWhenCollect: "À MONTRER AU RETRAIT", forTable: "Pour",
     collectAt: "Retrait à :", codeOnce: "Chaque code ne sert qu'une fois.", quoteRef: (ref: string) => `Merci d'indiquer ${ref} lors du paiement.`,
-    thanks: "Merci de votre confiance !", discount: "Remise", orderNotes: "PRÉCISIONS DE COMMANDE",
+    thanks: "Merci de votre confiance !", discount: "Remise", orderNotes: "PRÉCISIONS DE COMMANDE", shopOnline: "Boutique en ligne :",
   },
 };
 
@@ -93,6 +99,32 @@ const RULE = "#e5e7eb";
 const SHADE = "#f3f4f6";
 const GREEN = "#15803d";
 const AMBER = "#b45309";
+
+const hex = (rgb: number[]) => `#${rgb.map((c) => Math.round(c).toString(16).padStart(2, "0")).join("")}`;
+const rgbOf = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+function luminance(rgb: number[]): number {
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+/**
+ * The shop's colour on paper: the stripe at the top in the colour itself, a
+ * pale wash behind the table headings, and the title and total in the colour
+ * darkened just enough to read on white (a lime or yellow would vanish).
+ */
+export function documentColours(accent: string | null | undefined, kind: DocumentInput["kind"]) {
+  if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) {
+    const plain = kind === "receipt" ? GREEN : INK;
+    return { stripe: plain, text: plain, wash: SHADE };
+  }
+  const rgb = rgbOf(accent.toLowerCase());
+  let text = rgb;
+  for (let k = 0.95; 1.05 / (luminance(text) + 0.05) < 4.5 && k > 0; k -= 0.05) text = rgb.map((c) => c * k);
+  return { stripe: hex(rgb), text: hex(text), wash: hex(rgb.map((c) => 255 - (255 - c) * 0.12)) };
+}
 
 /** Formats a date, e.g. 14 Oct 2026 (or 14 oct. 2026 in French), in West African time. */
 export function formatDocDate(date: Date, lang: Lang = "en"): string {
@@ -133,14 +165,16 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
     .map((b) => ({ title: b.title, lines: b.text.split("\n").flatMap((p) => wrap(scratch, p, WIDTH - 2 * MARGIN - 48)).slice(0, 12) }));
   const boxesHeight = boxes.reduce((h, b) => h + 120 + b.lines.length * 40, 0);
   const pickup = input.kind === "receipt" ? input.pickup : undefined;
-  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + boxesHeight + (pickup ? PICKUP_HEIGHT + 100 : 0));
+  const online = onlineLines(input, w);
+  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + boxesHeight + (pickup ? PICKUP_HEIGHT + 100 : 0) + online.length * 46 + (online.length ? 60 : 0));
 
   const canvas = createCanvas(WIDTH, height);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, WIDTH, height);
-  const accent = input.kind === "receipt" ? GREEN : INK;
-  ctx.fillStyle = accent;
+  const colours = documentColours(input.accent, input.kind);
+  const accent = colours.text;
+  ctx.fillStyle = colours.stripe;
   ctx.fillRect(0, 0, WIDTH, 16);
 
   // Header: logo and business on the left, document title on the right.
@@ -203,7 +237,7 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
 
   // Items table.
   y += 160;
-  ctx.fillStyle = SHADE;
+  ctx.fillStyle = colours.wash;
   ctx.fillRect(MARGIN, y, WIDTH - 2 * MARGIN, 64);
   ctx.fillStyle = MUTED;
   ctx.font = "24px Inter SemiBold";
@@ -279,6 +313,20 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
     y += 120 + box.lines.length * 40;
   }
 
+  // Where to find the shop online, above the footer.
+  if (online.length) {
+    let oy = height - 160 - online.length * 46;
+    ctx.fillStyle = RULE;
+    ctx.fillRect(MARGIN, oy - 30, WIDTH - 2 * MARGIN, 2);
+    ctx.textAlign = "center";
+    online.forEach((line, i) => {
+      ctx.fillStyle = i === 0 && input.shopUrl ? accent : INK;
+      ctx.font = i === 0 && input.shopUrl ? "28px Inter SemiBold" : "26px Inter";
+      ctx.fillText(line, WIDTH / 2, oy);
+      oy += 46;
+    });
+  }
+
   // Footer.
   ctx.textAlign = "center";
   ctx.fillStyle = MUTED;
@@ -290,6 +338,19 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   );
 
   return canvas.toBuffer("image/jpeg", 92);
+}
+
+/** "Shop online: app.yarnoga.com/shop/kahnprints", then the social pages two to a line, e.g. "Instagram @kahnprints". */
+function onlineLines(input: DocumentInput, w: (typeof WORDS)["en"]): string[] {
+  const bare = (url: string) => url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "");
+  const handle = (url: string) => {
+    const last = bare(url).split("/").filter(Boolean).pop() ?? "";
+    return `@${last.replace(/^@/, "")}`;
+  };
+  const pages = (input.socials ?? []).map((s) => `${s.network} ${handle(s.url)}`);
+  const lines = input.shopUrl ? [`${w.shopOnline} ${bare(input.shopUrl)}`] : [];
+  for (let i = 0; i < pages.length; i += 2) lines.push(pages.slice(i, i + 2).join("     ·     "));
+  return lines;
 }
 
 const PICKUP_HEIGHT = 420;

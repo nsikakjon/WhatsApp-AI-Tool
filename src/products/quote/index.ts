@@ -934,8 +934,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
-    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery, null, t, lang);
     const payUrl = await payLinkFor(order, waId);
+    const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery, null, t, lang, !!payUrl);
     const payLine = payUrl ? t.payLine(payUrl, opts.currency ?? "NGN") : null;
     if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
     const next = ticketsOnly
@@ -1013,14 +1013,23 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     pickup: Pickup | null = null,
     t: QuoteTexts = own,
     lang: Lang = businessLang,
+    /** Paid through our pay link, so the business's bank details stay off the invoice and nobody pays round the link. */
+    payOnline = !!opts.payLink,
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
-      const logo = opts.branding ? await opts.branding.logo() : null;
+      const [logo, look] = await Promise.all([
+        opts.branding ? opts.branding.logo() : null,
+        // A missing look shouldn't stop the invoice: it's drawn plain instead.
+        opts.branding?.look ? opts.branding.look().catch(() => null) : null,
+      ]);
       const data = await draw({
         kind,
         businessName: opts.businessName,
         logo: logo ?? undefined,
+        accent: look?.accent,
+        shopUrl: look?.shopUrl,
+        socials: look?.socials,
         businessDetails: opts.businessDetails,
         ref: `${opts.orderPrefix}-${order.orderNumber}`,
         date: kind === "receipt" ? (order.paidAt ?? new Date()) : order.createdAt,
@@ -1030,7 +1039,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         ...(order.discount ? { discount: order.discount } : {}),
         ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
-        paymentDetails: opts.paymentDetails,
+        paymentDetails: payOnline ? undefined : opts.paymentDetails,
         ...(order.notes && shown(order.notes) ? { orderNotes: order.notes } : {}),
         ...(pickup ? { pickup } : {}),
         lang,

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertKobo, isCurrency, type Currency } from "../../core/money.js";
 import { productSlug, type PriceListItem } from "./pricelist.js";
 import type { QuoteLine, Variant } from "./pricing.js";
+import { cleanSocials, SOCIALS, type Social } from "./shop.js";
 
 // Reading the price list and saving quotes/orders. Kept behind interfaces so
 // tests can use in-memory versions instead of a real database.
@@ -126,9 +127,19 @@ export interface OrderDetails extends SavedOrder {
   paidAt: Date | null;
 }
 
-/** The business logo printed on invoices and receipts. */
+export interface BrandLook {
+  /** e.g. "#e4572e"; null when none was picked. */
+  accent: string | null;
+  /** The public shop page; null when the shop page is off, not named yet, or has no WhatsApp number. */
+  shopUrl: string | null;
+  socials: Array<{ network: string; url: string }>;
+}
+
+/** The business logo and colour printed on invoices and receipts. */
 export interface BrandingStore {
   logo(): Promise<Uint8Array | null>;
+  /** What the owner set up in the owner app: colour (migration 0061), shop page (0059) and social pages (0081). */
+  look?(): Promise<BrandLook>;
   saveLogo(data: Uint8Array, mimeType: string): Promise<void>;
 }
 
@@ -208,7 +219,8 @@ export function createSupabaseBusinesses(db: SupabaseClient): BusinessStore {
   };
 }
 
-export function createSupabaseBranding(db: SupabaseClient, businessId?: string): BrandingStore {
+/** `shopBase` is the public address shop pages live under (QUOTE_SHOP); without it no shop link is printed. */
+export function createSupabaseBranding(db: SupabaseClient, businessId?: string, shopBase?: string): BrandingStore {
   const LOGO_PATH = logoPath(businessId);
   return {
     async logo() {
@@ -216,6 +228,17 @@ export function createSupabaseBranding(db: SupabaseClient, businessId?: string):
       // No logo uploaded yet is normal: documents are drawn without one.
       if (error || !data) return null;
       return new Uint8Array(await data.arrayBuffer());
+    },
+    async look() {
+      if (!businessId) return { accent: null, shopUrl: null, socials: [] };
+      // Every column, so it works before migrations 0059, 0061 and 0081 too.
+      const { data, error } = await db.from("quote_businesses").select("*").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`brand look failed: ${error.message}`);
+      const slug = data?.shop_slug as string | null;
+      // The shop page is closed without a WhatsApp number, so don't point customers at it.
+      const shopUrl = shopBase && slug && data?.whatsapp_number ? `${shopBase.replace(/\/+$/, "")}/shop/${slug}` : null;
+      const socials = Object.entries(cleanSocials(data?.shop_socials)).map(([n, url]) => ({ network: SOCIALS[n as Social].name, url: url! }));
+      return { accent: (data?.shop_accent as string | null) ?? null, shopUrl, socials };
     },
     async saveLogo(data, mimeType) {
       const { error } = await db.storage.from(FILES_BUCKET).upload(LOGO_PATH, data, { contentType: mimeType, upsert: true });
