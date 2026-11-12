@@ -7,18 +7,24 @@ import type { Lang } from "../../core/i18n.js";
 import { formatMoney, moneyStyle, type Currency } from "../../core/money.js";
 import type { OutgoingImage } from "../../core/whatsapp/client.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
-import { cleanHours, nextOpenText, openState, type OpeningHours } from "./about.js";
+import { cleanHours, DAY_NAMES, lagosDay, nextOpenText, openState, type Day, type OpeningHours } from "./about.js";
 import { priceFacts, priceText } from "./catalogue.js";
 import type { Variant } from "./pricing.js";
+import { STARS } from "./ratings.js";
 import { pickWidth, previewCard, resized } from "./shop-images.js";
 
 // Each business's public shop page (QUOTE_SHOP, migration 0059), for an
 // Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>.
+// It's the business's one-page website.
 //
 // It lists the price list with prices worked out in code from the database,
 // exactly as a quote would price them, plus product photos on plans with
-// "catalogue". The page wears the business's logo, cover photo and colour,
-// says whether it's open now, and shows its ratings and delivery areas.
+// "catalogue", and marks the best sellers. The page wears the business's
+// logo, cover photo and colour, and says whether it's open now. Below the
+// products: the owner's "good to know" text, what customers said when asked
+// after their orders, delivery areas with their fees, opening hours, the
+// address with directions, and the business's social media pages. Customers
+// can share the shop or save its number to their contacts.
 // Customers search or jump between categories, open a product full screen to
 // swipe through its photos, and pick quantities with + and -, watching a
 // running total. One button opens WhatsApp on the business's number with the
@@ -51,9 +57,53 @@ export interface ShopProduct {
   options: ShopOption[];
 }
 
+export const SOCIALS = {
+  instagram: { name: "Instagram", host: /(^|\.)instagram\.com$/, url: (h: string) => `https://instagram.com/${h}` },
+  tiktok: { name: "TikTok", host: /(^|\.)tiktok\.com$/, url: (h: string) => `https://www.tiktok.com/@${h}` },
+  facebook: { name: "Facebook", host: /(^|\.)(facebook|fb)\.com$/, url: (h: string) => `https://facebook.com/${h}` },
+  x: { name: "X", host: /(^|\.)(x|twitter)\.com$/, url: (h: string) => `https://x.com/${h}` },
+  youtube: { name: "YouTube", host: /(^|\.)youtube\.com$/, url: (h: string) => `https://www.youtube.com/@${h}` },
+};
+export type Social = keyof typeof SOCIALS;
+export type ShopSocials = Partial<Record<Social, string>>;
+export const NETWORKS = Object.keys(SOCIALS) as Social[];
+
+/** A page's link from what the owner typed: "@adasprints", "adasprints" or the page's own link. Null when it isn't one. */
+export function socialLink(network: Social, typed: string): string | null {
+  const text = typed.trim();
+  if (!text.includes("/")) {
+    const handle = text.replace(/^@/, "");
+    return /^[a-z0-9._-]{1,60}$/i.test(handle) ? SOCIALS[network].url(handle) : null;
+  }
+  try {
+    const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+    return SOCIALS[network].host.test(url.hostname) && url.pathname.length > 1 ? `https://${url.hostname}${url.pathname}${url.search}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The stored links, keeping only real links to each network. */
+export function cleanSocials(raw: unknown): ShopSocials {
+  const out: ShopSocials = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const n of NETWORKS) {
+    const v = (raw as Record<string, unknown>)[n];
+    if (typeof v === "string" && v.startsWith("https://") && socialLink(n, v) === v) out[n] = v;
+  }
+  return out;
+}
+
 export interface ShopBusiness {
   id: string;
   name: string;
+  /** What the business does, from Settings ("Shoes and bags"): the line under the name. */
+  tagline: string | null;
+  /** The owner's "what customers often ask" text (migration 0054). */
+  about: string | null;
+  /** Where to find the shop: the address for directions (migration 0081), or else the one on invoices. */
+  address: { text: string; directions: boolean } | null;
+  socials: ShopSocials;
   /** The number customers message, digits only. No number, no shop. */
   whatsappNumber: string | null;
   currency: Currency;
@@ -64,16 +114,20 @@ export interface ShopBusiness {
   coverPath: string | null;
   /** Opening hours (migration 0054), for "Open now". */
   hours: OpeningHours | null;
-  /** Customers' ratings of their orders (migration 0054), out of 5. */
-  ratings(): Promise<{ average: number; count: number } | null>;
-  /** The delivery zones' names, when the business delivers (QUOTE_DELIVERY). */
-  deliveryAreas(): Promise<string[]>;
+  /** How many customers tapped Great, OK and Not good after their orders (migration 0054). */
+  ratings(): Promise<Ratings | null>;
+  /** The delivery zones and their fees, when the business delivers (QUOTE_DELIVERY). */
+  deliveryAreas(): Promise<Array<{ name: string; feeKobo: number }>>;
+  /** The price-list options in each order confirmed lately, for "Popular". */
+  recentOrders(): Promise<string[][]>;
   /** Whether the plan includes product photos ("catalogue"). */
   photos(): Promise<boolean>;
   products(): Promise<ShopProduct[]>;
   photo(path: string): Promise<OutgoingImage | null>;
   logo(): Promise<Uint8Array | null>;
 }
+
+export type Ratings = Record<keyof typeof STARS, number>;
 
 export interface SlugStore {
   slugOf(businessId: string): Promise<string | null>;
@@ -209,6 +263,28 @@ const TEXT = {
     close: "Close",
     view: (p: string) => `See ${p}`,
     footer: "Shop by",
+    share: "Share",
+    shared: (b: string) => `Have a look at ${b}'s shop:`,
+    save: "Save our number",
+    directions: "Directions",
+    popular: "Popular",
+    favourites: "Customers' favourites",
+    from: (price: string) => `From ${price}`,
+    goodToKnow: "Good to know",
+    reviews: "What customers say",
+    saidGreat: (pct: number) => `${pct}% said Great`,
+    asked: (n: number) => `${n} customers, asked on WhatsApp after their orders.`,
+    rating: { great: "Great", ok: "OK", bad: "Not good" },
+    delivery: "Delivery",
+    free: "Free",
+    findUs: "Find us",
+    deliveryNote: "Your exact delivery fee comes back on WhatsApp with your order.",
+    visit: "Visit us",
+    hours: "Opening hours",
+    today: "Today",
+    closedDay: "Closed",
+    follow: "Follow us",
+    nav: { about: "About", reviews: "Reviews", delivery: "Delivery", visit: "Visit" },
   },
   fr: {
     notFound: "Ce lien de boutique n'est pas valide. Vérifiez que vous avez le lien en entier.",
@@ -241,6 +317,28 @@ const TEXT = {
     close: "Fermer",
     view: (p: string) => `Voir ${p}`,
     footer: "Boutique par",
+    share: "Partager",
+    shared: (b: string) => `Découvrez la boutique de ${b} :`,
+    save: "Enregistrer notre numéro",
+    directions: "Itinéraire",
+    popular: "Populaire",
+    favourites: "Les préférés des clients",
+    from: (price: string) => `À partir de ${price}`,
+    goodToKnow: "Bon à savoir",
+    reviews: "Ce que disent les clients",
+    saidGreat: (pct: number) => `${pct} % ont dit Très bien`,
+    asked: (n: number) => `${n} clients, interrogés sur WhatsApp après leur commande.`,
+    rating: { great: "Très bien", ok: "Correct", bad: "Pas bien" },
+    delivery: "Livraison",
+    free: "Gratuit",
+    findUs: "Nous trouver",
+    deliveryNote: "Le prix exact de la livraison vous revient sur WhatsApp avec votre commande.",
+    visit: "Nous rendre visite",
+    hours: "Horaires",
+    today: "Aujourd'hui",
+    closedDay: "Fermé",
+    follow: "Suivez-nous",
+    nav: { about: "Infos", reviews: "Avis", delivery: "Livraison", visit: "Adresse" },
   },
 };
 
@@ -249,6 +347,29 @@ const FEW_LEFT = 5;
 /** Fewer ratings than this aren't shown: one happy customer isn't a track record. */
 const MIN_RATINGS = 3;
 const AREAS_SHOWN = 3;
+/** "Popular" goes on the few products in the most orders lately, each in at least this many. */
+const POPULAR_MIN_ORDERS = 3;
+const POPULAR_SHOWN = 3;
+const WEEK: Day[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/** The products in the most recent orders, counting each order once per product. */
+export function popularProducts(products: ShopProduct[], orders: string[][]): Set<string> {
+  const productOf = new Map(products.flatMap((p) => p.options.map((o) => [o.variant.id, p.id] as const)));
+  const counts = new Map<string, number>();
+  for (const order of orders) {
+    for (const id of new Set(order.map((v) => productOf.get(v)).filter((p): p is string => Boolean(p)))) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return new Set(
+    [...counts]
+      .filter(([, n]) => n >= POPULAR_MIN_ORDERS)
+      .sort((a, z) => z[1] - a[1])
+      .slice(0, POPULAR_SHOWN)
+      .map(([id]) => id),
+  );
+}
+
+export const ratingCount = (r: Ratings) => r.great + r.ok + r.bad;
+export const ratingAverage = (r: Ratings) => (r.great * STARS.great + r.ok * STARS.ok + r.bad * STARS.bad) / ratingCount(r);
 
 const BG = "#0a0d0b";
 const LIME = { accent: "#c6ff1f", ink: "#121400", hi: "#2ee5a0", shadow: "#2ee5a0" };
@@ -306,12 +427,14 @@ export function createShopPage(deps: ShopDeps) {
     const t = TEXT[lang];
     const theme = shopTheme(b.accent);
     if (!b.whatsappNumber) return c.html(shell(lang, b.name, html`<main><div class="card">${t.closed(b.name)}</div></main>`, null, theme));
-    const [products, photos, ratings, areas] = await Promise.all([
+    const [products, photos, ratings, areas, orders] = await Promise.all([
       b.products(),
       b.photos(),
       b.ratings().catch((err) => (log.error("Shop page: ratings failed:", err), null)),
-      b.deliveryAreas().catch((err) => (log.error("Shop page: delivery areas failed:", err), [] as string[])),
+      b.deliveryAreas().catch((err) => (log.error("Shop page: delivery areas failed:", err), [] as Array<{ name: string; feeKobo: number }>)),
+      b.recentOrders().catch((err) => (log.error("Shop page: recent orders failed:", err), [] as string[][])),
     ]);
+    const popular = popularProducts(products, orders);
     const wa = (text: string) => `https://wa.me/${b.whatsappNumber}?text=${encodeURIComponent(text)}`;
     const money = (minor: number) => formatMoney(minor, b.currency);
     const photoUrls = (p: ShopProduct) =>
@@ -328,11 +451,13 @@ export function createShopPage(deps: ShopDeps) {
       const find = [p.name, p.category, p.description, ...p.options.map((o) => o.label)].filter(Boolean).join(" ").toLowerCase();
       return html`<article class="product" id="p-${p.id}" data-find="${find}"${urls.length ? html` data-photos="${JSON.stringify(urls)}"` : ""}>
   ${urls.length
-    ? html`<a class="photo" href="#p-${p.id}" data-open="${p.id}" aria-label="${t.view(p.name)}"><img src="${urls[0]}?w=360" srcset="${urls[0]}?w=360 360w, ${urls[0]}?w=720 720w" sizes="(min-width: 640px) 300px, 100vw" alt="${p.name}" loading="lazy" decoding="async" width="640" height="480">${
-        urls.length > 1 ? html`<span class="count">1/${urls.length}</span>` : ""
-      }</a>`
+    ? html`<div class="photo"><div class="strip">${urls.map(
+        (u, n) =>
+          html`<a href="#p-${p.id}" data-open="${p.id}" aria-label="${t.view(p.name)}"><img src="${u}?w=360" srcset="${u}?w=360 360w, ${u}?w=720 720w" sizes="(min-width: 640px) 300px, 100vw" alt="${n ? "" : p.name}" loading="lazy" decoding="async" width="640" height="480"></a>`,
+      )}</div>${urls.length > 1 ? html`<span class="count">1/${urls.length}</span>` : ""}</div>`
     : ""}
   <div class="body">
+    ${popular.has(p.id) ? html`<span class="badge">${t.popular}</span>` : ""}
     <h3><a href="#p-${p.id}" data-open="${p.id}">${p.name}</a></h3>
     ${p.description?.trim() ? html`<p class="desc">${p.description.trim()}</p>` : ""}
     ${p.leadTimeDays !== null ? html`<p class="muted">${t.ready(p.leadTimeDays)}</p>` : ""}
@@ -365,37 +490,114 @@ export function createShopPage(deps: ShopDeps) {
       : [["", products] as const];
     const cover = Boolean(b.coverPath);
 
-    const state = openState(b.hours, now());
+    const at = now();
+    const state = openState(b.hours, at);
     const status = state && (state.open ? t.openNow(state.closes) : t.closedNow(state.next ? nextOpenText(state.next, lang) : null));
-    const stars = ratings && ratings.count >= MIN_RATINGS ? t.rated(ratings.average.toFixed(1).replace(".", lang === "fr" ? "," : "."), ratings.count) : null;
-    const delivers = areas.length ? t.delivers(areas.slice(0, AREAS_SHOWN), Math.max(0, areas.length - AREAS_SHOWN)) : null;
+    const statusLine = status ? html`<p class="status${state!.open ? " open" : ""}">${status}</p>` : "";
+    const rated = ratings && ratingCount(ratings) >= MIN_RATINGS ? ratings : null;
+    const raters = rated ? ratingCount(rated) : 0;
+    const stars = rated ? t.rated(ratingAverage(rated).toFixed(1).replace(".", lang === "fr" ? "," : "."), raters) : null;
+    const delivers = areas.length ? t.delivers(areas.slice(0, AREAS_SHOWN).map((a) => a.name), Math.max(0, areas.length - AREAS_SHOWN)) : null;
+    const about = b.about?.trim() || null;
+    const today = lagosDay(at);
+    const directions = b.address?.directions ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.address.text)}` : null;
+    const socials = NETWORKS.filter((n) => b.socials[n]);
+    // The best sellers again as a row to swipe through, when there are a few.
+    const picks = popular.size > 1 ? products.filter((p) => popular.has(p.id)) : [];
+    const lowest = (p: ShopProduct) => {
+      const prices = p.options.flatMap((o) => {
+        const facts = o.stock === 0 ? null : priceFacts(o.variant);
+        return facts ? [facts.bulk?.unitKobo ?? facts.unitKobo] : [];
+      });
+      return prices.length ? t.from(money(Math.min(...prices))) : t.onRequest;
+    };
+    const nav = [
+      about && (["about", t.nav.about] as const),
+      rated && (["reviews", t.nav.reviews] as const),
+      areas.length > 0 && (["delivery", t.nav.delivery] as const),
+      (b.hours || b.address) && (["visit", t.nav.visit] as const),
+    ].filter((x) => x !== null && x !== false && x !== "");
 
     const body = html`<header class="top${cover ? " has-cover" : ""}">
   ${cover
     ? html`<img class="cover" src="/shop/${slug}/cover?w=720" srcset="/shop/${slug}/cover?w=720 720w, /shop/${slug}/cover?w=1080 1080w" sizes="100vw" alt="" fetchpriority="high" width="1080" height="400">`
     : ""}
+  <div class="panel">
   <div class="id">
     <img class="logo" src="/shop/${slug}/logo" alt="" width="64" height="64" onerror="this.remove()">
     <div>
       <h1>${b.name}</h1>
-      ${status ? html`<p class="status${state!.open ? " open" : ""}">${status}</p>` : ""}
+      ${b.tagline ? html`<p class="tagline">${capital(b.tagline)}</p>` : ""}
+      ${statusLine}
     </div>
   </div>
   ${stars || delivers
-    ? html`<ul class="trust">${stars ? html`<li><span class="star" aria-hidden="true">★</span> ${stars}</li>` : ""}${delivers ? html`<li>${delivers}</li>` : ""}</ul>`
+    ? html`<ul class="trust">${stars ? html`<li><a href="#reviews"><span class="star" aria-hidden="true">★</span> ${stars}</a></li>` : ""}${delivers ? html`<li><a href="#delivery">${delivers}</a></li>` : ""}</ul>`
     : ""}
-  <a class="chat" href="${wa(t.hello(b.name))}">${t.chat}</a>
+  <div class="actions">
+    <a class="pill main" href="${wa(t.hello(b.name))}">${t.chat}</a>
+    ${directions ? html`<a class="pill" href="${directions}" target="_blank" rel="noopener">${t.directions}</a>` : ""}
+    <a class="pill" id="share" href="https://wa.me/?text=${encodeURIComponent(`${t.shared(b.name)} ${base}/shop/${slug}`)}">${t.share}</a>
+    <a class="pill" href="/shop/${slug}/contact.vcf">${t.save}</a>
+  </div>
+  </div>
 </header>
 ${products.length > 0
-  ? html`<nav class="tabs" aria-label="${lang === "fr" ? "Catégories" : "Categories"}">
+  ? html`<nav class="tabs" aria-label="Sections">
   <input id="find" type="search" placeholder="${t.find}" aria-label="${t.find}" autocomplete="off">
-  ${sections.length > 1 ? html`<div class="chips">${sections.map(([name], i) => html`<a href="#c${i}">${name}</a>`)}</div>` : ""}
+  ${sections.length > 1 || nav.length
+    ? html`<div class="chips">${sections.length > 1 ? sections.map(([name], i) => html`<a href="#c${i}">${name}</a>`) : ""}${nav.map(([id, label]) => html`<a href="#${id}">${label}</a>`)}</div>`
+    : ""}
 </nav>`
   : ""}
 <main>
   ${products.length === 0 ? html`<div class="card">${t.empty}</div>` : html`<p class="muted">${t.note}</p>`}
-  ${sections.map(([name, list], i) => html`<section id="c${i}">${name ? html`<h2>${name}</h2>` : ""}<div class="grid">${list.map(card)}</div></section>`)}
+  ${picks.length
+    ? html`<section id="picks"><h2>${t.favourites}</h2><div class="rail">${picks.map((p) => {
+        const url = photoUrls(p)[0];
+        return html`<a class="pick" href="#p-${p.id}" data-open="${p.id}">${
+          url ? html`<img src="${url}?w=360" alt="" loading="lazy" decoding="async" width="360" height="270">` : ""
+        }<b>${p.name}</b><span>${lowest(p)}</span></a>`;
+      })}</div></section>`
+    : ""}
+  ${sections.map(([name, list], i) => html`<section id="c${i}" class="cat">${name ? html`<h2>${name}</h2>` : ""}<div class="grid">${list.map(card)}</div></section>`)}
   <p class="card" id="none" hidden>${t.noMatch} <a href="${wa(t.hello(b.name))}">${t.chat}</a></p>
+  ${about ? html`<section id="about"><h2>${t.goodToKnow}</h2><p class="card about">${about}</p></section>` : ""}
+  ${rated
+    ? html`<section id="reviews"><h2>${t.reviews}</h2><div class="card reviews">
+    <p class="big">${t.saidGreat(Math.round((rated.great * 100) / raters))}</p>
+    <ul class="bars">${(["great", "ok", "bad"] as const).map(
+      (k) => html`<li><span>${t.rating[k]}</span><i style="--w:${Math.round((rated[k] * 100) / raters)}%"></i><b>${rated[k]}</b></li>`,
+    )}</ul>
+    <p class="muted">${t.asked(raters)}</p>
+  </div></section>`
+    : ""}
+  ${areas.length
+    ? html`<section id="delivery"><h2>${t.delivery}</h2><div class="card">
+    <ul class="rows">${areas.map((a) => html`<li><span>${a.name}</span><b>${a.feeKobo === 0 ? t.free : money(a.feeKobo)}</b></li>`)}</ul>
+    <p class="muted">${t.deliveryNote}</p>
+  </div></section>`
+    : ""}
+  ${b.hours || b.address
+    ? html`<section id="visit"><h2>${t.visit}</h2><div class="visit">
+    ${b.hours
+      ? html`<div class="card"><h3>${t.hours}</h3>${statusLine}
+      <ul class="rows">${WEEK.map((d) => {
+        const slot = b.hours![d];
+        return html`<li${d === today ? raw(' class="today"') : ""}><span>${capital(DAY_NAMES[lang][d])}${d === today ? html`<em>${t.today}</em>` : ""}</span><b>${slot ? `${slot[0]}–${slot[1]}` : t.closedDay}</b></li>`;
+      })}</ul>
+    </div>`
+      : ""}
+    ${b.address
+      ? html`<div class="card"><h3>${t.findUs}</h3><p class="about">${b.address.text}</p>${
+          directions ? html`<a class="button" href="${directions}" target="_blank" rel="noopener">${t.directions}</a>` : ""
+        }</div>`
+      : ""}
+  </div></section>`
+    : ""}
+  ${socials.length
+    ? html`<section id="follow"><h2>${t.follow}</h2><div class="actions">${socials.map((n) => html`<a class="pill" href="${b.socials[n]!}" target="_blank" rel="noopener">${SOCIALS[n].name}</a>`)}</div></section>`
+    : ""}
 </main>
 <div class="view" id="view" role="dialog" aria-modal="true" aria-label="" hidden>
   <button type="button" class="shut" aria-label="${t.close}">✕</button>
@@ -408,7 +610,7 @@ ${products.length > 0
   // The running total uses the price list's tiers exactly as pricing.ts does:
   // the best tier the quantity reaches, times the quantity. It's a guide for
   // the customer; the bot works out the real quote from the database.
-  const T = ${json({ intro: t.intro(b.name), picked: t.picked, before: t.beforeDelivery, priced: t.priced, money: moneyStyle(b.currency), wa: b.whatsappNumber })};
+  const T = ${json({ intro: t.intro(b.name), picked: t.picked, before: t.beforeDelivery, priced: t.priced, shared: t.shared(b.name), money: moneyStyle(b.currency), wa: b.whatsappNumber })};
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   const info = new Map();
@@ -573,7 +775,9 @@ ${products.length > 0
       a.hidden = Boolean(q) && !a.dataset.find.includes(q);
       if (!a.hidden) shown++;
     }
-    for (const s of $$("main section")) s.hidden = !s.querySelector("article:not([hidden])");
+    for (const s of $$("main section.cat")) s.hidden = !s.querySelector("article:not([hidden])");
+    const picks = document.getElementById("picks");
+    if (picks) picks.hidden = Boolean(q);
     document.getElementById("none").hidden = shown > 0;
   });
   // The category tab for the part of the list on screen.
@@ -589,6 +793,28 @@ ${products.length > 0
     }, { rootMargin: "-40% 0px -55% 0px" });
     $$("main section").forEach((s) => seen.observe(s));
   }
+  // Swiping a card's photos moves its "2/3".
+  document.addEventListener("scroll", (e) => {
+    const strip = e.target.classList?.contains("strip") && e.target;
+    const count = strip && strip.parentElement.querySelector(".count");
+    if (count) count.textContent = Math.round(strip.scrollLeft / strip.clientWidth) + 1 + "/" + strip.children.length;
+  }, { capture: true, passive: true });
+  // The phone's own share sheet where there is one; the link itself shares on WhatsApp.
+  if (navigator.share) {
+    document.getElementById("share").addEventListener("click", (e) => {
+      e.preventDefault();
+      navigator.share({ title: document.title, text: T.shared, url: location.origin + location.pathname }).catch(() => {});
+    });
+  }
+  // The rating bars fill as they scroll into view.
+  const reviews = document.querySelector(".reviews");
+  if (reviews && "IntersectionObserver" in window) {
+    new IntersectionObserver((entries, o) => {
+      if (!entries.some((en) => en.isIntersecting)) return;
+      reviews.classList.add("seen");
+      o.disconnect();
+    }, { threshold: 0.4 }).observe(reviews);
+  } else reviews?.classList.add("seen");
   document.documentElement.classList.add("js");
   if (location.hash.startsWith("#p-")) open(location.hash.slice(3));
 })();
@@ -601,7 +827,7 @@ ${products.length > 0
         body,
         {
           // No "Open now" here: apps keep a shared link's preview for days.
-          description: [...products.slice(0, 6).map((p) => p.name), t.order].join(" · "),
+          description: [b.tagline && capital(b.tagline), ...products.slice(0, 6).map((p) => p.name), t.order].filter(Boolean).join(" · "),
           image: `${base}/shop/${slug}/preview.jpg`,
           url: `${base}/shop/${slug}`,
         },
@@ -662,6 +888,16 @@ ${products.length > 0
     });
   });
 
+  // "Save our number": a contact card the phone adds to its contacts.
+  app.get("/shop/:slug/contact.vcf", async (c) => {
+    const slug = c.req.param("slug").toLowerCase();
+    const b = await load(slug);
+    if (!b?.whatsappNumber) return c.notFound();
+    const name = b.name.replace(/[\\;,]/g, (ch) => `\\${ch}`).replace(/\s+/g, " ");
+    const card = ["BEGIN:VCARD", "VERSION:3.0", `FN:${name}`, `ORG:${name}`, `TEL;TYPE=CELL:+${b.whatsappNumber}`, `URL:${base}/shop/${slug}`, "END:VCARD", ""].join("\r\n");
+    return c.body(card, 200, { "Content-Type": "text/vcard; charset=utf-8", "Content-Disposition": `attachment; filename="${slug}.vcf"`, "Cache-Control": "public, max-age=3600" });
+  });
+
   // The picture shown when the link is shared on WhatsApp, Instagram or Facebook.
   app.get("/shop/:slug/preview.jpg", async (c) => {
     const slug = c.req.param("slug").toLowerCase();
@@ -720,20 +956,30 @@ ${meta
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;600&family=Schibsted+Grotesk:wght@700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   /* yarnOga's colours and type, as on yarnoga.com and the tracking page; buttons and headings take the shop's own colour. */
-  :root { --bg: ${BG}; --card: #0f1411; --line: rgba(243,241,230,.12); --text: #f3f1e6; --muted: rgba(243,241,230,.68); --red: #ff8a7a;
-    --accent: ${theme.accent}; --ink: ${theme.ink}; --hi: ${theme.hi}; --shadow: ${theme.shadow}; --ease: cubic-bezier(.2,.8,.2,1); }
+  :root { --bg: ${BG}; --line: rgba(243,241,230,.12); --text: #f3f1e6; --muted: rgba(243,241,230,.68); --red: #ff8a7a; --edge: rgba(255,255,255,.16);
+    --accent: ${theme.accent}; --ink: ${theme.ink}; --hi: ${theme.hi}; --shadow: ${theme.shadow}; --glow: ${rgb(theme.accent).join(",")}; --ease: cubic-bezier(.2,.8,.2,1); }
   * { box-sizing: border-box; }
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
   body { margin: 0; font: 16px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  /* Frosted glass: soft colour behind the page, see-through panels on top. Only the parts that stay put
+     blur what's behind them; blurring every card would make cheap phones stutter while scrolling. */
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
+    radial-gradient(60vmax circle at 0% 8%, rgba(var(--glow),.22), transparent 62%),
+    radial-gradient(55vmax circle at 100% 46%, rgba(46,229,160,.13), transparent 62%),
+    radial-gradient(60vmax circle at 12% 100%, rgba(var(--glow),.16), transparent 62%); }
+  .card, .product, .panel, .pick { background: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.035)); border: 1px solid var(--edge);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 12px 32px rgba(0,0,0,.28); border-radius: 18px; }
+  .panel, .tabs, .bar, .shut, .photo .count, .pill { -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5); }
   body.picking { padding-bottom: 104px; }
   body.viewing { overflow: hidden; }
   a { color: var(--hi); text-underline-offset: 3px; }
   .top { position: relative; max-width: 960px; margin: 0 auto; padding: 24px 16px 12px; }
   .top.has-cover { padding-top: 0; }
-  .cover { display: block; width: calc(100% + 32px); margin: 0 -16px; height: 180px; object-fit: cover; background: #161c18; }
+  .cover { display: block; width: calc(100% + 32px); margin: 0 -16px; height: 220px; object-fit: cover; background: #161c18; }
+  .panel { position: relative; padding: 16px; }
+  .has-cover .panel { margin-top: -56px; background: linear-gradient(135deg, rgba(20,26,22,.72), rgba(20,26,22,.5)); }
   .id { display: flex; gap: 14px; align-items: flex-start; }
-  .has-cover .id { padding-top: 10px; }
-  .has-cover .logo { margin-top: -42px; position: relative; }
+  .has-cover .logo { margin-top: -40px; position: relative; }
   .logo { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: #fff; flex: none; border: 3px solid var(--bg); }
   h1 { font: 700 1.75rem/1.15 "Chakra Petch", Arial, sans-serif; letter-spacing: -.01em; margin: 0; }
   .status { margin: 4px 0 0; font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
@@ -742,26 +988,38 @@ ${meta
   .status.open::before { background: #2ee5a0; box-shadow: 0 0 0 3px rgba(46,229,160,.2); }
   .trust { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; color: var(--muted); }
   .star { color: #ffc93c; }
-  .chat { display: inline-block; margin-top: 10px; font-size: 14px; font-weight: 600; }
-  .tabs { position: sticky; top: 0; z-index: 5; background: rgba(10,13,11,.94); border-bottom: 1px solid var(--line); }
+  .tagline { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+  .trust a { color: inherit; text-decoration-color: var(--line); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .pill { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.07); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
+  .pill.main { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+  .tabs { position: sticky; top: 0; z-index: 5; background: rgba(10,13,11,.62); border-bottom: 1px solid var(--edge); }
   .tabs > * { max-width: 960px; margin-left: auto; margin-right: auto; }
-  #find { display: none; width: calc(100% - 32px); margin: 10px 16px 8px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: 16px "Instrument Sans", sans-serif; }
+  #find { display: none; width: calc(100% - 32px); margin: 10px 16px 8px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.07); color: var(--text); font: 16px "Instrument Sans", sans-serif; }
   .js #find { display: block; }
   @media (min-width: 992px) { #find { width: 928px; margin-left: auto; margin-right: auto; } }
   #find:focus, .qty:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 10px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
-  .chips a { flex: none; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; transition: background .2s, color .2s; }
+  .chips a { flex: none; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.06); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; transition: background .2s, color .2s; }
   .chips a[aria-current] { background: var(--accent); color: var(--ink); border-color: var(--accent); }
   main { max-width: 960px; margin: 0 auto; padding: 8px 16px 16px; }
   section { scroll-margin-top: 112px; }
   section[hidden], .product[hidden] { display: none; }
   h2 { font: 700 1.05rem/1.2 "Schibsted Grotesk", Arial, sans-serif; color: var(--hi); text-transform: uppercase; letter-spacing: .08em; margin: 24px 0 12px; }
   .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-  .card, .product { background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   .card { padding: 16px; }
   .product { overflow: hidden; display: flex; flex-direction: column; }
-  .photo { position: relative; display: block; }
+  .photo { position: relative; }
+  .strip { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip a { flex: none; width: 100%; scroll-snap-align: center; }
+  .rail { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 20px; }
+  .rail::-webkit-scrollbar { display: none; }
+  .pick { flex: none; width: 200px; scroll-snap-align: center; overflow: hidden; display: flex; flex-direction: column; color: var(--text); text-decoration: none; }
+  .pick img { width: 100%; aspect-ratio: 4 / 3; height: auto; object-fit: cover; display: block; background: #161c18; }
+  .pick b { padding: 10px 14px 0; font: 700 1rem/1.25 "Schibsted Grotesk", Arial, sans-serif; }
+  .pick span { padding: 2px 14px 14px; color: var(--muted); font-size: 14px; }
   .photo img { width: 100%; aspect-ratio: 4 / 3; height: auto; object-fit: cover; display: block; background: #161c18; }
   .photo .count { position: absolute; right: 10px; bottom: 10px; padding: 2px 8px; border-radius: 999px; background: rgba(10,13,11,.75); color: var(--text); font-size: 12px; font-weight: 600; }
   .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
@@ -769,6 +1027,25 @@ ${meta
   h3 a { color: inherit; text-decoration: none; }
   .desc { margin: 0; font-size: 15px; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .muted { color: var(--muted); font-size: 14px; margin: 0; }
+  .badge { align-self: flex-start; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: var(--ink); font-size: 12px; font-weight: 700; }
+  .about { margin: 0; white-space: pre-line; }
+  .rows { list-style: none; margin: 0 0 10px; padding: 0; }
+  .rows li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .rows li:first-child { border-top: 0; }
+  .rows b { font-weight: 600; white-space: nowrap; }
+  .rows .today { color: var(--hi); }
+  .rows em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--ink); background: var(--accent); padding: 1px 8px; border-radius: 999px; margin-left: 8px; }
+  .visit { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+  .visit h3 { margin-bottom: 8px; }
+  .visit .button { margin-top: 14px; }
+  .big { font: 700 1.6rem/1.2 "Chakra Petch", Arial, sans-serif; margin: 0 0 14px; }
+  .bars { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+  .bars li { display: grid; grid-template-columns: 84px 1fr 36px; align-items: center; gap: 10px; font-size: 14px; }
+  .bars i { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .bars i::after { content: ""; display: block; height: 100%; width: var(--w); border-radius: 5px; background: var(--accent); transform-origin: left; }
+  .bars b { text-align: right; font-weight: 600; }
+  .js .reviews:not(.seen) .bars i::after { transform: scaleX(0); }
+  #follow .actions { margin-top: 0; }
   .options { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .options li { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
   .options li div:first-child { display: grid; font-size: 14px; }
@@ -784,10 +1061,10 @@ ${meta
   .step button:disabled { opacity: .35; cursor: default; }
   .qty { width: 44px; padding: 8px 0; border: 0; background: none; color: var(--text); font: 600 16px/1 "Instrument Sans", sans-serif; text-align: center; -moz-appearance: textfield; }
   .qty::-webkit-inner-spin-button, .qty::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  .button { display: block; text-align: center; text-decoration: none; margin-top: auto; font: 700 1rem/1.2 "Schibsted Grotesk", Arial, sans-serif; padding: 13px; border-radius: 8px;
+  .button { display: block; text-align: center; text-decoration: none; margin-top: auto; font: 700 1rem/1.2 "Schibsted Grotesk", Arial, sans-serif; padding: 13px; border-radius: 12px;
     background: var(--accent); color: var(--ink); box-shadow: 3px 3px 0 var(--shadow); }
-  .bar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(15,20,17,.97);
-    border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+  .bar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(15,20,17,.7);
+    border-top: 1px solid var(--edge); display: flex; gap: 12px; align-items: center; justify-content: space-between; }
   .bar[hidden] { display: none; }
   .bar > div { font-size: 18px; line-height: 1.25; white-space: nowrap; }
   .bar small { display: block; color: var(--muted); font-size: 12px; }
@@ -818,12 +1095,15 @@ ${meta
     .view.leaving { animation: sink .2s ease-in forwards; }
     .bar:not([hidden]) { animation: rise .3s var(--ease); }
     #total.bump { animation: bump .3s var(--ease); }
+    .bars i::after { transition: transform .9s var(--ease); }
+    .status.open::before { animation: pulse 2.4s ease-in-out infinite; }
     .product { transition: transform .15s; }
     .product:active { transform: scale(.99); }
   }
   @keyframes rise { from { transform: translateY(24px); opacity: 0; } }
   @keyframes sink { to { transform: translateY(24px); opacity: 0; } }
   @keyframes bump { 50% { transform: scale(1.18); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(46,229,160,.08); } }
   footer { max-width: 960px; margin: 0 auto; padding: 8px 16px 32px; }
   footer a { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-size: 13px; }
   footer b { color: var(--text); font: 700 15px/1 "Schibsted Grotesk", Arial, sans-serif; letter-spacing: -.02em; }
@@ -914,7 +1194,9 @@ export function createSupabaseSlugs(db: SupabaseClient): SlugStore {
   };
 }
 
-/** The business row's shop details. Every column, so it works before and after migrations 0054 and 0061. */
+const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+/** The business row's shop details. Every column, so it works before and after migrations 0054, 0061 and 0081. */
 export async function supabaseShopLook(db: SupabaseClient, businessId: string) {
   const { data, error } = await db.from("quote_businesses").select("*").eq("id", businessId).maybeSingle();
   if (error) throw new Error(`shop details failed: ${error.message}`);
@@ -923,6 +1205,10 @@ export async function supabaseShopLook(db: SupabaseClient, businessId: string) {
     accent: (data?.shop_accent as string | null) ?? null,
     coverPath: (data?.shop_cover_path as string | null) ?? null,
     hours: cleanHours(data?.opening_hours),
+    tagline: text(data?.description),
+    about: text(data?.about),
+    address: text(data?.shop_address) ? { text: text(data?.shop_address)!, directions: true } : text(data?.business_details) ? { text: text(data?.business_details)!, directions: false } : null,
+    socials: cleanSocials(data?.shop_socials),
     /** Owners who switch ratings off in the app don't show them on the shop either. */
     ratingsOn: data?.ratings_on !== false,
   };
@@ -932,22 +1218,42 @@ export function createSupabaseShopRatings(db: SupabaseClient, businessId: string
   return async () => {
     const { data, error } = await db.from("quote_orders").select("rating").eq("business_id", businessId).not("rating", "is", null).limit(5000);
     if (error) throw new Error(`shop ratings failed: ${error.message}`);
-    const stars = (data ?? []).map((r) => Number(r.rating));
-    return stars.length ? { average: stars.reduce((a, b) => a + b, 0) / stars.length, count: stars.length } : null;
+    const count = (stars: number) => (data ?? []).filter((r) => Number(r.rating) === stars).length;
+    const ratings = { great: count(STARS.great), ok: count(STARS.ok), bad: count(STARS.bad) };
+    return ratingCount(ratings) ? ratings : null;
   };
 }
 
 export function createSupabaseShopAreas(db: SupabaseClient, businessId: string): ShopBusiness["deliveryAreas"] {
   return async () => {
-    const { data, error } = await db.from("quote_delivery_zones").select("name").eq("business_id", businessId).eq("active", true).order("fee_kobo");
+    const { data, error } = await db.from("quote_delivery_zones").select("name, fee_kobo").eq("business_id", businessId).eq("active", true).order("fee_kobo");
     if (error) throw new Error(`shop delivery areas failed: ${error.message}`);
-    return (data ?? []).map((z) => String(z.name));
+    return (data ?? []).map((z) => ({ name: String(z.name), feeKobo: Number(z.fee_kobo) }));
   };
 }
 
-/** The owner app's side of the shop's look: its colour and cover photo (migration 0061). */
+/** Orders older than this don't count towards "Popular". */
+const POPULAR_DAYS = 90;
+
+export function createSupabaseShopOrders(db: SupabaseClient, businessId: string): ShopBusiness["recentOrders"] {
+  return async () => {
+    const since = new Date(Date.now() - POPULAR_DAYS * 86_400_000).toISOString();
+    const { data, error } = await db
+      .from("quote_orders")
+      .select("quote_order_items(variant_id)")
+      .eq("business_id", businessId)
+      .eq("status", "confirmed")
+      .gte("confirmed_at", since)
+      .limit(2000);
+    if (error) throw new Error(`shop recent orders failed: ${error.message}`);
+    return ((data ?? []) as unknown as Array<{ quote_order_items: Array<{ variant_id: string }> }>).map((o) => o.quote_order_items.map((i) => i.variant_id));
+  };
+}
+
+/** The owner app's side of the shop: its colour and cover photo (migration 0061), its address and social pages (0081). */
 export interface ShopLookStore {
-  get(businessId: string): Promise<{ accent: string | null; cover: boolean }>;
+  get(businessId: string): Promise<{ accent: string | null; cover: boolean; address: string | null; socials: ShopSocials }>;
+  saveContact(businessId: string, address: string | null, socials: ShopSocials): Promise<void>;
   /** Null goes back to yarnOga's colours. */
   setAccent(businessId: string, accent: string | null): Promise<void>;
   saveCover(businessId: string, data: Uint8Array, mimeType: string): Promise<void>;
@@ -962,8 +1268,9 @@ export function createSupabaseShopLookStore(db: SupabaseClient): ShopLookStore {
   return {
     async get(businessId) {
       const look = await supabaseShopLook(db, businessId);
-      return { accent: look.accent, cover: Boolean(look.coverPath) };
+      return { accent: look.accent, cover: Boolean(look.coverPath), address: look.address?.directions ? look.address.text : null, socials: look.socials };
     },
+    saveContact: (businessId, address, socials) => update(businessId, { shop_address: address, shop_socials: socials }),
     setAccent: (businessId, accent) => update(businessId, { shop_accent: accent }),
     async saveCover(businessId, data, mimeType) {
       const path = `businesses/${businessId}/shop-cover`;

@@ -7,6 +7,7 @@ import { esc, field } from "../layout.js";
 import { renderPoster, renderPosterPdf, safeColour, type Orientation, type PosterLang } from "../posters.js";
 import type { AppContext, Env } from "../types.js";
 import { isPhoto } from "./prices.js";
+import { NETWORKS, SOCIALS, socialLink, type ShopSocials } from "../../products/quote/shop.js";
 
 // Test your bot, QR posters, and exports.
 
@@ -103,12 +104,17 @@ ${result}
       const look = owner && ctx.deps.shop.look ? await ctx.deps.shop.look.get(biz.id).catch(() => null) : null;
       const lookForm = look
         ? `<form method="post" action="/home/posters/shop-look" enctype="multipart/form-data" style="margin-top:16px">
-<h3 style="margin:0 0 4px">How your shop looks</h3><p class="muted small" style="margin:0">Your logo comes from Settings. Opening hours, ratings and delivery areas show on the shop when you have them.</p>
+<h3 style="margin:0 0 4px">How your shop looks</h3><p class="muted small" style="margin:0">Your logo comes from Settings.</p>
 <div class="row"><label>Your colour <span class="muted">(buttons and highlights)</span><input type="color" name="accent" value="${esc(look.accent ?? "#c6ff1f")}" style="height:44px"></label>
 <label style="align-self:end"><input type="checkbox" name="plain"${look.accent ? "" : " checked"}> Use yarnOga's colours</label></div>
 <label>Cover photo <span class="muted">(JPEG or PNG, up to 5 MB; a wide photo of your shop or your best work)</span><input type="file" name="cover" accept="image/jpeg,image/png"></label>
 ${look.cover ? `<label><input type="checkbox" name="nocover"> Take the cover photo off</label>` : ""}
-<div class="actions"><button class="ghost small">Save the look</button></div></form>`
+<div class="actions"><button class="ghost small">Save the look</button></div></form>
+<form method="post" action="/home/posters/shop-contact" style="margin-top:16px">
+<h3 style="margin:0 0 4px">Where customers find you</h3><p class="muted small" style="margin:0">Leave anything empty to keep it off your shop. The rest of the page fills itself: "What you do", "What customers often ask" and opening hours come from <a href="/home/settings">Settings</a>, delivery areas and fees from Delivery, ratings from your customers, and "Popular" from your orders.</p>
+<label>Shop address <span class="muted">(customers tap Directions and their map app opens on it)</span><input name="address" maxlength="200" value="${esc(look.address ?? "")}" placeholder="12 Allen Avenue, Ikeja, Lagos"></label>
+<div class="row">${NETWORKS.map((n) => `<label>${SOCIALS[n].name}<input name="${n}" maxlength="200" value="${esc(look.socials[n] ?? "")}" placeholder="@yourshop or the page's link"></label>`).join("")}</div>
+<div class="actions"><button class="ghost small">Save</button></div></form>`
         : "";
       return `<div class="card"><h2 style="margin-top:0">Your shop link</h2>
 <p>Put it in your Instagram bio, on your WhatsApp status or on flyers. Customers see your products and prices, pick how many, and WhatsApp opens with their order already typed.</p>
@@ -152,6 +158,29 @@ ${look.cover ? `<label><input type="checkbox" name="nocover"> Take the cover pho
       return c.redirect("/home/posters?msg=shop_look_failed", 303);
     }
     return c.redirect("/home/posters?msg=shop_look", 303);
+  });
+
+  app.post("/posters/shop-contact", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    const look = ctx.deps.shop?.look;
+    if (!look) return c.notFound();
+    const form = (await c.req.parseBody()) as Record<string, unknown>;
+    const socials: ShopSocials = {};
+    for (const n of NETWORKS) {
+      const typed = field(form, n, 200);
+      if (!typed) continue;
+      const link = socialLink(n, typed);
+      if (!link) return c.redirect(`/home/posters?msg=shop_social_bad`, 303);
+      socials[n] = link;
+    }
+    try {
+      await look.saveContact(c.get("biz").id, field(form, "address", 200) || null, socials);
+    } catch (err) {
+      ctx.log.error("Owner app: saving the shop's address and pages failed:", err);
+      return c.redirect("/home/posters?msg=shop_look_failed", 303);
+    }
+    return c.redirect("/home/posters?msg=shop_contact", 303);
   });
 
   // ---- QR posters ----
