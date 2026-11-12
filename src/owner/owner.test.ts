@@ -1181,14 +1181,39 @@ describe("sending a flyer to customers", () => {
     return `${made.headers.get("location")!.replace("/home", "")}/grid`;
   }
 
+  const noPacks = { packs: async () => [], link: async () => null };
+
+  it("sells message packs when the messages can't reach everyone, at the pack's price", async () => {
+    const link = vi.fn(async (code: string) => (code === "messages-100" ? "https://pay.example/m" : null));
+    const packs = { packs: async () => [{ code: "messages-100", name: "100 messages", messages: 100, priceKobo: 1500000 }], link };
+    // A shop with no messages and nothing to buy doesn't see the box.
+    const none = setup({ sendFlyer: { reach: async () => ({ optedIn: 30, left: 0, monthly: 0 }), packs: noPacks, send: vi.fn() } });
+    const noneCookie = await login(none, OWNER);
+    expect(await (await get(none, await flyerPage(none, noneCookie), noneCookie)).text()).not.toContain("Send to your customers");
+
+    const short = setup({ sendFlyer: { reach: async () => ({ optedIn: 30, left: 0, monthly: 0 }), packs, send: vi.fn() } });
+    const shortCookie = await login(short, OWNER);
+    const shortPage = await flyerPage(short, shortCookie);
+    const html = await (await get(short, shortPage, shortCookie)).text();
+    expect(html).toContain("you have no messages left");
+    expect(html).toContain("<b>100 messages</b> for ₦15,000");
+    expect(html).not.toContain("Send to 0");
+    const bought = await short.app.request(`https://${HOST}/flyers/messages`, post({ pack: "messages-100", back: shortPage.replace("/flyers/", "") }, shortCookie));
+    expect(bought.headers.get("location")).toBe("https://pay.example/m");
+    expect(link).toHaveBeenCalledWith("messages-100", OWNER);
+    const staff = await login(short, STAFF, "manager");
+    expect(await (await short.app.request(`https://${HOST}/flyers/messages`, post({ pack: "messages-100" }, staff))).text()).toContain("Only the business owner");
+  }, 20_000);
+
   it("sends the flyer and the owner's message to everyone opted in, owners only", async () => {
     const send = vi.fn(async () => ({ outcome: "queued" as const, id: 7, recipients: 12 }));
-    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 12, left: 40 }), send } });
+    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 12, left: 40, monthly: 100 }), packs: noPacks, send } });
     const cookie = await login(s, OWNER);
     const page = await flyerPage(s, cookie);
     const html = await (await get(s, page, cookie)).text();
     expect(html).toContain("Send to 12 customers");
-    expect(html).toContain("40 messages left this month");
+    expect(html).toContain("You have 40 messages left");
+    expect(html).not.toContain("Buy ");
     const res = await s.app.request(`https://${HOST}${page}/send`, post({ message: "Weekend offer on mugs" }, cookie));
     expect(res.headers.get("location")).toBe(`/home${page}?msg=flyer_sent`);
     const [message, jpeg, waId] = send.mock.calls[0] as unknown as [string, Uint8Array, string];
@@ -1203,7 +1228,7 @@ describe("sending a flyer to customers", () => {
   }, 20_000);
 
   it("explains how customers opt in when nobody has, and hides it when broadcasts are off", async () => {
-    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 0, left: 40 }), send: vi.fn() } });
+    const s = setup({ sendFlyer: { reach: async () => ({ optedIn: 0, left: 40, monthly: 100 }), packs: noPacks, send: vi.fn() } });
     const cookie = await login(s, OWNER);
     expect(await (await get(s, await flyerPage(s, cookie), cookie)).text()).toContain("send <b>JOIN</b>");
     const off = setup();

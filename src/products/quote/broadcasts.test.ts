@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Product, ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { Broadcast, BroadcastStore, OptInStatus, PendingRecipient, RecipientResult } from "./broadcast-store.js";
-import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
+import { createPictureBroadcasts, monthlyBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
 
 const OWNER = "2348000000001";
 const BIZ = "biz-1";
 
-/** An in-memory version of the database tables, behaving like migration 0029. */
+/** An in-memory version of the database tables, behaving like migrations 0029 and 0083. */
 function memoryStore() {
   const optins = new Map<string, OptInStatus>(); // `${business}|${contact}`
   const optinOrder: string[] = [];
@@ -15,6 +15,7 @@ function memoryStore() {
   const recipients: Array<PendingRecipient & { status: string; waMessageId?: string }> = [];
   let nextId = 1;
   let used = 0;
+  let pack = 0;
 
   const store: BroadcastStore = {
     async optInStatus(b, c) {
@@ -34,6 +35,9 @@ function memoryStore() {
     async usedThisMonth() {
       return used;
     },
+    async packBalance() {
+      return pack;
+    },
     async createDraft(d) {
       const b: Broadcast = { ...d, id: nextId++, status: "draft", recipientCount: 0 };
       broadcasts.set(b.id, b);
@@ -46,7 +50,8 @@ function memoryStore() {
     async queue(id, limit) {
       const b = broadcasts.get(id);
       if (!b || b.status !== "draft") return { outcome: "not_draft", recipients: 0 };
-      const room = limit - used;
+      const monthRoom = Math.max(limit - used, 0);
+      const room = monthRoom + pack;
       if (room <= 0) return { outcome: "limit_reached", recipients: 0 };
       const people = [...new Set(optinOrder)]
         .filter((k) => k.startsWith(`${b.businessId}|`) && optins.get(k) === "in")
@@ -56,6 +61,7 @@ function memoryStore() {
         recipients.push({ broadcastId: id, contactId, waId: `2348${contactId.slice(1).padStart(2, "0")}`, status: "pending" });
       }
       used += people.length;
+      pack -= Math.max(people.length - monthRoom, 0);
       b.status = people.length ? "queued" : "done";
       b.recipientCount = people.length;
       return { outcome: "queued", recipients: people.length };
@@ -94,7 +100,7 @@ function memoryStore() {
       return { sent: count("sent"), failed: count("failed"), skipped: count("skipped") };
     },
   };
-  return { store, optins, recipients, broadcasts, setUsed: (n: number) => (used = n) };
+  return { store, optins, recipients, broadcasts, setUsed: (n: number) => (used = n), setPack: (n: number) => (pack = n) };
 }
 
 const inner: Product = { name: "quote", handle: async (msg) => ({ text: `quote bot: ${msg.text ?? msg.caption ?? ""}` }) };
@@ -189,11 +195,36 @@ describe("owner broadcasts", () => {
     const mem = await withSubscribers(3);
     mem.setUsed(99);
     const preview = (await mem.b.handle(msg("broadcast Sale!", OWNER), ctx("owner")))!.text;
-    expect(preview).toContain("only 1 message are left this month");
+    expect(preview).toContain("only 1 message is left");
     await mem.b.handle(msg("send broadcast 1", OWNER), ctx("owner"));
     expect(mem.recipients).toHaveLength(1);
     mem.setUsed(100);
     expect((await mem.b.handle(msg("broadcast Again", OWNER), ctx("owner")))!.text).toContain("used all 100");
+  });
+
+  it("goes on to a message pack once the month's messages are used, and takes only what it sent from the pack", async () => {
+    const mem = await withSubscribers(3);
+    mem.setUsed(99);
+    mem.setPack(10);
+    const preview = (await mem.b.handle(msg("broadcast Sale!", OWNER), ctx("owner")))!.text;
+    expect(preview).toContain("It will go to 3 customers");
+    expect(preview).toContain("Message pack: 10 left");
+    await mem.b.handle(msg("send broadcast 1", OWNER), ctx("owner"));
+    expect(mem.recipients).toHaveLength(3);
+    expect(await mem.store.packBalance(BIZ)).toBe(8);
+  });
+
+  it("lets a business with only a pack broadcast", async () => {
+    const mem = memoryStore();
+    mem.setPack(5);
+    const b = bot(mem.store, { monthlyLimit: async () => null });
+    await mem.store.setOptIn(BIZ, "c1", "in", "keyword", "wamid.1");
+    const help = (await b.handle(msg("broadcast", OWNER), ctx("owner")))!.text;
+    expect(help).toContain("Message pack: 5 left");
+    expect(help).not.toContain("This month");
+    await b.handle(msg("broadcast Sale!", OWNER), ctx("owner"));
+    expect((await b.handle(msg("send broadcast 1", OWNER), ctx("owner")))!.text).toContain("on its way to 1 customer");
+    expect(await mem.store.packBalance(BIZ)).toBe(4);
   });
 
   it("says it's a paid add-on when the business doesn't have it", async () => {
@@ -291,7 +322,7 @@ describe("sending broadcasts", () => {
 describe("sending a picture made in the owner app", () => {
   it("queues it for everyone opted in, and says so when there's nobody", async () => {
     const m = memoryStore();
-    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store });
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store, monthlyLimit: async () => 100 });
     expect(await pictures.send("Weekend offer", "media-1", OWNER)).toEqual({ outcome: "nobody" });
     await m.store.setOptIn(BIZ, "c1", "in", "keyword", "wamid.1");
     await m.store.setOptIn(BIZ, "c2", "in", "keyword", "wamid.2");
@@ -305,8 +336,25 @@ describe("sending a picture made in the owner app", () => {
 
   it("isn't offered to a business without broadcasts", async () => {
     const m = memoryStore();
-    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: { ...m.store, monthlyLimit: async () => null } });
-    expect(await pictures.reach()).toBeNull();
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store, monthlyLimit: async () => null });
+    expect(await pictures.reach()).toEqual({ optedIn: 0, left: 0, monthly: 0 });
     expect(await pictures.send("x", "media-1", OWNER)).toEqual({ outcome: "not_on_plan" });
+  });
+});
+
+describe("a business's broadcasts a month", () => {
+  const plan = (included: boolean, limit: number | null) => ({ planCode: async () => "pro", has: async () => included, limit: async () => limit });
+
+  it("comes from its plan, unless it has its own number", async () => {
+    expect(await monthlyBroadcasts(null, plan(true, 50))).toBe(50);
+    expect(await monthlyBroadcasts(500, plan(true, 50))).toBe(500);
+    expect(await monthlyBroadcasts(0, plan(true, 50))).toBe(0);
+    expect(await monthlyBroadcasts(null, plan(false, null))).toBeNull();
+  });
+
+  it("is nothing when the plan has no number, so a missing row never gives messages away", async () => {
+    expect(await monthlyBroadcasts(null, plan(true, null))).toBeNull();
+    expect(await monthlyBroadcasts(null, plan(true, 0))).toBeNull();
+    expect(await monthlyBroadcasts(null, undefined)).toBeNull();
   });
 });

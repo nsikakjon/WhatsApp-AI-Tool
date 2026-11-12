@@ -30,7 +30,8 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
-import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
+import { createMessagePackPaidHandler, createMessagePacks, createSupabaseMessagePackLedger, createSupabaseMessagePackStore } from "./products/quote/broadcast-packs.js";
+import { createPictureBroadcasts, finishedText, monthlyBroadcasts, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseDemoFollowUps, sendDemoFollowUps } from "./products/quote/demo-followup.js";
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
@@ -287,14 +288,20 @@ const discountsFor = (businessId: string) => (config.quoteDiscountCodes ? create
 // is exactly as before.
 const broadcastConfig = config.broadcasts;
 const broadcastStore = broadcastConfig ? createSupabaseBroadcasts(supabase) : undefined;
-function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined): Product {
+// Messages a month: the business's own broadcast_addons row, else its plan's
+// number. A branch has no plan of its own, so it gets a row or buys packs.
+async function broadcastLimit(businessId: string, branch: boolean): Promise<number | null> {
+  const { features } = branch ? {} : businessId === DEFAULT_BUSINESS_ID ? (config.quote?.plan ? planFeatures(businessId, config.quote.plan) : {}) : planFeatures(businessId);
+  return monthlyBroadcasts(await broadcastStore!.monthlyLimit(businessId), features);
+}
+function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined, branch = false): Product {
   if (!broadcastConfig || !broadcastStore) return bot;
   return withBroadcasts(bot, {
     businessId,
     businessName,
     ownerWaId,
     store: broadcastStore,
-    monthlyLimit: (id) => broadcastStore.monthlyLimit(id),
+    monthlyLimit: (id) => broadcastLimit(id, branch),
     pictures: !!broadcastConfig.imageTemplateName,
     costPerMessageKobo: broadcastConfig.costPerMessageKobo,
   });
@@ -664,6 +671,7 @@ if (quoteBusinesses) {
         business.id,
         business.name,
         business.ownerWaId ?? undefined,
+        Boolean(business.branchOf),
       ),
   });
 }
@@ -948,6 +956,7 @@ if (config.quote || quoteBusinesses) {
       : undefined,
   });
   const flyerPackPaid = createFlyerPackPaidHandler(createSupabaseFlyerPackLedger(supabase));
+  const messagePackPaid = createMessagePackPaidHandler(createSupabaseMessagePackLedger(supabase));
   const topUpPaid = createTopUpPaidHandler({
     ledger: createSupabaseTopUpLedger(supabase),
     async planLimit(businessId) {
@@ -981,6 +990,13 @@ if (config.quote || quoteBusinesses) {
     // A pack of business flyers, bought on the owner app's Flyers page.
     async (payment) => {
       const text = await flyerPackPaid(payment);
+      if (!text) return [];
+      const found = await quoteBotFor(payment.purpose.businessId as string);
+      return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
+    },
+    // A pack of broadcast messages, bought under a flyer in the owner app.
+    async (payment) => {
+      const text = await messagePackPaid(payment);
       if (!text) return [];
       const found = await quoteBotFor(payment.purpose.businessId as string);
       return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
@@ -1230,9 +1246,15 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             sendFlyer:
               broadcastConfig?.imageTemplateName && broadcastStore
                 ? (() => {
-                    const pictures = createPictureBroadcasts({ businessId: id, businessName: name, fromNumberId: main ? null : numberId, store: broadcastStore });
+                    const pictures = createPictureBroadcasts({ businessId: id, businessName: name, fromNumberId: main ? null : numberId, store: broadcastStore, monthlyLimit: (b) => broadcastLimit(b, Boolean(row?.branchOf)) });
                     return {
                       reach: () => pictures.reach(),
+                      packs: createMessagePacks({
+                        businessId: id,
+                        store: createSupabaseMessagePackStore(supabase),
+                        ownAccount: () => createSupabaseSentStore(supabase, sentNumbers).ownAccount(),
+                        links: payments && currency === "NGN" ? { createLink: (req: PaymentRequest) => payments!.createLink(req) } : undefined,
+                      }),
                       send: async (body: string, jpeg: Uint8Array, waId: string) =>
                         pictures.send(body, await whatsapp.uploadImage({ data: jpeg, mimeType: "image/jpeg" }, numberId), waId),
                     };

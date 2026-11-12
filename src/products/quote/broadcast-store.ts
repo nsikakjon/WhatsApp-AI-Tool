@@ -58,11 +58,13 @@ export interface BroadcastStore {
   monthlyLimit(businessId: string): Promise<number | null>;
   /** Messages sent or queued this month (Lagos time). */
   usedThisMonth(businessId: string): Promise<number>;
+  /** Messages left from the packs the business bought (broadcast-packs.ts); they don't run out with the month. */
+  packBalance(businessId: string): Promise<number>;
   createDraft(draft: NewBroadcast): Promise<Broadcast>;
   get(id: number): Promise<Broadcast | null>;
   /**
    * Confirms a draft: adds the opted-in customers (up to what's left of the
-   * month's limit) and queues it, in one database step.
+   * month's limit plus the pack messages) and queues it, in one database step.
    */
   queue(id: number, monthlyLimit: number): Promise<{ outcome: "queued" | "not_draft" | "limit_reached"; recipients: number }>;
   /** Stops a draft or queued broadcast. Returns false if it had already finished or was cancelled. */
@@ -157,6 +159,14 @@ export function createSupabaseBroadcasts(db: SupabaseClient): BroadcastStore {
       const { data, error } = await db.rpc("broadcast_used_this_month", { p_business_id: businessId });
       if (error) throw fail("usedThisMonth", error);
       return Number(data ?? 0);
+    },
+
+    async packBalance(businessId) {
+      const { data, error } = await db.from("broadcast_pack_balance").select("messages").eq("business_id", businessId).maybeSingle();
+      // Before migration 0083 is run there is no table, and nobody has a pack.
+      if (error?.code === "42P01" || error?.code === "PGRST205") return 0;
+      if (error) throw fail("packBalance", error);
+      return Number(data?.messages ?? 0);
     },
 
     async createDraft(d) {

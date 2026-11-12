@@ -68,7 +68,10 @@ export interface AppBusiness {
   };
   /** Sending a flyer to the customers who opted in to offers (broadcasts with a picture template); without it the button is hidden. */
   sendFlyer?: {
-    reach(): Promise<{ optedIn: number; left: number } | null>;
+    /** Who opted in, the messages left (this month's and the pack's) and the messages the plan gives a month (0: none). */
+    reach(): Promise<{ optedIn: number; left: number; monthly: number }>;
+    /** Message packs on sale (migration 0083). */
+    packs: import("../products/quote/broadcast-packs.js").MessagePacks;
     send(body: string, jpeg: Uint8Array, waId: string): Promise<{ outcome: "queued"; id: number; recipients: number } | { outcome: "not_on_plan" | "nobody" | "limit_reached" }>;
   };
   /** How many business flyers the plan makes a month, and flyer packs (migration 0082); without it flyers have no limit. */
