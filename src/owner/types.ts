@@ -33,6 +33,8 @@ export interface AppBusiness {
   features?: PlanFeatures;
   board: BoardStore;
   prices: PriceStore;
+  /** Files customers sent in the chat (QUOTE_CUSTOMER_FILES); without it the inbox and board don't show them. */
+  customerFiles?: import("../products/quote/customer-files.js").CustomerFileStore;
   /** Product photos (QUOTE_CATALOGUE); without it the photo box is hidden. */
   photos?: {
     savePhoto(productId: string, data: Uint8Array, mimeType: string): Promise<void>;

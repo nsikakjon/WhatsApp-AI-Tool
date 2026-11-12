@@ -67,6 +67,7 @@ import { createFlyerAllowance, createFlyerPackPaidHandler, createSupabaseFlyerCo
 import { createSupabaseTopUpLedger, createSupabaseTopUpStore, createTopUpPaidHandler, createTopUps } from "./products/quote/topups.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
+import { createSupabaseCustomerFiles, deleteOldCustomerFiles, keepQuietFile } from "./products/quote/customer-files.js";
 import { createCatalogue, createSupabaseCatalogue } from "./products/quote/catalogue.js";
 import {
   createShopLinks,
@@ -448,6 +449,17 @@ const ownerApp = config.activeProduct === "quote" ? config.ownerApp : undefined;
 // A customer's chat in the owner app's inbox, for buttons on owner alerts ("talk to someone").
 const chatLinkFor = (businessId: string) =>
   ownerApp ? (contactId: string) => `${ownerApp.publicUrl.replace(/\/+$/, "")}/home/inbox/${contactId}?b=${businessId}` : undefined;
+// An order on the owner app's order board, for buttons on alerts about its files and details.
+const orderLinkFor = (businessId: string) =>
+  ownerApp ? (ref: string) => `${ownerApp.publicUrl.replace(/\/+$/, "")}/home/orders?q=${encodeURIComponent(ref)}&b=${businessId}` : undefined;
+// Files customers send, kept with their orders (QUOTE_CUSTOMER_FILES, migration 0085), for 90 days.
+const customerFilesFor = (businessId: string) => (config.quoteCustomerFiles ? createSupabaseCustomerFiles(supabase, businessId) : undefined);
+if (config.quoteCustomerFiles) {
+  runEvery(24 * 60 * 60 * 1000, async () => {
+    const gone = await deleteOldCustomerFiles(supabase, new Date());
+    if (gone) console.log(`Deleted ${gone} customer files older than 90 days`);
+  });
+}
 async function alertNumbersFor(businessId: string): Promise<string[]> {
   if (!ownerApp) return [];
   const { data, error } = await supabase.from("quote_alert_numbers").select("wa_id").eq("business_id", businessId);
@@ -532,6 +544,8 @@ if (config.activeProduct === "quote" && config.quote) {
     orderPrefix: config.quote.orderPrefix,
     ownerWaId: config.quote.ownerWaId,
     chatLink: chatLinkFor(DEFAULT_BUSINESS_ID),
+    orderLink: orderLinkFor(DEFAULT_BUSINESS_ID),
+    customerFiles: customerFilesFor(DEFAULT_BUSINESS_ID),
     businessDetails: config.quote.businessDetails,
     paymentDetails: config.quote.paymentDetails,
     branding: createSupabaseBranding(supabase, mainBusinessId),
@@ -628,6 +642,8 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     orderPrefix: business.orderPrefix,
     ownerWaId: business.ownerWaId ?? undefined,
     chatLink: chatLinkFor(business.id),
+    orderLink: orderLinkFor(business.id),
+    customerFiles: customerFilesFor(business.id),
     businessDetails: business.businessDetails ?? undefined,
     paymentDetails: business.paymentDetails ?? undefined,
     branding: createSupabaseBranding(supabase, business.id),
@@ -1187,8 +1203,9 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             numberId,
             includeUnnumbered: main,
             features,
-            board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery) }),
-            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes }),
+            board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery), withDetails: config.quoteCustomerFiles }),
+            prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes, askFor: config.quoteCustomerFiles }),
+            customerFiles: config.quoteCustomerFiles ? createSupabaseCustomerFiles(supabase, id, ids) : undefined,
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
@@ -1344,6 +1361,20 @@ const app = createApp({
   usage,
   adLeads: config.adLeads ? createSupabaseAdLeads(supabase) : undefined,
   ownerReplyPauseMinutes: config.ownerReplyPauseMinutes,
+  // A file sent while the owner handles the chat is still kept for the inbox (QUOTE_CUSTOMER_FILES).
+  whilePaused: config.quoteCustomerFiles && config.activeProduct === "quote"
+    ? async (msg, contactId, downloadMedia) => {
+        if (msg.type !== "image" && msg.type !== "document") return;
+        const number = msg.businessNumberId;
+        const businessId =
+          !number || number === config.whatsapp.phoneNumberId
+            ? DEFAULT_BUSINESS_ID
+            : quoteBusinesses
+              ? (await createSupabaseBusinesses(supabase).findByPhoneNumberId(number))?.id
+              : undefined;
+        if (businessId) await keepQuietFile(createSupabaseCustomerFiles(supabase, businessId), msg, contactId, downloadMedia);
+      }
+    : undefined,
   seenAccount: config.marketingMessagesApi ? (number, account) => numberAccounts.set(number, account) : undefined,
   noticeTemplate: config.ownerAlertTemplate,
   emailCopy,

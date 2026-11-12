@@ -3,7 +3,8 @@ import { isPauseActive } from "../../core/db/store.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import { canMessageFreely } from "../../core/whatsapp/outbox.js";
 import type { SectionContext } from "../index.js";
-import { esc, initials } from "../layout.js";
+import { esc, icon, initials } from "../layout.js";
+import { describeFile, isPicture, type CustomerFile } from "../../products/quote/customer-files.js";
 import type { AppContext, Env } from "../types.js";
 
 // The business's own chats: read them, reply as a person, and take a chat over
@@ -12,6 +13,16 @@ import type { AppContext, Env } from "../types.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REPLY = 4096;
+
+const biz = (c: AppContext) => c.get("biz");
+
+/** A file a customer sent: the picture itself, or its name to download. */
+export function fileLink(file: CustomerFile): string {
+  const url = `/home/files/${file.id}`;
+  return isPicture(file.mimeType)
+    ? `<a href="${url}" target="_blank"><img src="${url}" alt="${esc(describeFile(file))}" style="display:block;max-width:100%;max-height:260px;border-radius:8px;margin-bottom:4px"></a>`
+    : `<a class="button ghost small" href="${url}?download=1" style="margin-bottom:4px">${icon("export", 16)}${esc(describeFile(file))}</a><br>`;
+}
 
 export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
   app.use("/inbox", async (c, next) => (await ctx.need(c, "inbox")) ?? next());
@@ -71,12 +82,15 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
       canMessageFreely(chat.inbox.messages, chat.contact.waId, chat.numberId, ctx.now()),
     ]);
     const paused = isPauseActive(pause, ctx.now());
+    // Files the customer sent, kept with their orders (QUOTE_CUSTOMER_FILES).
+    const files = new Map((biz(c).customerFiles ? await biz(c).customerFiles!.forContact(chat.contactId) : []).map((f) => [f.waMessageId, f]));
     const bubbles = chat.messages
       .map((m) => {
         const who = m.direction === "inbound" ? "" : m.fromStaff ? "Staff · " : "Bot · ";
         const cls = m.direction === "inbound" ? "" : m.fromStaff ? " out staff" : " out";
-        const text = m.body ?? `[${m.type}]`;
-        return `<div class="bubble${cls}">${esc(text)}<span class="muted">${who}${esc(when(m.at, ctx.now()))}</span></div>`;
+        const file = m.direction === "inbound" && m.waMessageId ? files.get(m.waMessageId) : undefined;
+        const text = esc(file ? (file.caption ?? "") : (m.body ?? `[${m.type}]`));
+        return `<div class="bubble${cls}">${file ? fileLink(file) : ""}${text}<span class="muted">${who}${esc(when(m.at, ctx.now()))}</span></div>`;
       })
       .join("");
     const title = chat.contact.name ? `${chat.contact.name} (${showWaId(chat.contact.waId)})` : showWaId(chat.contact.waId);

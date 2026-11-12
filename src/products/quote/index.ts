@@ -27,6 +27,7 @@ import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } fro
 import { declineKind } from "./decline.js";
 import type { EventTickets } from "./tickets/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
+import { describeFile, fileKind, MAX_FILE_BYTES, RECENT_ORDER_DAYS, type CustomerFile, type CustomerFileStore, type FileKind } from "./customer-files.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -71,6 +72,12 @@ import type { WalkIn, WalkInMode } from "./walkin/index.js";
 //
 // "hi" gets a welcome with how ordering works (welcome.ts); "menu" brings it
 // back, or the owner's command list when the owner sends it.
+//
+// With customer files on (customer-files.ts), a file a customer sends
+// (artwork, a style photo, a payment screenshot) is kept and linked to their
+// quote or order, and the details they give beyond items and quantities
+// (measurements, names to print, colours) are saved as the order's notes.
+// A product can say what the bot asks for before it confirms an order.
 
 export interface QuoteProductOptions {
   businessName: string;
@@ -146,6 +153,10 @@ export interface QuoteProductOptions {
   walkIn?: WalkIn;
   /** Event tickets with a QR code each, checked in at the door (tickets/). */
   tickets?: EventTickets;
+  /** Files customers send and their order details (QUOTE_CUSTOMER_FILES, migration 0085). Without it, a file is only checked as a payment screenshot. */
+  customerFiles?: CustomerFileStore;
+  /** The owner app's order board found at one order (e.g. KP-1001), for the Open order button on alerts. */
+  orderLink?: (ref: string) => string;
   /** The language of the business's fixed messages (default English). Customers who write in the other language get theirs. */
   language?: Lang;
   /** What the price list is in (default naira). Amounts are always whole hundredths: kobo or centimes. */
@@ -179,6 +190,9 @@ const WALK_IN_OFF: WalkInMode = { on: false, paused: false };
 const ORDER_AGAIN_ID = "order again";
 /** How long the bot stays out of a chat it handed to the owner because the month's orders ran out. */
 const HAND_OVER_HOURS = 24;
+/** A tap on "Payment receipt" or "Design or photo" under a file (the id of the kept file). */
+const FILE_TAP = /^file (payment|order) ([0-9a-z-]{1,64})$/i;
+const DAY = 86_400_000;
 const ORDER_AGAIN = /^(🔁\s*)?(order again|reorder|re-order|same as last time|same again|same order|recommander|même commande|la même chose)[.!]*$/i;
 
 export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
@@ -195,9 +209,19 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     return line === CREDIT_LINE ? t.poweredBy() : line;
   };
 
-  return {
+  const product: QuoteProduct = {
     name: "quote",
     async handle(msg, ctx): Promise<Reply> {
+      if (opts.customerFiles && (msg.type === "image" || msg.type === "document") && msg.mediaId && msg.from !== opts.ownerWaId) {
+        const t = QUOTE_TEXTS[guessLanguage(msg.caption) ?? businessLang];
+        const kept = await keepFile(opts.customerFiles, msg, ctx, t);
+        if (kept.reply) return kept.reply;
+        // The words typed under the file are answered like a message.
+        const reply = (await product.handle({ ...msg, type: "text", text: msg.caption, mediaId: undefined }, ctx)) ?? { text: "" };
+        reply.text = reply.text ? `${t.fileGot()}\n\n${reply.text}` : t.fileGot();
+        if (kept.notice) reply.notify = [...(reply.notify ?? []), kept.notice];
+        return reply;
+      }
       // The customer's language for this reply: a quick guess first, then the AI's answer below.
       let lang: Lang = guessLanguage(msg.text) ?? businessLang;
       let t = QUOTE_TEXTS[lang];
@@ -220,10 +244,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         if (deliveryReply) return deliveryReply;
       }
 
-      if ((msg.type === "image" || msg.type === "document") && msg.mediaId && opts.ownerWaId && msg.from !== opts.ownerWaId) {
-        const proof = await paymentProof(msg, ctx, t);
-        if (proof) return proof;
+      // With customer files on, handle() has kept the file already.
+      if (!opts.customerFiles && (msg.type === "image" || msg.type === "document") && msg.mediaId && opts.ownerWaId && msg.from !== opts.ownerWaId) {
+        const order = await unpaidOrder(ctx.contactId);
+        if (order) {
+          const file = msg.type === "image" ? await ctx.downloadMedia(msg.mediaId) : null;
+          return paymentProof(msg, order, t, file && { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType });
+        }
       }
+      const fileTap = opts.customerFiles && msg.text?.trim().match(FILE_TAP);
+      if (fileTap) return fileTapped(opts.customerFiles!, fileTap[1]!.toLowerCase() as FileKind, fileTap[2]!, msg, ctx.contactId, t);
 
       // A customer whose WhatsApp hides their number has just shared it (the core saved it).
       if (msg.type === "contacts" && ctx.sharedPhone && !isPhoneNumber(msg.from)) return { text: t.numberSaved(`+${ctx.sharedPhone}`) };
@@ -310,14 +340,20 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         t = QUOTE_TEXTS[lang];
       }
 
+      const notes = opts.customerFiles && opts.orders.addNotes && understanding.notes ? understanding.notes : null;
+      // Details for a quote go on the new quote; otherwise on the open quote or a recent order, before any confirming.
+      const noted = notes && understanding.intent !== "quote" ? await saveNotes(ctx.contactId, notes, msg) : null;
+
       let reply: Reply;
       switch (understanding.intent) {
         case "quote":
-          reply = walkIn.paused ? closedReply(t) : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone);
+          reply = walkIn.paused
+            ? closedReply(t)
+            : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone, notes);
           if (!understanding.items.length) reply.stage = "unclear";
           break;
         case "confirm":
-          reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang, ctx.sharedPhone);
+          reply = walkIn.paused ? closedReply(t) : await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang, variants, ctx.sharedPhone);
           // Out of hours, the customer knows the order waits for opening time.
           if (!walkIn.on) await addClosedNote(reply, lang);
           break;
@@ -337,9 +373,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           break;
         }
         default:
-          // The simple replies are written in code, not by the AI, so they can list items freely.
-          reply = { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t), stage: "unclear" };
+          // Details sent on their own (measurements, a name to print) are thanked for, not asked about.
+          reply = noted
+            ? { text: t.notesSaved(ref(noted.order), shown(noted.notes), noted.on) }
+            : // The simple replies are written in code, not by the AI, so they can list items freely.
+              { text: (simple ? understanding.message : safeMessage(understanding.message)) ?? defaultHelp(variants, t), stage: "unclear" };
       }
+      if (noted?.notice) reply.notify = [...(reply.notify ?? []), noted.notice];
       const messagesNotice = opts.botMessages ? await opts.botMessages.check() : null;
       for (const notice of [credit.ownerNotice, messagesNotice]) {
         if (notice && opts.ownerWaId) {
@@ -410,6 +450,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       return own.payReminder(n, opts.businessName, ref(order), money(order.totalKobo), how);
     },
   };
+  return product;
 
   async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang, contactId: string): Promise<Reply | null> {
     const text = msg.text!.trim();
@@ -512,19 +553,10 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
    * the owner gets it with buttons that send "paid KP-1001" or
    * "not paid KP-1001", so confirming is one tap.
    */
-  async function paymentProof(msg: IncomingMessage, ctx: ProductContext, t: QuoteTexts): Promise<Reply | null> {
-    const last = opts.orders.lastOrder ? await opts.orders.lastOrder(ctx.contactId) : null;
-    const order = last && (await opts.orders.findOrder(last.orderNumber));
-    if (!order || order.status !== "confirmed") return null;
+  function paymentProof(msg: IncomingMessage, order: OrderDetails, t: QuoteTexts, file: { data: Uint8Array; mimeType: string } | null): Reply {
     const label = ref(order);
-    let image: OutgoingImage | undefined;
-    if (msg.type === "image") {
-      const file = await ctx.downloadMedia(msg.mediaId!);
-      // Only JPEG and PNG can go on top of a message with buttons.
-      if (file.mimeType === "image/jpeg" || file.mimeType === "image/png") {
-        image = { data: new Uint8Array(await file.data.arrayBuffer()), mimeType: file.mimeType };
-      }
-    }
+    // Only JPEG and PNG can go on top of a message with buttons.
+    const image: OutgoingImage | undefined = file && (file.mimeType === "image/jpeg" || file.mimeType === "image/png") ? { data: file.data, mimeType: file.mimeType } : undefined;
     const who = msg.contactName ?? showWaId(msg.from);
     return {
       text: t.proofPassedOn(label, opts.businessName),
@@ -543,6 +575,122 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         },
       ],
     };
+  }
+
+  /** The customer's latest order if it's confirmed and waiting for payment. */
+  async function unpaidOrder(contactId: string): Promise<OrderDetails | null> {
+    const last = opts.orders.lastOrder ? await opts.orders.lastOrder(contactId) : null;
+    const order = last && (await opts.orders.findOrder(last.orderNumber));
+    return order?.status === "confirmed" ? order : null;
+  }
+
+  /** Where a customer's file or details go: the quote waiting for their YES, else an unpaid order, else one paid in the last few days. */
+  async function orderForDetails(contactId: string): Promise<{ order: SavedOrder; on: "quote" | "order" } | null> {
+    const quote = await opts.orders.latestOpenQuote(contactId);
+    if (quote) return { order: quote, on: "quote" };
+    const last = opts.orders.lastOrder ? await opts.orders.lastOrder(contactId) : null;
+    const order = last && (await opts.orders.findOrder(last.orderNumber));
+    if (!order) return null;
+    const recent = Date.now() - order.createdAt.getTime() <= RECENT_ORDER_DAYS * DAY;
+    return order.status === "confirmed" || (order.status === "paid" && recent) ? { order, on: "order" } : null;
+  }
+
+  /**
+   * Keeps a file a customer sent and links it to their quote or order. Returns
+   * the reply, or no reply when the words under the file should be answered
+   * like a message (with a notice for the owner, if the order is confirmed).
+   */
+  async function keepFile(files: CustomerFileStore, msg: IncomingMessage, ctx: ProductContext, t: QuoteTexts): Promise<{ reply?: Reply; notice?: Notice }> {
+    const media = await ctx.downloadMedia(msg.mediaId!);
+    const data = new Uint8Array(await media.data.arrayBuffer());
+    if (data.byteLength > MAX_FILE_BYTES) return { reply: { text: t.fileTooBig(MAX_FILE_BYTES / 1024 / 1024) } };
+    const unpaid = opts.ownerWaId ? await unpaidOrder(ctx.contactId) : null;
+    const kind = fileKind({ caption: msg.caption, mimeType: media.mimeType, fileName: msg.fileName }, !!unpaid);
+    // A file waiting for the customer's answer goes on an order once they tap one of the buttons.
+    const target = kind === "order" ? await orderForDetails(ctx.contactId) : kind === "payment" ? { order: unpaid!, on: "order" as const } : null;
+    const file = await files.save({
+      contactId: ctx.contactId,
+      orderId: target?.order.id ?? null,
+      waMessageId: msg.waMessageId,
+      kind: kind === "payment" ? "payment" : "order",
+      mimeType: media.mimeType,
+      fileName: msg.fileName ?? null,
+      caption: msg.caption?.trim() || null,
+      data,
+    });
+    if (kind === "payment") return { reply: paymentProof(msg, unpaid!, t, { data, mimeType: media.mimeType }) };
+    if (kind === "ask") {
+      return {
+        reply: {
+          text: "",
+          buttons: {
+            body: t.fileWhich(ref(unpaid!)),
+            buttons: [
+              { id: `file payment ${file.id}`, title: t.fileButtons.payment },
+              { id: `file order ${file.id}`, title: t.fileButtons.order },
+            ],
+          },
+        },
+      };
+    }
+    const notice = target?.on === "order" ? fileAlert(msg, target.order, file, data) : undefined;
+    if (msg.caption?.trim()) return { notice };
+    return { reply: { text: t.fileSaved(target ? ref(target.order) : null, target?.on ?? null), ...(notice ? { notify: [notice] } : {}) } };
+  }
+
+  /** The customer said what a file is with one of the buttons under it. */
+  async function fileTapped(files: CustomerFileStore, kind: FileKind, fileId: string, msg: IncomingMessage, contactId: string, t: QuoteTexts): Promise<Reply> {
+    const file = await files.get(fileId);
+    if (!file || file.contactId !== contactId) return { text: t.sendRequest() };
+    const unpaid = await unpaidOrder(contactId);
+    if (kind === "payment" && unpaid) {
+      // A second tap doesn't send the owner a second payment check.
+      if (file.kind === "payment") return { text: t.proofPassedOn(ref(unpaid), opts.businessName) };
+      await files.update(file.id, { kind: "payment", orderId: unpaid.id });
+      const data = await files.download(file);
+      return paymentProof({ ...msg, caption: file.caption ?? undefined }, unpaid, t, data && { data, mimeType: file.mimeType });
+    }
+    const target = await orderForDetails(contactId);
+    if (!target) return { text: t.fileSaved(null, null) };
+    const moved = file.orderId !== target.order.id || file.kind !== "order";
+    if (moved) await files.update(file.id, { kind: "order", orderId: target.order.id });
+    const notice = moved && target.on === "order" ? fileAlert(msg, target.order, file, await files.download(file)) : undefined;
+    return { text: t.fileSaved(ref(target.order), target.on), ...(notice ? { notify: [notice] } : {}) };
+  }
+
+  /** Tells the owner a customer sent a file for a confirmed order, with the picture when it is one. */
+  function fileAlert(msg: IncomingMessage, order: SavedOrder, file: CustomerFile, data: Uint8Array | null): Notice | undefined {
+    if (!opts.ownerWaId) return undefined;
+    const label = ref(order);
+    const picture = data && (file.mimeType === "image/jpeg" || file.mimeType === "image/png") && data.byteLength <= 5 * 1024 * 1024;
+    return {
+      to: opts.ownerWaId,
+      text: own.ownerNewFile(msg.contactName ?? showWaId(msg.from), label, describeFile(file)),
+      ...(opts.orderLink ? { link: { label: own.openOrder(), url: opts.orderLink(label) } } : {}),
+      ...(picture ? { images: [{ data: data!, mimeType: file.mimeType }] } : {}),
+    };
+  }
+
+  /** Saves details the customer sent on their quote or recent order. The owner hears about details for a confirmed order. */
+  async function saveNotes(contactId: string, notes: string, msg: IncomingMessage): Promise<{ order: SavedOrder; on: "quote" | "order"; notes: string; notice?: Notice } | null> {
+    const target = await orderForDetails(contactId);
+    if (!target) return null;
+    try {
+      await opts.orders.addNotes!(target.order.id, notes);
+    } catch (err) {
+      log.error(`Couldn't save the details for ${ref(target.order)}:`, err);
+      return null;
+    }
+    const label = ref(target.order);
+    const notice: Notice | undefined =
+      target.on === "order" && opts.ownerWaId
+        ? {
+            to: opts.ownerWaId,
+            text: own.ownerNewNotes(msg.contactName ?? showWaId(msg.from), label, notes),
+            ...(opts.orderLink ? { link: { label: own.openOrder(), url: opts.orderLink(label) } } : {}),
+          }
+        : undefined;
+    return { ...target, notes, notice };
   }
 
   /**
@@ -627,6 +775,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     waId: string,
     t: QuoteTexts,
     phone?: string,
+    notes?: string | null,
   ): Promise<Reply> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
@@ -667,7 +816,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       return notify ? { text, notify } : { text };
     }
 
+    // A changed request makes a new quote: the old one's details and files come along.
+    const previous = opts.customerFiles ? await opts.orders.latestOpenQuote(contactId) : null;
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
+    const orderNotes = opts.customerFiles ? await carryDetails(opts.customerFiles, order, previous, notes ?? null, contactId) : null;
+    const notesLine = orderNotes && shown(orderNotes);
     const creditLine = await credit(t);
     const text = [
       t.quoteHeader(ref(order)),
@@ -675,6 +828,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       ...lines.map((l) => `• ${l.quantity} x ${l.name} @ ${money(l.unitPriceKobo)} = ${money(l.totalKobo)}`),
       "",
       t.quoteTotal(money(order.totalKobo)),
+      ...(notesLine ? ["", t.orderNotes(notesLine)] : []),
       ...(problems.length > 0 ? ["", ...problems] : []),
       ...(manualNote ? ["", manualNote] : []),
       "",
@@ -685,6 +839,30 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     return { text, ...(photos.length ? { images: photos } : {}), ...(notify ? { notify } : {}) };
   }
 
+  /** Puts the earlier quote's details, the new ones and the customer's recent files on a new quote. Returns its notes. */
+  async function carryDetails(files: CustomerFileStore, order: SavedOrder, previous: SavedOrder | null, notes: string | null, contactId: string): Promise<string | null> {
+    try {
+      await files.moveToQuote(contactId, order.id, new Date(Date.now() - 14 * DAY));
+      let all: string | null = null;
+      for (const n of [previous?.notes, notes]) if (n && opts.orders.addNotes) all = await opts.orders.addNotes(order.id, n);
+      return all;
+    } catch (err) {
+      log.error(`Couldn't carry the customer's details over to ${ref(order)}:`, err);
+      return null;
+    }
+  }
+
+  /** What the order's products ask the customer for, e.g. "Agbada: Measurements: chest, waist, length". */
+  function detailsWanted(order: SavedOrder, variants: Variant[]): string[] {
+    const byId = new Map(variants.map((v) => [v.id, v]));
+    const asks = new Map<string, string>();
+    for (const line of order.lines) {
+      const v = byId.get(line.variantId);
+      if (v?.askFor) asks.set(v.askFor.toLowerCase(), `${v.name.split(":")[0]!.trim()}: ${v.askFor}`);
+    }
+    return [...asks.values()];
+  }
+
   async function confirm(
     contactId: string,
     name: string | undefined,
@@ -692,6 +870,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     walkIn: WalkInMode,
     t: QuoteTexts,
     lang: Lang,
+    variants: Variant[],
     phone?: string,
   ): Promise<Reply> {
     const order = await opts.orders.latestOpenQuote(contactId);
@@ -726,6 +905,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         reply.notify[0]!.text += `\n\n${(await limitNotice(limitText, { usedUp: true })).text}`;
       }
       return reply;
+    }
+
+    // Products that need something from the customer (artwork, measurements) ask for it once before confirming.
+    const wanted = opts.customerFiles ? detailsWanted(order, variants) : [];
+    const orderFiles = opts.customerFiles ? await opts.customerFiles.forOrders([order.id]) : [];
+    const missing = wanted.length > 0 && !order.notes && !orderFiles.length;
+    if (missing && opts.orders.askForDetails && (await opts.orders.askForDetails(order.id))) {
+      return { text: t.askDetails(ref(order), wanted) };
     }
 
     // A tickets-only order has nothing to deliver or collect: the tickets come in the chat.
@@ -786,12 +973,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             ...(order.discount ? [discountLine(order.discount, money)] : []),
             ...(delivery ? [`• ${delivery.label} = ${money(delivery.feeKobo)}`] : []),
             own.total(money(order.totalKobo)),
+            ...(order.notes ? ["", own.orderNotes(order.notes)] : []),
+            ...(orderFiles.length ? [own.orderFiles(orderFiles.map(describeFile))] : []),
+            ...(missing ? [own.detailsMissing(wanted.join("; "))] : []),
             ...(note ? ["", note] : []),
             "",
             spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
             ...(check.warning && !opts.limitAlerts ? ["", check.warning] : []),
             ...(lowStock.length ? ["", own.lowStock(lowStock.map((l) => ({ name: l.name, left: l.left })))] : []),
           ].join("\n"),
+          ...(opts.orderLink && (order.notes || orderFiles.length) ? { link: { label: own.openOrder(), url: opts.orderLink(ref(order)) } } : {}),
         },
       ];
       if (check.warning && opts.limitAlerts) reply.notify.push(await limitNotice(check.warning));
@@ -817,7 +1008,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   /** Draws an invoice or receipt for an order. Returns null if drawing fails, so the chat carries on in text. */
   async function documentImage(
     kind: "invoice" | "receipt",
-    order: Pick<OrderDetails, "orderNumber" | "lines" | "discount" | "totalKobo" | "customerWaId" | "customerName" | "createdAt"> & { paidAt?: Date | null },
+    order: Pick<OrderDetails, "orderNumber" | "lines" | "discount" | "totalKobo" | "customerWaId" | "customerName" | "createdAt" | "notes"> & { paidAt?: Date | null },
     delivery: DeliveryCharge | null,
     pickup: Pickup | null = null,
     t: QuoteTexts = own,
@@ -840,6 +1031,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         ...(delivery ? { delivery } : {}),
         totalKobo: order.totalKobo,
         paymentDetails: opts.paymentDetails,
+        ...(order.notes && shown(order.notes) ? { orderNotes: order.notes } : {}),
         ...(pickup ? { pickup } : {}),
         lang,
         currency: opts.currency ?? "NGN",
@@ -1037,6 +1229,11 @@ function defaultHelp(variants: Variant[], t: QuoteTexts): string {
 // from reaching a customer.
 const MONEY =
   /₦|naira|\bngn\b|kobo|\bN\s?\d|\d\s*k\b|\bprice (is|of)\b|\bcosts?\b|\btotal\b|\d{1,3}(,\d{3})+|fcfa|\bcfa\b|\bxof\b|\bxaf\b|francs?\b|\d\s*f\b|\bprix (est|de)\b|co[uû]te|\d{1,3}([ .\u00a0\u202f]\d{3})+/i;
+
+/** The customer's details as they can be repeated back to them: never anything that looks like money (see MONEY). */
+function shown(notes: string): string | null {
+  return MONEY.test(notes) ? null : notes;
+}
 
 /** True when the message has a word (four letters or more) from one of the shop's item names. */
 function namesAnItem(text: string, variants: Array<{ name: string }>): boolean {

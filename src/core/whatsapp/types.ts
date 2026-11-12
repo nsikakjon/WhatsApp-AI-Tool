@@ -31,6 +31,8 @@ export interface IncomingMessage {
   transcribed?: boolean;
   /** WhatsApp's id for an attached file (voice note, image, ...), used to download it. */
   mediaId?: string;
+  /** The name of a document the sender attached, e.g. "logo-final.cdr". */
+  fileName?: string;
   /**
    * A location pin the sender dropped (attach > Location > Send your current
    * location, or a place they picked). WhatsApp only passes one fixed pin to

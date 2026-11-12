@@ -96,6 +96,8 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       category: field(form, "category", 40) || null,
       unit: field(form, "unit", 30) || null,
       leadTimeDays: lead !== null && Number.isInteger(lead) ? lead : null,
+      // Only on the form with customer files on; left out, the saved one stays.
+      ...("askFor" in form ? { askFor: field(form, "askFor", 200) || null } : {}),
       active: true,
       options,
     },
@@ -211,6 +213,7 @@ ${product?.morePhotos.length ? `<label><input type="checkbox" name="nomore"> Tak
 <div class="row"><label>Category <span class="muted">(optional)</span><input name="category" maxlength="40" value="${v(p?.category)}" placeholder="e.g. Printing"></label>
 <label>Sold per <span class="muted">(optional)</span><input name="unit" maxlength="30" value="${v(p?.unit)}" placeholder="e.g. piece, pack of 100"></label>
 <label>Production time <span class="muted">(days)</span><input name="lead" inputmode="numeric" value="${v(p?.leadTimeDays)}" placeholder="e.g. 2"></label></div>
+${biz.customerFiles ? `<label for="ask">Ask the customer for <span class="muted">(optional; the bot asks for it before confirming an order)</span></label><input id="ask" name="askFor" maxlength="200" value="${v(p?.askFor)}" placeholder="e.g. Your artwork or logo / Measurements: chest, waist, length">` : ""}
 ${photo}
 <h2>Options and prices</h2>${biz.barcodes && !readOnly ? scannerBox() : ""}${optionRows}
 ${readOnly ? `<div class="actions"><a class="button ghost" href="/home/prices">Back to the price list</a></div>` : `<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>

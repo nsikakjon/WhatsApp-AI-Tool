@@ -43,6 +43,8 @@ export interface DocumentInput {
   totalKobo: number;
   /** Bank details printed on invoices so the customer knows where to pay. */
   paymentDetails?: string;
+  /** What the customer asked for beyond the items: measurements, names to print, colours. */
+  orderNotes?: string;
   /** On walk-in receipts: the QR code staff scan to hand the order over, and the code they can type instead. */
   pickup?: Pickup;
   /** The words on the document (default English). */
@@ -58,14 +60,14 @@ const WORDS = {
     customer: "Customer", item: "ITEM", qty: "QTY", unit: "UNIT PRICE", amount: "AMOUNT", totalDue: "TOTAL DUE", amountPaid: "AMOUNT PAID",
     paid: "PAID", awaiting: "AWAITING PAYMENT", howToPay: "HOW TO PAY", showWhenCollect: "SHOW THIS WHEN YOU COLLECT", forTable: "For",
     collectAt: "Collect at:", codeOnce: "Each code works once.", quoteRef: (ref: string) => `Please quote ${ref} when you pay. Thank you!`,
-    thanks: "Thank you for your business!", discount: "Discount",
+    thanks: "Thank you for your business!", discount: "Discount", orderNotes: "ORDER DETAILS",
   },
   fr: {
     invoice: "FACTURE", receipt: "REÇU", no: "N°", date: "Date", paidOn: "Payé le", billTo: "FACTURÉ À", receivedFrom: "REÇU DE",
     customer: "Client", item: "ARTICLE", qty: "QTÉ", unit: "PRIX UNITAIRE", amount: "MONTANT", totalDue: "TOTAL À PAYER", amountPaid: "MONTANT PAYÉ",
     paid: "PAYÉ", awaiting: "EN ATTENTE DE PAIEMENT", howToPay: "COMMENT PAYER", showWhenCollect: "À MONTRER AU RETRAIT", forTable: "Pour",
     collectAt: "Retrait à :", codeOnce: "Chaque code ne sert qu'une fois.", quoteRef: (ref: string) => `Merci d'indiquer ${ref} lors du paiement.`,
-    thanks: "Merci de votre confiance !", discount: "Remise",
+    thanks: "Merci de votre confiance !", discount: "Remise", orderNotes: "PRÉCISIONS DE COMMANDE",
   },
 };
 
@@ -121,11 +123,17 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   ];
   const rows = items.map((l) => wrap(scratch, l.name, cols.qty - cols.item - 60));
   const rowsHeight = rows.reduce((h, r) => h + r.length * 42 + 30, 0);
-  const notes = input.kind === "invoice" && input.paymentDetails ? input.paymentDetails : "";
+  // Boxes under the total: the customer's order details, then how to pay.
   scratch.font = "28px Inter";
-  const noteLines = notes ? notes.split("\n").flatMap((p) => wrap(scratch, p, WIDTH - 2 * MARGIN - 48)) : [];
+  const boxes = [
+    { title: w.orderNotes, text: input.orderNotes ?? "" },
+    { title: w.howToPay, text: input.kind === "invoice" ? (input.paymentDetails ?? "") : "" },
+  ]
+    .filter((b) => b.text.trim())
+    .map((b) => ({ title: b.title, lines: b.text.split("\n").flatMap((p) => wrap(scratch, p, WIDTH - 2 * MARGIN - 48)).slice(0, 12) }));
+  const boxesHeight = boxes.reduce((h, b) => h + 120 + b.lines.length * 40, 0);
   const pickup = input.kind === "receipt" ? input.pickup : undefined;
-  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + (noteLines.length ? 120 + noteLines.length * 40 : 0) + (pickup ? PICKUP_HEIGHT + 100 : 0));
+  const height = Math.max(MIN_HEIGHT, 900 + rowsHeight + boxesHeight + (pickup ? PICKUP_HEIGHT + 100 : 0));
 
   const canvas = createCanvas(WIDTH, height);
   const ctx = canvas.getContext("2d");
@@ -259,15 +267,16 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
     y += PICKUP_HEIGHT;
   }
 
-  if (noteLines.length) {
+  for (const box of boxes) {
     ctx.fillStyle = SHADE;
-    ctx.fillRect(MARGIN, y, WIDTH - 2 * MARGIN, 80 + noteLines.length * 40);
+    ctx.fillRect(MARGIN, y, WIDTH - 2 * MARGIN, 80 + box.lines.length * 40);
     ctx.fillStyle = MUTED;
     ctx.font = "24px Inter SemiBold";
-    ctx.fillText(w.howToPay, MARGIN + 24, y + 24);
+    ctx.fillText(box.title, MARGIN + 24, y + 24);
     ctx.fillStyle = INK;
     ctx.font = "28px Inter";
-    noteLines.forEach((line, i) => ctx.fillText(line, MARGIN + 24, y + 64 + i * 40));
+    box.lines.forEach((line, i) => ctx.fillText(line, MARGIN + 24, y + 64 + i * 40));
+    y += 120 + box.lines.length * 40;
   }
 
   // Footer.

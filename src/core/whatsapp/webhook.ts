@@ -38,6 +38,11 @@ export interface WebhookDeps {
    */
   ownerReplyPauseMinutes?: number;
   /**
+   * Called for a message that arrives while a person is handling the chat
+   * (the bot stays quiet), so a file in it can still be kept. Errors are logged.
+   */
+  whilePaused?: (msg: IncomingMessage, contactId: string, downloadMedia: (mediaId: string) => Promise<{ data: Blob; mimeType: string }>) => Promise<void>;
+  /**
    * What a customer is sent when their message can't be answered (the bot
    * crashed or its reply couldn't be sent). Default: FALLBACK_TEXT.
    */
@@ -167,6 +172,11 @@ async function handleMessage(
   // the message is saved (above) but the bot stays out of it.
   if (await isPaused(deps, contactId, msg, log)) {
     log.info(`Message ${msg.waMessageId} from ${mask(msg.from)}: owner is handling this chat, bot stays quiet`);
+    if (deps.whilePaused) {
+      await deps.whilePaused(msg, contactId, (mediaId) => deps.whatsapp.downloadMedia(mediaId, msg.businessNumberId)).catch((err) =>
+        log.error(`Couldn't keep message ${msg.waMessageId} from a chat the owner is handling:`, err),
+      );
+    }
     return;
   }
 

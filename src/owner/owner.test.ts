@@ -22,6 +22,7 @@ import { readTillSale } from "./sections/till.js";
 import type { AppBusiness, OwnerAppDeps } from "./types.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./whatsapp.js";
 import { memoryVerifications } from "../compliance/memory.js";
+import { memoryCustomerFiles } from "../products/quote/customer-files.js";
 import { can, toRole, type Role } from "./roles.js";
 
 const BIZ = "11111111-1111-1111-1111-111111111111";
@@ -1235,4 +1236,48 @@ describe("sending a flyer to customers", () => {
     const offCookie = await login(off, OWNER);
     expect(await (await get(off, await flyerPage(off, offCookie), offCookie)).text()).not.toContain("Send to your customers");
   }, 20_000);
+});
+
+describe("customer files in the owner app", () => {
+  async function withFiles() {
+    const files = memoryCustomerFiles();
+    const photo = await files.save({ contactId: "c1", orderId: order.id, waMessageId: "wamid.photo", kind: "order", mimeType: "image/jpeg", fileName: null, caption: "this style", data: new Uint8Array([1, 2]) });
+    const cdr = await files.save({ contactId: "c1", orderId: order.id, waMessageId: "wamid.cdr", kind: "order", mimeType: "application/octet-stream", fileName: "logo final.cdr", caption: null, data: new Uint8Array([3]) });
+    const svg = await files.save({ contactId: "c1", orderId: order.id, waMessageId: "wamid.svg", kind: "order", mimeType: "image/svg+xml", fileName: "x.svg", caption: null, data: new Uint8Array([4]) });
+    for (const f of [photo, cdr, svg]) f.id = f.id.replace(/^f/, "44444444-4444-4444-4444-00000000000");
+    const s = setup({ customerFiles: files });
+    s.board.orders = async () => [{ ...order, notes: "chest 42, waist 36", files: [{ id: cdr.id, label: "logo final.cdr (1 KB)" }] }];
+    return { s, photo, cdr, svg };
+  }
+
+  it("shows the customer's details and files on the order board", async () => {
+    const { s, cdr } = await withFiles();
+    const board = await (await get(s, "/orders", await login(s, OWNER))).text();
+    expect(board).toContain("📝 chest 42, waist 36");
+    expect(board).toContain(`href="/home/files/${cdr.id}?download=1">📎 logo final.cdr (1 KB)`);
+  });
+
+  it("opens pictures in the browser and downloads every other file, SVG included", async () => {
+    const { s, photo, cdr, svg } = await withFiles();
+    const cookie = await login(s, STAFF, "cashier");
+    const pic = await get(s, `/files/${photo.id}`, cookie);
+    expect(pic.headers.get("content-type")).toBe("image/jpeg");
+    expect(pic.headers.get("content-disposition")).toContain("inline");
+    const file = await get(s, `/files/${cdr.id}`, cookie);
+    expect(file.headers.get("content-type")).toBe("application/octet-stream");
+    expect(file.headers.get("content-disposition")).toBe('attachment; filename="logo final.cdr"');
+    expect((await get(s, `/files/${svg.id}`, cookie)).headers.get("content-type")).toBe("application/octet-stream");
+    expect((await get(s, "/files/44444444-4444-4444-4444-999999999999", cookie)).status).toBe(404);
+  });
+
+  it("lets the owner say what the bot asks for before confirming a product", async () => {
+    const { s } = await withFiles();
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, "/prices/new", cookie)).text()).toContain("Ask the customer for");
+    await s.app.request(`https://${HOST}/prices/new`, post({ name: "Agbada", askFor: "Measurements: chest, waist, length", o0_name: "Sewing", o0_p0: "25000" }, cookie));
+    expect(s.prices.all[0]!.askFor).toBe("Measurements: chest, waist, length");
+    // Without customer files the box isn't there.
+    const off = setup();
+    expect(await (await get(off, "/prices/new", await login(off, OWNER))).text()).not.toContain("Ask the customer for");
+  });
 });

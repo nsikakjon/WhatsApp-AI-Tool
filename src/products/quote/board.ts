@@ -6,6 +6,7 @@ import { lagosMonthKey } from "./credits.js";
 import type { PlanFeatures } from "./features.js";
 import { lagosMonthStart } from "./plan.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
+import { describeFile } from "./customer-files.js";
 
 // The owner's orders page, behind a private signed link the owner gets by
 // sending "orders" to the bot (QUOTE_ORDER_BOARD, migration 0036). Two parts,
@@ -35,6 +36,9 @@ export interface BoardOrder {
   confirmedAt: Date;
   /** When it reached its column: delivered, moved, paid or confirmed. */
   movedAt: Date;
+  /** The customer's details for the order and the files they sent for it (migration 0085, read with `withDetails`). */
+  notes?: string | null;
+  files?: Array<{ id: string; label: string }>;
 }
 
 export interface SalesFigures {
@@ -247,16 +251,20 @@ type OrderRow = {
   contacts: { wa_id: string; name: string | null };
   quote_order_items: Array<{ name: string; quantity: number }>;
   quote_deliveries?: { status: string; delivered_at: string | null } | Array<{ status: string; delivered_at: string | null }> | null;
+  notes?: string | null;
+  quote_customer_files?: Array<{ id: string; kind: string; file_name: string | null; mime_type: string; bytes: number }>;
 };
 
 /**
  * The board for one business and its branches, read from Supabase. With
  * delivery off, deliveries aren't read (migration 0030 may not be run).
  */
-export function createSupabaseBoardStore(db: SupabaseClient, businessIds: string[], opts: { withDelivery: boolean }): BoardStore {
+export function createSupabaseBoardStore(db: SupabaseClient, businessIds: string[], opts: { withDelivery: boolean; withDetails?: boolean }): BoardStore {
   return {
     async orders(since) {
-      const delivery = opts.withDelivery ? ", quote_deliveries(status, delivered_at)" : "";
+      const delivery =
+        (opts.withDelivery ? ", quote_deliveries(status, delivered_at)" : "") +
+        (opts.withDetails ? ", notes, quote_customer_files(id, kind, file_name, mime_type, bytes)" : "");
       const { data, error } = await db
         .from("quote_orders")
         .select(`id, order_number, status, stage, stage_at, total_kobo, confirmed_at, paid_at, contacts(wa_id, name), quote_order_items(name, quantity)${delivery}`)
@@ -281,6 +289,14 @@ export function createSupabaseBoardStore(db: SupabaseClient, businessIds: string
           totalKobo: Number(r.total_kobo),
           confirmedAt: new Date(r.confirmed_at),
           movedAt: new Date(moments.sort().at(-1)!),
+          ...(opts.withDetails
+            ? {
+                notes: r.notes ?? null,
+                files: (r.quote_customer_files ?? [])
+                  .filter((f) => f.kind === "order")
+                  .map((f) => ({ id: f.id, label: describeFile({ fileName: f.file_name, mimeType: f.mime_type, bytes: f.bytes }) })),
+              }
+            : {}),
         };
       });
     },

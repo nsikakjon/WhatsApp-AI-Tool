@@ -74,6 +74,16 @@ export interface SavedOrder {
   lines: QuoteLine[];
   /** A customer discount code on the order (migration 0042) and what it took off the items. */
   discount?: { code: string; amountKobo: number } | null;
+  /** What the customer told us for the order beyond items and quantities: measurements, names to print, colours (migration 0085). */
+  notes?: string | null;
+}
+
+/** An order's notes with new details added on their own line, unless they're already there. Kept under 2,000 letters. */
+export function joinNotes(current: string | null | undefined, add: string): string {
+  const next = add.trim();
+  const now = current?.trim() ?? "";
+  if (!next || now.toLowerCase().includes(next.toLowerCase())) return now;
+  return (now ? `${now}\n${next}` : next).slice(-2000);
 }
 
 /** What the items come to after any discount code, before delivery. */
@@ -100,6 +110,10 @@ export interface OrderStore {
    * of those (already paid, or cancelled), so a repeated "paid" does nothing.
    */
   markPaid(orderId: string): Promise<boolean>;
+  /** Adds the customer's details to the order's notes (migration 0085) and returns all its notes. */
+  addNotes?(orderId: string, notes: string): Promise<string>;
+  /** Records that the bot asked for an order's details before confirming; false if it already had. */
+  askForDetails?(orderId: string): Promise<boolean>;
 }
 
 export type OrderStatus = "quoted" | "confirmed" | "paid" | "cancelled";
@@ -217,7 +231,7 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
         .from("quote_variants")
         .select(
           // Every variant column, so details is read once migration 0040 is run.
-          "*, quote_products!inner(name, active), quote_price_tiers(min_quantity, unit_price_kobo)",
+          "*, quote_products!inner(*), quote_price_tiers(min_quantity, unit_price_kobo)",
         )
         .eq("active", true)
         .eq("quote_products.active", true);
@@ -226,7 +240,7 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
       if (error) throw new Error(`activeVariants failed: ${error.message}`);
 
       return (data ?? []).map((row) => {
-        const product = row.quote_products as unknown as { name: string };
+        const product = row.quote_products as unknown as { name: string; ask_for?: string | null };
         const tiers = (row.quote_price_tiers ?? []) as Array<{ min_quantity: number; unit_price_kobo: number | string }>;
         return {
           id: row.id as string,
@@ -234,6 +248,7 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
           minQuantity: row.min_quantity as number,
           tiers: tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
           ...(row.details ? { details: row.details as string } : {}),
+          ...(product.ask_for?.trim() ? { askFor: product.ask_for.trim() } : {}),
         };
       });
     },
@@ -246,6 +261,7 @@ type OrderRow = {
   total_kobo: number | string;
   discount_code?: string | null;
   discount_kobo?: number | string | null;
+  notes?: string | null;
   quote_order_items: Array<{
     variant_id: string;
     name: string;
@@ -261,6 +277,7 @@ function toSavedOrder(row: OrderRow): SavedOrder {
     orderNumber: Number(row.order_number),
     totalKobo: Number(row.total_kobo),
     discount: row.discount_code ? { code: row.discount_code, amountKobo: Number(row.discount_kobo ?? 0) } : null,
+    ...(row.notes ? { notes: row.notes } : {}),
     lines: row.quote_order_items.map((i) => ({
       variantId: i.variant_id,
       name: i.name,
@@ -372,6 +389,24 @@ export function createSupabaseOrders(db: SupabaseClient, businessId?: string): O
         .in("status", ["quoted", "confirmed"])
         .select("id");
       if (error) throw new Error(`markPaid failed: ${error.message}`);
+      return (data ?? []).length > 0;
+    },
+
+    async addNotes(orderId, notes) {
+      const { data, error } = await mine(db.from("quote_orders").select("notes")).eq("id", orderId).maybeSingle();
+      if (error || !data) throw new Error(`addNotes failed: ${error?.message ?? "no such order"}`);
+      const all = joinNotes((data as { notes: string | null }).notes, notes);
+      const saved = await mine(db.from("quote_orders").update({ notes: all, updated_at: new Date().toISOString() })).eq("id", orderId);
+      if (saved.error) throw new Error(`addNotes failed: ${saved.error.message}`);
+      return all;
+    },
+
+    async askForDetails(orderId) {
+      const { data, error } = await mine(db.from("quote_orders").update({ details_asked_at: new Date().toISOString() }))
+        .eq("id", orderId)
+        .is("details_asked_at", null)
+        .select("id");
+      if (error) throw new Error(`askForDetails failed: ${error.message}`);
       return (data ?? []).length > 0;
     },
 

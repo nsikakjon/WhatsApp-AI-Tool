@@ -23,6 +23,8 @@ export interface ChatMessage {
   /** True when a person sent it, from the inbox or the WhatsApp Business app (not the bot). */
   fromStaff: boolean;
   at: Date;
+  /** WhatsApp's id for the message, to find a file the customer sent with it. */
+  waMessageId?: string;
 }
 
 export interface InboxStore {
@@ -79,7 +81,7 @@ export function createSupabaseInboxStore(db: SupabaseClient): InboxStore {
     async chatMessages(contactId, businessNumberId, includeUnnumbered, limit) {
       let query = db
         .from("messages")
-        .select("direction, type, body, created_at, staff:raw->inbox, phone:raw->to")
+        .select("direction, type, body, created_at, wa_message_id, staff:raw->inbox, phone:raw->to")
         .eq("contact_id", contactId);
       query = includeUnnumbered
         ? query.or(`business_number_id.eq.${businessNumberId},business_number_id.is.null`)
@@ -95,6 +97,7 @@ export function createSupabaseInboxStore(db: SupabaseClient): InboxStore {
         // messages carry neither.
         fromStaff: row.staff === true || (row.phone !== null && row.phone !== undefined),
         at: new Date(row.created_at as string),
+        ...(row.wa_message_id ? { waMessageId: row.wa_message_id as string } : {}),
       }));
     },
   };
