@@ -17,7 +17,7 @@ export interface BusinessAbout {
   hours: OpeningHours | null;
 }
 
-const DAY_NAMES: Record<Lang, Record<Day, string>> = {
+export const DAY_NAMES: Record<Lang, Record<Day, string>> = {
   en: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
   fr: { sun: "dimanche", mon: "lundi", tue: "mardi", wed: "mercredi", thu: "jeudi", fri: "vendredi", sat: "samedi" },
   pcm: { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" },
@@ -45,6 +45,9 @@ function lagosClock(now: Date): { day: number; minutes: number } {
   const t = new Date(now.getTime() + 60 * 60_000);
   return { day: t.getUTCDay(), minutes: t.getUTCHours() * 60 + t.getUTCMinutes() };
 }
+
+/** Today's day in Lagos. */
+export const lagosDay = (now: Date): Day => DAYS[lagosClock(now).day]!;
 
 const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
 

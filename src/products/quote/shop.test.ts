@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatMoney } from "../../core/money.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct } from "./index.js";
-import { createShopLinks, createShopPage, shopTheme, slugify, type ShopBusiness, type ShopProduct, type SlugStore } from "./shop.js";
+import { cleanSocials, createShopLinks, createShopPage, popularProducts, shopTheme, slugify, socialLink, type ShopBusiness, type ShopProduct, type SlugStore } from "./shop.js";
 import type { OrderStore } from "./store.js";
 
 const BIZ = "00000000-0000-0000-0000-0000000000a1";
@@ -87,8 +87,13 @@ function business(over: Partial<ShopBusiness> = {}): ShopBusiness {
     accent: null,
     coverPath: null,
     hours: null,
+    tagline: null,
+    about: null,
+    address: null,
+    socials: {},
     ratings: async () => null,
     deliveryAreas: async () => [],
+    recentOrders: async () => [],
     photos: async () => true,
     products: async () => products,
     photo: async (path) => (path.includes(FLYER) ? { data: new Uint8Array([0xff, 0xd8, 1]), mimeType: "image/jpeg" } : null),
@@ -265,16 +270,86 @@ describe("shop page", () => {
     expect(await (await pageApp().request("/shop/adas-prints")).text()).not.toContain('class="status');
   });
 
-  it("shows ratings once there are a few, and where it delivers", async () => {
-    const few = await (await pageApp(business({ ratings: async () => ({ average: 5, count: 2 }) })).request("/shop/adas-prints")).text();
+  it("shows ratings once there are a few, and where it delivers with each area's fee", async () => {
+    const few = await (await pageApp(business({ ratings: async () => ({ great: 2, ok: 0, bad: 0 }) })).request("/shop/adas-prints")).text();
     expect(few).not.toContain("ratings");
-    const page = await (
-      await pageApp(business({ ratings: async () => ({ average: 4.66, count: 23 }), deliveryAreas: async () => ["Ikeja", "Yaba", "Surulere", "Lekki", "Ajah"] })).request("/shop/adas-prints")
-    ).text();
-    expect(page).toContain("4.7 from 23 ratings");
+    expect(few).not.toContain('id="reviews"');
+    const areas = [
+      { name: "Ikeja", feeKobo: 0 },
+      { name: "Yaba", feeKobo: 150_000 },
+      { name: "Surulere", feeKobo: 200_000 },
+      { name: "Lekki", feeKobo: 350_000 },
+      { name: "Ajah", feeKobo: 400_000 },
+    ];
+    const page = await (await pageApp(business({ ratings: async () => ({ great: 18, ok: 4, bad: 1 }), deliveryAreas: async () => areas })).request("/shop/adas-prints")).text();
+    expect(page).toContain("4.5 from 23 ratings");
+    expect(page).toContain("78% said Great");
+    expect(page).toContain('<li><span>Not good</span><i style="--w:4%"></i><b>1</b></li>');
     expect(page).toContain("Delivers to Ikeja, Yaba, Surulere and 2 more areas");
+    expect(page).toContain("<li><span>Ikeja</span><b>Free</b></li>");
+    expect(page).toContain(`<li><span>Lekki</span><b>${formatMoney(350_000, "NGN")}</b></li>`);
+    expect(page).toContain('<a href="#reviews">Reviews</a><a href="#delivery">Delivery</a>');
     // A failing lookup never breaks the page.
-    expect((await pageApp(business({ ratings: async () => Promise.reject(new Error("down")) })).request("/shop/adas-prints")).status).toBe(200);
+    expect((await pageApp(business({ ratings: async () => Promise.reject(new Error("down")), recentOrders: async () => Promise.reject(new Error("down")) })).request("/shop/adas-prints")).status).toBe(200);
+  });
+
+  it("carries what a one-page website would: what they do, good to know, the week's hours, directions and their pages", async () => {
+    const page = await (
+      await pageApp(
+        business({
+          tagline: "a print shop in Ikeja",
+          about: "Orders are ready in 2 working days.\nReturns within 7 days <with> the receipt.",
+          hours: { mon: ["08:00", "18:00"], sat: ["10:00", "16:00"] },
+          address: { text: "12 Allen Avenue, Ikeja, Lagos", directions: true },
+          socials: { instagram: "https://instagram.com/adasprints" },
+        }),
+      ).request("/shop/adas-prints")
+    ).text();
+    expect(page).toContain('<p class="tagline">A print shop in Ikeja</p>');
+    expect(page).toContain("Returns within 7 days &lt;with&gt; the receipt.");
+    expect(page).toContain('<li class="today"><span>Monday<em>Today</em></span><b>08:00–18:00</b></li>');
+    expect(page).toContain("<li><span>Sunday</span><b>Closed</b></li>");
+    expect(page).toContain('href="https://www.google.com/maps/search/?api=1&amp;query=12%20Allen%20Avenue%2C%20Ikeja%2C%20Lagos"');
+    expect(page).toContain('<a class="pill" href="https://instagram.com/adasprints" target="_blank" rel="noopener">Instagram</a>');
+    expect(page).toContain('id="share" href="https://wa.me/?text=');
+
+    const plain = await (await pageApp(business({ address: { text: "Shop 4, Computer Village. 0801 111 2222", directions: false } })).request("/shop/adas-prints")).text();
+    expect(plain).toContain("Shop 4, Computer Village");
+    expect(plain).not.toContain("google.com/maps");
+    expect(plain).not.toContain('id="about"');
+    expect(plain).not.toContain('id="follow"');
+  });
+
+  it("marks the products in the most recent orders as Popular", async () => {
+    const mugs = "22222222-2222-2222-2222-222222222222";
+    // An order counts once per product, however many of its options are in it.
+    expect(popularProducts(products, [["v1", "v2"], ["v1"], ["v3"]])).toEqual(new Set());
+    expect(popularProducts(products, [["v1", "v2"], ["v1"], ["v2", "gone"], ["v3"]])).toEqual(new Set([FLYER]));
+    const page = await (await pageApp(business({ recentOrders: async () => [["v3"], ["v3"], ["v3"]] })).request("/shop/adas-prints")).text();
+    expect(page.split('<span class="badge">Popular</span>').length).toBe(2);
+    expect(page).toMatch(new RegExp(`id="p-${mugs}"[^]*?<span class="badge">Popular</span>\\s*<h3><a href="#p-${mugs}"`));
+  });
+
+  it("gives a contact card to save the number", async () => {
+    const res = await pageApp(business({ name: "Ada, Sons; Co" })).request("/shop/adas-prints/contact.vcf");
+    expect(res.headers.get("content-type")).toContain("text/vcard");
+    const card = await res.text();
+    expect(card).toContain("FN:Ada\\, Sons\\; Co\r\n");
+    expect(card).toContain("TEL;TYPE=CELL:+2348011112222\r\n");
+    expect(card).toContain("URL:https://app.yarnoga.com/shop/adas-prints\r\n");
+    expect((await pageApp(business({ whatsappNumber: null })).request("/shop/adas-prints/contact.vcf")).status).toBe(404);
+  });
+
+  it("turns what the owner types into a link to their page, and only to that network", () => {
+    expect(socialLink("instagram", "@adas.prints")).toBe("https://instagram.com/adas.prints");
+    expect(socialLink("tiktok", "adasprints")).toBe("https://www.tiktok.com/@adasprints");
+    expect(socialLink("facebook", "facebook.com/profile.php?id=123")).toBe("https://facebook.com/profile.php?id=123");
+    expect(socialLink("instagram", "https://www.instagram.com/adasprints/")).toBe("https://www.instagram.com/adasprints/");
+    expect(socialLink("instagram", "https://evil.example/instagram.com/x")).toBeNull();
+    expect(socialLink("x", "ada prints")).toBeNull();
+    expect(socialLink("youtube", "javascript:alert(1)//")).toBeNull();
+    expect(cleanSocials({ instagram: "https://instagram.com/ada", tiktok: "https://evil.example/a", web: "https://x.com/a" })).toEqual({ instagram: "https://instagram.com/ada" });
+    expect(cleanSocials(null)).toEqual({});
   });
 
   it("gives each option + and - buttons that know its minimum, stock and prices", async () => {
