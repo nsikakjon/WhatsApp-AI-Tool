@@ -69,6 +69,8 @@ export interface ProductInput {
   leadTimeDays: number | null;
   active: boolean;
   options: ProductOption[];
+  /** What the bot asks the customer for before confirming an order of it (migration 0085). Left out, the saved one stays. */
+  askFor?: string | null;
 }
 
 export interface ProductRecord extends ProductInput {
@@ -413,6 +415,7 @@ type ProductRow = {
   category?: string | null;
   unit?: string | null;
   lead_time_days?: number | null;
+  ask_for?: string | null;
   photo_path?: string | null;
   more_photos?: string[] | null;
   active: boolean;
@@ -438,6 +441,7 @@ function toProduct(p: ProductRow): ProductRecord {
     category: p.category ?? null,
     unit: p.unit ?? null,
     leadTimeDays: p.lead_time_days ?? null,
+    ...(p.ask_for !== undefined ? { askFor: p.ask_for } : {}),
     photoPath: p.photo_path ?? null,
     morePhotos: p.more_photos ?? [],
     active: p.active,
@@ -466,7 +470,7 @@ const productSelect = (opts: { costs?: boolean; barcodes?: boolean }) =>
  * `costs`: read and save cost prices too (migration 0060 adds the column).
  * `barcodes`: the same for barcodes (migration 0067).
  */
-export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean; barcodes?: boolean } = {}): PriceStore {
+export function createSupabasePrices(db: SupabaseClient, businessId: string, opts: { costs?: boolean; barcodes?: boolean; askFor?: boolean } = {}): PriceStore {
   const PRODUCT_SELECT = productSelect(opts);
   async function product(id: string): Promise<ProductRecord | null> {
     const { data, error } = await db.from("quote_products").select(PRODUCT_SELECT).eq("business_id", businessId).eq("id", id).maybeSingle();
@@ -500,6 +504,7 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string, opt
         category: input.category,
         unit: input.unit,
         lead_time_days: input.leadTimeDays,
+        ...(opts.askFor && input.askFor !== undefined ? { ask_for: input.askFor } : {}),
         active: input.active,
         updated_at: now,
       };

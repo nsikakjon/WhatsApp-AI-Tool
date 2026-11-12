@@ -6,6 +6,7 @@ import type { SectionContext } from "../index.js";
 import { esc, initials } from "../layout.js";
 import type { Env } from "../types.js";
 import { when } from "./inbox.js";
+import { isPicture } from "../../products/quote/customer-files.js";
 
 // The order board: every confirmed order of the last 60 days in five columns,
 // New > Paid > In production > Out for delivery > Delivered. From here the
@@ -58,6 +59,8 @@ export function registerOrders(app: Hono<Env>, ctx: SectionContext) {
       return `<li class="order"><div class="top"><b>${esc(ref)}</b><span class="tag">${esc(when(o.movedAt, at))}</span></div>
 <p class="value" style="font-size:1.15rem;margin:2px 0">${money(o.totalKobo)}</p>
 <p class="who"><span class="avatar">${esc(initials(who(o)))}</span>${esc(who(o))}</p><p class="muted small" style="margin:0">${esc(o.items)}</p>
+${o.notes ? `<p class="small" style="margin:6px 0 0;white-space:pre-wrap">📝 ${esc(o.notes)}</p>` : ""}
+${o.files?.length ? `<p class="small" style="margin:6px 0 0">${o.files.map((f) => `<a href="/home/files/${f.id}?download=1">📎 ${esc(f.label)}</a>`).join("<br>")}</p>` : ""}
 ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
     };
     const columns = COLUMNS.map((x) => {
@@ -75,6 +78,23 @@ ${actions ? `<div class="actions">${actions}</div>` : ""}</li>`;
 <div class="board">${columns}</div>
 <p class="muted small">Orders from the last 60 days. Delivered orders stay for 7 days. "Out for delivery" and "Delivered" also follow your riders when delivery is on.${c.get("user").role === "owner" ? ` Need them all? <a href="/home/export">Export</a>.` : ""}</p>`,
     );
+  });
+
+  // A file a customer sent (customer-files.ts): pictures open in the browser, other files download.
+  app.get("/files/:id", async (c) => {
+    const files = c.get("biz").customerFiles;
+    const id = c.req.param("id");
+    const file = files && UUID.test(id) ? await files.get(id) : null;
+    const data = file && (await files!.download(file));
+    if (!file || !data) return ctx.render(c, "File not found", "/home/orders", `<p>That file isn't here any more. Files are kept for 90 days.</p>`, 404);
+    const inline = isPicture(file.mimeType) && !c.req.query("download");
+    const name = (file.fileName ?? `file-${file.id.slice(0, 8)}${file.mimeType === "application/pdf" ? ".pdf" : file.mimeType.startsWith("image/") ? ".jpg" : ""}`).replace(/["\\]|[^\x20-\x7e]/g, "_");
+    return c.body(data as unknown as ArrayBuffer, 200, {
+      "Content-Type": inline ? file.mimeType : "application/octet-stream",
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${name}"`,
+      "Cache-Control": "private, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+    });
   });
 
   app.post("/orders/move", async (c) => {
