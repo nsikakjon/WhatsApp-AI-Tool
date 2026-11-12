@@ -7,7 +7,8 @@ import { checkPassword, hashPassword, hashToken, normaliseWaId, passwordProblem 
 import { csvCell, koboToPlainNaira, ordersCsv } from "./exports.js";
 import { createOwnerApp } from "./index.js";
 import { barcodesTaken, readProductForm } from "./sections/prices.js";
-import { barcodeKey } from "./scanner.js";
+import { MATCH_JS } from "./sections/photos.js";
+import { BARCODE_KEY_JS, barcodeKey } from "./scanner.js";
 import { paystackFeeKobo, yarnogaFeeKobo } from "./sections/settings.js";
 import { flyerNumber, flyerPrice } from "./sections/flyers.js";
 import { lagosMidnight, lagosMonth } from "./sections/tools.js";
@@ -1279,5 +1280,94 @@ describe("customer files in the owner app", () => {
     // Without customer files the box isn't there.
     const off = setup();
     expect(await (await get(off, "/prices/new", await login(off, OWNER))).text()).not.toContain("Ask the customer for");
+  });
+});
+
+describe("adding many product photos", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const product = (n: number, name: string, extra: Partial<ProductRecord> = {}): ProductRecord => ({
+    id: `22222222-2222-2222-2222-${String(n).padStart(12, "0")}`,
+    name,
+    description: null,
+    category: "Drinks",
+    unit: null,
+    leadTimeDays: null,
+    active: true,
+    photoPath: null,
+    morePhotos: [],
+    options: [{ name: "Standard", minQuantity: 1, stock: null, tiers: [{ minQuantity: 1, unitPriceKobo: 50_000 }] }],
+    ...extra,
+  });
+  function withPhotos(photos = true) {
+    const savePhoto = vi.fn(async () => {});
+    const s = setup({ barcodes: true, ...(photos ? { photos: { savePhoto, photo: async () => null } } : {}) });
+    s.prices.all.push(
+      product(1, "Peak milk", { options: [{ name: "Tin", minQuantity: 1, stock: null, barcode: "05000159484695", tiers: [] }] }),
+      product(2, "Coke 50cl", { photoPath: "businesses/x/products/2" }),
+      product(3, "Ankara </script> gown", { category: "Styles" }),
+    );
+    return { ...s, savePhoto };
+  }
+  const sendPhoto = (s: ReturnType<typeof setup>, id: string, bytes: Uint8Array, cookie: string) => {
+    const body = new FormData();
+    body.append("photo", new File([bytes], "photo.jpg", { type: "image/jpeg" }));
+    return s.app.request(`https://${HOST}/prices/${id}/photo`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+  };
+
+  it("matches a photo to a product by barcode, name or the longest name inside it", () => {
+    const match = new Function(`${BARCODE_KEY_JS}\n${MATCH_JS}\nreturn matchPhoto;`)() as (file: string, products: Array<{ name: string; codes: string[] }>) => { name: string } | null;
+    const list = [
+      { name: "Peak milk", codes: [barcodeKey("05000159484695")] },
+      { name: "Peak milk tin", codes: [] },
+      { name: "Coke 50cl", codes: [] },
+      { name: "Fanta 50cl", codes: [] },
+      { name: "Gown", codes: [] },
+    ];
+    expect(match("5000159484695.jpg", list)?.name).toBe("Peak milk");
+    expect(match("peak-milk_TIN (2).JPG", list)?.name).toBe("Peak milk tin");
+    expect(match("coke 50cl 1.png", list)?.name).toBe("Coke 50cl");
+    expect(match("IMG fresh Fanta 50cl front.jpeg", list)?.name).toBe("Fanta 50cl");
+    expect(match("ankara gown.jpg", list)?.name).toBe("Gown");
+    expect(match("IMG_2041.jpg", list)).toBeNull();
+    expect(match("peak milk tin and coke 50cl.jpg", list)?.name).toBe("Peak milk tin");
+    expect(match("pepsi 50cl fanta 50cl.jpg", [{ name: "Pepsi 50cl", codes: [] }, list[3]!])).toBeNull();
+  });
+
+  it("opens the photo page from the price list, with each product for the walk", async () => {
+    const s = withPhotos();
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, "/prices", cookie)).text()).toContain("Add photos (2 missing)");
+    const page = await (await get(s, "/prices/photos", cookie)).text();
+    expect(page).toContain("1 of 3 products have a photo.");
+    expect(page).toContain('"codes":["5000159484695"]');
+    expect(page).toContain("Ankara \\u003c/script> gown");
+    expect(page).toContain('id="w-scan"');
+    expect(page).toContain('capture="environment"');
+  });
+
+  it("saves one product's photo, and refuses anything that isn't a photo", async () => {
+    const s = withPhotos();
+    const cookie = await login(s, OWNER);
+    const id = s.prices.all[0]!.id;
+    const ok = await sendPhoto(s, id, JPEG, cookie);
+    expect(ok.status).toBe(200);
+    expect(s.savePhoto).toHaveBeenCalledWith(id, JPEG, "image/jpeg");
+    const bad = await sendPhoto(s, id, new Uint8Array([1, 2, 3]), cookie);
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: "The photo must be a JPEG or PNG picture." });
+    expect((await sendPhoto(s, "22222222-2222-2222-2222-000000000099", JPEG, cookie)).status).toBe(404);
+    expect(s.savePhoto).toHaveBeenCalledTimes(1);
+  });
+
+  it("is for owners and managers, and only with product photos on", async () => {
+    const s = withPhotos();
+    const cashier = await login(s, STAFF, "cashier");
+    expect(await (await get(s, "/prices/photos", cashier)).text()).toContain("Not for your role");
+    expect((await sendPhoto(s, s.prices.all[0]!.id, JPEG, cashier)).status).not.toBe(200);
+    expect(s.savePhoto).not.toHaveBeenCalled();
+    const off = withPhotos(false);
+    const owner = await login(off, OWNER);
+    expect(await (await get(off, "/prices", owner)).text()).not.toContain("Add photos");
+    expect(await (await get(off, "/prices/photos", owner)).text()).toContain("Send <b>plan</b>");
   });
 });
