@@ -1092,7 +1092,8 @@ export function createSupabaseBusinessData(
   async function setInvoiceDetails(a: Pick<BankAccount, "bankName" | "accountNumber" | "accountName">) {
     const { error } = await db
       .from("quote_businesses")
-      .update({ payment_details: paymentDetailsText(a), updated_at: new Date().toISOString() })
+      // A new invoice account needs a new Paystack subaccount: the next pay link makes it (subaccounts.ts).
+      .update({ payment_details: paymentDetailsText(a), paystack_subaccount: null, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (error) throw new Error(`invoice bank details failed: ${error.message}`);
   }

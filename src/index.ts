@@ -28,6 +28,7 @@ import {
   DEFAULT_BUSINESS_ID,
   NumberTakenError,
   type QuoteBusiness,
+  type SavedOrder,
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
@@ -147,6 +148,7 @@ import { emailedAlert } from "./core/email/alert-card.js";
 import { createSentry } from "./core/alerts/sentry.js";
 import { createWatchdog, runChecks, type HealthDeps } from "./core/health.js";
 import { createPaystackBanks, createPaystackTransfers } from "./core/payments/paystack.js";
+import { createSubaccounts } from "./products/quote/subaccounts.js";
 import { createPayouts, createSupabasePayoutLookup, createSupabasePayoutStore } from "./owner/payouts.js";
 import { createFlutterwaveClient } from "./core/payments/flutterwave.js";
 import { createAzureSpeaker, createGoogleSpeaker, withVoiceReplies } from "./core/voice/speak.js";
@@ -244,6 +246,8 @@ function courierFor(
   };
 }
 
+// Shops' Paystack subaccounts, made from their invoice bank account (needs Paystack and more quote businesses).
+const paystackSubaccounts = config.quotePayLinks && config.paystack && quoteBusinesses ? createSubaccounts(supabase, createPaystackBanks(config.paystack)) : undefined;
 // Businesses outside naira are paid through Flutterwave, to their Flutterwave subaccount.
 const payLinkFor = (
   businessId: string,
@@ -258,8 +262,8 @@ const payLinkFor = (
   const subaccount = naira ? accounts.paystack : accounts.flutterwave;
   const provider = naira ? config.paystack : config.flutterwave;
   const capFeature = feeCapFeature(currency);
-  return config.quotePayLinks && provider && subaccount
-    ? orderPayLinks({
+  const links = (subaccount: string) =>
+    orderPayLinks({
         links: { createLink: (req) => payments!.createLink(req) },
         businessId,
         businessName,
@@ -278,8 +282,27 @@ const payLinkFor = (
               return charge?.courier ? charge.feeKobo : 0;
             }
           : undefined,
-      })
-    : undefined;
+      });
+  if (!config.quotePayLinks || !provider) return undefined;
+  // Naira shops get their subaccount made from the owner app's invoice bank account; the one typed in setup is the fallback.
+  if (naira && paystackSubaccounts) {
+    const subaccounts = paystackSubaccounts;
+    const link = async (order: SavedOrder, waId: string) => {
+      const code = (await subaccounts.get(businessId)) ?? subaccount;
+      if (!code) throw new Error("No Paystack subaccount yet: the owner hasn't put a bank account on invoices in the owner app");
+      return links(code)(order, waId);
+    };
+    return async (order: SavedOrder, waId: string) => {
+      try {
+        return await link(order, waId);
+      } catch (err) {
+        // A code Paystack doesn't know (made in test mode, or deleted): make a fresh one from the bank account and try once more.
+        if (!/invalid subaccount/i.test(String(err)) || !(await subaccounts.forget(businessId))) throw err;
+        return link(order, waId);
+      }
+    };
+  }
+  return subaccount ? links(subaccount) : undefined;
 };
 // Each quote business's own referral code (QUOTE_REFERRALS), paid for through Paystack.
 const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? createSupabaseReferrals(supabase) : undefined;
