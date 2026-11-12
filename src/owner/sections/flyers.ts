@@ -19,6 +19,7 @@ import { isPhoto } from "./prices.js";
 const MAX_PRODUCTS = 8;
 const OWN_PHOTOS = 4;
 const MAX_PHOTO = 5 * 1024 * 1024;
+const MAX_MESSAGE = 600;
 const HOUR = 3_600_000;
 const MAX_DRAFTS = 200;
 
@@ -237,18 +238,12 @@ ${own}
     const small = Boolean(c.req.query("small"));
     // The full-size flyer is only for a flyer that has been counted, on a design its pass covers.
     if (!small && (!draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design)))) return c.notFound();
-    const biz = c.get("biz");
-    const tag = small ? draft.preview.tag : draft.pass === "plan";
-    const key = `${design}|${tag}`;
-    let jpeg = draft.made.get(key);
-    if (!jpeg) {
-      try {
-        jpeg = await make(biz, draft, design, tag);
-      } catch (err) {
-        ctx.log.error("Owner app: drawing a business flyer failed:", err);
-        return c.text("The flyer couldn't be drawn. Please try again.", 500);
-      }
-      draft.made.set(key, jpeg);
+    let jpeg: Buffer;
+    try {
+      jpeg = await flyer(c.get("biz"), draft, design, small ? draft.preview.tag : draft.pass === "plan");
+    } catch (err) {
+      ctx.log.error("Owner app: drawing a business flyer failed:", err);
+      return c.text("The flyer couldn't be drawn. Please try again.", 500);
     }
     const out = small ? await previewOf(jpeg, draft.preview.mark) : jpeg;
     return c.body(new Uint8Array(out) as unknown as ArrayBuffer, 200, {
@@ -297,6 +292,18 @@ ${own}
     }
     const src = `/home/flyers/${id}/${design}.jpg`;
     const left = count(draft) - designMax(design);
+    const reach = biz.sendFlyer && c.get("user").role === "owner" ? await biz.sendFlyer.reach().catch(() => null) : null;
+    const sendForm = !reach
+      ? ""
+      : reach.optedIn === 0
+        ? `<h2>Send to your customers</h2><p class="muted">Nobody has opted in to your offers yet. Ask customers to send <b>JOIN</b> to your WhatsApp number (put it on your status and receipts), then you can send them your flyers from here.</p>`
+        : reach.left === 0
+          ? `<h2>Send to your customers</h2><p class="muted">You've used this month's broadcast messages. They come back on the 1st.</p>`
+          : `<h2>Send to your customers</h2>
+<form method="post" action="/home/flyers/${id}/${design}/send" onsubmit="return confirm('Send this flyer to ${Math.min(reach.optedIn, reach.left)} customer${Math.min(reach.optedIn, reach.left) === 1 ? "" : "s"} now?')">
+<p class="muted small">It goes on WhatsApp to the ${reach.optedIn} customer${reach.optedIn === 1 ? "" : "s"} who opted in to your offers. ${reach.left} message${reach.left === 1 ? "" : "s"} left this month.</p>
+<label for="m">Message under the flyer</label><textarea id="m" name="message" maxlength="${MAX_MESSAGE}" required>${esc([draft.headline, draft.subline].filter(Boolean).join(". "))}</textarea>
+<div class="actions"><button>Send to ${Math.min(reach.optedIn, reach.left)} customer${Math.min(reach.optedIn, reach.left) === 1 ? "" : "s"}</button></div></form>`;
     return ctx.render(
       c,
       "Your flyer",
@@ -317,9 +324,38 @@ ${left > 0 ? `<p class="muted small">This design shows ${designMax(design) === 1
     button.addEventListener("click", function () { navigator.share({ files: [file] }).catch(function () {}); });
   }).catch(function () {});
 })();
-</script>`,
+</script>${sendForm}`,
     );
   });
+
+  app.post("/flyers/:draft/:design/send", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    const draft = draftOf(c);
+    const design = c.req.param("design");
+    const biz = c.get("biz");
+    if (!draft || !isBusinessDesign(design) || !biz.sendFlyer) return expired(c);
+    const back = `/home/flyers/${c.req.param("draft")}/${design}`;
+    // Only a flyer that has been counted, on a design its pass covers, can go out.
+    if (!draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design))) return c.redirect(back, 303);
+    const message = field(await c.req.parseBody(), "message", MAX_MESSAGE);
+    if (!message) return c.redirect(`${back}?msg=flyer_send_failed`, 303);
+    try {
+      const sent = await biz.sendFlyer.send(message, await flyer(biz, draft, design, draft.pass === "plan"), c.get("user").waId);
+      return c.redirect(`${back}?msg=${sent.outcome === "queued" ? "flyer_sent" : sent.outcome === "limit_reached" ? "flyer_send_limit" : "flyer_send_nobody"}`, 303);
+    } catch (err) {
+      ctx.log.error("Owner app: sending a flyer to customers failed:", err);
+      return c.redirect(`${back}?msg=flyer_send_failed`, 303);
+    }
+  });
+
+  /** The finished flyer, drawn once for each design. */
+  const flyer = async (biz: AppBusiness, draft: Draft, design: BusinessDesign, tag: boolean): Promise<Buffer> => {
+    const key = `${design}|${tag}`;
+    const made = draft.made.get(key) ?? (await make(biz, draft, design, tag));
+    draft.made.set(key, made);
+    return made;
+  };
 
   const make = async (biz: AppBusiness, draft: Draft, design: BusinessDesign, tag: boolean): Promise<Buffer> => {
     const words = WORDS[biz.language === "fr" ? "fr" : "en"];

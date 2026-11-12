@@ -101,6 +101,8 @@ For broadcasts with a photo (e.g. a new flyer), create a second template the
 same way, named `business_offer_image`, with **Header: Image** (upload any
 sample picture for the review). The body and button are the same.
 
+With the picture template set, the owner app's Flyers page also gets a **Send to your customers** box on each finished flyer: the owner types a message and the flyer goes to everyone who opted in, counted against the same monthly messages.
+
 ### 4. Switch it on (Railway)
 
 Add these Variables:

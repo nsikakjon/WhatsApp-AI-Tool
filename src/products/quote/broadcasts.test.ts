@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Product, ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { Broadcast, BroadcastStore, OptInStatus, PendingRecipient, RecipientResult } from "./broadcast-store.js";
-import { finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
+import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
 
 const OWNER = "2348000000001";
 const BIZ = "biz-1";
@@ -285,5 +285,28 @@ describe("sending broadcasts", () => {
       notifyOwner: async () => {},
     });
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("sending a picture made in the owner app", () => {
+  it("queues it for everyone opted in, and says so when there's nobody", async () => {
+    const m = memoryStore();
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store });
+    expect(await pictures.send("Weekend offer", "media-1", OWNER)).toEqual({ outcome: "nobody" });
+    await m.store.setOptIn(BIZ, "c1", "in", "keyword", "wamid.1");
+    await m.store.setOptIn(BIZ, "c2", "in", "keyword", "wamid.2");
+    expect(await pictures.reach()).toMatchObject({ optedIn: 2, left: 100 });
+    const sent = await pictures.send("Weekend offer", "media-1", OWNER);
+    expect(sent).toMatchObject({ outcome: "queued", recipients: 2 });
+    const saved = await m.store.get((sent as { id: number }).id);
+    expect(saved).toMatchObject({ body: "Weekend offer", imageMediaId: "media-1", ownerWaId: OWNER, status: "queued" });
+    expect(await pictures.reach()).toMatchObject({ left: 98 });
+  });
+
+  it("isn't offered to a business without broadcasts", async () => {
+    const m = memoryStore();
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: { ...m.store, monthlyLimit: async () => null } });
+    expect(await pictures.reach()).toBeNull();
+    expect(await pictures.send("x", "media-1", OWNER)).toEqual({ outcome: "not_on_plan" });
   });
 });

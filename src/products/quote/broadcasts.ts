@@ -223,6 +223,37 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
   }
 }
 
+/** Sending a picture made in the owner app (a business flyer) to everyone who opted in, without the chat commands. */
+export interface PictureBroadcasts {
+  /** How many opted in and how many messages are left this month, or null when broadcasts aren't on the business's plan. */
+  reach(): Promise<{ optedIn: number; left: number } | null>;
+  /** Queues the picture and message straight away. `recipients` is how many it goes to. */
+  send(body: string, imageMediaId: string, ownerWaId: string): Promise<{ outcome: "queued"; id: number; recipients: number } | { outcome: "not_on_plan" | "nobody" | "limit_reached" }>;
+}
+
+export function createPictureBroadcasts(opts: { businessId: string; businessName: string; fromNumberId: string | null; store: BroadcastStore }): PictureBroadcasts {
+  async function reach() {
+    const limit = await opts.store.monthlyLimit(opts.businessId);
+    if (limit === null) return null;
+    const [optedIn, used] = await Promise.all([opts.store.countOptedIn(opts.businessId), opts.store.usedThisMonth(opts.businessId)]);
+    return { optedIn, left: Math.max(limit - used, 0), limit };
+  }
+  return {
+    reach,
+    async send(body, imageMediaId, ownerWaId) {
+      const now = await reach();
+      if (!now) return { outcome: "not_on_plan" };
+      if (now.optedIn === 0) return { outcome: "nobody" };
+      if (now.left === 0) return { outcome: "limit_reached" };
+      const draft = await opts.store.createDraft({ businessId: opts.businessId, businessName: opts.businessName, fromNumberId: opts.fromNumberId, ownerWaId, body: body.slice(0, MAX_BODY), imageMediaId });
+      const result = await opts.store.queue(draft.id, now.limit);
+      if (result.outcome === "limit_reached") return { outcome: "limit_reached" };
+      if (result.outcome !== "queued" || result.recipients === 0) return { outcome: "nobody" };
+      return { outcome: "queued", id: draft.id, recipients: result.recipients };
+    },
+  };
+}
+
 const NOT_ON_PLAN =
   "Broadcasts (sending offers to customers who opted in) are a paid add-on that isn't on your plan yet. Ask yarnOga support to switch it on.";
 
