@@ -83,7 +83,7 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   bank_saved: { ok: true, text: "Bank details saved and checked with the bank." },
   flyer_sent: { ok: true, text: "Your flyer is on its way to your customers, a few a minute. You'll get a WhatsApp message when it's done." },
   flyer_send_nobody: { ok: false, text: "Nobody is opted in to your offers, so the flyer went to no one." },
-  flyer_send_limit: { ok: false, text: "You've used this month's broadcast messages, so the flyer wasn't sent." },
+  flyer_send_limit: { ok: false, text: "You have no broadcast messages left, so the flyer wasn't sent." },
   flyer_send_failed: { ok: false, text: "The flyer couldn't be sent just now. Please try again." },
   flyer_pack_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again." },
   topup_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again, or send top up to your bot." },

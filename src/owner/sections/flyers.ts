@@ -253,6 +253,51 @@ ${own}
     });
   });
 
+  /** "Send to your customers" under a finished flyer, with message packs to buy when the messages are short. */
+  const sendBox = async (send: NonNullable<AppBusiness["sendFlyer"]>, flyerPath: string, words: string) => {
+    const [reach, packs] = await Promise.all([send.reach().catch(() => null), send.packs.packs()]);
+    // Nothing to send with and nothing to buy: the shop doesn't have broadcasts.
+    if (!reach || (reach.left === 0 && reach.monthly === 0 && !packs.length)) return "";
+    const { optedIn, left } = reach;
+    const to = Math.min(optedIn, left);
+    const people = (n: number) => `${n} customer${n === 1 ? "" : "s"}`;
+    const buy = packs.length
+      ? `<h3>${left === 0 ? "Buy messages" : "Need more messages?"}</h3>${packs
+          .map(
+            (p) => `<form method="post" action="/home/flyers/messages" class="card"><input type="hidden" name="pack" value="${esc(p.code)}"><input type="hidden" name="back" value="${esc(flyerPath)}">
+<p style="margin:0"><b>${esc(p.name)}</b> for ${formatNaira(p.priceKobo)}</p><p class="muted small" style="margin:4px 0 0">One message sends your flyer to one customer. They don't run out at the end of the month.</p>
+<div class="actions"><button class="ghost">Buy ${esc(p.name)}</button></div></form>`,
+          )
+          .join("")}`
+      : "";
+    if (optedIn === 0) {
+      return `<h2>Send to your customers</h2><p class="muted">Nobody has opted in to your offers yet. Ask customers to send <b>JOIN</b> to your WhatsApp number (put it on your status and receipts), then you can send them your flyers from here.</p>`;
+    }
+    if (left === 0) {
+      return `<h2>Send to your customers</h2><p class="muted">${people(optedIn)} opted in to your offers, and you have no messages left${reach.monthly > 0 ? " this month. More come on the 1st" : ""}.</p>${buy}`;
+    }
+    return `<h2>Send to your customers</h2>
+<form method="post" action="/home/flyers/${flyerPath}/send" onsubmit="return confirm('Send this flyer to ${people(to)} now?')">
+<p class="muted small">It goes on WhatsApp to ${to < optedIn ? `the first ${to} of the ${people(optedIn)}` : `the ${people(optedIn)}`} who opted in to your offers. You have ${left} message${left === 1 ? "" : "s"} left.</p>
+<label for="m">Message under the flyer</label><textarea id="m" name="message" maxlength="${MAX_MESSAGE}" required>${esc(words)}</textarea>
+<div class="actions"><button>Send to ${people(to)}</button></div></form>${left < optedIn ? buy : ""}`;
+  };
+
+  app.post("/flyers/messages", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    const biz = c.get("biz");
+    const body = await c.req.parseBody();
+    const back = /^[0-9a-f]{24}\/[a-z]+$/.test(field(body, "back", 60)) ? `/home/flyers/${field(body, "back", 60)}` : "/home/flyers";
+    try {
+      const url = await biz.sendFlyer?.packs.link(field(body, "pack", 60), c.get("user").waId);
+      if (url) return c.redirect(url, 303);
+    } catch (err) {
+      ctx.log.error("Owner app: making a message pack link failed:", err);
+    }
+    return c.redirect(`${back}?msg=flyer_pack_failed`, 303);
+  });
+
   app.post("/flyers/pack", async (c) => {
     const denied = await ctx.ownerOnly(c);
     if (denied) return denied;
@@ -292,18 +337,7 @@ ${own}
     }
     const src = `/home/flyers/${id}/${design}.jpg`;
     const left = count(draft) - designMax(design);
-    const reach = biz.sendFlyer && c.get("user").role === "owner" ? await biz.sendFlyer.reach().catch(() => null) : null;
-    const sendForm = !reach
-      ? ""
-      : reach.optedIn === 0
-        ? `<h2>Send to your customers</h2><p class="muted">Nobody has opted in to your offers yet. Ask customers to send <b>JOIN</b> to your WhatsApp number (put it on your status and receipts), then you can send them your flyers from here.</p>`
-        : reach.left === 0
-          ? `<h2>Send to your customers</h2><p class="muted">You've used this month's broadcast messages. They come back on the 1st.</p>`
-          : `<h2>Send to your customers</h2>
-<form method="post" action="/home/flyers/${id}/${design}/send" onsubmit="return confirm('Send this flyer to ${Math.min(reach.optedIn, reach.left)} customer${Math.min(reach.optedIn, reach.left) === 1 ? "" : "s"} now?')">
-<p class="muted small">It goes on WhatsApp to the ${reach.optedIn} customer${reach.optedIn === 1 ? "" : "s"} who opted in to your offers. ${reach.left} message${reach.left === 1 ? "" : "s"} left this month.</p>
-<label for="m">Message under the flyer</label><textarea id="m" name="message" maxlength="${MAX_MESSAGE}" required>${esc([draft.headline, draft.subline].filter(Boolean).join(". "))}</textarea>
-<div class="actions"><button>Send to ${Math.min(reach.optedIn, reach.left)} customer${Math.min(reach.optedIn, reach.left) === 1 ? "" : "s"}</button></div></form>`;
+    const sendForm = biz.sendFlyer && c.get("user").role === "owner" ? await sendBox(biz.sendFlyer, `${id}/${design}`, [draft.headline, draft.subline].filter(Boolean).join(". ")) : "";
     return ctx.render(
       c,
       "Your flyer",

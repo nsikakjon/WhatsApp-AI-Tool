@@ -30,6 +30,7 @@ import {
 } from "./products/quote/store.js";
 import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
+import { createMessagePackPaidHandler, createMessagePacks, createSupabaseMessagePackLedger, createSupabaseMessagePackStore } from "./products/quote/broadcast-packs.js";
 import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseDemoFollowUps, sendDemoFollowUps } from "./products/quote/demo-followup.js";
@@ -948,6 +949,7 @@ if (config.quote || quoteBusinesses) {
       : undefined,
   });
   const flyerPackPaid = createFlyerPackPaidHandler(createSupabaseFlyerPackLedger(supabase));
+  const messagePackPaid = createMessagePackPaidHandler(createSupabaseMessagePackLedger(supabase));
   const topUpPaid = createTopUpPaidHandler({
     ledger: createSupabaseTopUpLedger(supabase),
     async planLimit(businessId) {
@@ -981,6 +983,13 @@ if (config.quote || quoteBusinesses) {
     // A pack of business flyers, bought on the owner app's Flyers page.
     async (payment) => {
       const text = await flyerPackPaid(payment);
+      if (!text) return [];
+      const found = await quoteBotFor(payment.purpose.businessId as string);
+      return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
+    },
+    // A pack of broadcast messages, bought under a flyer in the owner app.
+    async (payment) => {
+      const text = await messagePackPaid(payment);
       if (!text) return [];
       const found = await quoteBotFor(payment.purpose.businessId as string);
       return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
@@ -1233,6 +1242,12 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                     const pictures = createPictureBroadcasts({ businessId: id, businessName: name, fromNumberId: main ? null : numberId, store: broadcastStore });
                     return {
                       reach: () => pictures.reach(),
+                      packs: createMessagePacks({
+                        businessId: id,
+                        store: createSupabaseMessagePackStore(supabase),
+                        ownAccount: () => createSupabaseSentStore(supabase, sentNumbers).ownAccount(),
+                        links: payments && currency === "NGN" ? { createLink: (req: PaymentRequest) => payments!.createLink(req) } : undefined,
+                      }),
                       send: async (body: string, jpeg: Uint8Array, waId: string) =>
                         pictures.send(body, await whatsapp.uploadImage({ data: jpeg, mimeType: "image/jpeg" }, numberId), waId),
                     };

@@ -115,17 +115,14 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
   }
 
   async function help(): Promise<string> {
-    const limit = await opts.monthlyLimit(opts.businessId);
-    if (limit === null) return NOT_ON_PLAN;
-    const [optedIn, used] = await Promise.all([
-      opts.store.countOptedIn(opts.businessId),
-      opts.store.usedThisMonth(opts.businessId),
-    ]);
+    const room = await broadcastRoom(opts.store, opts.businessId, await opts.monthlyLimit(opts.businessId));
+    if (!room) return notOnPlan();
+    const optedIn = await opts.store.countOptedIn(opts.businessId);
     return [
       "Broadcasts send a message to every customer who opted in.",
       "",
       `• Opted in: ${optedIn} customer${optedIn === 1 ? "" : "s"}`,
-      `• This month: ${used} of ${limit} messages used`,
+      ...usage(room).map((line) => `• ${line}`),
       "",
       "Customers opt in by sending *JOIN* to this number (put it on your status, receipts or flyers). They can reply *STOP* any time.",
       "",
@@ -137,8 +134,8 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
   }
 
   async function makeDraft(body: string, imageMediaId: string | null, fromNumberId: string | null): Promise<Reply> {
-    const limit = await opts.monthlyLimit(opts.businessId);
-    if (limit === null) return { text: NOT_ON_PLAN };
+    const room = await broadcastRoom(opts.store, opts.businessId, await opts.monthlyLimit(opts.businessId));
+    if (!room) return { text: notOnPlan() };
     if (imageMediaId && !opts.pictures) {
       return { text: "Broadcasts with a picture aren't set up yet. Send the message as text for now, or ask yarnOga support to switch pictures on." };
     }
@@ -146,17 +143,12 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
       return { text: `That message is ${body.length} characters. Please keep a broadcast under ${MAX_BODY} characters and send it again.` };
     }
 
-    const [optedIn, used] = await Promise.all([
-      opts.store.countOptedIn(opts.businessId),
-      opts.store.usedThisMonth(opts.businessId),
-    ]);
+    const optedIn = await opts.store.countOptedIn(opts.businessId);
     if (optedIn === 0) {
       return { text: "Nobody has opted in yet, so there's no one to send to. Ask customers to send *JOIN* to this number first." };
     }
-    const left = Math.max(limit - used, 0);
-    if (left === 0) {
-      return { text: `You've used all ${limit} broadcast messages for this month. Your limit resets on the 1st.` };
-    }
+    const left = room.left;
+    if (left === 0) return { text: usedUp(room) };
 
     const draft = await opts.store.createDraft({
       businessId: opts.businessId,
@@ -178,9 +170,9 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
         `"${body}"`,
         "",
         reach < optedIn
-          ? `${optedIn} customers opted in, but only ${reach} message${reach === 1 ? "" : "s"} are left this month, so it will go to the first ${reach}.`
+          ? `${optedIn} customers opted in, but only ${reach} message${reach === 1 ? " is" : "s are"} left, so it will go to the first ${reach}.`
           : `It will go to ${reach} customer${reach === 1 ? "" : "s"} who opted in.`,
-        `This month: ${used} of ${limit} messages used.`,
+        ...usage(room).map((line) => `${line}.`),
         cost,
         "",
         `Reply *send broadcast ${draft.id}* to send it, or *cancel broadcast ${draft.id}*.`,
@@ -197,12 +189,10 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
     if (broadcast.status === "done") return { text: `Broadcast ${id} has already been sent.` };
     if (broadcast.status === "cancelled") return { text: `Broadcast ${id} was cancelled. Write *broadcast* followed by your message to start a new one.` };
 
-    const limit = await opts.monthlyLimit(opts.businessId);
-    if (limit === null) return { text: NOT_ON_PLAN };
-    const result = await opts.store.queue(id, limit);
-    if (result.outcome === "limit_reached") {
-      return { text: `You've used all ${limit} broadcast messages for this month, so broadcast ${id} wasn't sent. Your limit resets on the 1st.` };
-    }
+    const room = await broadcastRoom(opts.store, opts.businessId, await opts.monthlyLimit(opts.businessId));
+    if (!room) return { text: notOnPlan() };
+    const result = await opts.store.queue(id, room.limit);
+    if (result.outcome === "limit_reached") return { text: `Broadcast ${id} wasn't sent. ${usedUp(room)}` };
     if (result.outcome === "not_draft") return { text: `Broadcast ${id} has already been sent or cancelled.` };
     if (result.recipients === 0) return { text: `Nobody is opted in any more, so broadcast ${id} went to no one.` };
     return {
@@ -221,29 +211,67 @@ export function withBroadcasts(inner: Product, opts: BroadcastOptions): Product 
           : `Broadcast ${id} cancelled. Nothing was sent.`,
     };
   }
+
+  function notOnPlan(): string {
+    return opts.pictures
+      ? "Broadcasts (sending offers to customers who opted in) aren't on your plan yet. Buy a message pack on the Flyers page of your app to start, or ask yarnOga support."
+      : NOT_ON_PLAN;
+  }
+
+  function usedUp(room: BroadcastRoom): string {
+    // Message packs are sold under a flyer in the owner app, which is there when pictures are set up.
+    const buy = opts.pictures ? " To send more now, buy a message pack on the Flyers page of your app." : "";
+    return room.limit > 0
+      ? `You've used all ${room.limit} broadcast messages for this month. Your limit resets on the 1st.${buy}`
+      : `Your message pack is used up.${buy}`;
+  }
+}
+
+/** What a business can still broadcast: the month's messages, then its pack. */
+export interface BroadcastRoom {
+  /** The plan or add-on's messages a month (0 for a shop with packs only). */
+  limit: number;
+  used: number;
+  /** Pack messages left. */
+  pack: number;
+  left: number;
+}
+
+/** Null when broadcasts aren't on the business's plan and it has no pack. */
+export async function broadcastRoom(store: BroadcastStore, businessId: string, monthlyLimit: number | null): Promise<BroadcastRoom | null> {
+  const pack = await store.packBalance(businessId);
+  if (monthlyLimit === null && pack === 0) return null;
+  const limit = monthlyLimit ?? 0;
+  const used = limit > 0 ? Math.min(await store.usedThisMonth(businessId), limit) : 0;
+  return { limit, used, pack, left: limit - used + pack };
+}
+
+function usage(room: BroadcastRoom): string[] {
+  return [
+    ...(room.limit > 0 ? [`This month: ${room.used} of ${room.limit} messages used`] : []),
+    ...(room.pack > 0 ? [`Message pack: ${room.pack} left`] : []),
+  ];
 }
 
 /** Sending a picture made in the owner app (a business flyer) to everyone who opted in, without the chat commands. */
 export interface PictureBroadcasts {
-  /** How many opted in and how many messages are left this month, or null when broadcasts aren't on the business's plan. */
-  reach(): Promise<{ optedIn: number; left: number } | null>;
+  /** How many opted in, the messages left (this month's and the pack's) and the messages the plan gives a month (0: none). */
+  reach(): Promise<{ optedIn: number; left: number; monthly: number }>;
   /** Queues the picture and message straight away. `recipients` is how many it goes to. */
   send(body: string, imageMediaId: string, ownerWaId: string): Promise<{ outcome: "queued"; id: number; recipients: number } | { outcome: "not_on_plan" | "nobody" | "limit_reached" }>;
 }
 
 export function createPictureBroadcasts(opts: { businessId: string; businessName: string; fromNumberId: string | null; store: BroadcastStore }): PictureBroadcasts {
-  async function reach() {
-    const limit = await opts.store.monthlyLimit(opts.businessId);
-    if (limit === null) return null;
-    const [optedIn, used] = await Promise.all([opts.store.countOptedIn(opts.businessId), opts.store.usedThisMonth(opts.businessId)]);
-    return { optedIn, left: Math.max(limit - used, 0), limit };
-  }
+  const room = async () => broadcastRoom(opts.store, opts.businessId, await opts.store.monthlyLimit(opts.businessId));
   return {
-    reach,
+    async reach() {
+      const [now, optedIn] = await Promise.all([room(), opts.store.countOptedIn(opts.businessId)]);
+      return { optedIn, left: now?.left ?? 0, monthly: now?.limit ?? 0 };
+    },
     async send(body, imageMediaId, ownerWaId) {
-      const now = await reach();
+      const now = await room();
       if (!now) return { outcome: "not_on_plan" };
-      if (now.optedIn === 0) return { outcome: "nobody" };
+      if ((await opts.store.countOptedIn(opts.businessId)) === 0) return { outcome: "nobody" };
       if (now.left === 0) return { outcome: "limit_reached" };
       const draft = await opts.store.createDraft({ businessId: opts.businessId, businessName: opts.businessName, fromNumberId: opts.fromNumberId, ownerWaId, body: body.slice(0, MAX_BODY), imageMediaId });
       const result = await opts.store.queue(draft.id, now.limit);

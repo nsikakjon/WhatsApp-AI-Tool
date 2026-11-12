@@ -97,8 +97,9 @@ export function orderPayLinks(opts: {
 
 /**
  * Quote payments are plan upgrades, orders paid by pay link, a courier fee
- * an owner paid by link ("courier KP-1001"), a pack of AI replies (topups.ts)
- * or a pack of business flyers (flyer-packs.ts).
+ * an owner paid by link ("courier KP-1001"), a pack of AI replies (topups.ts),
+ * a pack of business flyers (flyer-packs.ts) or a pack of broadcast messages
+ * (broadcast-packs.ts).
  */
 export function withOrderPayments(
   planPaid: PaidHandler,
@@ -106,6 +107,7 @@ export function withOrderPayments(
   courierPaid?: (businessId: string, orderNumber: number) => Promise<OutgoingNote[]>,
   aiTopUpPaid?: PaidHandler,
   flyerPackPaid?: PaidHandler,
+  broadcastPackPaid?: PaidHandler,
 ): PaidHandler {
   return async (payment) => {
     const kind = payment.purpose.kind;
@@ -116,6 +118,10 @@ export function withOrderPayments(
     if (kind === "flyer_pack") {
       if (!flyerPackPaid) throw new Error(`Payment ${payment.reference} is a flyer pack, but flyer packs aren't set up`);
       return flyerPackPaid(payment);
+    }
+    if (kind === "broadcast_pack") {
+      if (!broadcastPackPaid) throw new Error(`Payment ${payment.reference} is a message pack, but message packs aren't set up`);
+      return broadcastPackPaid(payment);
     }
     if (kind !== "order" && kind !== "courier") return planPaid(payment);
     const { businessId, orderNumber, feeKobo, courierKobo } = payment.purpose as { businessId?: unknown; orderNumber?: unknown; feeKobo?: unknown; courierKobo?: unknown };
