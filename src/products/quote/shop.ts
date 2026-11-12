@@ -836,8 +836,9 @@ ${products.length > 0
     );
   });
 
+  // Kept for ten minutes, like the server's own copy, so a photo the owner changes shows up soon after.
   const imageHeaders = (data: Buffer | Uint8Array, type: string) =>
-    ({ "Content-Type": type, "Content-Length": String(data.byteLength), "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400" }) as const;
+    ({ "Content-Type": type, "Content-Length": String(data.byteLength), "Cache-Control": "public, max-age=600, stale-while-revalidate=3600" }) as const;
 
   /** A stored photo at the width the page asks for; the original if it can't be read as a picture. */
   async function sized(c: Context, key: string, find: () => Promise<OutgoingImage | null>) {

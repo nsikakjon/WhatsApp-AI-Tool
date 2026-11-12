@@ -308,3 +308,28 @@ describe("low stock alerts", () => {
     expect(await catalogue.confirmed("o2")).toEqual([]);
   });
 });
+
+describe("downloading stored photos", () => {
+  it("takes turns, a few at a time, and tries a failed download again", async () => {
+    let busy = 0;
+    let most = 0;
+    const refused = new Set(["p3", "gone"]);
+    const download = async (path: string) => {
+      most = Math.max(most, ++busy);
+      await new Promise((done) => setTimeout(done, 5));
+      busy--;
+      // Storage turns "p3" away once; "gone" never loads.
+      if (refused.has(path)) {
+        if (path !== "gone") refused.delete(path);
+        return { data: null, error: { message: "too many requests" } };
+      }
+      return { data: new Blob([path], { type: "image/jpeg" }), error: null };
+    };
+    const db = { storage: { from: () => ({ download }) } } as unknown as SupabaseClient;
+    const store = createSupabaseCatalogue(db, "biz");
+    const photos = await Promise.all(Array.from({ length: 25 }, (_, i) => store.photo(`p${i}`)));
+    expect(most).toBe(4);
+    expect(photos.map((p) => p && new TextDecoder().decode(p.data))).toEqual(Array.from({ length: 25 }, (_, i) => `p${i}`));
+    expect(await store.photo("gone")).toBeNull();
+  });
+});
