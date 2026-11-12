@@ -10,7 +10,6 @@ const STEPS: Record<string, { title: string; text: string }> = {
   "/home/inbox": { title: "Inbox", text: "Every customer chat. Read what the bot said, and press Take over to reply yourself." },
   "/home/orders": { title: "Orders", text: "Every order from quote to delivered. Mark a transfer paid here and the customer gets their receipt." },
   "/home/counter": { title: "Counter sale", text: "Ring up a walk-in customer. Stock goes down by itself." },
-  "/home/till": { title: "Till (works offline)", text: "Counter sales that keep working when the internet drops. Install it on the shop computer." },
   "/home/prices": { title: "Price list", text: "Your products and prices. The bot only ever quotes from this list, so keep it up to date." },
   "/home/delivery": { title: "Riders & delivery", text: "Add your riders and delivery areas, then send a rider out with an order." },
   "/home/test": { title: "Test your bot", text: "Chat with your bot here before customers do. Test orders aren't real." },
