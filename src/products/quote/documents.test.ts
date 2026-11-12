@@ -59,6 +59,11 @@ describe("invoices and receipts", () => {
     expect(documentColours(null, "receipt").text).toBe("#15803d");
   });
 
+  it("prints the shop page and social pages at the bottom", async () => {
+    const socials = [{ network: "Instagram", url: "https://instagram.com/kahnprints" }, { network: "TikTok", url: "https://www.tiktok.com/@kahnprints" }];
+    expect(isJpeg(await renderDocument({ ...base, shopUrl: "https://app.yarnoga.com/shop/kahnprints", socials }))).toBe(true);
+  });
+
   it("dates documents in Lagos time", () => {
     // 23:30 UTC on the 14th is already 00:30 on the 15th in Lagos.
     expect(formatDocDate(new Date("2026-10-14T23:30:00Z"))).toBe("15 Oct 2026");

@@ -548,7 +548,7 @@ if (config.activeProduct === "quote" && config.quote) {
     customerFiles: customerFilesFor(DEFAULT_BUSINESS_ID),
     businessDetails: config.quote.businessDetails,
     paymentDetails: config.quote.paymentDetails,
-    branding: createSupabaseBranding(supabase, mainBusinessId),
+    branding: createSupabaseBranding(supabase, mainBusinessId, shopConfig?.publicUrl),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders,
     delivery: mainDispatch,
@@ -646,7 +646,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     customerFiles: customerFilesFor(business.id),
     businessDetails: business.businessDetails ?? undefined,
     paymentDetails: business.paymentDetails ?? undefined,
-    branding: createSupabaseBranding(supabase, business.id),
+    branding: createSupabaseBranding(supabase, business.id, shopConfig?.publicUrl),
     catalog: createSupabaseCatalog(supabase, business.id),
     orders,
     delivery: dispatch,
@@ -756,7 +756,7 @@ if (chatSignup && quoteBusinesses) {
         businessDetails: business.businessDetails ?? undefined,
         paymentDetails: business.paymentDetails ?? undefined,
         catalog: createSupabaseCatalog(supabase, business.id),
-        branding: readOnlyBranding(createSupabaseBranding(supabase, business.id)),
+        branding: readOnlyBranding(createSupabaseBranding(supabase, business.id, shopConfig?.publicUrl)),
         orders: memoryOrderStore(),
         language: business.language,
         currency: business.currency,
@@ -1176,7 +1176,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const numberId = main ? config.whatsapp.phoneNumberId : row!.phoneNumberId!;
           const planParts = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? id);
           const features = planParts.features;
-          const branding = createSupabaseBranding(supabase, id);
+          const branding = createSupabaseBranding(supabase, id, shopConfig?.publicUrl);
           const sentNumbers = main ? [numberId, ""] : [numberId];
           const allNumberIds = [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))];
           const language = main ? config.quote!.language : (row!.language ?? "en");
