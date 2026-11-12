@@ -268,6 +268,8 @@ const TEXT = {
     save: "Save our number",
     directions: "Directions",
     popular: "Popular",
+    favourites: "Customers' favourites",
+    from: (price: string) => `From ${price}`,
     goodToKnow: "Good to know",
     reviews: "What customers say",
     saidGreat: (pct: number) => `${pct}% said Great`,
@@ -320,6 +322,8 @@ const TEXT = {
     save: "Enregistrer notre numéro",
     directions: "Itinéraire",
     popular: "Populaire",
+    favourites: "Les préférés des clients",
+    from: (price: string) => `À partir de ${price}`,
     goodToKnow: "Bon à savoir",
     reviews: "Ce que disent les clients",
     saidGreat: (pct: number) => `${pct} % ont dit Très bien`,
@@ -447,9 +451,10 @@ export function createShopPage(deps: ShopDeps) {
       const find = [p.name, p.category, p.description, ...p.options.map((o) => o.label)].filter(Boolean).join(" ").toLowerCase();
       return html`<article class="product" id="p-${p.id}" data-find="${find}"${urls.length ? html` data-photos="${JSON.stringify(urls)}"` : ""}>
   ${urls.length
-    ? html`<a class="photo" href="#p-${p.id}" data-open="${p.id}" aria-label="${t.view(p.name)}"><img src="${urls[0]}?w=360" srcset="${urls[0]}?w=360 360w, ${urls[0]}?w=720 720w" sizes="(min-width: 640px) 300px, 100vw" alt="${p.name}" loading="lazy" decoding="async" width="640" height="480">${
-        urls.length > 1 ? html`<span class="count">1/${urls.length}</span>` : ""
-      }</a>`
+    ? html`<div class="photo"><div class="strip">${urls.map(
+        (u, n) =>
+          html`<a href="#p-${p.id}" data-open="${p.id}" aria-label="${t.view(p.name)}"><img src="${u}?w=360" srcset="${u}?w=360 360w, ${u}?w=720 720w" sizes="(min-width: 640px) 300px, 100vw" alt="${n ? "" : p.name}" loading="lazy" decoding="async" width="640" height="480"></a>`,
+      )}</div>${urls.length > 1 ? html`<span class="count">1/${urls.length}</span>` : ""}</div>`
     : ""}
   <div class="body">
     ${popular.has(p.id) ? html`<span class="badge">${t.popular}</span>` : ""}
@@ -497,6 +502,15 @@ export function createShopPage(deps: ShopDeps) {
     const today = lagosDay(at);
     const directions = b.address?.directions ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.address.text)}` : null;
     const socials = NETWORKS.filter((n) => b.socials[n]);
+    // The best sellers again as a row to swipe through, when there are a few.
+    const picks = popular.size > 1 ? products.filter((p) => popular.has(p.id)) : [];
+    const lowest = (p: ShopProduct) => {
+      const prices = p.options.flatMap((o) => {
+        const facts = o.stock === 0 ? null : priceFacts(o.variant);
+        return facts ? [facts.bulk?.unitKobo ?? facts.unitKobo] : [];
+      });
+      return prices.length ? t.from(money(Math.min(...prices))) : t.onRequest;
+    };
     const nav = [
       about && (["about", t.nav.about] as const),
       rated && (["reviews", t.nav.reviews] as const),
@@ -508,6 +522,7 @@ export function createShopPage(deps: ShopDeps) {
   ${cover
     ? html`<img class="cover" src="/shop/${slug}/cover?w=720" srcset="/shop/${slug}/cover?w=720 720w, /shop/${slug}/cover?w=1080 1080w" sizes="100vw" alt="" fetchpriority="high" width="1080" height="400">`
     : ""}
+  <div class="panel">
   <div class="id">
     <img class="logo" src="/shop/${slug}/logo" alt="" width="64" height="64" onerror="this.remove()">
     <div>
@@ -525,6 +540,7 @@ export function createShopPage(deps: ShopDeps) {
     <a class="pill" id="share" href="https://wa.me/?text=${encodeURIComponent(`${t.shared(b.name)} ${base}/shop/${slug}`)}">${t.share}</a>
     <a class="pill" href="/shop/${slug}/contact.vcf">${t.save}</a>
   </div>
+  </div>
 </header>
 ${products.length > 0
   ? html`<nav class="tabs" aria-label="Sections">
@@ -536,6 +552,14 @@ ${products.length > 0
   : ""}
 <main>
   ${products.length === 0 ? html`<div class="card">${t.empty}</div>` : html`<p class="muted">${t.note}</p>`}
+  ${picks.length
+    ? html`<section id="picks"><h2>${t.favourites}</h2><div class="rail">${picks.map((p) => {
+        const url = photoUrls(p)[0];
+        return html`<a class="pick" href="#p-${p.id}" data-open="${p.id}">${
+          url ? html`<img src="${url}?w=360" alt="" loading="lazy" decoding="async" width="360" height="270">` : ""
+        }<b>${p.name}</b><span>${lowest(p)}</span></a>`;
+      })}</div></section>`
+    : ""}
   ${sections.map(([name, list], i) => html`<section id="c${i}" class="cat">${name ? html`<h2>${name}</h2>` : ""}<div class="grid">${list.map(card)}</div></section>`)}
   <p class="card" id="none" hidden>${t.noMatch} <a href="${wa(t.hello(b.name))}">${t.chat}</a></p>
   ${about ? html`<section id="about"><h2>${t.goodToKnow}</h2><p class="card about">${about}</p></section>` : ""}
@@ -752,6 +776,8 @@ ${products.length > 0
       if (!a.hidden) shown++;
     }
     for (const s of $$("main section.cat")) s.hidden = !s.querySelector("article:not([hidden])");
+    const picks = document.getElementById("picks");
+    if (picks) picks.hidden = Boolean(q);
     document.getElementById("none").hidden = shown > 0;
   });
   // The category tab for the part of the list on screen.
@@ -767,6 +793,12 @@ ${products.length > 0
     }, { rootMargin: "-40% 0px -55% 0px" });
     $$("main section").forEach((s) => seen.observe(s));
   }
+  // Swiping a card's photos moves its "2/3".
+  document.addEventListener("scroll", (e) => {
+    const strip = e.target.classList?.contains("strip") && e.target;
+    const count = strip && strip.parentElement.querySelector(".count");
+    if (count) count.textContent = Math.round(strip.scrollLeft / strip.clientWidth) + 1 + "/" + strip.children.length;
+  }, { capture: true, passive: true });
   // The phone's own share sheet where there is one; the link itself shares on WhatsApp.
   if (navigator.share) {
     document.getElementById("share").addEventListener("click", (e) => {
@@ -924,20 +956,30 @@ ${meta
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;600&family=Schibsted+Grotesk:wght@700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   /* yarnOga's colours and type, as on yarnoga.com and the tracking page; buttons and headings take the shop's own colour. */
-  :root { --bg: ${BG}; --card: #0f1411; --line: rgba(243,241,230,.12); --text: #f3f1e6; --muted: rgba(243,241,230,.68); --red: #ff8a7a;
-    --accent: ${theme.accent}; --ink: ${theme.ink}; --hi: ${theme.hi}; --shadow: ${theme.shadow}; --ease: cubic-bezier(.2,.8,.2,1); }
+  :root { --bg: ${BG}; --line: rgba(243,241,230,.12); --text: #f3f1e6; --muted: rgba(243,241,230,.68); --red: #ff8a7a; --edge: rgba(255,255,255,.16);
+    --accent: ${theme.accent}; --ink: ${theme.ink}; --hi: ${theme.hi}; --shadow: ${theme.shadow}; --glow: ${rgb(theme.accent).join(",")}; --ease: cubic-bezier(.2,.8,.2,1); }
   * { box-sizing: border-box; }
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
   body { margin: 0; font: 16px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  /* Frosted glass: soft colour behind the page, see-through panels on top. Only the parts that stay put
+     blur what's behind them; blurring every card would make cheap phones stutter while scrolling. */
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
+    radial-gradient(60vmax circle at 0% 8%, rgba(var(--glow),.22), transparent 62%),
+    radial-gradient(55vmax circle at 100% 46%, rgba(46,229,160,.13), transparent 62%),
+    radial-gradient(60vmax circle at 12% 100%, rgba(var(--glow),.16), transparent 62%); }
+  .card, .product, .panel, .pick { background: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.035)); border: 1px solid var(--edge);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 12px 32px rgba(0,0,0,.28); border-radius: 18px; }
+  .panel, .tabs, .bar, .shut, .photo .count, .pill { -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5); }
   body.picking { padding-bottom: 104px; }
   body.viewing { overflow: hidden; }
   a { color: var(--hi); text-underline-offset: 3px; }
   .top { position: relative; max-width: 960px; margin: 0 auto; padding: 24px 16px 12px; }
   .top.has-cover { padding-top: 0; }
-  .cover { display: block; width: calc(100% + 32px); margin: 0 -16px; height: 180px; object-fit: cover; background: #161c18; }
+  .cover { display: block; width: calc(100% + 32px); margin: 0 -16px; height: 220px; object-fit: cover; background: #161c18; }
+  .panel { position: relative; padding: 16px; }
+  .has-cover .panel { margin-top: -56px; background: linear-gradient(135deg, rgba(20,26,22,.72), rgba(20,26,22,.5)); }
   .id { display: flex; gap: 14px; align-items: flex-start; }
-  .has-cover .id { padding-top: 10px; }
-  .has-cover .logo { margin-top: -42px; position: relative; }
+  .has-cover .logo { margin-top: -40px; position: relative; }
   .logo { width: 64px; height: 64px; border-radius: 14px; object-fit: contain; background: #fff; flex: none; border: 3px solid var(--bg); }
   h1 { font: 700 1.75rem/1.15 "Chakra Petch", Arial, sans-serif; letter-spacing: -.01em; margin: 0; }
   .status { margin: 4px 0 0; font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
@@ -949,27 +991,35 @@ ${meta
   .tagline { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
   .trust a { color: inherit; text-decoration-color: var(--line); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-  .pill { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
+  .pill { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.07); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
   .pill.main { background: var(--accent); color: var(--ink); border-color: var(--accent); }
-  .tabs { position: sticky; top: 0; z-index: 5; background: rgba(10,13,11,.94); border-bottom: 1px solid var(--line); }
+  .tabs { position: sticky; top: 0; z-index: 5; background: rgba(10,13,11,.62); border-bottom: 1px solid var(--edge); }
   .tabs > * { max-width: 960px; margin-left: auto; margin-right: auto; }
-  #find { display: none; width: calc(100% - 32px); margin: 10px 16px 8px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: 16px "Instrument Sans", sans-serif; }
+  #find { display: none; width: calc(100% - 32px); margin: 10px 16px 8px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.07); color: var(--text); font: 16px "Instrument Sans", sans-serif; }
   .js #find { display: block; }
   @media (min-width: 992px) { #find { width: 928px; margin-left: auto; margin-right: auto; } }
   #find:focus, .qty:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 10px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
-  .chips a { flex: none; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; transition: background .2s, color .2s; }
+  .chips a { flex: none; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(255,255,255,.06); color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; transition: background .2s, color .2s; }
   .chips a[aria-current] { background: var(--accent); color: var(--ink); border-color: var(--accent); }
   main { max-width: 960px; margin: 0 auto; padding: 8px 16px 16px; }
   section { scroll-margin-top: 112px; }
   section[hidden], .product[hidden] { display: none; }
   h2 { font: 700 1.05rem/1.2 "Schibsted Grotesk", Arial, sans-serif; color: var(--hi); text-transform: uppercase; letter-spacing: .08em; margin: 24px 0 12px; }
   .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-  .card, .product { background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   .card { padding: 16px; }
   .product { overflow: hidden; display: flex; flex-direction: column; }
-  .photo { position: relative; display: block; }
+  .photo { position: relative; }
+  .strip { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip a { flex: none; width: 100%; scroll-snap-align: center; }
+  .rail { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 20px; }
+  .rail::-webkit-scrollbar { display: none; }
+  .pick { flex: none; width: 200px; scroll-snap-align: center; overflow: hidden; display: flex; flex-direction: column; color: var(--text); text-decoration: none; }
+  .pick img { width: 100%; aspect-ratio: 4 / 3; height: auto; object-fit: cover; display: block; background: #161c18; }
+  .pick b { padding: 10px 14px 0; font: 700 1rem/1.25 "Schibsted Grotesk", Arial, sans-serif; }
+  .pick span { padding: 2px 14px 14px; color: var(--muted); font-size: 14px; }
   .photo img { width: 100%; aspect-ratio: 4 / 3; height: auto; object-fit: cover; display: block; background: #161c18; }
   .photo .count { position: absolute; right: 10px; bottom: 10px; padding: 2px 8px; border-radius: 999px; background: rgba(10,13,11,.75); color: var(--text); font-size: 12px; font-weight: 600; }
   .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
@@ -1011,10 +1061,10 @@ ${meta
   .step button:disabled { opacity: .35; cursor: default; }
   .qty { width: 44px; padding: 8px 0; border: 0; background: none; color: var(--text); font: 600 16px/1 "Instrument Sans", sans-serif; text-align: center; -moz-appearance: textfield; }
   .qty::-webkit-inner-spin-button, .qty::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  .button { display: block; text-align: center; text-decoration: none; margin-top: auto; font: 700 1rem/1.2 "Schibsted Grotesk", Arial, sans-serif; padding: 13px; border-radius: 8px;
+  .button { display: block; text-align: center; text-decoration: none; margin-top: auto; font: 700 1rem/1.2 "Schibsted Grotesk", Arial, sans-serif; padding: 13px; border-radius: 12px;
     background: var(--accent); color: var(--ink); box-shadow: 3px 3px 0 var(--shadow); }
-  .bar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(15,20,17,.97);
-    border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+  .bar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(15,20,17,.7);
+    border-top: 1px solid var(--edge); display: flex; gap: 12px; align-items: center; justify-content: space-between; }
   .bar[hidden] { display: none; }
   .bar > div { font-size: 18px; line-height: 1.25; white-space: nowrap; }
   .bar small { display: block; color: var(--muted); font-size: 12px; }

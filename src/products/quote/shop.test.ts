@@ -330,6 +330,17 @@ describe("shop page", () => {
     expect(page).toMatch(new RegExp(`id="p-${mugs}"[^]*?<span class="badge">Popular</span>\\s*<h3><a href="#p-${mugs}"`));
   });
 
+  it("lets customers swipe a card's photos, and the best sellers as a row", async () => {
+    const page = await (await pageApp(business({ recentOrders: async () => [["v1", "v3"], ["v1", "v3"], ["v2", "v3"]] })).request("/shop/adas-prints")).text();
+    expect(page.split('<div class="strip">')[1]!.split("</div>")[0]!.split("<img ").length).toBe(3);
+    expect(page).toContain(`src="/shop/adas-prints/photo/${FLYER}/1?w=360"`);
+    // The row's price is the lowest of what's in stock: the sold-out A4 doesn't count, the bulk price does.
+    expect(page).toContain(`<b>Flyers</b><span>From ${formatMoney(10_000, "NGN")}</span></a>`);
+    expect(page).toContain(`<b>Mugs &lt;special&gt;</b><span>From ${formatMoney(450_000, "NGN")}</span></a>`);
+    // One best seller isn't a row.
+    expect(await (await pageApp(business({ recentOrders: async () => [["v3"], ["v3"], ["v3"]] })).request("/shop/adas-prints")).text()).not.toContain('id="picks"');
+  });
+
   it("gives a contact card to save the number", async () => {
     const res = await pageApp(business({ name: "Ada, Sons; Co" })).request("/shop/adas-prints/contact.vcf");
     expect(res.headers.get("content-type")).toContain("text/vcard");

@@ -25,13 +25,19 @@ What customers see:
   category, then About, Reviews, Delivery and Visit.
 - A **Popular** badge on up to three products: the ones in the most orders
   over the last 90 days, each in at least 3. It comes from real orders, so a
-  new shop shows none until it has sold a few.
+  new shop shows none until it has sold a few. With two or more, they also
+  appear first as **Customers' favourites**, a row to swipe through.
+- A **frosted-glass look**: soft glows of the shop's colour behind the page,
+  and see-through panels for the header (which sits over the cover photo),
+  the cards, the tabs and the order bar.
 - The products, with each option's price, bulk price and minimum, worked out
   from the price list exactly the way a quote is. Prices never come from the AI.
 - Product photos, on plans that include photos (Pro and above, same as the
   product cards in the chat). Tapping a product opens it full screen, where
   customers swipe through its photos. The phone's back button closes it, and
   the address (`.../shop/mama-put#p-...`) can be shared to open that product.
+  A product with several photos can also be swiped right on its card, with
+  "2/3" keeping count.
 - "Ready in N working days", "N left" when stock is low, and "Sold out" when
   it's gone.
 - **+ and - buttons** beside each option. The first + jumps to the option's
