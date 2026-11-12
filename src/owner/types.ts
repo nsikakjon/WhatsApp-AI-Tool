@@ -66,6 +66,8 @@ export interface AppBusiness {
     packs(): Promise<AiPack[]>;
     link(packCode: string, waId: string): Promise<{ url: string } | null>;
   };
+  /** How many business flyers the plan makes a month, and flyer packs (migration 0082); without it flyers have no limit. */
+  flyers?: import("../products/quote/flyer-packs.js").FlyerAllowance;
   /** Bot messages sent this month and the plan's allowance (null = no cap). */
   botMessages?(): Promise<{ sent: number; limit: number | null } | null>;
   /**

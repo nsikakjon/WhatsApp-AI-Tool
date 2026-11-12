@@ -79,11 +79,25 @@ export async function shrinkPhoto(data: Uint8Array): Promise<Buffer> {
   return c.encode("jpeg", 88);
 }
 
-/** A smaller copy of a finished flyer, for the page that shows every design at once. */
-export async function previewOf(jpeg: Uint8Array, width = 540): Promise<Buffer> {
+/** A smaller copy of a finished flyer, for the page that shows every design at once. `mark` writes "Preview" across it. */
+export async function previewOf(jpeg: Uint8Array, mark = false, width = 540): Promise<Buffer> {
   const img = await loadImage(Buffer.from(jpeg));
   const c = createCanvas(width, Math.round((img.height * width) / img.width));
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const ctx = c.getContext("2d");
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  if (mark) {
+    loadFonts();
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(-0.5);
+    ctx.font = `${Math.round(width * 0.2)}px "Poppins ExtraBold"`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.strokeText("PREVIEW", 0, 0);
+    ctx.fillText("PREVIEW", 0, 0);
+  }
   return c.encode("jpeg", 80);
 }
 
