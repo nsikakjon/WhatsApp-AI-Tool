@@ -122,7 +122,7 @@ ${
 <h2 id="business">Business details</h2>
 <form method="post" action="/home/settings/business" enctype="multipart/form-data" class="card">
 <label>Business name<input name="name" required maxlength="80" value="${v(info?.name ?? biz.name)}"${biz.fromEnv ? " disabled" : ""}></label>
-<label>What you do <span class="muted">(helps the AI understand customers, e.g. "a print shop in Ikeja")</span><input name="description" maxlength="200" value="${v(info?.description)}"${biz.fromEnv ? " disabled" : ""}></label>
+<label>What you do <span class="muted">(helps the AI understand customers and shows under your name on your shop page, e.g. "a print shop in Ikeja")</span><input name="description" maxlength="200" value="${v(info?.description)}"${biz.fromEnv ? " disabled" : ""}></label>
 <label>Address and phone <span class="muted">(printed on invoices and receipts)</span><textarea name="details" maxlength="400"${biz.fromEnv ? " disabled" : ""}>${v(info?.businessDetails)}</textarea></label>
 <div class="row"><label>Your WhatsApp business number <span class="muted">(the one customers message; used on posters)</span><input name="whatsapp" inputmode="tel" value="${v(info?.whatsappNumber ? showWaId(info.whatsappNumber) : "")}" placeholder="0801 234 5678"></label>
 <label>Owner's number <span class="muted">(gets new-order alerts and owner commands)</span><input name="owner" inputmode="tel" value="${v(info?.ownerWaId ? showWaId(info.ownerWaId) : "")}"${biz.fromEnv ? " disabled" : ""}></label></div>
@@ -424,7 +424,7 @@ function aboutForm(about: BusinessAbout | null): string {
     .join("");
   return `<h2 id="about">About your business</h2>
 <form method="post" action="/home/settings/about" class="card">
-<label>What customers often ask <span class="muted">(where you are, landmarks, delivery days, returns, how long orders take; don't put prices here, they come from your price list)</span>
+<label>What customers often ask <span class="muted">(where you are, landmarks, delivery days, returns, how long orders take; don't put prices here, they come from your price list. Customers also read this on your shop page)</span>
 <textarea name="about" maxlength="1500" rows="6" placeholder="e.g. We're at 12 Allen Avenue, Ikeja, opposite the filling station. Orders are ready in 2 working days. We deliver Monday to Saturday. Returns within 7 days with the receipt.">${esc(about?.text ?? "")}</textarea></label>
 <p style="margin:14px 0 6px"><b>Opening hours</b> <span class="muted small">(Lagos time; outside these hours the bot tells customers when you open again)</span></p>
 <div class="scroll"><table class="hours"><tr><th>Day</th><th>From</th><th>To</th></tr>${rows}</table></div>
