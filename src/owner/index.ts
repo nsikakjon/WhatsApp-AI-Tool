@@ -81,6 +81,7 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   pay_gone: { ok: false, text: "That payment was already sent or cancelled. Check the list below before trying again." },
   pay_twice: { ok: false, text: "That delivery has already been paid." },
   bank_saved: { ok: true, text: "Bank details saved and checked with the bank." },
+  flyer_pack_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again." },
   topup_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again, or send top up to your bot." },
 };
 

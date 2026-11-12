@@ -61,6 +61,7 @@ import { fetchSheet } from "./core/sheets.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
 import { createPlanFeatures, createSupabaseFeatureStore, type PlanFeature, type PlanFeatures } from "./products/quote/features.js";
 import { createAiCredits, createSupabaseCreditStore, lagosMonthKey } from "./products/quote/credits.js";
+import { createFlyerAllowance, createFlyerPackPaidHandler, createSupabaseFlyerCountStore, createSupabaseFlyerPackLedger } from "./products/quote/flyer-packs.js";
 import { createSupabaseTopUpLedger, createSupabaseTopUpStore, createTopUpPaidHandler, createTopUps } from "./products/quote/topups.js";
 import { createMessageAllowance, createSupabaseSentStore } from "./products/quote/messages.js";
 import { createSupabaseBoardStore, ordersLink } from "./products/quote/board.js";
@@ -946,6 +947,7 @@ if (config.quote || quoteBusinesses) {
       ? (code) => rewardReferrer({ code, store: referrals, plans: planPayments, mainBusinessId: DEFAULT_BUSINESS_ID })
       : undefined,
   });
+  const flyerPackPaid = createFlyerPackPaidHandler(createSupabaseFlyerPackLedger(supabase));
   const topUpPaid = createTopUpPaidHandler({
     ledger: createSupabaseTopUpLedger(supabase),
     async planLimit(businessId) {
@@ -972,6 +974,13 @@ if (config.quote || quoteBusinesses) {
     // A pack of AI replies ("top up"). Counted even if QUOTE_AI_TOPUPS was switched off after the link went out.
     async (payment) => {
       const text = await topUpPaid(payment);
+      if (!text) return [];
+      const found = await quoteBotFor(payment.purpose.businessId as string);
+      return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
+    },
+    // A pack of business flyers, bought on the owner app's Flyers page.
+    async (payment) => {
+      const text = await flyerPackPaid(payment);
       if (!text) return [];
       const found = await quoteBotFor(payment.purpose.businessId as string);
       return [{ to: payment.waId, text, fromNumberId: found?.fromNumberId ?? undefined }];
@@ -1217,6 +1226,14 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               return plan && { name: plan.name, orderLimit: plan.monthlyOrderLimit };
             },
             topUps: planParts.topUps,
+            flyers: features
+              ? createFlyerAllowance({
+                  businessId: id,
+                  features,
+                  store: createSupabaseFlyerCountStore(supabase, id),
+                  links: payments && currency === "NGN" ? { createLink: (req: PaymentRequest) => payments!.createLink(req) } : undefined,
+                })
+              : undefined,
             async botMessages() {
               if (!features) return null;
               const limit = await features.limit("bot_messages");

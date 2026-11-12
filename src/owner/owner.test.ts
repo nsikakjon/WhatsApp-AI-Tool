@@ -1104,3 +1104,69 @@ describe("business flyers", () => {
     expect(await (await get(s, "/flyers", await login(s, STAFF, "rider"))).text()).toContain("Not for your role");
   });
 });
+
+describe("business flyers on a plan with a monthly number", () => {
+  function limited(planLimit: number, packs = 0) {
+    let onPlan = 0;
+    let fromPacks = 0;
+    const flyers: NonNullable<AppBusiness["flyers"]> = {
+      status: async () => ({ planLimit, planLeft: Math.max(0, planLimit - onPlan), packLeft: packs - fromPacks }),
+      async use() {
+        if (packs - fromPacks > 0) return (fromPacks += 1), "pack";
+        if (onPlan < planLimit) return (onPlan += 1), "plan";
+        return null;
+      },
+      packs: async () => [{ code: "flyers-10", name: "10 flyers", flyers: 10, priceKobo: 100000 }],
+      link: vi.fn(async () => "https://pay.example/pack"),
+    };
+    return flyers;
+  }
+  async function draft(s: ReturnType<typeof setup>, cookie: string) {
+    const id = await s.prices.save(null, { name: "Mug", description: null, category: null, unit: null, leadTimeDays: null, active: true, options: [{ name: "Standard", minQuantity: 1, stock: null, tiers: [{ minQuantity: 1, unitPriceKobo: 300000 }] }] });
+    const body = new FormData();
+    body.set("headline", "Weekend offer");
+    body.set("product", id);
+    const made = await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    return made.headers.get("location")!.replace("/home", "");
+  }
+
+  it("counts a flyer when it's opened, keeps it to the plan's designs, and offers a pack for the rest", async () => {
+    const s = setup({ flyers: limited(1) });
+    const cookie = await login(s, OWNER);
+    const path = await draft(s, cookie);
+    const designs = await (await get(s, path, cookie)).text();
+    expect(designs).toContain("1 of 1 free flyers left this month");
+    expect(designs).toContain("with a flyer pack or a paid plan");
+    // Not counted yet: no full-size flyer.
+    expect((await get(s, `${path}/grid.jpg`, cookie)).status).toBe(404);
+    expect((await get(s, `${path}/grid.jpg?small=1`, cookie)).status).toBe(200);
+
+    const locked = await (await get(s, `${path}/glass`, cookie)).text();
+    expect(locked).toContain("The Glass design comes with a flyer pack or a paid plan.");
+    expect(locked).toContain("Buy 10 flyers");
+    expect(locked).toContain("₦1,000");
+
+    expect(await (await get(s, `${path}/grid`, cookie)).text()).toContain("Download");
+    expect((await get(s, `${path}/grid.jpg`, cookie)).status).toBe(200);
+    expect((await get(s, `${path}/glass.jpg`, cookie)).status).toBe(404);
+    // The same flyer in another plan design isn't counted again; a new one is, and the month's flyers are used up.
+    expect(await (await get(s, `${path}/spotlight`, cookie)).text()).toContain("Download");
+    expect(await (await get(s, `${await draft(s, cookie)}/grid`, cookie)).text()).toContain("You've made your 1 free flyers for this month");
+  }, 20_000);
+
+  it("opens every design with a pack, and sends the owner to pay for one", async () => {
+    const flyers = limited(0, 1);
+    const s = setup({ flyers });
+    const cookie = await login(s, OWNER);
+    const path = await draft(s, cookie);
+    expect(await (await get(s, path, cookie)).text()).toContain("You have 1 pack flyer left");
+    expect(await (await get(s, `${path}/glass`, cookie)).text()).toContain("Download");
+    expect((await get(s, `${path}/bold.jpg`, cookie)).status).toBe(200);
+
+    const buy = await s.app.request(`https://${HOST}/flyers/pack`, post({ pack: "flyers-10", back: path.split("/")[2]! }, cookie));
+    expect(buy.headers.get("location")).toBe("https://pay.example/pack");
+    expect(flyers.link).toHaveBeenCalledWith("flyers-10", OWNER);
+    const staff = await login(s, STAFF, "manager");
+    expect(await (await s.app.request(`https://${HOST}/flyers/pack`, post({ pack: "flyers-10" }, staff))).text()).toContain("Only the business owner");
+  }, 20_000);
+});
