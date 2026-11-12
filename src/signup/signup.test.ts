@@ -8,6 +8,7 @@ function setup(
   fail?: "exchange" | "subscribe" | "register" | "details",
   limits?: { perVisitor: number; total: number },
   saveEmail?: (a: { phoneNumberId: string; email: string; tips: boolean }) => Promise<"bad" | "typo" | null>,
+  afterConnect?: (c: Connection) => Promise<void>,
 ) {
   const saved: Connection[] = [];
   const calls: string[] = [];
@@ -40,6 +41,7 @@ function setup(
       return true;
     },
     saveEmail,
+    afterConnect,
     forBusiness: {
       name: async (id) => (id === BIZ ? "Mama Cakes" : null),
       connected: async (id, c) => {
@@ -104,6 +106,17 @@ describe("sign-up page", () => {
       },
     ]);
     expect(added).toEqual(["1341325682404019"]);
+  });
+
+  it("runs the steps after connecting, and a failure in them doesn't fail the sign-up", async () => {
+    const seen: string[] = [];
+    const ok = setup(undefined, undefined, undefined, async (c) => void seen.push(c.wabaId));
+    expect((await ok.complete(finished)).status).toBe(200);
+    expect(seen).toEqual(["1463401605808243"]);
+    const broken = setup(undefined, undefined, undefined, async () => Promise.reject(new Error("Meta is down")));
+    const res = await broken.complete(finished);
+    expect(res.status).toBe(200);
+    expect(broken.saved).toHaveLength(1);
   });
 
   it("registers a new number with a six-digit PIN and shows the PIN once", async () => {
