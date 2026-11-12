@@ -4,6 +4,7 @@ import { currencyName, currencySign, formatMoney, isCfa, parseMoney, type Curren
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import { BARCODE, barcodeKey, scannerBox } from "../scanner.js";
+import { registerPhotos } from "./photos.js";
 import { DuplicateProductError, type ProductInput, type ProductOption, type ProductRecord } from "../store.js";
 import type { AppContext, Env } from "../types.js";
 
@@ -131,6 +132,7 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
     (await ctx.need(c, c.req.method === "GET" ? "see_prices" : "edit_prices")) ?? next();
   app.use("/prices", guard);
   app.use("/prices/*", guard);
+  registerPhotos(app, ctx);
 
   app.get("/prices", async (c) => {
     const biz = c.get("biz");
@@ -138,6 +140,7 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
     const all = await biz.prices.products();
     const products = all.filter((p) => !q || p.name.toLowerCase().includes(q) || (p.category ?? "").toLowerCase().includes(q));
     const prescription = prescriptionNote(all.map((p) => p.name));
+    const missingPhotos = all.filter((p) => !p.photoPath).length;
     const cards = products
       .map((p) => {
         const from = p.options.flatMap((o) => o.tiers.map((t) => t.unitPriceKobo));
@@ -156,7 +159,7 @@ export function registerPrices(app: Hono<Env>, ctx: SectionContext) {
       "/home/prices",
       `${prescription ? `<div class="flash bad">${esc(prescription)}</div>` : ""}
 <div class="toolbar"><form method="get" class="search"><input name="q" value="${esc(q)}" placeholder="Search products" aria-label="Search products"><button class="ghost">Search</button></form>
-${ctx.can(c, "edit_prices") ? `<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a>` : ""}</div>
+${ctx.can(c, "edit_prices") ? `<span class="actions" style="margin:0">${biz.photos && all.length ? `<a class="button ghost" href="/home/prices/photos">${icon("camera", 18)}Add photos${missingPhotos ? ` (${missingPhotos} missing)` : ""}</a>` : ""}<a class="button" href="/home/prices/new">${icon("plus", 18)}Add a product</a></span>` : ""}</div>
 <div class="cards">${cards || `<p class="muted">No products yet.${ctx.can(c, "edit_prices") ? ` <a href="/home/prices/new">Add your first one</a>.` : ""}</p>`}</div>
 <p class="muted small">The bot quotes from this list only: the AI never sets a price. Changes reach customers straight away.</p>`,
     );

@@ -19,6 +19,25 @@ When an item is counted, the bot won't quote more than is left ("only 5
 left", or "sold out"), and each confirmed order takes its quantity off.
 Saving a new price list on the setup screen keeps the photos and stock.
 
+## Photos for a long price list
+
+For shops with hundreds of products (a supermarket, a designer with many
+styles), the owner app's price list has an **Add photos** button. It opens
+`/home/prices/photos`, for owners and managers:
+
+- **Photo walk**: shows the next product with no photo. Take its picture or
+  pick one from the gallery, and the next product comes up while the last one
+  saves. It can be narrowed to one category (one shelf), and with barcodes on,
+  scanning a shelf barcode jumps to that product.
+- **Many photos at once**: pick lots of photos named after the products or
+  their barcodes ("Peak milk tin.jpg", "5000159484695.jpg"). Each finds its
+  product; the owner checks the matches, types the product for the rest, and
+  saves.
+
+Photos are shrunk on the phone to 1200 pixels on the longest side before they
+are sent (a 4 MB camera photo becomes about 200 KB) and go up one at a time.
+Nothing to switch on: it comes with product photos.
+
 ## Switching it on
 
 1. In Supabase, run `supabase/migrations/0037_quote_catalogue_photos_stock.sql`.
