@@ -12,6 +12,7 @@ on a phone first, and on a laptop with a menu down the side.
 | Riders & delivery | delivery zones (areas and fee) and riders | everyone sees; the owner changes |
 | Test your bot | ask what a customer would ask and see the real reply, with nothing sent or saved (60 a day) | everyone |
 | QR posters | branded posters with a QR code that opens a WhatsApp chat, portrait and landscape, English or French, as a PDF to print or a picture | everyone |
+| Flyers | business flyers for WhatsApp status and Instagram: tick products from the price list or add your own pictures, type a headline, choose whether prices show, and pick one of six designs with your logo, colour and number; share or download. Free plan flyers carry a small "Made with yarnOga" tag | everyone |
 | Export | orders as a CSV file, a Google Sheets link that keeps itself up to date, and a monthly PDF sales report | owner |
 | Settings | business details and logo, bank accounts (with the transaction fee note), alert numbers, team, password | owner |
 | Help | how it works, a getting-started checklist, WhatsApp commands, questions, support contacts | everyone |

@@ -16,7 +16,7 @@ import { themeById, type Theme } from "./themes.js";
 // Railway as on a laptop, whatever fonts the server has installed.
 const fontDir = fileURLToPath(new URL("../../../assets/fonts/", import.meta.url));
 let fontsLoaded = false;
-function loadFonts() {
+export function loadFonts() {
   if (fontsLoaded) return;
   GlobalFonts.registerFromPath(`${fontDir}Poppins-Regular.ttf`, "Poppins");
   GlobalFonts.registerFromPath(`${fontDir}Poppins-SemiBold.ttf`, "Poppins SemiBold");

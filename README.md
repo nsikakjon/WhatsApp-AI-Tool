@@ -107,7 +107,7 @@ A password-protected page at `/dashboard` with live numbers for every product
 
 A web app at `/home` (old `/app` links redirect there) where each business on the quote bot sees its dashboard,
 inbox, order board, price list (with photos and minimum quantities), riders
-and delivery zones, a bot test, QR posters, exports (CSV, Google Sheets, PDF),
+and delivery zones, a bot test, QR posters, business flyers, exports (CSV, Google Sheets, PDF),
 bank accounts, alert numbers and team. Owners and staff log in by sending
 **app** to their bot on WhatsApp, or with a password. Switched on by
 `OWNER_APP`; needs migration 0049. See [docs/OWNER_APP.md](docs/OWNER_APP.md).
@@ -208,6 +208,7 @@ src/
     flyer/               Phase 3 birthday and event flyers
       index.ts           admin commands, adding members, due birthday flyers
       render.ts          draws the flyer pictures
+      business.ts        business flyers for the owners' app (products, prices, six designs)
       themes.ts          the flyer designs (colours and layouts): edit here
       goldstars.ts       draws design 7 (gold stars)
       designs4.ts        draws designs 8 to 11 (gala, sunflowers, white and gold, calendar)
