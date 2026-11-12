@@ -114,6 +114,24 @@ export interface QuoteTexts {
   proofPassedOn(ref: string, business: string): string;
   proofCheck(who: string, ref: string, total: string, file: boolean, caption: string | undefined): string;
   proofButtons: { confirm: string; notReceived: string };
+  /** QUOTE_CUSTOMER_FILES: a customer's file was kept, with the quote ("quote") or order ("order") it went with, if any. */
+  fileSaved(ref: string | null, on: "quote" | "order" | null): string;
+  /** Before the bot answers the words typed under a file. */
+  fileGot(): string;
+  fileTooBig(mb: number): string;
+  fileWhich(ref: string): string;
+  fileButtons: { payment: string; order: string };
+  /** `notes` is null when they can't be repeated to the customer (they look like money). */
+  notesSaved(ref: string, notes: string | null, on: "quote" | "order"): string;
+  askDetails(ref: string, asks: string[]): string;
+  /** To the owner: a customer sent a file, or details, for an order already confirmed. */
+  ownerNewFile(who: string, ref: string, file: string): string;
+  ownerNewNotes(who: string, ref: string, notes: string): string;
+  /** Lines in the new-order alert. */
+  orderNotes(notes: string): string;
+  orderFiles(files: string[]): string;
+  detailsMissing(asks: string): string;
+  openOrder(): string;
   /** QUOTE_LIMIT_ALERTS: the bot stays out of an over-limit customer's chat for this many hours. */
   handedOver(hours: number): string;
   limitButtons: { upgrade(plan: string): string; topUp: string; plans: string };
@@ -252,6 +270,26 @@ const en: QuoteTexts = {
   proofCheck: (who, ref, total, file, caption) =>
     `${who} sent ${file ? "a file (open it in your chats inbox)" : "this"} as payment for ${ref} (${total}).${caption ? `\n\nTheir note: "${caption}"` : ""}\n\nCheck your bank app that the money has arrived before you confirm. Fake transfer screenshots are common.`,
   proofButtons: { confirm: "✅ Confirm paid", notReceived: "Not received" },
+  fileSaved: (ref, on) =>
+    on === "quote"
+      ? `Got your file, thank you. It's saved with your quote ${ref}. Reply YES to confirm the order, or tell me what to change.`
+      : on === "order"
+        ? `Got your file, thank you. It's saved with your order ${ref} and the team will use it. If it's for a new order, tell me what you need and how many.`
+        : "Got your file, thank you. What would you like us to do with it, and how many?",
+  fileGot: () => "Got your file, thank you.",
+  fileTooBig: (mb) => `That file is too big for me to keep (over ${mb} MB). Please send a smaller copy, or a link to it (for example from Google Drive).`,
+  fileWhich: (ref) => `Thank you! Is this a payment receipt for ${ref}, or a design or photo for your order?`,
+  fileButtons: { payment: "Payment receipt", order: "Design or photo" },
+  notesSaved: (ref, notes, on) =>
+    `Thank you, I've added this to ${on === "quote" ? "your quote" : "your order"} ${ref}${notes ? `: ${notes}` : "."}${on === "quote" ? "\n\nReply YES to confirm the order, or tell me what to change." : ""}`,
+  askDetails: (ref, asks) =>
+    `Before I confirm ${ref}, please send:\n${asks.map((a) => `• ${a}`).join("\n")}\n\nYou can type it, send a voice note, or send a photo or file. Then reply YES.`,
+  ownerNewFile: (who, ref, file) => `📎 ${who} sent a file for ${ref}: ${file}`,
+  ownerNewNotes: (who, ref, notes) => `📝 ${who} added details to ${ref}: ${notes}`,
+  orderNotes: (notes) => `📝 Details: ${notes}`,
+  orderFiles: (files) => `📎 Files: ${files.join(", ")}`,
+  detailsMissing: (asks) => `⚠️ They haven't sent what you ask for yet: ${asks}`,
+  openOrder: () => "Open order",
   handedOver: (hours) => `I've handed this chat to you, so the bot won't answer them for the next ${hours} hours.`,
   limitButtons: { upgrade: (plan) => `Upgrade to ${plan}`, topUp: "Top up AI replies", plans: "See plans" },
   checkInOk: () => "Glad to hear it, thank you!",
@@ -398,6 +436,26 @@ const fr: QuoteTexts = {
   proofCheck: (who, ref, total, file, caption) =>
     `${who} a envoyé ${file ? "un fichier (ouvrez-le dans votre boîte de discussions)" : "ceci"} comme paiement de ${ref} (${total}).${caption ? `\n\nSon message : « ${caption} »` : ""}\n\nVérifiez dans votre application bancaire que l'argent est bien arrivé avant de confirmer. Les fausses captures de virement sont courantes.`,
   proofButtons: { confirm: "✅ Paiement reçu", notReceived: "Pas reçu" },
+  fileSaved: (ref, on) =>
+    on === "quote"
+      ? `Fichier bien reçu, merci. Il est enregistré avec votre devis ${ref}. Répondez OUI pour confirmer la commande, ou dites-moi quoi changer.`
+      : on === "order"
+        ? `Fichier bien reçu, merci. Il est enregistré avec votre commande ${ref} et l'équipe va l'utiliser. Si c'est pour une nouvelle commande, dites-moi ce qu'il vous faut et combien.`
+        : "Fichier bien reçu, merci. Que voulez-vous qu'on en fasse, et en combien d'exemplaires ?",
+  fileGot: () => "Fichier bien reçu, merci.",
+  fileTooBig: (mb) => `Ce fichier est trop lourd pour que je le garde (plus de ${mb} Mo). Envoyez une copie plus légère, ou un lien (par exemple Google Drive).`,
+  fileWhich: (ref) => `Merci ! Est-ce une preuve de paiement pour ${ref}, ou un design ou une photo pour votre commande ?`,
+  fileButtons: { payment: "Preuve de paiement", order: "Design ou photo" },
+  notesSaved: (ref, notes, on) =>
+    `Merci, j'ai ajouté ceci à ${on === "quote" ? "votre devis" : "votre commande"} ${ref}${notes ? ` : ${notes}` : "."}${on === "quote" ? "\n\nRépondez OUI pour confirmer la commande, ou dites-moi quoi changer." : ""}`,
+  askDetails: (ref, asks) =>
+    `Avant de confirmer ${ref}, merci d'envoyer :\n${asks.map((a) => `• ${a}`).join("\n")}\n\nVous pouvez l'écrire, envoyer un message vocal, une photo ou un fichier. Puis répondez OUI.`,
+  ownerNewFile: (who, ref, file) => `📎 ${who} a envoyé un fichier pour ${ref} : ${file}`,
+  ownerNewNotes: (who, ref, notes) => `📝 ${who} a ajouté des précisions à ${ref} : ${notes}`,
+  orderNotes: (notes) => `📝 Précisions : ${notes}`,
+  orderFiles: (files) => `📎 Fichiers : ${files.join(", ")}`,
+  detailsMissing: (asks) => `⚠️ Le client n'a pas encore envoyé ce que vous demandez : ${asks}`,
+  openOrder: () => "Voir la commande",
   handedOver: (hours) => `Je vous passe cette discussion : le bot ne lui répondra pas pendant les ${hours} prochaines heures.`,
   limitButtons: { upgrade: (plan) => `Passer à ${plan}`, topUp: "Plus de réponses IA", plans: "Voir les formules" },
   checkInOk: () => "Ravi de l'entendre, merci !",
@@ -422,6 +480,19 @@ const fr: QuoteTexts = {
 
 const pcm: QuoteTexts = {
   ...en,
+  fileSaved: (ref, on) =>
+    on === "quote"
+      ? `I don collect your file, thank you. E dey with your quote ${ref}. Reply YES make we confirm the order, or tell me wetin to change.`
+      : on === "order"
+        ? `I don collect your file, thank you. E dey with your order ${ref} and the team go use am. If na for new order, tell me wetin you need and how many.`
+        : "I don collect your file, thank you. Wetin you want make we do with am, and how many?",
+  fileGot: () => "I don collect your file, thank you.",
+  fileTooBig: (mb) => `That file too big for me to keep (pass ${mb} MB). Abeg send smaller copy, or send link to am (like Google Drive).`,
+  fileWhich: (ref) => `Thank you! This one na payment receipt for ${ref}, or na design or photo for your order?`,
+  notesSaved: (ref, notes, on) =>
+    `Thank you, I don add am to ${on === "quote" ? "your quote" : "your order"} ${ref}${notes ? `: ${notes}` : "."}${on === "quote" ? "\n\nReply YES make we confirm the order, or tell me wetin to change." : ""}`,
+  askDetails: (ref, asks) =>
+    `Before I confirm ${ref}, abeg send:\n${asks.map((a) => `• ${a}`).join("\n")}\n\nYou fit type am, send voice note, or send photo or file. Then reply YES.`,
   voiceNotOnLine: () => "Sorry, I no fit listen to voice note for this line. Abeg type wetin you need (like: 100 A5 flyers).",
   voiceUnclear: () => "Sorry, I no hear that voice note well. Abeg you fit type wetin you need (like: 100 A5 flyers)?",
   shareNumber: (b) => `Your WhatsApp dey hide your phone number. Abeg tap the button wey dey below make you share am, so ${b} fit call you about this order if e need.`,
@@ -493,6 +564,19 @@ const pcm: QuoteTexts = {
 // customer whether it's a man or a woman.
 const ha: QuoteTexts = {
   ...en,
+  fileSaved: (ref, on) =>
+    on === "quote"
+      ? `Mun karbi fayil dinku, mun gode. Yana tare da farashin ku ${ref}. Ku amsa YES don tabbatar da oda, ko ku fada mana abin da za a canza.`
+      : on === "order"
+        ? `Mun karbi fayil dinku, mun gode. Yana tare da odar ku ${ref} kuma ma'aikata za su yi amfani da shi. Idan na sabuwar oda ne, ku fada mana me kuke bukata da guda nawa.`
+        : "Mun karbi fayil dinku, mun gode. Me kuke so mu yi da shi, kuma guda nawa?",
+  fileGot: () => "Mun karbi fayil dinku, mun gode.",
+  fileTooBig: (mb) => `Fayil din ya yi girma da yawa ba zan iya ajiye shi ba (ya wuce ${mb} MB). Don Allah ku turo karami, ko link dinsa (misali Google Drive).`,
+  fileWhich: (ref) => `Mun gode! Wannan shaidar biyan kudi ne na ${ref}, ko zane ko hoto ne na odar ku?`,
+  notesSaved: (ref, notes, on) =>
+    `Mun gode, na sa wannan a ${on === "quote" ? "farashin ku" : "odar ku"} ${ref}${notes ? `: ${notes}` : "."}${on === "quote" ? "\n\nKu amsa YES don tabbatar da oda, ko ku fada mana abin da za a canza." : ""}`,
+  askDetails: (ref, asks) =>
+    `Kafin in tabbatar da ${ref}, don Allah ku turo:\n${asks.map((a) => `• ${a}`).join("\n")}\n\nKuna iya rubutawa, turo sakon murya, ko hoto ko fayil. Sannan ku amsa YES.`,
   voiceNotOnLine: () => "Yi hakuri, ba zan iya sauraron sakon murya a wannan layin ba. Don Allah ku rubuta abin da kuke bukata (misali: A5 flyers guda 100).",
   voiceUnclear: () => "Yi hakuri, ban ji sakon muryar nan sosai ba. Za ku iya rubuta abin da kuke bukata (misali: A5 flyers guda 100)?",
   shareNumber: (b) => `WhatsApp dinku yana boye lambar wayarku. Ku taba madannin da ke kasa don ku tura ta, domin ${b} su iya kiran ku game da wannan odar idan ana bukata.`,
@@ -562,6 +646,20 @@ const ha: QuoteTexts = {
 // Standard Swahili that reads naturally in Kenya, Tanzania and Uganda.
 const sw: QuoteTexts = {
   ...en,
+  fileSaved: (ref, on) =>
+    on === "quote"
+      ? `Tumepokea faili lako, asante. Limehifadhiwa pamoja na bei yako ${ref}. Jibu YES kuthibitisha oda, au niambie nibadilishe nini.`
+      : on === "order"
+        ? `Tumepokea faili lako, asante. Limehifadhiwa pamoja na oda yako ${ref} na timu italitumia. Kama ni kwa oda mpya, niambie unachohitaji na idadi.`
+        : "Tumepokea faili lako, asante. Ungependa tufanye nini nalo, na ngapi?",
+  fileGot: () => "Tumepokea faili lako, asante.",
+  fileTooBig: (mb) => `Faili hilo ni kubwa mno kwangu kulihifadhi (zaidi ya MB ${mb}). Tafadhali tuma nakala ndogo, au kiungo chake (mfano Google Drive).`,
+  fileWhich: (ref) => `Asante! Hii ni risiti ya malipo ya ${ref}, au ni muundo au picha ya oda yako?`,
+  fileButtons: { payment: "Risiti ya malipo", order: "Muundo au picha" },
+  notesSaved: (ref, notes, on) =>
+    `Asante, nimeongeza hii kwenye ${on === "quote" ? "bei yako" : "oda yako"} ${ref}${notes ? `: ${notes}` : "."}${on === "quote" ? "\n\nJibu YES kuthibitisha oda, au niambie nibadilishe nini." : ""}`,
+  askDetails: (ref, asks) =>
+    `Kabla sijathibitisha ${ref}, tafadhali tuma:\n${asks.map((a) => `• ${a}`).join("\n")}\n\nUnaweza kuandika, kutuma ujumbe wa sauti, au picha au faili. Kisha jibu YES.`,
   voiceNotOnLine: () => "Samahani, siwezi kusikiliza ujumbe wa sauti kwenye laini hii. Tafadhali andika unachohitaji (mfano: A5 flyers 100).",
   voiceUnclear: () => "Samahani, sikusikia vizuri ujumbe huo wa sauti. Unaweza kuandika unachohitaji (mfano: A5 flyers 100)?",
   shareNumber: (b) => `WhatsApp yako inaficha namba yako ya simu. Gusa kitufe hapa chini uishiriki, ili ${b} waweze kukupigia kuhusu oda hii ikihitajika.`,

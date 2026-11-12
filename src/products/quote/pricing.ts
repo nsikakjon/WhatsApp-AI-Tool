@@ -19,6 +19,8 @@ export interface Variant {
   tiers: PriceTier[];
   /** The owner's notes about the item (colours, delivery time, ...), from extra price list columns. */
   details?: string;
+  /** What the bot asks the customer for before confirming an order of it, e.g. "Measurements: chest, waist, length" (migration 0085). */
+  askFor?: string;
 }
 
 export interface QuoteLine {

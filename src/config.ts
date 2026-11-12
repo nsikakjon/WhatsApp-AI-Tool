@@ -159,6 +159,8 @@ export interface Config {
   quoteCatalogue: boolean;
   /** Catalogue cards as one swipe message (QUOTE_CAROUSEL). Off unless true. */
   quoteCarousel: boolean;
+  /** Files customers send kept with their orders, order details and "ask the customer for" on products (migration 0085). Off unless QUOTE_CUSTOMER_FILES is true. */
+  quoteCustomerFiles: boolean;
   /** Counter sales and cost prices in the owner app (migration 0060). */
   quoteCounterSales: boolean;
   /** Barcodes on the price list and a Scan button on the counter sale screen (migration 0067). Only with quoteCounterSales. */
@@ -558,6 +560,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteCatalogue: /^(true|yes|on|1)$/i.test(env.QUOTE_CATALOGUE ?? ""),
     quoteCarousel: /^(true|yes|on|1)$/i.test(env.QUOTE_CAROUSEL ?? ""),
+    quoteCustomerFiles: /^(true|yes|on|1)$/i.test(env.QUOTE_CUSTOMER_FILES ?? ""),
     quoteCounterSales: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? ""),
     quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
