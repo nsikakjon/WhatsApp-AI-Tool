@@ -836,7 +836,7 @@ ${products.length > 0
     );
   });
 
-  // Kept for ten minutes, like the server's own copy, so a photo the owner changes shows up the same day they change it.
+  // Kept for ten minutes, like the server's own copy, so a photo the owner changes shows up soon after.
   const imageHeaders = (data: Buffer | Uint8Array, type: string) =>
     ({ "Content-Type": type, "Content-Length": String(data.byteLength), "Cache-Control": "public, max-age=600, stale-while-revalidate=3600" }) as const;
 
