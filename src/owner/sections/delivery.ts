@@ -34,12 +34,12 @@ export function liveJson(list: LiveDelivery[], now: Date) {
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 
-/** The Shipbubble courier switch, or nothing when couriers aren't set up for this business. */
+/** The courier switch, or nothing when couriers aren't set up for this business. */
 function courierCard(courier: { available: boolean; on: boolean; set?(on: boolean): Promise<void> } | undefined, owner: boolean): string {
   if (!courier?.available) return "";
-  const how = `<p class="muted small" style="margin:0">When a customer's address isn't in any of your zones, the bot gets real prices from couriers like Kwik, Gokada and GIG through Shipbubble and offers the cheapest one that collects from your shop. Paid by pay link, the courier is booked straight away; if the customer pays you directly, you'll get a link to pay the courier fee first.</p>`;
+  const how = `<p class="muted small" style="margin:0">When a customer's address isn't in any of your zones, the bot gets real prices from couriers like Kwik, Gokada and GIG and offers the cheapest one that collects from your shop. Paid by pay link, the courier is booked straight away; if the customer pays you directly, you'll get a link to pay the courier fee first.</p>`;
   const control = !courier.set
-    ? `<p class="muted small" style="margin:10px 0 0">On the main number this is set by yarnOga; ask support to change it.</p>`
+    ? `<p class="muted small" style="margin:10px 0 0">For this business it's set by yarnOga; ask support to change it.</p>`
     : owner
       ? `<form method="post" action="/home/delivery/courier" style="margin-top:12px"><input type="hidden" name="on" value="${courier.on ? "off" : "on"}"><button class="${courier.on ? "ghost" : ""} small">${courier.on ? "Turn couriers off" : "Turn couriers on"}</button></form>`
       : "";

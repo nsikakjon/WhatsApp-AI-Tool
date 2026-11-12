@@ -50,7 +50,7 @@ export interface AppBusiness {
   /**
    * Shipbubble couriers for addresses outside the zones. `available` is false
    * when yarnOga hasn't set them up or the business isn't in naira; `set` is
-   * missing on the main number, where QUOTE_COURIER_DELIVERY decides.
+   * missing for business #1, where QUOTE_COURIER_DELIVERY decides.
    */
   courier?: { available: boolean; on: boolean; set?(on: boolean): Promise<void> };
   data: BusinessData;

@@ -52,7 +52,7 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
     ]);
     const v = (x: string | null | undefined) => esc(x ?? "");
     const envNote = biz.fromEnv
-      ? `<p class="flash bad">This business runs on yarnOga's main number, so its name, address and owner number are set by yarnOga. Message support to change them. Your bank accounts, alert numbers, team and logo below work as normal.</p>`
+      ? `<p class="flash bad">This business's name, address, owner number, language and currency are kept in yarnOga's own settings, not on this page. Message support to change them. Your bank accounts, alert numbers, team and logo below work as normal.</p>`
       : "";
 
     const fee = biz.payLinks?.on ? await biz.payLinks.feeBasisPoints().catch(() => 0) : 0;
@@ -142,11 +142,11 @@ ${care ? careForm(care, await careOnPlan(biz.features)) : ""}
 <label>Currency <span class="muted">(your prices are in this currency)</span>
 <select name="currency"${biz.fromEnv ? " disabled" : ""}>${option("NGN", "Naira (₦)", biz.currency)}${option("XOF", "CFA franc, West Africa (FCFA)", biz.currency)}${option("XAF", "CFA franc, Central Africa (FCFA)", biz.currency)}${option("KES", "Kenyan shilling (KSh)", biz.currency)}${option("UGX", "Ugandan shilling (USh)", biz.currency)}${option("TZS", "Tanzanian shilling (TSh)", biz.currency)}${option("RWF", "Rwandan franc (RWF)", biz.currency)}${option("MWK", "Malawian kwacha (MK)", biz.currency)}</select></label></div>
 <label class="check"><input type="checkbox" name="voice" value="on"${biz.voiceReplies ? " checked" : ""}${biz.fromEnv ? " disabled" : ""}> Answer voice notes with a voice note as well as text</label>
-<p class="muted small">Changing the currency doesn't convert your prices: check your price list and delivery fees afterwards.${biz.fromEnv ? " On the main number these are set by yarnOga; ask support to change them." : ""}</p>
+<p class="muted small">Changing the currency doesn't convert your prices: check your price list and delivery fees afterwards.${biz.fromEnv ? " These are kept in yarnOga's own settings for this business; ask support to change them." : ""}</p>
 <div class="actions"><button${biz.fromEnv ? " disabled" : ""}>Save</button></div></form>
 
 <h2 id="banks">Bank accounts</h2>
-<p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (On the main number, invoices still show the details set by yarnOga until support updates them.)" : ""}</p>
+<p class="muted">The account marked "On invoices" is printed on every invoice so customers know where to pay.${biz.fromEnv ? " (Invoices still show the address and phone kept in yarnOga's settings until support updates them.)" : ""}</p>
 <div class="scroll"><table>${bankRows || `<tr><td class="muted">No bank accounts yet.</td></tr>`}</table></div>
 <details class="card" style="margin-top:12px"${banks.length ? "" : " open"}><summary><b>Add a bank account</b></summary>
 <form method="post" action="/home/settings/banks"><label>Bank${bankInput}</label>
