@@ -49,6 +49,7 @@ export function extractMessages(payload: unknown): IncomingMessage[] {
                   : undefined,
           caption: media?.caption || undefined,
           mediaId: media?.id,
+          ...(msg.document?.filename ? { fileName: msg.document.filename } : {}),
           location: pin(msg.location),
           sharedContacts: msg.contacts?.map((c) => ({
             name: c.name?.formatted_name || undefined,
@@ -216,7 +217,7 @@ interface WebhookMessage {
   text?: { body?: string };
   audio?: { id?: string; caption?: string };
   image?: { id?: string; caption?: string };
-  document?: { id?: string; caption?: string };
+  document?: { id?: string; caption?: string; filename?: string };
   video?: { id?: string; caption?: string };
   interactive?: InteractiveReply;
   button?: { text?: string; payload?: string };
