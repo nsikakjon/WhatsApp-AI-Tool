@@ -55,8 +55,7 @@ After migration 0083, an owner can also buy a pack of messages by Paystack
 link, in the Send to your customers box under a flyer in the owner app (naira
 shops only). The month's messages are used first, then the pack's, and pack
 messages don't run out at the end of the month. A shop with no monthly
-messages can broadcast on packs alone, so step 5 below is only for shops you
-give monthly messages to.
+messages can broadcast on packs alone.
 
 Packs and prices are rows in `quote_broadcast_packs` (kobo). `billed_by` says
 who Meta charges: `yarnoga` packs (100 for ₦15,000, 250 for ₦35,000, 500 for
@@ -132,9 +131,16 @@ Add these Variables:
 | `BROADCASTS_PER_MINUTE`         | `30` (optional)                          |
 | `BROADCAST_COST_KOBO`           | e.g. `7000` (optional, for the estimate) |
 
-### 5. Give a business the add-on (Supabase)
+### 5. Monthly messages (Supabase)
 
-A business can only broadcast with a row in `broadcast_addons`. In the SQL
+With `QUOTE_PLAN_FEATURES` on, a business gets the broadcasts on its plan
+automatically: Pro 50, Growth 200 and Enterprise 1,000 a month after
+migration 0084 (the `broadcasts` rows in `quote_plan_features`). Run 0084
+before switching broadcasts on. A branch has no plan of its own, so it buys
+packs or gets a row as below.
+
+To give one business a different number, add a row in `broadcast_addons`,
+which is used instead of the plan's (0 switches its monthly messages off). In the SQL
 Editor (business #1 is KahnPrints on the main number; other businesses' ids are
 in the `quote_businesses` table):
 

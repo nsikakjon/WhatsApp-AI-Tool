@@ -13,7 +13,7 @@ both in kobo or plain counts, so they change in Supabase, never in code.
 | Price list rows | 20 | 100 | Unlimited | Unlimited | Unlimited |
 | Voice notes, invoices, reminders, staff inbox | | ✓ | ✓ | ✓ | ✓ |
 | Delivery zones, riders, tracking | | | ✓ | ✓ | ✓ |
-| Broadcasts a month | | | 1,000 | 5,000 | 20,000 |
+| Broadcasts a month (more in message packs) | | | 50 | 200 | 1,000 |
 | "Powered by yarnOga" line | Shown | | | | |
 | Set up for you | ₦25,000 extra | ₦25,000 extra | ₦25,000 extra | Included | Included |
 

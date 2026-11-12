@@ -2,6 +2,7 @@ import { formatNaira } from "../../core/money.js";
 import type { Product, ProductContext, Reply } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { Broadcast, BroadcastStore, BroadcastTally, PendingRecipient } from "./broadcast-store.js";
+import type { PlanFeatures } from "./features.js";
 
 // Broadcasts: a business sends a promo or price update to customers who asked
 // for them. A paid add-on, off unless BROADCASTS_ENABLED is true.
@@ -240,10 +241,22 @@ export interface BroadcastRoom {
 /** Null when broadcasts aren't on the business's plan and it has no pack. */
 export async function broadcastRoom(store: BroadcastStore, businessId: string, monthlyLimit: number | null): Promise<BroadcastRoom | null> {
   const pack = await store.packBalance(businessId);
-  if (monthlyLimit === null && pack === 0) return null;
+  if (!monthlyLimit && pack === 0) return null;
   const limit = monthlyLimit ?? 0;
   const used = limit > 0 ? Math.min(await store.usedThisMonth(businessId), limit) : 0;
   return { limit, used, pack, left: limit - used + pack };
+}
+
+/**
+ * A business's broadcast messages a month: its own row in broadcast_addons
+ * when it has one, else the number on its plan. A plan only counts with a
+ * number above 0, so a missing row or a failed read (which the other plan
+ * checks treat as "included") never gives away messages Meta bills for.
+ */
+export async function monthlyBroadcasts(addOn: number | null, features: PlanFeatures | undefined): Promise<number | null> {
+  if (addOn !== null) return addOn;
+  if (!features || !(await features.has("broadcasts"))) return null;
+  return (await features.limit("broadcasts")) || null;
 }
 
 function usage(room: BroadcastRoom): string[] {
@@ -261,8 +274,15 @@ export interface PictureBroadcasts {
   send(body: string, imageMediaId: string, ownerWaId: string): Promise<{ outcome: "queued"; id: number; recipients: number } | { outcome: "not_on_plan" | "nobody" | "limit_reached" }>;
 }
 
-export function createPictureBroadcasts(opts: { businessId: string; businessName: string; fromNumberId: string | null; store: BroadcastStore }): PictureBroadcasts {
-  const room = async () => broadcastRoom(opts.store, opts.businessId, await opts.store.monthlyLimit(opts.businessId));
+export function createPictureBroadcasts(opts: {
+  businessId: string;
+  businessName: string;
+  fromNumberId: string | null;
+  store: BroadcastStore;
+  /** As in BroadcastOptions. */
+  monthlyLimit(businessId: string): Promise<number | null>;
+}): PictureBroadcasts {
+  const room = async () => broadcastRoom(opts.store, opts.businessId, await opts.monthlyLimit(opts.businessId));
   return {
     async reach() {
       const [now, optedIn] = await Promise.all([room(), opts.store.countOptedIn(opts.businessId)]);

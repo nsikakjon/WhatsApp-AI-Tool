@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Product, ProductContext } from "../../core/product.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import type { Broadcast, BroadcastStore, OptInStatus, PendingRecipient, RecipientResult } from "./broadcast-store.js";
-import { createPictureBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
+import { createPictureBroadcasts, monthlyBroadcasts, finishedText, sendDueBroadcasts, withBroadcasts, type BroadcastOptions } from "./broadcasts.js";
 
 const OWNER = "2348000000001";
 const BIZ = "biz-1";
@@ -322,7 +322,7 @@ describe("sending broadcasts", () => {
 describe("sending a picture made in the owner app", () => {
   it("queues it for everyone opted in, and says so when there's nobody", async () => {
     const m = memoryStore();
-    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store });
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store, monthlyLimit: async () => 100 });
     expect(await pictures.send("Weekend offer", "media-1", OWNER)).toEqual({ outcome: "nobody" });
     await m.store.setOptIn(BIZ, "c1", "in", "keyword", "wamid.1");
     await m.store.setOptIn(BIZ, "c2", "in", "keyword", "wamid.2");
@@ -336,8 +336,25 @@ describe("sending a picture made in the owner app", () => {
 
   it("isn't offered to a business without broadcasts", async () => {
     const m = memoryStore();
-    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: { ...m.store, monthlyLimit: async () => null } });
+    const pictures = createPictureBroadcasts({ businessId: BIZ, businessName: "Kahn", fromNumberId: null, store: m.store, monthlyLimit: async () => null });
     expect(await pictures.reach()).toEqual({ optedIn: 0, left: 0, monthly: 0 });
     expect(await pictures.send("x", "media-1", OWNER)).toEqual({ outcome: "not_on_plan" });
+  });
+});
+
+describe("a business's broadcasts a month", () => {
+  const plan = (included: boolean, limit: number | null) => ({ planCode: async () => "pro", has: async () => included, limit: async () => limit });
+
+  it("comes from its plan, unless it has its own number", async () => {
+    expect(await monthlyBroadcasts(null, plan(true, 50))).toBe(50);
+    expect(await monthlyBroadcasts(500, plan(true, 50))).toBe(500);
+    expect(await monthlyBroadcasts(0, plan(true, 50))).toBe(0);
+    expect(await monthlyBroadcasts(null, plan(false, null))).toBeNull();
+  });
+
+  it("is nothing when the plan has no number, so a missing row never gives messages away", async () => {
+    expect(await monthlyBroadcasts(null, plan(true, null))).toBeNull();
+    expect(await monthlyBroadcasts(null, plan(true, 0))).toBeNull();
+    expect(await monthlyBroadcasts(null, undefined)).toBeNull();
   });
 });
