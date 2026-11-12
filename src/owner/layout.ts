@@ -60,10 +60,10 @@ export interface NavItem {
   need?: Permission;
   /** Shown in the phone's bottom tab bar (the rest go under "More"). */
   tab?: boolean;
+  /** Which heading it sits under in the menu; the tab-bar pages need none. */
+  group?: Group;
   /** Only when counter sales are switched on (QUOTE_COUNTER_SALES). */
   counter?: boolean;
-  /** Only when the offline till is switched on (OWNER_APP_OFFLINE). */
-  till?: boolean;
   /** Only when paying riders and staff is switched on (QUOTE_PAYOUTS). */
   payouts?: boolean;
   /** Only when the tax summary is switched on (QUOTE_TAX_SUMMARY). */
@@ -74,26 +74,28 @@ export interface NavItem {
   monthly?: boolean;
 }
 
+const GROUPS = { sell: "Selling", money: "Money", grow: "Marketing", setup: "Setup" };
+type Group = keyof typeof GROUPS;
+
 export const NAV: NavItem[] = [
   { href: "/home", label: "Dashboard", icon: "home", tab: true },
   { href: "/home/inbox", label: "Inbox", icon: "inbox", tab: true, need: "inbox" },
   { href: "/home/orders", label: "Orders", icon: "orders", tab: true },
-  { href: "/home/counter", label: "Counter sale", icon: "till", need: "counter", counter: true },
-  { href: "/home/till", label: "Till (works offline)", icon: "till", need: "counter", till: true },
   { href: "/home/prices", label: "Price list", icon: "prices", tab: true, need: "see_prices" },
-  { href: "/home/customers", label: "Customers", icon: "users", need: "customers" },
-  { href: "/home/delivery", label: "Riders & delivery", icon: "delivery" },
-  { href: "/home/pay", label: "Pay people", icon: "wallet", need: "pay_out", payouts: true },
-  { href: "/home/monthly", label: "Monthly payments", icon: "repeat", need: "money", monthly: true },
-  { href: "/home/test", label: "Test your bot", icon: "test", need: "tools" },
-  { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools" },
-  { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true },
-  { href: "/home/export", label: "Export", icon: "export", ownerOnly: true },
-  { href: "/home/ads", label: "Ads", icon: "megaphone", ownerOnly: true, ads: true },
-  { href: "/home/tax", label: "Tax summary", icon: "receipt", ownerOnly: true, tax: true },
-  { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true },
-  { href: "/home/help", label: "Help", icon: "help" },
-  { href: "/home/status", label: "Status", icon: "status" },
+  { href: "/home/counter", label: "Counter sale", icon: "till", need: "counter", counter: true, group: "sell" },
+  { href: "/home/customers", label: "Customers", icon: "users", need: "customers", group: "sell" },
+  { href: "/home/delivery", label: "Riders & delivery", icon: "delivery", group: "sell" },
+  { href: "/home/pay", label: "Pay people", icon: "wallet", need: "pay_out", payouts: true, group: "money" },
+  { href: "/home/monthly", label: "Monthly payments", icon: "repeat", need: "money", monthly: true, group: "money" },
+  { href: "/home/tax", label: "Tax summary", icon: "receipt", ownerOnly: true, tax: true, group: "money" },
+  { href: "/home/export", label: "Export", icon: "export", ownerOnly: true, group: "money" },
+  { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools", group: "grow" },
+  { href: "/home/ads", label: "Ads", icon: "megaphone", ownerOnly: true, ads: true, group: "grow" },
+  { href: "/home/test", label: "Test your bot", icon: "test", need: "tools", group: "setup" },
+  { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true, group: "setup" },
+  { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true, group: "setup" },
+  { href: "/home/help", label: "Help", icon: "help", group: "setup" },
+  { href: "/home/status", label: "Status", icon: "status", group: "setup" },
 ];
 
 export interface Shell {
@@ -104,8 +106,6 @@ export interface Shell {
   role: Role;
   /** Counter sales are on for this business. */
   counter?: boolean;
-  /** The offline till is on for this business. */
-  till?: boolean;
   /** Paying riders and staff is on for this business. */
   payouts?: boolean;
   /** The tax summary is on for this business. */
@@ -129,11 +129,17 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.till || s.till) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
-  const main = items.slice(0, 7).map(link).join("");
-  const rest = items.slice(7).map(link).join("");
+  const tabs = items.filter((n) => n.tab);
+  // The rest of the menu under its headings: a list in the side menu, a grid of tiles in the phone's "More".
+  const grouped = (head: string, wrap: (links: string) => string) =>
+    (Object.keys(GROUPS) as Group[])
+      .map((g) => [g, items.filter((n) => n.group === g)] as const)
+      .filter(([, list]) => list.length)
+      .map(([g, list]) => `<p class="${head}">${GROUPS[g]}</p>${wrap(list.map(link).join(""))}`)
+      .join("");
   const switcher = s.others?.length
     ? `<form method="post" action="/home/switch" class="switch"><select name="user" aria-label="Switch business">${[
         `<option value="">${esc(s.businessName)}</option>`,
@@ -142,7 +148,6 @@ export function page(s: Shell, body: string): string {
     : "";
   const flash = s.flash ? `<p class="flash ${s.flash.ok ? "good" : "bad"}" role="status">${esc(s.flash.text)}</p>` : "";
   const role = ROLE_LABEL[s.role];
-  const tabs = items.filter((n) => n.tab);
   const moreActive = !tabs.some((n) => n.href === s.active);
   const logout = `<form method="post" action="/home/logout"><button class="navbtn">${icon("logout")}<span>Log out</span></button></form>`;
   return doc(
@@ -150,7 +155,7 @@ export function page(s: Shell, body: string): string {
     `<div class="shell">
 <aside class="side" aria-label="Menu">
   ${logo("ms", "brand")}
-  <nav class="nav">${main}<p class="navhead">More</p>${rest}</nav>
+  <nav class="nav">${tabs.map(link).join("")}${grouped("navhead", (links) => links)}</nav>
   <div class="me"><span class="avatar">${esc(initials(s.businessName))}</span><div><b>${esc(s.businessName)}</b><span>${esc(s.userName)} · ${role}</span></div></div>
   ${switcher}${logout}
 </aside>
@@ -161,7 +166,7 @@ export function page(s: Shell, body: string): string {
 </div>
 <nav class="tabs" aria-label="Main">${tabs.map(link).join("")}
   <details class="moretab${moreActive ? " on" : ""}"><summary>${icon("more")}<span>More</span></summary>
-  <div class="sheet"><p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${items.filter((n) => !n.tab).map(link).join("")}${switcher}${logout}</div></details>
+  <div class="sheet">${grouped("sheethead", (links) => `<div class="menugrid">${links}</div>`)}<p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${switcher}${logout}</div></details>
 </nav>
 </div>${s.tour ? tour(items, s.tour.userId, s.tour.start) : ""}`,
   );
@@ -230,12 +235,13 @@ const CSS = `
   --accent:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
   --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   /* Spacing steps: 4, 8, 12, 16, 24, 32, 48. Corners: cards, tiles, controls. */
-  --r:14px;--r2:10px;--r3:6px;
-  --glass:linear-gradient(180deg,rgba(243,241,230,.035),rgba(243,241,230,.01));
+  --r:18px;--r2:10px;--r3:6px;
+  /* Frosted glass, as on the shop page: see-through panels over soft colour. Only the bars that stay put blur what's behind them. */
+  --glass:linear-gradient(135deg,rgba(255,255,255,.09),rgba(255,255,255,.03));--edge:rgba(255,255,255,.14);--sheen:inset 0 1px 0 rgba(255,255,255,.12),0 12px 32px rgba(0,0,0,.25);
 }
 *{box-sizing:border-box;scrollbar-width:thin}html{-webkit-text-size-adjust:100%;color-scheme:dark;scrollbar-color:rgba(243,241,230,.22) transparent}
 body{margin:0;font:16px/1.55 var(--body);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
-  background-image:radial-gradient(900px 500px at 85% -10%,rgba(198,255,31,.07),transparent 60%),radial-gradient(700px 400px at -10% 110%,rgba(198,255,31,.04),transparent 60%);background-attachment:fixed}
+  background-image:radial-gradient(60vmax circle at 100% 0%,rgba(198,255,31,.16),transparent 62%),radial-gradient(55vmax circle at 0% 55%,rgba(46,229,160,.12),transparent 62%),radial-gradient(60vmax circle at 90% 100%,rgba(198,255,31,.09),transparent 62%);background-attachment:fixed}
 a{color:var(--lime);text-underline-offset:3px}
 h1{font:700 1.75rem/1.1 var(--display);letter-spacing:-.02em;margin:0}
 h2{font:600 1.1rem/1.3 var(--accent);letter-spacing:-.01em;margin:32px 0 16px}
@@ -248,7 +254,7 @@ code{background:var(--surface3);padding:1px 7px;border-radius:6px;font-size:.88e
 .shell{min-height:100vh}
 .side{display:none}
 .content{min-width:0}
-.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;background:rgba(10,13,11,.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;background:rgba(10,13,11,.6);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);border-bottom:1px solid var(--edge)}
 .crumb{margin:0 0 6px;color:var(--mint);font:600 11px/1.4 var(--body);letter-spacing:.12em;text-transform:uppercase}.crumb:before{content:"> "}
 .topactions{display:flex;align-items:center;gap:10px}
 .iconbtn{display:grid;place-items:center;width:40px;height:40px;border-radius:var(--r2);border:1px solid var(--line2);color:var(--text);background:var(--surface)}
@@ -281,23 +287,25 @@ main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240p
 .nav a:hover,.sheet a:hover,.navbtn:hover{background:var(--surface2);color:var(--text)}
 .nav a.on,.sheet a.on{background:var(--limesoft);color:var(--lime);box-shadow:inset 0 0 0 1px rgba(198,255,31,.18)}
 .navbtn{width:100%;justify-content:flex-start;background:none;border:0;cursor:pointer;box-shadow:none}.navbtn:hover,.navbtn:active{box-shadow:none;transform:none}
-.me{display:flex;align-items:center;gap:10px;padding:12px;margin:10px 0 6px;border-radius:var(--r2);background:var(--surface);border:1px solid var(--line)}
+.me{display:flex;align-items:center;gap:10px;padding:12px;margin:10px 0 6px;border-radius:var(--r2);background:var(--glass);border:1px solid var(--edge)}
 .me b{display:block;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.me span{color:var(--muted);font-size:.78rem}.me div{min-width:0}
 .switch{display:flex;gap:6px;margin:0 0 6px}.switch select{padding:8px}
 .inline{display:flex;gap:6px;align-items:center}.inline select{padding:8px;width:auto}
 
 /* Phone tab bar */
-.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:30;display:flex;justify-content:space-around;padding:6px;border-radius:22px;background:rgba(15,20,17,.94);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line2);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.tabs{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:30;display:flex;justify-content:space-around;padding:6px;border-radius:22px;background:rgba(15,20,17,.66);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);border:1px solid var(--edge);box-shadow:var(--sheen)}
 .tabs>a,.moretab>summary{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border-radius:16px;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:600;cursor:pointer;list-style:none}
 .moretab{flex:1;display:flex}.moretab>summary::-webkit-details-marker{display:none}
 .tabs>a.on,.moretab.on>summary{color:var(--limeink);background:var(--lime)}
-.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);padding:10px;border-radius:20px;background:#111713;border:1px solid var(--line2);box-shadow:0 20px 60px rgba(0,0,0,.6)}
-.sheethead{color:var(--muted);font-size:.8rem;margin:4px 12px 8px}
+.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);padding:10px;border-radius:20px;background:#111713;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 20px 60px rgba(0,0,0,.6)}
+.sheethead{margin:10px 8px 6px;color:var(--dim);font:600 11px/1.4 var(--body);text-transform:uppercase;letter-spacing:.12em}
+.menugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.sheet .menugrid a{flex-direction:column;gap:6px;padding:10px 4px;text-align:center;font-size:.78rem;line-height:1.2;background:rgba(255,255,255,.05);border:1px solid var(--line)}
 
 /* Cards and numbers */
-.card,.stat,.column{background:var(--glass),var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.card,.stat,.column{background:var(--glass);border:1px solid var(--edge);box-shadow:var(--sheen);border-radius:var(--r);padding:20px}
 @media(min-width:960px){.card,.stat{padding:24px}}
-.card.glow,.stat.glow{background:radial-gradient(120% 120% at 100% 0%,rgba(198,255,31,.16),transparent 55%),var(--glass),var(--surface);border-color:rgba(198,255,31,.18)}
+.card.glow,.stat.glow{background:radial-gradient(120% 120% at 100% 0%,rgba(198,255,31,.16),transparent 55%),var(--glass);border-color:rgba(198,255,31,.22)}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
 .cards{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
 .split{display:grid;gap:16px}@media(min-width:1100px){.split{grid-template-columns:1.6fr 1fr}.split.even{grid-template-columns:1fr 1fr}}
@@ -334,7 +342,7 @@ table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--dim);font:600 11px/1.4 var(--body);text-transform:uppercase;letter-spacing:.12em}
 tr:last-child td{border-bottom:0}
-.scroll{overflow-x:auto;background:var(--glass),var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:4px 8px}
+.scroll{overflow-x:auto;background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);padding:4px 8px}
 .rank{display:grid;gap:14px}
 .rank li{list-style:none}.rank{margin:0;padding:0}
 .rankrow{display:flex;justify-content:space-between;gap:10px;font-size:.9rem}.rankrow b{font-weight:600}
@@ -399,7 +407,7 @@ details.card[open]>summary:before{content:"–"}
 .order .actions{margin-top:12px;display:grid;gap:6px}.order .actions button{width:100%;padding:8px 6px}
 
 /* Inbox */
-.list{background:var(--glass),var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.list{background:var(--glass);border:1px solid var(--edge);box-shadow:var(--sheen);border-radius:var(--r);overflow:hidden}
 .chatrow{display:flex;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);color:var(--text);text-decoration:none;transition:background .15s}
 .chatrow:last-child{border-bottom:0}.chatrow:hover{background:var(--surface2)}
 .chatrow .avatar{background:var(--surface3);color:var(--text)}.chatrow.new .avatar{background:linear-gradient(135deg,var(--lime),#7fd400);color:var(--limeink)}
@@ -452,7 +460,7 @@ details.faq{border-bottom:1px solid var(--line);padding:14px 2px}details.faq sum
 /* Login */
 .auth{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;
   background:radial-gradient(600px 400px at 50% 0%,rgba(198,255,31,.12),transparent 70%)}
-.authcard{width:100%;max-width:420px;padding:32px 26px;border-radius:26px;background:var(--glass),var(--surface);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.authcard{width:100%;max-width:420px;padding:32px 26px;border-radius:26px;background:var(--glass);border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 30px 80px rgba(0,0,0,.45)}
 .authcard h1{font-size:1.6rem;text-align:center;margin-bottom:12px}.authcard h1+p{text-align:center}.authcard h2{font-size:1rem}
 .authcard form button{width:100%;margin-top:6px;padding:13px}
 .authfoot{color:var(--dim);font-size:.8rem;margin-top:18px}.authfoot a{color:var(--muted)}
