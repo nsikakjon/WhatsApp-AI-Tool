@@ -1016,11 +1016,16 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   ): Promise<OutgoingImage | null> {
     if (!(await documentsIncluded())) return null;
     try {
-      const logo = opts.branding ? await opts.branding.logo() : null;
+      const [logo, accent] = await Promise.all([
+        opts.branding ? opts.branding.logo() : null,
+        // A missing colour shouldn't stop the invoice: it's drawn in plain ink instead.
+        opts.branding?.accent ? opts.branding.accent().catch(() => null) : null,
+      ]);
       const data = await draw({
         kind,
         businessName: opts.businessName,
         logo: logo ?? undefined,
+        accent,
         businessDetails: opts.businessDetails,
         ref: `${opts.orderPrefix}-${order.orderNumber}`,
         date: kind === "receipt" ? (order.paidAt ?? new Date()) : order.createdAt,

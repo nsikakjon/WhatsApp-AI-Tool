@@ -126,9 +126,11 @@ export interface OrderDetails extends SavedOrder {
   paidAt: Date | null;
 }
 
-/** The business logo printed on invoices and receipts. */
+/** The business logo and colour printed on invoices and receipts. */
 export interface BrandingStore {
   logo(): Promise<Uint8Array | null>;
+  /** The colour the owner picked in the owner app (migration 0061), e.g. "#e4572e"; null when none. */
+  accent?(): Promise<string | null>;
   saveLogo(data: Uint8Array, mimeType: string): Promise<void>;
 }
 
@@ -216,6 +218,13 @@ export function createSupabaseBranding(db: SupabaseClient, businessId?: string):
       // No logo uploaded yet is normal: documents are drawn without one.
       if (error || !data) return null;
       return new Uint8Array(await data.arrayBuffer());
+    },
+    async accent() {
+      if (!businessId) return null;
+      // Every column, so it works before migration 0061 too.
+      const { data, error } = await db.from("quote_businesses").select("*").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`accent failed: ${error.message}`);
+      return (data?.shop_accent as string | null) ?? null;
     },
     async saveLogo(data, mimeType) {
       const { error } = await db.storage.from(FILES_BUCKET).upload(LOGO_PATH, data, { contentType: mimeType, upsert: true });

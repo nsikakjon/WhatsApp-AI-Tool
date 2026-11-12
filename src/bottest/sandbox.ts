@@ -109,6 +109,7 @@ export function memoryOrderStore(): OrderStore {
 export function readOnlyBranding(real: BrandingStore): BrandingStore {
   return {
     logo: () => real.logo(),
+    accent: async () => (real.accent ? real.accent() : null),
     async saveLogo() {},
   };
 }
