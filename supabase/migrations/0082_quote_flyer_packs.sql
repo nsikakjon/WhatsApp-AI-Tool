@@ -5,17 +5,17 @@
 --
 -- Until this is run, every plan makes flyers with no limit.
 
--- How many flyers a plan makes a month. Free gets 5, with the yarnOga tag
+-- How many flyers a plan makes a month. Free gets 3, with the yarnOga tag
 -- and two designs; the paid plans have no limit. Change the number here,
 -- never in code.
 insert into public.quote_plan_features (plan_code, feature, included, usage_limit)
-select p.plan_code, 'business_flyers', true, case when p.plan_code = 'free' then 5 else null end
+select p.plan_code, 'business_flyers', true, case when p.plan_code = 'free' then 3 else null end
 from (values ('free'), ('starter'), ('pro'), ('standard'), ('growth'), ('enterprise')) as p(plan_code)
 on conflict (plan_code, feature) do nothing;
 
 -- The packs on sale. Prices in kobo (₦1 = 100 kobo). A pack's flyers have
 -- every design and no yarnOga tag, and don't run out at the end of the month.
--- The pack below is the suggested starting price: change or add rows here.
+-- jay set the pack below on 12 Nov 2026: change or add rows here.
 create table if not exists public.quote_flyer_packs (
   code        text primary key,
   name        text not null,
@@ -28,7 +28,7 @@ create table if not exists public.quote_flyer_packs (
 alter table public.quote_flyer_packs enable row level security;
 
 insert into public.quote_flyer_packs (code, name, flyers, price_kobo, sort_order)
-values ('flyers-10', '10 flyers', 10, 100000, 1)
+values ('flyers-5', '5 flyers', 5, 300000, 1)
 on conflict (code) do nothing;
 
 -- One row per pack paid for. The Paystack reference is the key, so a retried
