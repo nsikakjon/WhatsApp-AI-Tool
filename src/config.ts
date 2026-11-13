@@ -116,7 +116,7 @@ export interface Config {
     flutterwaveSubaccount?: string;
     /** "en" or "fr": owner messages and invoices, and customers whose language isn't clear. */
     language: Lang;
-    /** "NGN" (naira), "XOF" or "XAF" (CFA francs), "KES", "UGX", "TZS", "RWF" or "MWK". */
+    /** "NGN" (naira), "XOF" or "XAF" (CFA francs), "GHS", "ZMW", "KES", "UGX", "TZS", "RWF" or "MWK". */
     currency: Currency;
     /** Answer voice notes with a voice note (needs TTS set up). */
     voiceReplies: boolean;
@@ -542,7 +542,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             paystackSubaccount: subaccount(env.QUOTE_PAYSTACK_SUBACCOUNT),
             flutterwaveSubaccount: flutterwaveSubaccount(env.QUOTE_FLUTTERWAVE_SUBACCOUNT),
             language: oneOf(env.QUOTE_LANGUAGE?.trim().toLowerCase() || "en", isLang, "QUOTE_LANGUAGE", "en or fr"),
-            currency: oneOf(env.QUOTE_CURRENCY?.trim().toUpperCase() || "NGN", isCurrency, "QUOTE_CURRENCY", "NGN, XOF, XAF, KES, UGX, TZS, RWF or MWK"),
+            currency: oneOf(env.QUOTE_CURRENCY?.trim().toUpperCase() || "NGN", isCurrency, "QUOTE_CURRENCY", "NGN, XOF, XAF, GHS, ZMW, KES, UGX, TZS, RWF or MWK"),
             voiceReplies: /^(true|yes|on|1)$/i.test(env.QUOTE_VOICE_REPLIES ?? ""),
             courierDelivery: /^(true|yes|on|1)$/i.test(env.QUOTE_COURIER_DELIVERY ?? ""),
           }
