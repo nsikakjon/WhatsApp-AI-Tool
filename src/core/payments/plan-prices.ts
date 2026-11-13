@@ -51,10 +51,10 @@ export function createSupabasePlanPriceLookup(db: SupabaseClient): PlanPriceLook
   };
 }
 
-/** Reads PLAN_CURRENCIES, e.g. "KES,RWF,UGX,TZS,MWK". Naira is always on. */
+/** Reads PLAN_CURRENCIES, e.g. "GHS,ZMW,XOF,XAF,KES". Naira is always on. */
 export function parsePlanCurrencies(value: string | undefined): PayCurrency[] {
   const codes = (value ?? "").split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
   const bad = codes.filter((c) => !isPayCurrency(c) || c === "NGN");
-  if (bad.length) throw new Error(`PLAN_CURRENCIES can list XOF, XAF, GHS, KES, RWF, UGX, TZS, MWK and USD (got ${bad.join(", ")})`);
+  if (bad.length) throw new Error(`PLAN_CURRENCIES can list XOF, XAF, GHS, ZMW, KES, RWF, UGX, TZS, MWK and USD (got ${bad.join(", ")})`);
   return codes as PayCurrency[];
 }

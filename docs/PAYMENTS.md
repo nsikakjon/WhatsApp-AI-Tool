@@ -99,6 +99,7 @@ payer's WhatsApp number:
 |---|---|---|
 | Nigeria (+234) | Naira | Paystack |
 | Ghana (+233) | Cedis | Flutterwave: Mobile Money or card |
+| Zambia (+260) | Zambian kwacha | Flutterwave: Mobile Money or card |
 | Kenya (+254) | Shillings | Flutterwave: M-Pesa or card |
 | Rwanda (+250) | Rwandan francs | Flutterwave: Mobile Money or card |
 | Uganda (+256) | Ugandan shillings | Flutterwave: Mobile Money or card |
@@ -108,19 +109,22 @@ payer's WhatsApp number:
 | Anywhere else | US dollars | Paystack: card |
 
 The prices are in the `plan_prices` table (migrations
-`0062_plan_prices.sql` and `0074_plan_prices_east_africa.sql`), the same ones as the website's currency picker. To
+`0062_plan_prices.sql`, `0074_plan_prices_east_africa.sql` and
+`0086_ghana_zambia_currencies.sql`), the same ones as the website's currency picker. To
 change one, change it in the table and in the website's `js/currency.js`.
 
 To switch it on:
 
-1. Run `0062_plan_prices.sql` and then `0074_plan_prices_east_africa.sql` in Supabase.
+1. Run `0062_plan_prices.sql`, `0074_plan_prices_east_africa.sql` and
+   `0086_ghana_zambia_currencies.sql` in Supabase, in that order.
 2. **US dollars:** in the Paystack dashboard, go to Settings > Preferences and
    ask for international payments (USD). Paystack checks the business, then
    asks for a USD (domiciliary) account at Zenith Bank to pay dollars into.
-3. **Cedis, shillings and CFA francs:** switch Flutterwave on (next section).
+3. **Cedis, kwacha, shillings and CFA francs:** switch Flutterwave on (next section).
 4. In Railway, set `PLAN_CURRENCIES` to the currencies Flutterwave has
-   switched on for the account, e.g. `KES,RWF,UGX,TZS,MWK`, then add `GHS`,
-   `XOF,XAF` and `USD` as each one is approved. Any currency not listed is charged in naira, so it is safe to add
+   switched on for the account. Since 13 Nov 2026 that is
+   `GHS,ZMW,XOF,XAF,KES,RWF,UGX,TZS,MWK`; add `USD` once Paystack approves
+   dollars. Any currency not listed is charged in naira, so it is safe to add
    them one at a time.
 
 The `plan` reply still lists prices in naira; the payment link and its
@@ -149,7 +153,7 @@ changes: everyone pays in naira through Paystack.
 4. Check which countries Flutterwave has switched on for the account. A
    link in a currency that isn't on fails, and the payer is told payment
    details will follow.
-5. In Railway, set `PLAN_CURRENCIES` to those currencies, e.g. `KES,RWF,UGX,TZS,MWK`. Railway redeploys in about
+5. In Railway, set `PLAN_CURRENCIES` to those currencies, e.g. `GHS,ZMW,XOF,XAF,KES,RWF,UGX,TZS,MWK`. Railway redeploys in about
    two minutes; the "Server listening" line in the deploy log then says
    "Flutterwave test".
 6. Test from a number in one of those countries that owns a test shop:
@@ -163,13 +167,14 @@ Shop pay links through Flutterwave work the same way for CFA franc shops: each
 shop gets a Flutterwave subaccount (RS_...) with its Mobile Money or bank
 account, and `QUOTE_PAY_LINKS` stays `true`. See docs/FRENCH.md.
 
-## Shops in East Africa
+## Shops in Ghana, Zambia and East Africa
 
-A shop can keep its price list in Kenyan, Ugandan or Tanzanian shillings,
-Rwandan francs or Malawian kwacha (run migration 0075 first). Quotes,
-invoices, receipts, the shop link and the counter then show its own money
-(KSh 1,500, USh 24,000, TSh 3,500, RWF 9,500, MK 5,000). Prices are whole
-shillings, francs or kwacha.
+A shop can keep its price list in Ghana cedis or Zambian kwacha (migration
+0086), or in Kenyan, Ugandan or Tanzanian shillings, Rwandan francs or
+Malawian kwacha (migration 0075). Quotes, invoices, receipts, the shop link
+and the counter then show its own money (GH₵1,500, K350, KSh 1,500,
+USh 24,000, TSh 3,500, RWF 9,500, MK 5,000). Prices are whole cedis, kwacha,
+shillings or francs.
 
 - **Choosing the currency.** The owner picks it in the owner app under
   Settings > Language and currency, or yarnOga sets `QUOTE_CURRENCY` (e.g.
@@ -179,10 +184,10 @@ shillings, francs or kwacha.
   (Flutterwave > Subaccounts, with the owner's M-Pesa, Mobile Money or bank
   account). Put its RS_... ID in the shop's `flutterwave_subaccount` column in
   Supabase (or `QUOTE_FLUTTERWAVE_SUBACCOUNT` for the main number). Customers
-  then pay by M-Pesa (Kenya), Mobile Money (Uganda, Tanzania, Rwanda, Malawi)
-  or card, and the money settles to the shop.
+  then pay by M-Pesa (Kenya), Mobile Money (Ghana, Zambia, Uganda, Tanzania,
+  Rwanda, Malawi) or card, and the money settles to the shop.
 - **yarnOga's fee.** 2.5% as everywhere, capped at about ₦2,000 in local
-  money: KSh 200, USh 5,000, TSh 3,500, RWF 2,000 or MK 2,500.
+  money: GH₵20, K35, KSh 200, USh 5,000, TSh 3,500, RWF 2,000 or MK 2,500.
 - **Before telling shops.** Make one real payment on a test shop in each
   country, because Flutterwave only takes currencies it has switched on for
   the account.

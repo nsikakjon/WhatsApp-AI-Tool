@@ -18,13 +18,15 @@ export const FLUTTERWAVE_SUBACCOUNT = /^RS_[A-Za-z0-9]+$/;
 
 /**
  * The cap on our fee when the plan doesn't set one, in hundredths: ₦2,000, or
- * roughly the same in each other currency (800 FCFA, KSh 200, USh 5,000,
- * TSh 3,500, RWF 2,000, MK 2,500).
+ * roughly the same in each other currency (800 FCFA, GH₵20, K35, KSh 200,
+ * USh 5,000, TSh 3,500, RWF 2,000, MK 2,500).
  */
 export const DEFAULT_FEE_CAP: Record<Currency, number> = {
   NGN: 200_000,
   XOF: 80_000,
   XAF: 80_000,
+  GHS: 2_000,
+  ZMW: 3_500,
   KES: 20_000,
   UGX: 500_000,
   TZS: 350_000,

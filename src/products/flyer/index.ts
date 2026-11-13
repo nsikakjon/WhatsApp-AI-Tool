@@ -242,6 +242,7 @@ const payHow: Record<PayCurrency, string> = {
   UGX: "Pay by Mobile Money or card",
   TZS: "Pay by Mobile Money or card",
   MWK: "Pay by Mobile Money or card",
+  ZMW: "Pay by Mobile Money or card",
   USD: "Pay by card",
 };
 const payHowFr: Record<PayCurrency, string> = {
@@ -254,6 +255,7 @@ const payHowFr: Record<PayCurrency, string> = {
   UGX: "Payez par Mobile Money ou carte",
   TZS: "Payez par Mobile Money ou carte",
   MWK: "Payez par Mobile Money ou carte",
+  ZMW: "Payez par Mobile Money ou carte",
   USD: "Payez par carte",
 };
 

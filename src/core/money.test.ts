@@ -59,6 +59,18 @@ describe("East African shop currencies", () => {
     expect(currencyName("RWF", "fr")).toBe("francs rwandais");
   });
 
+  it("writes cedis and Zambian kwacha with the sign right before the number", () => {
+    expect(formatMoney(150_000, "GHS")).toBe("GH₵1,500");
+    expect(formatMoney(35_000, "ZMW")).toBe("K350");
+    expect(currencyName("GHS")).toBe("Ghana cedis");
+    expect(currencyName("ZMW")).toBe("Zambian kwacha");
+    expect(parseMoney("GH₵1,500", "GHS")).toBe(150_000);
+    expect(parseMoney("1500 cedis", "GHS")).toBe(150_000);
+    expect(parseMoney("K350", "ZMW")).toBe(35_000);
+    expect(parseMoney("350 kwacha", "ZMW")).toBe(35_000);
+    expect(parseMoney("15k", "ZMW")).toBeNull();
+  });
+
   it("reads prices typed in whole shillings, francs or kwacha", () => {
     expect(parseMoney("KSh 1,500", "KES")).toBe(150_000);
     expect(parseMoney("1500/=", "KES")).toBe(150_000);
@@ -79,6 +91,7 @@ describe("plan payment currencies", () => {
     expect(payCurrencyFor("256772123456")).toBe("UGX");
     expect(payCurrencyFor("255754123456")).toBe("TZS");
     expect(payCurrencyFor("265991234567")).toBe("MWK");
+    expect(payCurrencyFor("260971234567")).toBe("ZMW");
     expect(payCurrencyFor("2250701234567")).toBe("XOF");
     expect(payCurrencyFor("237612345678")).toBe("XAF");
     expect(payCurrencyFor("447700900123")).toBe("USD");
@@ -88,6 +101,7 @@ describe("plan payment currencies", () => {
     expect(formatPayMoney(700_000, "NGN")).toBe("₦7,000");
     expect(formatPayMoney(350_000, "XOF")).toBe(formatMoney(350_000, "XOF"));
     expect(formatPayMoney(298_000, "GHS")).toBe("GH₵2,980");
+    expect(formatPayMoney(17_000, "ZMW")).toBe("K170");
     expect(formatPayMoney(85_000, "KES")).toBe("KSh 850");
     expect(formatPayMoney(2_400_000, "UGX")).toBe("USh 24,000");
     expect(formatPayMoney(950_000, "RWF")).toBe("RWF 9,500");

@@ -28,13 +28,14 @@ export function formatNaira(kobo: number): string {
  *   NGN  Nigerian naira
  *   XOF  West African CFA franc (Senegal, Côte d'Ivoire, Benin, Togo, Mali, Burkina Faso, Niger, Guinea-Bissau)
  *   XAF  Central African CFA franc (Cameroon, Gabon, Congo, Chad, Central African Republic, Equatorial Guinea)
+ *   GHS  Ghana cedi           ZMW  Zambian kwacha
  *   KES  Kenyan shilling      UGX  Ugandan shilling      TZS  Tanzanian shilling
  *   RWF  Rwandan franc        MWK  Malawian kwacha
  * Only naira prices have kobo. Every other currency is priced in whole units
- * (whole francs, shillings or kwacha), the way shops there price things.
+ * (whole cedis, francs, shillings or kwacha), the way shops there price things.
  */
-export type Currency = "NGN" | "XOF" | "XAF" | "KES" | "UGX" | "TZS" | "RWF" | "MWK";
-export const CURRENCIES: Currency[] = ["NGN", "XOF", "XAF", "KES", "UGX", "TZS", "RWF", "MWK"];
+export type Currency = "NGN" | "XOF" | "XAF" | "GHS" | "ZMW" | "KES" | "UGX" | "TZS" | "RWF" | "MWK";
+export const CURRENCIES: Currency[] = ["NGN", "XOF", "XAF", "GHS", "ZMW", "KES", "UGX", "TZS", "RWF", "MWK"];
 
 export function isCurrency(value: unknown): value is Currency {
   return typeof value === "string" && (CURRENCIES as string[]).includes(value);
@@ -45,25 +46,28 @@ export function isCfa(currency: Currency | PayCurrency): currency is "XOF" | "XA
   return currency === "XOF" || currency === "XAF";
 }
 
-// How East African amounts are written: the sign first, commas between thousands.
-const EAST_AFRICA: Record<string, { sign: string; en: string; fr: string }> = {
-  KES: { sign: "KSh", en: "Kenyan shillings", fr: "shillings kényans" },
-  UGX: { sign: "USh", en: "Ugandan shillings", fr: "shillings ougandais" },
-  TZS: { sign: "TSh", en: "Tanzanian shillings", fr: "shillings tanzaniens" },
-  RWF: { sign: "RWF", en: "Rwandan francs", fr: "francs rwandais" },
-  MWK: { sign: "MK", en: "kwacha", fr: "kwacha" },
+// How cedi, kwacha and shilling amounts are written: the sign first, commas
+// between thousands. `before` is the sign with any space after it.
+const LOCAL: Record<string, { sign: string; before: string; en: string; fr: string }> = {
+  GHS: { sign: "GH₵", before: "GH₵", en: "Ghana cedis", fr: "cedis ghanéens" },
+  ZMW: { sign: "K", before: "K", en: "Zambian kwacha", fr: "kwacha zambiens" },
+  KES: { sign: "KSh", before: "KSh ", en: "Kenyan shillings", fr: "shillings kényans" },
+  UGX: { sign: "USh", before: "USh ", en: "Ugandan shillings", fr: "shillings ougandais" },
+  TZS: { sign: "TSh", before: "TSh ", en: "Tanzanian shillings", fr: "shillings tanzaniens" },
+  RWF: { sign: "RWF", before: "RWF ", en: "Rwandan francs", fr: "francs rwandais" },
+  MWK: { sign: "MK", before: "MK ", en: "Malawian kwacha", fr: "kwacha malawites" },
 };
 
 /** The currency's sign as people write it next to a price: "₦", "FCFA", "KSh" and so on. */
 export function currencySign(currency: Currency): string {
   if (isCfa(currency)) return "FCFA";
-  return EAST_AFRICA[currency]?.sign ?? "₦";
+  return LOCAL[currency]?.sign ?? "₦";
 }
 
 /** The currency's name in a sentence, e.g. "fee in naira", "frais en francs CFA" or "Kenyan shillings". */
 export function currencyName(currency: Currency, lang: Lang = "en"): string {
   if (isCfa(currency)) return lang === "fr" ? "francs CFA" : "CFA francs";
-  return EAST_AFRICA[currency]?.[lang === "fr" ? "fr" : "en"] ?? "naira";
+  return LOCAL[currency]?.[lang === "fr" ? "fr" : "en"] ?? "naira";
 }
 
 /**
@@ -72,8 +76,7 @@ export function currencyName(currency: Currency, lang: Lang = "en"): string {
  */
 export function moneyStyle(currency: Currency): { before: string; after: string; thousands: string; decimal: string } {
   if (isCfa(currency)) return { before: "", after: "\u00a0FCFA", thousands: "\u00a0", decimal: "," };
-  const east = EAST_AFRICA[currency];
-  return { before: east ? `${east.sign} ` : "₦", after: "", thousands: ",", decimal: "." };
+  return { before: LOCAL[currency]?.before ?? "₦", after: "", thousands: ",", decimal: "." };
 }
 
 /**
@@ -93,25 +96,22 @@ export function formatMoney(minor: number, currency: Currency = "NGN"): string {
 }
 
 /**
- * The currencies yarnOga's own plans can be paid in: any Currency, Ghana cedis
- * or US dollars, at fixed prices from the plan_prices table (migrations 0062
- * and 0074). Amounts are hundredths here too (pesewas, cents).
+ * The currencies yarnOga's own plans can be paid in: any Currency or US
+ * dollars, at fixed prices from the plan_prices table (migrations 0062, 0074
+ * and 0086). Amounts are hundredths here too (cents).
  */
-export type PayCurrency = Currency | "GHS" | "USD";
-
-const PAY_SIGN: Record<string, string> = { GHS: "GH₵", USD: "$" };
+export type PayCurrency = Currency | "USD";
 
 export function isPayCurrency(value: unknown): value is PayCurrency {
-  return isCurrency(value) || (typeof value === "string" && value in PAY_SIGN);
+  return isCurrency(value) || value === "USD";
 }
 
-/** Formats a plan payment: "₦7,000", "3 500 FCFA", "GH₵70", "KSh 850", "USh 24,000" or "$5.50". */
+/** Formats a plan payment: "₦7,000", "3 500 FCFA", "GH₵70", "K150", "KSh 850" or "$5.50". */
 export function formatPayMoney(minor: number, currency: PayCurrency): string {
   if (isCurrency(currency)) return formatMoney(minor, currency);
   assertKobo(minor);
   const whole = Math.floor(minor / 100).toLocaleString("en-US");
-  const amount = minor % 100 ? `${whole}.${(minor % 100).toString().padStart(2, "0")}` : whole;
-  return `${PAY_SIGN[currency]}${amount}`;
+  return `$${minor % 100 ? `${whole}.${(minor % 100).toString().padStart(2, "0")}` : whole}`;
 }
 
 // Country calling codes of the CFA franc countries: UEMOA (XOF) and CEMAC (XAF).
@@ -120,13 +120,14 @@ const XAF_CODES = ["237", "241", "242", "235", "236", "240"];
 
 /**
  * The currency someone pays a plan in, going by their WhatsApp number:
- * naira for Nigeria, the local currency in Ghana, Kenya, Rwanda, Uganda,
- * Tanzania, Malawi and the CFA countries, US dollars anywhere else.
+ * naira for Nigeria, the local currency in Ghana, Zambia, Kenya, Rwanda,
+ * Uganda, Tanzania, Malawi and the CFA countries, US dollars anywhere else.
  */
 export function payCurrencyFor(waId: string): PayCurrency {
   const n = waId.replace(/\D/g, "");
   if (n.startsWith("234")) return "NGN";
   if (n.startsWith("233")) return "GHS";
+  if (n.startsWith("260")) return "ZMW";
   if (n.startsWith("254")) return "KES";
   if (n.startsWith("250")) return "RWF";
   if (n.startsWith("256")) return "UGX";
@@ -160,8 +161,8 @@ export function parseMoney(text: string, currency: Currency = "NGN"): number | n
     return Number(clean) * 100;
   }
   const clean = text
-    .replace(/^\s*(ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|sh)\.?\s*/i, "")
-    .replace(/\s*(\/=|\/-|ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|shillings?|francs?|kwacha)\s*$/i, "")
+    .replace(/^\s*(gh₵|gh¢|ghs|¢|ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|zmw|sh|k)\.?\s*/i, "")
+    .replace(/\s*(\/=|\/-|ghs|cedis?|ksh|kes|ush|ugx|tsh|tzs|rwf|frw|mk|mwk|zmw|shillings?|francs?|kwacha)\s*$/i, "")
     .replace(/\.0{1,2}$/, "")
     .replace(/[\s,]/g, "");
   if (!/^\d{1,10}$/.test(clean)) return null;

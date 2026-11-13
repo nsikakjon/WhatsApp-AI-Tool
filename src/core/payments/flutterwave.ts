@@ -75,6 +75,7 @@ const PAYMENT_OPTIONS: Record<FlutterwaveCheckout["currency"], string> = {
   UGX: "mobilemoneyuganda,card",
   TZS: "mobilemoneytanzania,card",
   MWK: "mobilemoneymalawi,card",
+  ZMW: "mobilemoneyzambia,card",
 };
 
 export function createFlutterwaveClient(config: FlutterwaveConfig, fetchImpl: typeof fetch = fetch): FlutterwaveClient {
