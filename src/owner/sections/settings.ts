@@ -55,7 +55,8 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
       ? `<p class="flash bad">This business's name, address, owner number, language and currency are kept in yarnOga's own settings, not on this page. Message support to change them. Your bank accounts, alert numbers, team and logo below work as normal.</p>`
       : "";
 
-    const fee = biz.payLinks?.on ? await biz.payLinks.feeBasisPoints().catch(() => 0) : 0;
+    // The plan's fee is shown even before pay links are on, so it is never a surprise.
+    const fee = biz.payLinks ? await biz.payLinks.feeBasisPoints().catch(() => 0) : 0;
     const cap = (biz.payLinks?.feeCap ? await biz.payLinks.feeCap().catch(() => null) : null) ?? DEFAULT_FEE_CAP[biz.currency];
     const percent = (fee / 100).toLocaleString("en-NG");
     const example = 1_000_000; // ₦10,000
@@ -72,9 +73,9 @@ export function registerSettings(app: Hono<Env>, ctx: SectionContext) {
 <li><b>Mobile Money or bank transfer straight to you</b> (the details on your invoice): <b>no fees</b> from yarnOga. Your operator may charge its usual fees.</li>
 ${
   biz.payLinks?.on
-    ? `<li><b>${wallets} or card through the pay link</b> on your invoices: Flutterwave takes its processing fee for your country and operator${fee ? `, and yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
+    ? `<li><b>${wallets} or card through the pay link</b> on your invoices: Flutterwave takes its processing fee for your country and operator${fee ? `, and yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : ", and yarnOga takes no fee on your plan"}. ${fee ? "Both come" : "Flutterwave's fee comes"} out of the payment; the customer pays the order total and nothing more.</li>
 ${fee ? `<li>Example: on a ${money(capExample)} order, yarnOga keeps ${money(capOurs)} (${percent}% would be more, so the cap applies). You receive the rest, less Flutterwave's fee, in your Mobile Money or bank account.</li>` : ""}`
-    : `<li><b>${wallets} pay links</b> aren't on for your business yet. When they are, Flutterwave charges its processing fee and yarnOga's fee is ${fee ? `${percent}%, capped at ${money(cap)} a payment` : "shown here before anything is charged"}. Ask support to switch them on.</li>`
+    : `<li><b>${wallets} pay links</b> aren't on for your business yet. When they are, Flutterwave charges its processing fee and ${fee ? `yarnOga's fee is ${percent}%, never more than ${money(cap)} a payment` : "yarnOga takes no fee on your plan"}. Ask support to switch them on.</li>`
 }
 </ul><p class="muted small">Fees are taken from each payment, never charged separately.</p></div>`
       : `<div class="card"><h3>About transaction fees</h3>
@@ -82,9 +83,9 @@ ${fee ? `<li>Example: on a ${money(capExample)} order, yarnOga keeps ${money(cap
 <li><b>Bank transfer straight to your account</b> (the details on your invoice): <b>no fees</b> from yarnOga or Paystack. Your bank may charge its usual fees.</li>
 ${
   biz.payLinks?.on
-    ? `<li><b>Card, transfer or USSD through the pay link</b> on your invoices: Paystack's fee is 1.5% + ₦100 (no ₦100 on payments under ₦2,500, and never more than ₦2,000 a payment)${fee ? `, and yarnOga's fee is ${percent}%, never more than ${formatNaira(cap)} a payment` : ""}. Both come out of the payment; the customer pays the order total and nothing more.</li>
+    ? `<li><b>Card, transfer or USSD through the pay link</b> on your invoices: Paystack's fee is 1.5% + ₦100 (no ₦100 on payments under ₦2,500, and never more than ₦2,000 a payment)${fee ? `, and yarnOga's fee is ${percent}%, never more than ${formatNaira(cap)} a payment` : ", and yarnOga takes no fee on your plan"}. ${fee ? "Both come" : "Paystack's fee comes"} out of the payment; the customer pays the order total and nothing more.</li>
 <li>Example: on a ${formatNaira(example)} order paid by pay link, Paystack keeps ${formatNaira(exPaystack)}${fee ? `, yarnOga keeps ${formatNaira(exOurs)}` : ""}, and <b>you receive ${formatNaira(example - exPaystack - exOurs)}</b>, paid into your account by Paystack (usually the next working day).</li>`
-    : `<li><b>Online payments (card, transfer, USSD by pay link)</b> aren't on for your business yet. When they are, Paystack charges 1.5% + ₦100 a payment (no ₦100 under ₦2,500, at most ₦2,000) and yarnOga's fee is shown here before anything is charged. Ask support to switch them on.</li>`
+    : `<li><b>Online payments (card, transfer, USSD by pay link)</b> aren't on for your business yet. When they are, Paystack charges 1.5% + ₦100 a payment (no ₦100 under ₦2,500, at most ₦2,000) and ${fee ? `yarnOga's fee is ${percent}%, never more than ${formatNaira(cap)} a payment` : "yarnOga takes no fee on your plan"}. Ask support to switch them on.</li>`
 }
 </ul><p class="muted small">Fees are taken from each payment, never charged separately. Refunds go back through the same route.</p></div>`;
 

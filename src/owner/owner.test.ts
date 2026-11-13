@@ -953,6 +953,32 @@ describe("owner app plan usage", () => {
   });
 });
 
+
+describe("About transaction fees", () => {
+  const settings = async (payLinks: AppBusiness["payLinks"]) => {
+    const s = setup({ payLinks, currency: "NGN" });
+    return (await get(s, "/settings", await login(s, OWNER))).text();
+  };
+
+  it("shows yarnOga's fee before pay links are switched on", async () => {
+    const html = await settings({ on: false, feeBasisPoints: async () => 250 });
+    expect(html).toContain("yarnOga's fee is 2.5%, never more than ₦2,000 a payment");
+    expect(html).not.toContain("shown here before");
+  });
+
+  it("works out yarnOga's share in the example once pay links are on", async () => {
+    const html = await settings({ on: true, feeBasisPoints: async () => 250 });
+    expect(html).toContain("Paystack keeps ₦250, yarnOga keeps ₦250");
+    expect(html).toContain("₦9,500");
+  });
+
+  it("says so when the plan carries no yarnOga fee", async () => {
+    const html = await settings({ on: true, feeBasisPoints: async () => 0 });
+    expect(html).toContain("yarnOga takes no fee on your plan");
+    expect(html).toContain("Paystack's fee comes out of the payment");
+  });
+});
+
 describe("tax summary", () => {
   const at = (iso: string) => new Date(iso);
   const takings = [
