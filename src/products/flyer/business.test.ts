@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSINESS_DESIGNS, designMax, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem } from "./business.js";
+import { BUSINESS_DESIGNS, designMax, HEADLINE_FONTS, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem } from "./business.js";
 import { placeholderPortrait } from "./render.js";
 
 const isJpeg = (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8;
@@ -20,6 +20,23 @@ describe("business flyers", () => {
           fromWord: "from",
           accent: "#c6ff1f",
           credit: "Made with yarnOga",
+        });
+        expect(isJpeg(flyer)).toBe(true);
+      }
+    }
+  }, 60_000);
+
+  it("draws every design with each headline font, size and photo setting from the console", async () => {
+    const photo = await placeholderPortrait();
+    for (const design of BUSINESS_DESIGNS) {
+      for (const font of HEADLINE_FONTS) {
+        const flyer = await renderBusinessFlyer(design.id, {
+          headline: "Fresh bread every morning",
+          items: [{ photo, name: "Agege bread", price: "₦1,500" }],
+          businessName: "Mama Put",
+          fromWord: "from",
+          accent: "#e8541e",
+          look: { font: font.id, size: 1.15, zoom: 2, photoX: 0, photoY: 1 },
         });
         expect(isJpeg(flyer)).toBe(true);
       }
