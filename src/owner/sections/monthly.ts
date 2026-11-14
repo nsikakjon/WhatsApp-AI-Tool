@@ -89,7 +89,7 @@ export function registerMonthly(app: Hono<Env>, ctx: SectionContext) {
       c,
       "Monthly payments",
       "/home/monthly",
-      `<p class="muted">For customers who pay you every month: gym members, class fees, a regular supply. On their pay day the bot takes the payment from the card they used last time, or sends them a Paystack link. It reminds them after 3 and 7 days and tells you if they still haven't paid. The money goes to your bank account like your invoice pay links.</p>
+      `<p class="muted">For customers who pay you every month: gym members, class fees, a regular supply. On their pay day the bot takes the payment from the card they used last time, or sends them a Paystack link. It reminds them after 3 and 7 days and tells you if they still haven't paid. The money goes to your bank account like your invoice pay links, less the same Paystack and yarnOga fees (see Settings).</p>
 <div class="card"><div class="cardhead"><h3>Customers paying monthly</h3><b style="font-size:1.6rem">${active.length}</b></div>
 <p class="muted small" style="margin:0">${owed ? `${formatNaira(owed)} due and not paid yet.` : "Nobody owes anything right now."}</p></div>
 <h2>Your monthly plans</h2>

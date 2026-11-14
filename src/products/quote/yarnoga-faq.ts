@@ -62,7 +62,7 @@ const ANSWERS: Array<[RegExp, string]> = [
   ],
   [
     asked(COST),
-    "It's free to start, and no card is needed. Paid plans add more orders, AI replies and features as your business grows. You can see every plan on yarnoga.com.",
+    "It's free to start, and no card is needed. Paid plans add more orders, AI replies and features as your business grows. When customers pay through a yarnOga pay link, we keep 2.5% of the payment (never more than ₦2,000); money paid straight into your bank carries no yarnOga fee. You can see every plan on yarnoga.com.",
   ],
   [
     asked(HOW),
