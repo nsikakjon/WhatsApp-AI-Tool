@@ -5,6 +5,7 @@ import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
+import { parsePartnerForm, renderPartners, summarisePartners, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
@@ -30,6 +31,8 @@ export interface DashboardDeps {
   ads?: AdsSource;
   /** The door-to-door tally sheet at /dashboard/tally. */
   tally?: TallyStore;
+  /** Events and organisers we pitch partnerships to, at /dashboard/partners. */
+  partners?: PartnerStore;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
@@ -89,6 +92,7 @@ export function createDashboard(deps: DashboardDeps) {
           planEditor: Boolean(deps.plans),
           numberQueue: deps.numberQueue,
           tallySheet: Boolean(deps.tally),
+          partners: Boolean(deps.partners),
         }),
       );
     } catch (err) {
@@ -217,6 +221,68 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToTally(day, "Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToTally(day), 303);
+  });
+
+  // The partnerships list: add a lead, change it, remove it.
+  const backToPartners = (problem?: string, editId?: number) =>
+    `/dashboard/partners${editId ? `?edit=${editId}` : ""}${problem ? `${editId ? "&" : "?"}problem=${encodeURIComponent(problem)}` : ""}#${editId ? "edit" : "list"}`;
+  const partnersAllowed = (c: Context) =>
+    Boolean(deps.partners) && fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"));
+
+  app.get("/partners", async (c) => {
+    if (!deps.partners) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const summary = await deps.partners
+      .list()
+      .then(summarisePartners)
+      .catch((err) => {
+        log.error("Partnerships list failed to load:", err);
+        return "error" as const;
+      });
+    return c.html(
+      renderPartners(summary, today(), { editId: Number(c.req.query("edit")) || undefined, problem: c.req.query("problem")?.slice(0, 200) }),
+    );
+  });
+
+  app.post("/partners", async (c) => {
+    if (!partnersAllowed(c)) return c.text("Not allowed.", 403);
+    const lead = parsePartnerForm(await c.req.parseBody(), today());
+    if ("problem" in lead) return c.redirect(backToPartners(lead.problem), 303);
+    try {
+      await deps.partners!.add(lead);
+    } catch (err) {
+      log.error("Couldn't save a partner lead:", err);
+      return c.redirect(backToPartners("Couldn't save that just now. Please try again."), 303);
+    }
+    return c.redirect(backToPartners(), 303);
+  });
+
+  app.post("/partners/:id", async (c) => {
+    if (!partnersAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToPartners(), 303);
+    const lead = parsePartnerForm(await c.req.parseBody(), today());
+    if ("problem" in lead) return c.redirect(backToPartners(lead.problem, id), 303);
+    try {
+      await deps.partners!.update(id, lead);
+    } catch (err) {
+      log.error("Couldn't change a partner lead:", err);
+      return c.redirect(backToPartners("Couldn't save that change just now. Please try again.", id), 303);
+    }
+    return c.redirect(backToPartners(), 303);
+  });
+
+  app.post("/partners/:id/delete", async (c) => {
+    if (!partnersAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToPartners(), 303);
+    try {
+      await deps.partners!.remove(id);
+    } catch (err) {
+      log.error("Couldn't remove a partner lead:", err);
+      return c.redirect(backToPartners("Couldn't remove that just now. Please try again."), 303);
+    }
+    return c.redirect(backToPartners(), 303);
   });
 
   // The plan editor: one form per plan, each saved on its own.

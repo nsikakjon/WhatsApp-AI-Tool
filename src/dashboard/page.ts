@@ -441,10 +441,11 @@ export interface DashboardView {
   planEditor?: boolean;
   numberQueue?: boolean;
   tallySheet?: boolean;
+  partners?: boolean;
 }
 
 export function renderDashboard(s: DashboardStats, view: DashboardView = {}): string {
-  const { tab = "overview", socials: socialAccounts = [], website, profit, costs, ads, planEditor, numberQueue, tallySheet } = view;
+  const { tab = "overview", socials: socialAccounts = [], website, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -571,6 +572,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
 
   const tools: [string, string, string, boolean][] = [
     ["/dashboard/tally", "Tally sheet", "Shops visited on a door-to-door day, and who to go back to.", Boolean(tallySheet)],
+    ["/dashboard/partners", "Partnerships", "Events and organisers we've pitched, and when to follow up.", Boolean(partners)],
     ["/dashboard/plans", "Edit plans", "Prices, limits and features of every plan.", Boolean(planEditor)],
     ["/quote-setup/numbers", "Numbers to connect", "Shops waiting for their WhatsApp number to be set up.", Boolean(numberQueue)],
   ];

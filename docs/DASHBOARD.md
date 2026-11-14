@@ -127,6 +127,26 @@ bar) for door-to-door sales days, filled in on the phone between shops:
 Run `supabase/migrations/0079_door_visits.sql` once in Supabase first. No
 Railway setting is needed.
 
+## Partnerships
+
+A page at `/dashboard/partners` (same password; **Partnerships** link in the
+top bar) for the events, fairs and organisers we pitch in-kind partnerships
+to:
+
+- **Add an event or organiser**: name, kind, event day, where, contact (who
+  and how to reach them), what we offered, status, day sent, follow-up day, a
+  link and notes.
+- Statuses: To contact, Sent, Replied, Meeting, Agreed, Declined, No reply.
+  Marking a lead **Sent** fills in today as the day sent and a follow-up 5
+  days later, unless you pick the days yourself.
+- **Follow-ups** lists every lead with a follow-up day that isn't Agreed or
+  Declined, soonest first, marked **Due** from that day on.
+- **Edit** on a row opens it in the form; **Remove** deletes it.
+
+Run `supabase/migrations/0088_partner_leads.sql` once in Supabase first. It
+also adds the leads found so far (only while the list is empty). No Railway
+setting is needed.
+
 ## Plan editor
 
 A page at `/dashboard/plans` (same password as the dashboard) for changing
