@@ -34,6 +34,38 @@ export const DEFAULT_FEE_CAP: Record<Currency, number> = {
   MWK: 250_000,
 };
 
+/**
+ * Pay-link limits for a business yarnOga hasn't verified yet
+ * (QUOTE_PAYLINK_LIMITS), in hundredths of its currency: 100 and 500 times the
+ * fee cap, so ₦200,000 a payment and ₦1m a month, or about the same elsewhere.
+ * Verifying the business in the owner app lifts them. Bigger orders still get
+ * an invoice, with the shop's bank details instead of a link.
+ */
+export function unverifiedLimits(currency: Currency): { perPaymentKobo: number; perMonthKobo: number } {
+  return { perPaymentKobo: DEFAULT_FEE_CAP[currency] * 100, perMonthKobo: DEFAULT_FEE_CAP[currency] * 500 };
+}
+
+/** An order over an unverified business's pay-link limit. */
+export class OverPayLinkLimit extends Error {}
+
+/**
+ * Whether a pay link for this amount is allowed: always once the business is
+ * verified, otherwise only within unverifiedLimits, counting what its pay
+ * links have taken since the start of the month.
+ */
+export function payLinkLimit(opts: {
+  currency: Currency;
+  verified: () => Promise<boolean>;
+  paidThisMonthKobo: () => Promise<number>;
+}): (amountKobo: number) => Promise<boolean> {
+  const { perPaymentKobo, perMonthKobo } = unverifiedLimits(opts.currency);
+  return async (amountKobo) => {
+    if (await opts.verified()) return true;
+    if (amountKobo > perPaymentKobo) return false;
+    return (await opts.paidThisMonthKobo()) + amountKobo <= perMonthKobo;
+  };
+}
+
 /** The plan feature that can change the cap (migration 0052); other currencies use DEFAULT_FEE_CAP. */
 export function feeCapFeature(currency: Currency): "transaction_fee_cap_ngn" | "transaction_fee_cap_cfa" | null {
   if (currency === "NGN") return "transaction_fee_cap_ngn";
@@ -68,9 +100,12 @@ export function orderPayLinks(opts: {
   feeCap?: () => Promise<number | null>;
   /** A Shipbubble courier's fee in this order, which goes to yarnOga (to pay the courier) rather than the business. */
   courierKobo?: (order: SavedOrder) => Promise<number>;
+  /** False when the order is over the business's pay-link limit (payLinkLimit); left out = no limit. */
+  withinLimit?: (amountKobo: number) => Promise<boolean>;
 }): (order: SavedOrder, waId: string) => Promise<string> {
   const currency = opts.currency ?? "NGN";
   return async (order, waId) => {
+    if (opts.withinLimit && !(await opts.withinLimit(order.totalKobo))) throw new OverPayLinkLimit(`Order ${order.orderNumber} is over the pay-link limit for an unverified business`);
     const cap = (opts.feeCap ? await opts.feeCap() : null) ?? DEFAULT_FEE_CAP[currency];
     const courierKobo = opts.courierKobo ? await opts.courierKobo(order) : 0;
     // Our fee is on the business's part only, not on the courier fee passing through.

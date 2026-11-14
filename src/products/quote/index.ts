@@ -28,6 +28,7 @@ import { declineKind } from "./decline.js";
 import type { EventTickets } from "./tickets/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
 import { describeFile, fileKind, MAX_FILE_BYTES, RECENT_ORDER_DAYS, type CustomerFile, type CustomerFileStore, type FileKind } from "./customer-files.js";
+import { OverPayLinkLimit } from "./paylinks.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -445,7 +446,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     async paymentReminder(orderNumber, n) {
       const order = await opts.orders.findOrder(orderNumber);
       if (!order || order.status !== "confirmed") return null;
-      const url = await payLinkFor(order, order.customerWaId);
+      const { url } = await payLinkFor(order, order.customerWaId);
       const how = url ? own.payLine(url, opts.currency ?? "NGN") : opts.paymentDetails ? opts.paymentDetails : null;
       return own.payReminder(n, opts.businessName, ref(order), money(order.totalKobo), how);
     },
@@ -756,14 +757,18 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
   }
 
-  /** The order's pay link, or null so the customer pays the business directly if Paystack is down. */
-  async function payLinkFor(order: SavedOrder, waId: string): Promise<string | null> {
-    if (!opts.payLink) return null;
+  /**
+   * The order's pay link, or null so the customer pays the business directly
+   * if Paystack is down or the order is over an unverified business's limit.
+   */
+  async function payLinkFor(order: SavedOrder, waId: string): Promise<{ url: string | null; overLimit: boolean }> {
+    if (!opts.payLink) return { url: null, overLimit: false };
     try {
-      return await opts.payLink(order, waId);
+      return { url: await opts.payLink(order, waId), overLimit: false };
     } catch (err) {
+      if (err instanceof OverPayLinkLimit) return { url: null, overLimit: true };
       log.error(`Couldn't make a pay link for order ${ref(order)}:`, err);
-      return null;
+      return { url: null, overLimit: false };
     }
   }
 
@@ -934,7 +939,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
 
     const delivery = dispatch ? await dispatch.charge(order.id) : null;
-    const payUrl = await payLinkFor(order, waId);
+    const { url: payUrl, overLimit } = await payLinkFor(order, waId);
     const invoice = await documentImage("invoice", { ...order, customerWaId: waId, customerName: name ?? null, createdAt: new Date() }, delivery, null, t, lang, !!payUrl);
     const payLine = payUrl ? t.payLine(payUrl, opts.currency ?? "NGN") : null;
     if (invoice && payLine) invoice.caption = `${invoice.caption}\n\n${payLine}`;
@@ -979,6 +984,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
             ...(note ? ["", note] : []),
             "",
             spot ? own.walkInScreensNote(!!payUrl, ref(order)) : payUrl ? own.payLinkSentNote(ref(order)) : own.replyPaidNote(ref(order)),
+            ...(overLimit ? ["", own.overPayLinkLimit()] : []),
             ...(check.warning && !opts.limitAlerts ? ["", check.warning] : []),
             ...(lowStock.length ? ["", own.lowStock(lowStock.map((l) => ({ name: l.name, left: l.left })))] : []),
           ].join("\n"),

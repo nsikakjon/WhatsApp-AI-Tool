@@ -90,6 +90,7 @@ export interface QuoteTexts {
   walkInScreensNote(online: boolean, ref: string): string;
   payLinkSentNote(ref: string): string;
   replyPaidNote(ref: string): string;
+  overPayLinkLimit(): string;
   paidTwice(who: string, ref: string, total: string, cancelled: boolean): string;
   paidCounter(ref: string, total: string, who: string): string;
   paidApp(ref: string, total: string, who: string): string;
@@ -239,6 +240,8 @@ const en: QuoteTexts = {
     `It goes to your pickup screens once it's paid${online ? " online" : `. If they pay at the counter, tap *Paid at counter* on the screen or reply *paid ${ref}*`}.`,
   payLinkSentNote: (ref) => `They've been sent a link to pay online. I'll tell you when it's paid and send them a receipt. If they pay you another way, reply *paid ${ref}*.`,
   replyPaidNote: (ref) => `When they've paid, reply *paid ${ref}* and I'll send them a receipt.`,
+  overPayLinkLimit: () =>
+    "This order is over the pay-link limit for businesses yarnOga hasn't verified yet, so the invoice went without a pay link. Verify your business in the owner app (More > Verify business) to take bigger payments by link.",
   paidTwice: (who, ref, total, cancelled) =>
     `⚠️ ${who} paid ${ref} online (${total}), but it was already ${cancelled ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
   paidCounter: (ref, total, who) => `💰 ${ref} was paid at the counter (${total}). I've sent ${who} their receipt.`,
@@ -405,6 +408,8 @@ const fr: QuoteTexts = {
     `Elle apparaît sur vos écrans de retrait dès qu'elle est payée${online ? " en ligne" : `. S'il paie à la caisse, touchez *Paid at counter* sur l'écran ou répondez *paid ${ref}*`}.`,
   payLinkSentNote: (ref) => `Un lien de paiement en ligne lui a été envoyé. Je vous préviens quand c'est payé et je lui envoie le reçu. S'il vous paie autrement, répondez *paid ${ref}*.`,
   replyPaidNote: (ref) => `Une fois payé, répondez *paid ${ref}* et je lui enverrai le reçu.`,
+  overPayLinkLimit: () =>
+    "Cette commande dépasse la limite des liens de paiement pour les entreprises que yarnOga n'a pas encore vérifiées : la facture est donc partie sans lien de paiement. Vérifiez votre entreprise dans l'appli (More > Verify business) pour recevoir de plus gros paiements par lien.",
   paidTwice: (who, ref, total, cancelled) =>
     `⚠️ ${who} a payé ${ref} en ligne (${total}), mais la commande était déjà ${cancelled ? "annulée" : "marquée payée"}. S'il a payé deux fois, écrivez au support yarnOga pour rembourser le paiement en ligne.`,
   paidCounter: (ref, total, who) => `💰 ${ref} a été payée à la caisse (${total}). J'ai envoyé le reçu à ${who}.`,

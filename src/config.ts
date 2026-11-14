@@ -185,6 +185,11 @@ export interface Config {
    */
   quotePayLinks: boolean;
   /**
+   * Shops yarnOga hasn't verified get pay links only up to ₦200,000 a payment
+   * and ₦1m a month (migration 0087). Off unless QUOTE_PAYLINK_LIMITS is true.
+   */
+  quotePayLinkLimits: boolean;
+  /**
    * Quote businesses can be branches of another (migration 0038), up to the
    * main business's plan limit. Off unless QUOTE_BRANCHES is true.
    */
@@ -575,6 +580,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
+    quotePayLinkLimits: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYLINK_LIMITS ?? ""),
     quoteDiscountCodes: /^(true|yes|on|1)$/i.test(env.QUOTE_DISCOUNT_CODES ?? ""),
     quotePriceSheets: /^(true|yes|on|1)$/i.test(env.QUOTE_PRICE_SHEETS ?? ""),
     quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()

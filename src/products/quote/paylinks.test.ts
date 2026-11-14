@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Payment } from "../../core/payments/store.js";
-import { feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./paylinks.js";
+import { feeCapFeature, orderPayLinks, OverPayLinkLimit, payLinkLimit, transactionFeeKobo, unverifiedLimits, withOrderPayments } from "./paylinks.js";
 
 const payment = (purpose: Record<string, unknown>): Payment => ({
   id: "p1",
@@ -139,5 +139,33 @@ describe("order pay links", () => {
     expect(await handler(payment({ kind: "courier", businessId: "b2", orderNumber: 1010 }))).toEqual([{ to: "z", text: "booked" }]);
     await handler(payment({ kind: "order", businessId: "b2", orderNumber: 1011, courierKobo: 350_000 }));
     expect(orderPaid).toHaveBeenLastCalledWith("b2", 1011, 0, 350_000);
+  });
+});
+
+describe("pay-link limits until a business is verified", () => {
+  it("allows ₦200,000 a payment and ₦1m a month, or about the same elsewhere", () => {
+    expect(unverifiedLimits("NGN")).toEqual({ perPaymentKobo: 20_000_000, perMonthKobo: 100_000_000 });
+    expect(unverifiedLimits("KES")).toEqual({ perPaymentKobo: 2_000_000, perMonthKobo: 10_000_000 });
+  });
+
+  it("refuses a payment over the limit, or one that takes the month over", async () => {
+    const within = payLinkLimit({ currency: "NGN", verified: async () => false, paidThisMonthKobo: async () => 90_000_000 });
+    expect(await within(10_000_000)).toBe(true);
+    expect(await within(10_000_100)).toBe(false);
+    expect(await within(20_000_100)).toBe(false);
+  });
+
+  it("has no limit once the business is verified", async () => {
+    const paid = vi.fn(async () => 500_000_000);
+    const within = payLinkLimit({ currency: "NGN", verified: async () => true, paidThisMonthKobo: paid });
+    expect(await within(900_000_000)).toBe(true);
+    expect(paid).not.toHaveBeenCalled();
+  });
+
+  it("makes no link for an order over the limit", async () => {
+    const createLink = vi.fn();
+    const link = orderPayLinks({ links: { createLink }, businessId: "b2", businessName: "Demo Shop", orderPrefix: "DEMO", subaccount: "ACCT_abc", withinLimit: async () => false });
+    await expect(link({ id: "o1", orderNumber: 1010, totalKobo: 30_000_000, lines: [] }, "2348012345678")).rejects.toBeInstanceOf(OverPayLinkLimit);
+    expect(createLink).not.toHaveBeenCalled();
   });
 });

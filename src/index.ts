@@ -17,7 +17,7 @@ import { withUnclearLimit } from "./core/unclear-limit.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
-import { DEFAULT_FEE_CAP, feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
+import { DEFAULT_FEE_CAP, feeCapFeature, orderPayLinks, payLinkLimit, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
 import { createMonthly, createSupabaseMonthlyStore, type Monthly } from "./products/quote/monthly.js";
 import {
   createSupabaseBranding,
@@ -56,6 +56,7 @@ import {
   createPlanPaidHandler,
   createSupabasePlanPayments,
   createSupabasePlanStore,
+  lagosMonthStart,
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, preview, withChatSignup } from "./products/quote/chat-signup.js";
@@ -248,7 +249,17 @@ function courierFor(
 
 // Shops' Paystack subaccounts, made from their invoice bank account (needs Paystack and more quote businesses).
 const paystackSubaccounts = config.quotePayLinks && config.paystack && quoteBusinesses ? createSubaccounts(supabase, createPaystackBanks(config.paystack)) : undefined;
+// Business verification (migration 0050), sent from the owner app and decided on the compliance page.
+const verifications = createSupabaseVerifications(supabase);
+// What a shop's pay links have taken since a date (migration 0087), for its limits until it's verified.
+async function payLinkPaidSince(businessId: string, since: Date): Promise<number> {
+  const { data, error } = await supabase.rpc("paylink_paid_since", { p_business_id: businessId, p_since: since.toISOString() });
+  if (error) throw new Error(`Couldn't add up ${businessId}'s pay-link payments: ${error.message}`);
+  return Number(data ?? 0);
+}
 // Businesses outside naira are paid through Flutterwave, to their Flutterwave subaccount.
+// `verifiedAs` is the business whose verification lifts the pay-link limits
+// (a branch's main business); left out, there are no limits.
 const payLinkFor = (
   businessId: string,
   businessName: string,
@@ -256,8 +267,17 @@ const payLinkFor = (
   accounts: { paystack?: string | null; flutterwave?: string | null; currency?: Currency },
   features?: PlanFeatures,
   dispatch?: Dispatch,
+  verifiedAs?: string,
 ) => {
   const currency = accounts.currency ?? "NGN";
+  const withinLimit =
+    config.quotePayLinkLimits && verifiedAs
+      ? payLinkLimit({
+          currency,
+          verified: async () => (await verifications.get(verifiedAs)).status === "approved",
+          paidThisMonthKobo: () => payLinkPaidSince(businessId, lagosMonthStart(new Date())),
+        })
+      : undefined;
   const naira = currency === "NGN";
   const subaccount = naira ? accounts.paystack : accounts.flutterwave;
   const provider = naira ? config.paystack : config.flutterwave;
@@ -282,6 +302,7 @@ const payLinkFor = (
               return charge?.courier ? charge.feeKobo : 0;
             }
           : undefined,
+        withinLimit,
       });
   if (!config.quotePayLinks || !provider) return undefined;
   // Naira shops get their subaccount made from the owner app's invoice bank account; the one typed in setup is the fallback.
@@ -690,6 +711,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       { paystack: business.paystackSubaccount, flutterwave: business.flutterwaveSubaccount, currency: business.currency },
       features.features,
       dispatch,
+      planId,
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
@@ -1149,7 +1171,6 @@ const numbers = [
 
 // The owners' and staff app: each logged-in person's business, put together
 // from the same stores the bot uses.
-const verifications = createSupabaseVerifications(supabase);
 const complianceDeps: ComplianceDeps | undefined = config.compliance
   ? {
       password: config.compliance.password,
@@ -1183,6 +1204,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           // Jay hears about each business that sends its details.
           onSubmitted: (id, name) =>
             alerter.alert(`kyb:${id}`, "a business sent its verification", `${name} sent its details and documents for review.\n\n${config.compliance ? `Review it: ${ownerApp.publicUrl}/compliance/b/${id}` : "Switch on the compliance page (COMPLIANCE_PASSWORD) to review it."}`, { urgent: true }),
+          payLinkLimits: (id) => config.quotePayLinks && config.quotePayLinkLimits && id !== DEFAULT_BUSINESS_ID,
         },
         banks: paystackConfig ? createPaystackBanks(paystackConfig) : undefined,
         async business(id) {
