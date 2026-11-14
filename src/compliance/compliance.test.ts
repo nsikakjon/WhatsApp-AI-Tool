@@ -19,7 +19,7 @@ describe("compliance page", () => {
 
   it("shows a business's details and documents and records Jay's decision, telling the owner", async () => {
     const mem = memoryVerifications();
-    await mem.store.saveDetails(BIZ, { entityType: "company", registeredName: "Kahn Prints Ltd", rcNumber: "1234567", tin: null, address: "12 Allen Ave", directorName: "Ada Okafor", contactEmail: null });
+    await mem.store.saveDetails(BIZ, { entityType: "company", registeredName: "Kahn Prints Ltd", rcNumber: "1234567", tin: null, address: "12 Allen Ave", directorName: "Ada Okafor", contactEmail: null, pep: false });
     await mem.store.addDoc(BIZ, "certificate", { name: "cert.pdf", mimeType: "application/pdf", data: PDF });
     await mem.store.submit(BIZ, "owner");
     const notifyOwner = vi.fn(async () => {});
@@ -91,11 +91,42 @@ describe("helpers", () => {
 
   it("lists what's still needed before the owner can send", () => {
     const v = { ...blankVerification(BIZ), entityType: "business_name" as const, registeredName: "Kahn", rcNumber: "123", address: "x", directorName: "Ada" };
-    expect(missingForSubmit(v, [])).toEqual(["Certificate of incorporation or business name registration", "ID of a director or the owner", "Proof of address"]);
+    expect(missingForSubmit(v, [])).toEqual(["the public office question", "Certificate of incorporation or business name registration", "ID of a director or the owner", "Proof of address"]);
+    expect(missingForSubmit({ ...v, pep: false }, [])).not.toContain("the public office question");
   });
 
   it("words the owner's message for each decision", () => {
     expect(decisionMessage("approved", "Kahn", null)).toContain("now verified");
     expect(decisionMessage("rejected", "Kahn", "Fake certificate")).toContain("Fake certificate");
+  });
+});
+
+describe("payments on the compliance page", () => {
+  it("shows the bank account and screening, screens again, and pauses and resumes payments", async () => {
+    const mem = memoryVerifications();
+    await mem.store.saveDetails(BIZ, { entityType: "company", registeredName: "Kahn Prints Ltd", rcNumber: "1234567", tin: null, address: "12 Allen Ave", directorName: "Ada Okafor", contactEmail: null, pep: true });
+    const screen = vi.fn(async () => {
+      const result = { names: ["Ada Okafor"], hits: [{ list: "UN" as const, name: "OKAFOR Ada", ref: "QDi.1", matched: "Ada Okafor" }], lists: ["UN", "OFAC"] };
+      await mem.store.saveScreening(BIZ, result, "Jay");
+      return result;
+    });
+    const app = createCompliance({ password: "compliance-password", store: mem.store, screen, bankAccountName: async () => "JOHN DOE", log: { info() {}, error() {} } });
+
+    let page = await (await app.request(`/b/${BIZ}`, { headers: auth })).text();
+    expect(page).toContain("JOHN DOE · DOES NOT MATCH");
+    expect(page).toContain("YES: get senior approval");
+    expect(page).toContain("Not screened yet");
+
+    await app.request(`/b/${BIZ}/screen`, form({}));
+    page = await (await app.request(`/b/${BIZ}`, { headers: auth })).text();
+    expect(page).toContain("1 possible match");
+    expect(page).toContain("QDi.1");
+
+    await app.request(`/b/${BIZ}/pause`, form({ paused: "yes", note: "Reviewing recent payments." }));
+    expect((await mem.store.get(BIZ)).paused).toBe(true);
+    expect(await (await app.request(`/b/${BIZ}`, { headers: auth })).text()).toContain("Resume payments");
+    await app.request(`/b/${BIZ}/pause`, form({ paused: "no" }));
+    expect((await mem.store.get(BIZ)).paused).toBe(false);
+    expect(mem.events.map((e) => e.action)).toEqual(["payments_paused", "payments_resumed"]);
   });
 });
