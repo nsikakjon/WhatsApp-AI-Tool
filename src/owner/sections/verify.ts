@@ -11,6 +11,8 @@ import {
   type VerificationDoc,
 } from "../../compliance/store.js";
 import { cleanRcNumber } from "../../compliance/registry.js";
+import { formatMoney } from "../../core/money.js";
+import { unverifiedLimits } from "../../products/quote/paylinks.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
@@ -63,6 +65,13 @@ export function registerVerify(app: Hono<Env>, ctx: SectionContext) {
     const required = requiredDocs(v.entityType);
     const kinds = [...required, ...KINDS.filter((k) => !required.includes(k) && (v.entityType === "company" || k !== "memart"))];
 
+    const currency = biz.currency ?? "NGN";
+    const limits = kyb.payLinkLimits?.(biz.id) ? unverifiedLimits(currency) : null;
+    const limitNote = limits
+      ? v.status === "approved"
+        ? `<p class="muted" style="margin:8px 0 0">Your pay links have no yarnOga limit.</p>`
+        : `<p class="muted" style="margin:8px 0 0">Until you're verified, pay links take up to ${esc(formatMoney(limits.perPaymentKobo, currency))} a payment and ${esc(formatMoney(limits.perMonthKobo, currency))} a month. Verified businesses have no limit.</p>`
+      : "";
     const banner =
       v.status === "approved"
         ? `<div class="card glow"><div class="cardhead"><h3>${icon("shield")} Your business is verified</h3>${statusTag(v.status)}</div><p class="muted" style="margin:0">Thank you. To change these details, message yarnOga support.</p></div>`
@@ -91,7 +100,7 @@ ${open ? `<form method="post" action="/home/verify/doc" enctype="multipart/form-
       })
       .join("");
 
-    const body = `${banner}
+    const body = `${banner}${limitNote}
 <h2>1. Your business</h2>
 <form method="post" action="/home/verify/details" class="card">
 <p class="label" style="margin-bottom:8px">What kind of business is it?</p><div class="choices">${typeOptions}</div>

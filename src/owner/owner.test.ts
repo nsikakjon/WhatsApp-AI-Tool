@@ -197,7 +197,7 @@ function setup(extra: Partial<AppBusiness> = {}, more: Partial<OwnerAppDeps> = {
     users: users.store,
     business: async (id) => (id === BIZ ? biz : null),
     support: { email: "support@example.com" },
-    verification: { store: kyb.store, onSubmitted },
+    verification: { store: kyb.store, onSubmitted, payLinkLimits: () => true },
     log: quiet,
     ...more,
   };
@@ -464,6 +464,14 @@ describe("verify your business", () => {
     // Once sent, details can't be changed.
     await s.app.request(`https://${HOST}/verify/details`, post({ type: "company", name: "Other" }, cookie));
     expect(s.kyb.rows.get(BIZ)!.registeredName).toBe("Kahn Prints");
+  });
+
+  it("says verifying lifts the pay-link limits", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("pay links take up to ₦200,000 a payment and ₦1,000,000 a month");
+    await s.kyb.store.review(BIZ, "approved", null, "jay");
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("no yarnOga limit");
   });
 
   it("is for owners only", async () => {

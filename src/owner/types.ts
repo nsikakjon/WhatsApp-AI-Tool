@@ -129,6 +129,8 @@ export interface OwnerAppDeps {
     store: VerificationStore;
     /** Tells yarnOga a business has sent its details for review. */
     onSubmitted?(businessId: string, businessName: string): Promise<void>;
+    /** Whether this business's pay links are limited until it's verified (QUOTE_PAYLINK_LIMITS). */
+    payLinkLimits?(businessId: string): boolean;
   };
   /** The owner's email for receipts and, if they tick the box, setup tips (EMAILS_ENABLED, migration 0057). */
   emails?: import("../core/email/settings.js").EmailSettings;
