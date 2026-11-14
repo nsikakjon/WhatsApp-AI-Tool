@@ -42,9 +42,15 @@ export function memoryVerifications() {
       events.push({ businessId: id, action: status, note, actor, at: new Date() });
     },
     saveRegistry: async (id, result) => void rows.set(id, { ...get(id), registry: result, registryCheckedAt: new Date() }),
+    saveScreening: async (id, result) => void rows.set(id, { ...get(id), screening: result, screenedAt: new Date() }),
+    setPaused: async (id, paused, note, actor) => {
+      rows.set(id, { ...get(id), paused, pausedNote: paused ? note : null });
+      events.push({ businessId: id, action: paused ? "payments_paused" : "payments_resumed", note, actor, at: new Date() });
+    },
+    logEvent: async (id, action, note, actor) => void events.push({ businessId: id, action, note, actor, at: new Date() }),
     list: async () => [{ ...get(BIZ), businessName: "KahnPrints", active: true }],
     events: async (id) => events.filter((e) => e.businessId === id),
   };
-  return { store, rows, docs };
+  return { store, rows, docs, events };
 }
 
