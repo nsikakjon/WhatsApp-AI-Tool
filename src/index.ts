@@ -133,6 +133,7 @@ import { createNumberCollector, createSupabaseNumberQueue } from "./products/quo
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabasePartnerStore } from "./dashboard/partners.js";
 import { createSupabaseTallyStore } from "./dashboard/tally.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
 import { createSupabasePlanEditor } from "./dashboard/plans.js";
@@ -1537,6 +1538,7 @@ const app = createApp({
       website: createSupabaseWebsiteStats(supabase),
       money: createSupabaseMoneyStore(supabase),
       tally: createSupabaseTallyStore(supabase),
+      partners: createSupabasePartnerStore(supabase),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
       numberQueue: Boolean(numberQueue && config.quoteSetup),
       socials: createSocials({
