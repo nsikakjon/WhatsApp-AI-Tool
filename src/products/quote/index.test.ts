@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct, safeMessage } from "./index.js";
-import { OverPayLinkLimit } from "./paylinks.js";
+import { PaymentsHeld } from "./paylinks.js";
 import type { QuoteLine, Variant } from "./pricing.js";
 import type { BrandingStore, CatalogStore, OrderStore, SavedOrder } from "./store.js";
 import type { DocumentInput } from "./documents.js";
@@ -1050,7 +1050,7 @@ describe("pay links", () => {
 
   it("tells the owner to verify when the order is over the pay-link limit", async () => {
     const { reply, drawn } = await confirmWithLink(async () => {
-      throw new OverPayLinkLimit("over");
+      throw new PaymentsHeld("limit");
     });
     expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001");
     expect(drawn[0]?.paymentDetails).toBe("Bank 0000000000");

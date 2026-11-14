@@ -185,10 +185,12 @@ export interface Config {
    */
   quotePayLinks: boolean;
   /**
-   * Shops yarnOga hasn't verified get pay links only up to ₦200,000 a payment
-   * and ₦1m a month (migration 0087). Off unless QUOTE_PAYLINK_LIMITS is true.
+   * Anti-money-laundering controls (migration 0087, docs/AML_POLICY.md):
+   * pay-link and payout limits until a shop is verified, pausing a shop's
+   * payments, alerts on unusual payments and sanctions screening. Off unless
+   * AML_CONTROLS is true.
    */
-  quotePayLinkLimits: boolean;
+  amlControls: boolean;
   /**
    * Quote businesses can be branches of another (migration 0038), up to the
    * main business's plan limit. Off unless QUOTE_BRANCHES is true.
@@ -580,7 +582,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBranches: /^(true|yes|on|1)$/i.test(env.QUOTE_BRANCHES ?? ""),
     quoteReferrals: /^(true|yes|on|1)$/i.test(env.QUOTE_REFERRALS ?? ""),
     quotePayLinks: /^(true|yes|on|1)$/i.test(env.QUOTE_PAY_LINKS ?? ""),
-    quotePayLinkLimits: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYLINK_LIMITS ?? ""),
+    amlControls: /^(true|yes|on|1)$/i.test(env.AML_CONTROLS ?? ""),
     quoteDiscountCodes: /^(true|yes|on|1)$/i.test(env.QUOTE_DISCOUNT_CODES ?? ""),
     quotePriceSheets: /^(true|yes|on|1)$/i.test(env.QUOTE_PRICE_SHEETS ?? ""),
     quoteChatSignup: env.QUOTE_SIGNUP_PHONE_NUMBER_ID?.trim()

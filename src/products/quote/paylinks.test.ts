@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Payment } from "../../core/payments/store.js";
-import { feeCapFeature, orderPayLinks, OverPayLinkLimit, payLinkLimit, transactionFeeKobo, unverifiedLimits, withOrderPayments } from "./paylinks.js";
+import { feeCapFeature, orderPayLinks, PaymentsHeld, payLinkLimit, transactionFeeKobo, unverifiedLimits, withOrderPayments } from "./paylinks.js";
 
 const payment = (purpose: Record<string, unknown>): Payment => ({
   id: "p1",
@@ -149,23 +149,23 @@ describe("pay-link limits until a business is verified", () => {
   });
 
   it("refuses a payment over the limit, or one that takes the month over", async () => {
-    const within = payLinkLimit({ currency: "NGN", verified: async () => false, paidThisMonthKobo: async () => 90_000_000 });
-    expect(await within(10_000_000)).toBe(true);
-    expect(await within(10_000_100)).toBe(false);
-    expect(await within(20_000_100)).toBe(false);
+    const check = payLinkLimit({ currency: "NGN", standing: async () => ({ paused: false, verified: false }), paidThisMonthKobo: async () => 90_000_000 });
+    expect(await check(10_000_000)).toBe("ok");
+    expect(await check(10_000_100)).toBe("limit");
+    expect(await check(20_000_100)).toBe("limit");
   });
 
-  it("has no limit once the business is verified", async () => {
+  it("has no limit once the business is verified, and none at all while paused", async () => {
     const paid = vi.fn(async () => 500_000_000);
-    const within = payLinkLimit({ currency: "NGN", verified: async () => true, paidThisMonthKobo: paid });
-    expect(await within(900_000_000)).toBe(true);
+    expect(await payLinkLimit({ currency: "NGN", standing: async () => ({ paused: false, verified: true }), paidThisMonthKobo: paid })(900_000_000)).toBe("ok");
     expect(paid).not.toHaveBeenCalled();
+    expect(await payLinkLimit({ currency: "NGN", standing: async () => ({ paused: true, verified: true }), paidThisMonthKobo: paid })(100)).toBe("paused");
   });
 
-  it("makes no link for an order over the limit", async () => {
+  it("makes no link for an order that's held", async () => {
     const createLink = vi.fn();
-    const link = orderPayLinks({ links: { createLink }, businessId: "b2", businessName: "Demo Shop", orderPrefix: "DEMO", subaccount: "ACCT_abc", withinLimit: async () => false });
-    await expect(link({ id: "o1", orderNumber: 1010, totalKobo: 30_000_000, lines: [] }, "2348012345678")).rejects.toBeInstanceOf(OverPayLinkLimit);
+    const link = orderPayLinks({ links: { createLink }, businessId: "b2", businessName: "Demo Shop", orderPrefix: "DEMO", subaccount: "ACCT_abc", check: async () => "limit" });
+    await expect(link({ id: "o1", orderNumber: 1010, totalKobo: 30_000_000, lines: [] }, "2348012345678")).rejects.toBeInstanceOf(PaymentsHeld);
     expect(createLink).not.toHaveBeenCalled();
   });
 });

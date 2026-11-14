@@ -91,6 +91,7 @@ export interface QuoteTexts {
   payLinkSentNote(ref: string): string;
   replyPaidNote(ref: string): string;
   overPayLinkLimit(): string;
+  paymentsPaused(): string;
   paidTwice(who: string, ref: string, total: string, cancelled: boolean): string;
   paidCounter(ref: string, total: string, who: string): string;
   paidApp(ref: string, total: string, who: string): string;
@@ -242,6 +243,7 @@ const en: QuoteTexts = {
   replyPaidNote: (ref) => `When they've paid, reply *paid ${ref}* and I'll send them a receipt.`,
   overPayLinkLimit: () =>
     "This order is over the pay-link limit for businesses yarnOga hasn't verified yet, so the invoice went without a pay link. Verify your business in the owner app (More > Verify business) to take bigger payments by link.",
+  paymentsPaused: () => "yarnOga has paused online payments for your business, so the invoice went without a pay link. Please message yarnOga support.",
   paidTwice: (who, ref, total, cancelled) =>
     `⚠️ ${who} paid ${ref} online (${total}), but it was already ${cancelled ? "cancelled" : "marked paid"}. If they've paid twice, message yarnOga support to refund the online payment.`,
   paidCounter: (ref, total, who) => `💰 ${ref} was paid at the counter (${total}). I've sent ${who} their receipt.`,
@@ -410,6 +412,7 @@ const fr: QuoteTexts = {
   replyPaidNote: (ref) => `Une fois payé, répondez *paid ${ref}* et je lui enverrai le reçu.`,
   overPayLinkLimit: () =>
     "Cette commande dépasse la limite des liens de paiement pour les entreprises que yarnOga n'a pas encore vérifiées : la facture est donc partie sans lien de paiement. Vérifiez votre entreprise dans l'appli (More > Verify business) pour recevoir de plus gros paiements par lien.",
+  paymentsPaused: () => "yarnOga a suspendu les paiements en ligne de votre entreprise : la facture est donc partie sans lien de paiement. Contactez le support yarnOga.",
   paidTwice: (who, ref, total, cancelled) =>
     `⚠️ ${who} a payé ${ref} en ligne (${total}), mais la commande était déjà ${cancelled ? "annulée" : "marquée payée"}. S'il a payé deux fois, écrivez au support yarnOga pour rembourser le paiement en ligne.`,
   paidCounter: (ref, total, who) => `💰 ${ref} a été payée à la caisse (${total}). J'ai envoyé le reçu à ${who}.`,
