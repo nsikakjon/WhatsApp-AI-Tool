@@ -59,14 +59,14 @@ const OutputSchema = z.object({
 });
 
 export function buildDraftPrompt(businessName: string, description: string | null): string {
-  return `You help ${businessName}${description ? `, ${description},` : ""} a business in Nigeria, set up a WhatsApp quote bot. The owner has described what they sell, or sent photos of their price list. Write it out as price-list rows for the owner to check.
+  return `You help ${businessName}${description ? `, ${description},` : ""} a business in Africa, set up a WhatsApp quote bot. The owner has described what they sell, or sent photos of their price list. Write it out as price-list rows for the owner to check.
 
 Each row is one price:
 - product: the item, e.g. "Branded T-shirts". Keep the owner's wording, tidied up.
 - option: the size, type or variant, e.g. "white, one-colour print" or "A5". Use "Standard" when there is only one kind.
 - minimum_order: the smallest quantity they accept for this product and option, if the list says so; otherwise null. Use the same value on every row of the same product and option.
 - from_quantity: for bulk prices, the quantity this price starts at (e.g. 50 for "50 and above"); otherwise null.
-- price_naira: the price for ONE piece, in naira, digits only with an optional decimal point (e.g. "1500" or "1500.50"). Write "15k" as "15000". If the list gives a price for a pack or a batch (e.g. "100 for 5,000"), make the product or option say the pack ("pack of 100") and use the pack price.
+- price_naira: the price for ONE piece, in the list's own currency (naira, cedis, shillings, CFA francs, kwacha...) exactly as written, never converted, digits only with an optional decimal point (e.g. "1500" or "1500.50"). Write "15k" as "15000". If the list gives a price for a pack or a batch (e.g. "100 for 5,000"), make the product or option say the pack ("pack of 100") and use the pack price.
 
 The most important rule: only copy prices the owner actually wrote or that are in the photo. Never guess, estimate or suggest a price. When an item has no price (for example "price on request" or "call us"), still list it with price_naira null, so the team prices it by hand.
 
