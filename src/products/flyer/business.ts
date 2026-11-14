@@ -34,6 +34,35 @@ export interface BusinessFlyerInput {
   /** The business's colour, e.g. "#e8541e". */
   accent: string;
   credit?: string;
+  /** The owner's own touches from the design console. Left out, each design keeps its own look. */
+  look?: FlyerLook;
+}
+
+/** Fonts the owner can pick for the headline; "upper" ones are written in capitals. */
+export const HEADLINE_FONTS = [
+  { id: "tall", name: "Tall", family: '"Anton"', upper: true, lead: 1.05 },
+  { id: "modern", name: "Modern", family: '"Poppins ExtraBold"', upper: false, lead: 1.12 },
+  { id: "elegant", name: "Elegant", family: '"Playfair Display Black"', upper: false, lead: 1.12 },
+  { id: "script", name: "Script", family: '"Pacifico"', upper: false, lead: 1.35 },
+  { id: "marker", name: "Marker", family: '"Permanent Marker"', upper: false, lead: 1.15 },
+] as const;
+
+export type HeadlineFont = (typeof HEADLINE_FONTS)[number]["id"];
+
+export interface FlyerLook {
+  /** The headline font; left out, the design's own. */
+  font?: HeadlineFont;
+  /** Headline size against the design's own, 0.85 to 1.15. */
+  size?: number;
+  /** Where the photo sits in its frame, 0 (left/top) to 1 (right/bottom). */
+  photoX?: number;
+  photoY?: number;
+  /** 1 fills the frame; up to 2 goes in closer. */
+  zoom?: number;
+}
+
+export function isHeadlineFont(id: string): id is HeadlineFont {
+  return HEADLINE_FONTS.some((f) => f.id === id);
 }
 
 export const BUSINESS_DESIGNS = [
@@ -119,7 +148,7 @@ async function spotlight(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessIt
   ctx.lineTo(0, PH);
   ctx.closePath();
   ctx.clip();
-  cover(ctx, photo!, 0, 0, W, PH, 0.5, 0.5);
+  place(ctx, input.look, photo!, 0, 0, W, PH);
   ctx.restore();
   ctx.fillStyle = input.accent;
   ctx.beginPath();
@@ -133,13 +162,13 @@ async function spotlight(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessIt
   if (item!.price) priceBadge(ctx, item!, input, W - 190, PH - 170, 125, -8);
 
   let y = PH + 46;
-  const head = fitLines(ctx, input.headline.toUpperCase(), '"Anton"', input.subline ? 120 : 140, 64, W - 120, 1);
+  const head = headlineFit(ctx, input, "tall", 1.08, input.subline ? 120 : 140, 64, W - 120, 1);
   ctx.textBaseline = "top";
   ctx.textAlign = "left";
   ctx.fillStyle = readableOn("#141414", input.accent);
   for (const line of head.lines) {
     ctx.fillText(line, 60, y);
-    y += head.size * 1.08;
+    y += head.step;
   }
   if (item!.name) {
     ctx.fillStyle = "#ffffff";
@@ -165,19 +194,19 @@ async function grid(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
   ctx.fillRect(0, 0, W, H);
   const on = inkOn(input.accent);
   const textW = W - 100 - (input.logo ? 120 : 0);
-  const head = fitLines(ctx, input.headline.toUpperCase(), '"Anton"', 110, 60, textW, 2);
-  const band = 50 + head.lines.length * head.size * 1.05 + (input.subline ? 56 : 0) + 40;
+  const head = headlineFit(ctx, input, "tall", 1.05, 110, 60, textW, 2);
+  const band = 50 + head.lines.length * head.step + (input.subline ? 56 : 0) + 40;
   ctx.fillStyle = input.accent;
   ctx.fillRect(0, 0, W, band);
   await logoTile(ctx, input.logo, W - 50 - 96, 40, 96);
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = on;
-  ctx.font = `${head.size}px "Anton"`;
+  ctx.font = `${head.size}px ${head.family}`;
   let y = 50;
   for (const line of head.lines) {
     ctx.fillText(line, 50, y);
-    y += head.size * 1.05;
+    y += head.step;
   }
   if (input.subline) {
     ctx.globalAlpha = 0.85;
@@ -223,7 +252,7 @@ async function grid(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
     ctx.save();
     roundRect(ctx, x + 12, y0 + 12, w - 24, h - 24 - words, 18);
     ctx.clip();
-    cover(ctx, photos[i]!, x + 12, y0 + 12, w - 24, h - 24 - words, 0.5, 0.5);
+    place(ctx, input.look, photos[i]!, x + 12, y0 + 12, w - 24, h - 24 - words);
     ctx.restore();
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
@@ -263,10 +292,10 @@ async function menu(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillStyle = "#ffffff";
-  const head = fitLines(ctx, input.headline, '"Playfair Display Black"', 96, 54, W - 140, 2);
+  const head = headlineFit(ctx, input, "elegant", 1.12, 96, 54, W - 140, 2);
   for (const line of head.lines) {
     ctx.fillText(line, W / 2, y);
-    y += head.size * 1.12;
+    y += head.step;
   }
   if (input.subline) {
     ctx.fillStyle = bright;
@@ -291,7 +320,7 @@ async function menu(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
     ctx.beginPath();
     ctx.arc(70 + thumb / 2, cy, thumb / 2, 0, Math.PI * 2);
     ctx.clip();
-    cover(ctx, photos[i]!, 70, cy - thumb / 2, thumb, thumb, 0.5, 0.5);
+    place(ctx, input.look, photos[i]!, 70, cy - thumb / 2, thumb, thumb);
     ctx.restore();
     ctx.strokeStyle = withAlpha(bright, 0.8);
     ctx.lineWidth = 3;
@@ -348,7 +377,7 @@ async function bold(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[],
   ctx.rotate(-0.06);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  const head = fitLines(ctx, input.headline.toUpperCase(), '"Anton"', 150, 70, W - 140, 2);
+  const head = headlineFit(ctx, input, "tall", 1.02, 150, 70, W - 140, 2);
   let y = 0;
   for (const line of head.lines) {
     ctx.lineWidth = 12;
@@ -357,7 +386,7 @@ async function bold(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[],
     ctx.strokeText(line, 0, y);
     ctx.fillStyle = on;
     ctx.fillText(line, 0, y);
-    y += head.size * 1.02;
+    y += head.step;
   }
   if (input.subline) {
     ctx.font = `34px "Poppins SemiBold"`;
@@ -379,7 +408,7 @@ async function bold(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[],
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(-frameW / 2, -frameH / 2, frameW, frameH);
   ctx.shadowColor = "transparent";
-  coverIn(ctx, photo!, -frameW / 2 + 18, -frameH / 2 + 18, frameW - 36, frameH - 36);
+  coverIn(ctx, input.look, photo!, -frameW / 2 + 18, -frameH / 2 + 18, frameW - 36, frameH - 36);
   if (item!.name) {
     ctx.font = `40px "Poppins ExtraBold"`;
     fitFont(ctx, item!.name.toUpperCase(), '"Poppins ExtraBold"', 40, 22, frameW - 60);
@@ -432,11 +461,11 @@ async function snapshots(ctx: Ctx, input: BusinessFlyerInput, items: BusinessIte
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillStyle = ink;
-  const head = fitLines(ctx, input.headline, '"Pacifico"', 96, 50, W - (input.logo ? 300 : 140), 2);
+  const head = headlineFit(ctx, input, "script", 1.35, 96, 50, W - (input.logo ? 300 : 140), 2);
   let y = 40;
   for (const line of head.lines) {
     ctx.fillText(line, W / 2, y);
-    y += head.size * 1.35;
+    y += head.step;
   }
   if (input.subline) {
     ctx.fillStyle = "#6b5a4a";
@@ -475,7 +504,7 @@ async function snapshots(ctx: Ctx, input: BusinessFlyerInput, items: BusinessIte
     ctx.fillStyle = "#fffdf8";
     ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.shadowColor = "transparent";
-    coverIn(ctx, photos[i]!, -w / 2 + border, -h / 2 + border, w - border * 2, h - border - chin);
+    coverIn(ctx, input.look, photos[i]!, -w / 2 + border, -h / 2 + border, w - border * 2, h - border - chin);
     ctx.fillStyle = "rgba(226,214,186,0.85)";
     ctx.save();
     ctx.rotate(-angle * 2);
@@ -526,11 +555,11 @@ async function glass(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[]
   ctx.textBaseline = "top";
   ctx.fillStyle = "#ffffff";
   await logoTile(ctx, input.logo, W - 60 - 88, 56, 88);
-  const head = fitLines(ctx, input.headline, '"Poppins ExtraBold"', 84, 46, W - 120 - (input.logo ? 110 : 0), 2);
+  const head = headlineFit(ctx, input, "modern", 1.12, 84, 46, W - 120 - (input.logo ? 110 : 0), 2);
   let y = 56;
   for (const line of head.lines) {
     ctx.fillText(line, 60, y);
-    y += head.size * 1.12;
+    y += head.step;
   }
   if (input.subline) {
     ctx.fillStyle = "rgba(255,255,255,0.82)";
@@ -559,7 +588,7 @@ async function glass(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[]
   ctx.save();
   roundRect(ctx, x + 26, cardTop + 26, w - 52, h - 52 - words, 26);
   ctx.clip();
-  cover(ctx, photo!, x + 26, cardTop + 26, w - 52, h - 52 - words, 0.5, 0.5);
+  place(ctx, input.look, photo!, x + 26, cardTop + 26, w - 52, h - 52 - words);
   ctx.restore();
   const midY = cardBottom - 26 - words / 2;
   let priceW = 0;
@@ -621,13 +650,30 @@ function footer(ctx: Ctx, input: BusinessFlyerInput, colours: { text: string; mu
 }
 
 /** The photo filling a box, with what spills over cut off. */
-function coverIn(ctx: Ctx, img: Image | Canvas, x: number, y: number, w: number, h: number) {
+function coverIn(ctx: Ctx, look: FlyerLook | undefined, img: Image | Canvas, x: number, y: number, w: number, h: number) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
-  cover(ctx, img, x, y, w, h, 0.5, 0.5);
+  place(ctx, look, img, x, y, w, h);
   ctx.restore();
+}
+
+/** The photo filling a box (the caller clips it), moved and zoomed the way the owner set it in the console. */
+function place(ctx: Ctx, look: FlyerLook | undefined, img: Image | Canvas, x: number, y: number, w: number, h: number) {
+  const s = Math.max(w / img.width, h / img.height) * (look?.zoom ?? 1);
+  const iw = img.width * s,
+    ih = img.height * s;
+  ctx.drawImage(img, x + (w - iw) * (look?.photoX ?? 0.5), y + (h - ih) * (look?.photoY ?? 0.5), iw, ih);
+}
+
+/** The headline at the biggest size that fits, in the design's own font or the one the owner picked, made bigger or smaller as they set it. */
+function headlineFit(ctx: Ctx, input: BusinessFlyerInput, own: HeadlineFont, lead: number, max: number, min: number, width: number, maxLines: number) {
+  const picked = input.look?.font && input.look.font !== own ? HEADLINE_FONTS.find((f) => f.id === input.look!.font) : undefined;
+  const font = picked ?? HEADLINE_FONTS.find((f) => f.id === own)!;
+  const scale = input.look?.size ?? 1;
+  const fit = fitLines(ctx, font.upper ? input.headline.toUpperCase() : input.headline, font.family, Math.round(max * scale), Math.round(min * scale), width, maxLines);
+  return { ...fit, family: font.family, step: fit.size * (picked ? picked.lead : lead) };
 }
 
 /** The logo on a white rounded square, so any logo reads on any background. */

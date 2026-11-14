@@ -427,6 +427,24 @@ details.card[open]>summary:before{content:"–"}
 .choice{display:flex;gap:12px;align-items:flex-start;margin:0;padding:14px;border-radius:var(--r2);background:var(--bg2);border:1px solid var(--line2);cursor:pointer;font-weight:400}
 .choice:has(input:checked){border-color:rgba(198,255,31,.55);background:var(--limesoft)}
 .choice input{width:auto;flex:none;margin-top:3px;accent-color:var(--lime)}.choice b{display:block;font-weight:600}
+
+/* Flyer design console: the flyer stays in view (pinned under the top bar) while the controls scroll. On a phone the buttons come after the controls, so the pinned part is only the picture. */
+.studio{display:grid;gap:16px;align-items:start;grid-template-areas:"stage" "console" "below"}
+@media(min-width:900px){.studio{grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto 1fr;grid-template-areas:"stage console" "below console"}}
+.stage{grid-area:stage;position:sticky;top:76px;z-index:5;padding:10px;border-radius:var(--r);background:rgba(10,13,11,.82);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--edge)}
+.stage img{display:block;width:100%;max-width:480px;max-height:36vh;object-fit:contain;margin:0 auto;border-radius:12px}.stage p{margin:8px 0 0;text-align:center}
+.console{grid-area:console}.below{grid-area:below}.below .actions{margin-top:0}
+@media(min-width:900px){.stage{position:static}.stage img{max-height:64vh}.below .actions{justify-content:center}}
+.console{padding:16px 18px;border-radius:var(--r);background:var(--glass);border:1px solid var(--edge);box-shadow:var(--sheen)}
+.console h3{margin:20px 0 8px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.console h3:first-child{margin-top:0}
+.studio:has(.console.busy) .stage img{opacity:.6;transition:opacity .2s}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg label,.seg a{margin:0;font-size:.86rem;font-weight:600}.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span,.seg a{display:block;padding:7px 12px;border-radius:99px;border:1px solid var(--line2);background:var(--bg2);color:var(--text);text-decoration:none;cursor:pointer}
+.seg input:checked+span,.seg a.on{background:var(--lime);border-color:var(--lime);color:var(--limeink)}.seg input:focus-visible+span{box-shadow:0 0 0 3px rgba(198,255,31,.35)}
+.swatches{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.swatches input[type=color]{width:44px;height:36px;padding:2px}
+.swatch{width:36px;height:36px;padding:0;border-radius:50%;border:2px solid var(--line2);box-shadow:none}.swatch:hover{transform:none;box-shadow:0 0 0 3px rgba(198,255,31,.35)}
+input[type=range]{padding:0;border:0;background:none;accent-color:var(--lime);box-shadow:none}
 .docs{padding:6px 18px}
 .docrow{padding:16px 0;border-bottom:1px solid var(--line)}.docrow:last-child{border-bottom:0}
 .dochead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.dochead b{font-weight:600;margin-right:4px}
