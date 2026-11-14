@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct, safeMessage } from "./index.js";
+import { PaymentsHeld } from "./paylinks.js";
 import type { QuoteLine, Variant } from "./pricing.js";
 import type { BrandingStore, CatalogStore, OrderStore, SavedOrder } from "./store.js";
 import type { DocumentInput } from "./documents.js";
@@ -1045,6 +1046,16 @@ describe("pay links", () => {
     // Without a link, the bank details are the only way to pay, so they stay on.
     expect(drawn[0]?.paymentDetails).toBe("Bank 0000000000");
     expect(reply?.notify?.[0]?.text).toContain("reply *paid KP-1001*");
+  });
+
+  it("tells the owner to verify when the order is over the pay-link limit", async () => {
+    const { reply, drawn } = await confirmWithLink(async () => {
+      throw new PaymentsHeld("limit");
+    });
+    expect(reply?.images?.[0]?.caption).toBe("Invoice KP-1001");
+    expect(drawn[0]?.paymentDetails).toBe("Bank 0000000000");
+    expect(reply?.notify?.[0]?.text).toContain("reply *paid KP-1001*");
+    expect(reply?.notify?.[0]?.text).toContain("Verify business");
   });
 
   it("marks the order paid once Paystack confirms, and sends the receipt", async () => {

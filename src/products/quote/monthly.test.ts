@@ -8,7 +8,7 @@ import { memoryMonthlyStore as memoryStore } from "./monthly-testing.js";
 const quiet = { info() {}, warn() {}, error() {} };
 const CARD: SavedCard = { code: "AUTH_1", email: "ada@example.com", label: "Visa ••4081" };
 
-function setup(opts: { member?: Partial<Member>; reachable?: boolean; card?: "success" | "failed" | "pending"; template?: boolean } = {}) {
+function setup(opts: { member?: Partial<Member>; reachable?: boolean; card?: "success" | "failed" | "pending"; template?: boolean; held?: "limit" | "paused" } = {}) {
   const { store, months, member } = memoryStore(opts.member);
   let now = new Date("2026-11-05T09:00:00Z");
   const sent: Notice[] = [];
@@ -30,6 +30,7 @@ function setup(opts: { member?: Partial<Member>; reachable?: boolean; card?: "su
     businessName: "Iron Gym",
     subaccount: "ACCT_abc",
     feeKobo: async (amount) => Math.floor((amount * 250) / 10_000),
+    check: opts.held ? async () => opts.held! : undefined,
     canMessageFreely: async () => opts.reachable ?? true,
     template: opts.template ? { name: "monthly_due", language: "en" } : undefined,
     send: async (n) => {
@@ -70,6 +71,15 @@ describe("monthly payments", () => {
     expect(notes[1]!.text).toContain("less yarnOga's fee of ₦375");
     expect(await monthly.paid(payment)).toEqual([]);
     expect(member.nextDue).toBe("2026-12-05");
+  });
+
+  it("charges nothing over an unverified business's limit, and tells the owner once", async () => {
+    const { monthly, sent } = setup({ held: "limit", member: { card: CARD } });
+    await monthly.run();
+    await monthly.run();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: "2348099999999" });
+    expect(sent[0]!.text).toContain("over the online payment limit");
   });
 
   it("charges a saved card without a link and sends nothing else", async () => {

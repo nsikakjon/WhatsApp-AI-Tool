@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Lang } from "./core/i18n.js";
-import { formatNaira, type Currency } from "./core/money.js";
+import { formatNaira, isCurrency, type Currency } from "./core/money.js";
 import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import { createApp } from "./app.js";
@@ -17,7 +17,7 @@ import { withUnclearLimit } from "./core/unclear-limit.js";
 import type { IncomingMessage } from "./core/whatsapp/types.js";
 import { echoProduct } from "./products/echo/index.js";
 import { createQuoteProduct, type QuoteProduct } from "./products/quote/index.js";
-import { DEFAULT_FEE_CAP, feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./products/quote/paylinks.js";
+import { DEFAULT_FEE_CAP, feeCapFeature, orderPayLinks, payLinkLimit, PaymentsHeld, transactionFeeKobo, unverifiedLimits, withOrderPayments } from "./products/quote/paylinks.js";
 import { createMonthly, createSupabaseMonthlyStore, type Monthly } from "./products/quote/monthly.js";
 import {
   createSupabaseBranding,
@@ -56,6 +56,7 @@ import {
   createPlanPaidHandler,
   createSupabasePlanPayments,
   createSupabasePlanStore,
+  lagosMonthStart,
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, preview, withChatSignup } from "./products/quote/chat-signup.js";
@@ -138,7 +139,7 @@ import { createSupabasePlanEditor } from "./dashboard/plans.js";
 import { createClaudeGeneratorWriter } from "./generator/index.js";
 import { createPaystackClient } from "./core/payments/paystack.js";
 import { createPayments, type PaidHandler, type PaymentRequest } from "./core/payments/payments.js";
-import { createSupabasePaymentStore } from "./core/payments/store.js";
+import { createSupabasePaymentStore, type Payment } from "./core/payments/store.js";
 import { createSupabasePromoAdmin } from "./core/payments/promos.js";
 import { createPlanPrices, createSupabasePlanPriceLookup } from "./core/payments/plan-prices.js";
 import { createSupabaseDiscounts } from "./products/quote/discounts.js";
@@ -164,6 +165,8 @@ import {
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
 import { createSupabaseVerifications } from "./compliance/store.js";
+import { liftsLimits, unusualPayments } from "./compliance/aml.js";
+import { createScreener, type ScreeningResult } from "./compliance/sanctions.js";
 import { createSupabaseFarmStore } from "./farm/store.js";
 import { createSatellite } from "./farm/satellite.js";
 import { createDojahRegistry } from "./compliance/registry.js";
@@ -248,7 +251,39 @@ function courierFor(
 
 // Shops' Paystack subaccounts, made from their invoice bank account (needs Paystack and more quote businesses).
 const paystackSubaccounts = config.quotePayLinks && config.paystack && quoteBusinesses ? createSubaccounts(supabase, createPaystackBanks(config.paystack)) : undefined;
+// Business verification (migration 0050), sent from the owner app and decided on the compliance page.
+const verifications = createSupabaseVerifications(supabase);
+// Anti-money-laundering controls (AML_CONTROLS, migration 0087, docs/AML_POLICY.md).
+// Sanctions screening downloads the UN and US lists, at most once a day.
+const screener = config.amlControls ? createScreener() : undefined;
+/** Screens the business, its owner or director and its bank account name, and saves the result. */
+async function screenBusiness(businessId: string): Promise<ScreeningResult> {
+  const [v, account] = await Promise.all([verifications.get(businessId), payeeAccountName(businessId)]);
+  const result = await screener!.screen([v.registeredName, v.directorName, account]);
+  await verifications.saveScreening(businessId, result, "automatic");
+  return result;
+}
+// What a shop's pay links (or payout top-ups) have taken since a date.
+async function paidSince(fn: "paylink_paid_since" | "payout_topups_since", businessId: string, since: Date): Promise<number> {
+  const { data, error } = await supabase.rpc(fn, { p_business_id: businessId, p_since: since.toISOString() });
+  if (error) throw new Error(`Couldn't add up ${businessId}'s payments (${fn}): ${error.message}`);
+  return Number(data ?? 0);
+}
+/** The bank's name for the account a shop is paid into (its invoice account), or null if it has none on file. */
+async function payeeAccountName(businessId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("quote_bank_accounts").select("account_name").eq("business_id", businessId).eq("is_primary", true).maybeSingle();
+  if (error) throw new Error(`invoice bank lookup failed: ${error.message}`);
+  return (data?.account_name as string | undefined) ?? null;
+}
+/** Whether yarnOga paused the shop, and whether it's verified with its money going to an account in the verified name. */
+async function amlStanding(payeeId: string, verifiedAs: string): Promise<{ paused: boolean; verified: boolean }> {
+  const [v, account] = await Promise.all([verifications.get(verifiedAs), payeeAccountName(payeeId)]);
+  return { paused: v.paused, verified: liftsLimits(v, account) };
+}
+const amlFor = (businessId: string) => config.amlControls && businessId !== DEFAULT_BUSINESS_ID;
 // Businesses outside naira are paid through Flutterwave, to their Flutterwave subaccount.
+// `verifiedAs` is the business whose verification lifts the pay-link limits
+// (a branch's main business); left out, there are no limits.
 const payLinkFor = (
   businessId: string,
   businessName: string,
@@ -256,8 +291,17 @@ const payLinkFor = (
   accounts: { paystack?: string | null; flutterwave?: string | null; currency?: Currency },
   features?: PlanFeatures,
   dispatch?: Dispatch,
+  verifiedAs?: string,
 ) => {
   const currency = accounts.currency ?? "NGN";
+  const check =
+    verifiedAs && amlFor(businessId)
+      ? payLinkLimit({
+          currency,
+          standing: () => amlStanding(businessId, verifiedAs),
+          paidThisMonthKobo: () => paidSince("paylink_paid_since", businessId, lagosMonthStart(new Date())),
+        })
+      : undefined;
   const naira = currency === "NGN";
   const subaccount = naira ? accounts.paystack : accounts.flutterwave;
   const provider = naira ? config.paystack : config.flutterwave;
@@ -282,6 +326,7 @@ const payLinkFor = (
               return charge?.courier ? charge.feeKobo : 0;
             }
           : undefined,
+        check,
       });
   if (!config.quotePayLinks || !provider) return undefined;
   // Naira shops get their subaccount made from the owner app's invoice bank account; the one typed in setup is the fallback.
@@ -690,6 +735,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       { paystack: business.paystackSubaccount, flutterwave: business.flutterwaveSubaccount, currency: business.currency },
       features.features,
       dispatch,
+      planId,
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
@@ -1111,6 +1157,13 @@ async function monthlyFor(businessId: string): Promise<Monthly | undefined> {
       const cap = (await features.limit("transaction_fee_cap_ngn").catch(() => null)) ?? DEFAULT_FEE_CAP.NGN;
       return transactionFeeKobo(amountKobo, (await features.limit("transaction_fee")) ?? 0, cap);
     },
+    check: amlFor(businessId)
+      ? payLinkLimit({
+          currency: "NGN",
+          standing: () => amlStanding(businessId, main ? businessId : (row!.branchOf ?? businessId)),
+          paidThisMonthKobo: () => paidSince("paylink_paid_since", businessId, lagosMonthStart(new Date())),
+        })
+      : undefined,
     canMessageFreely: (waId) => canMessageFreely(store, waId, found.fromNumberId ?? config.whatsapp.phoneNumberId),
     template: config.quoteMonthly.template,
     send: (note) => sendNotice(outbox, note, found.fromNumberId ?? undefined),
@@ -1126,6 +1179,55 @@ if (config.quoteMonthly && payments) {
     return (await monthly.paid(payment, paid?.card)).map((n) => ({ ...n, fromNumberId: found?.fromNumberId ?? undefined }));
   };
   productNumbers.monthly = config.whatsapp.phoneNumberId;
+}
+
+// AML_CONTROLS: after each order or monthly payment, the shop's last five
+// weeks of pay-link payments are checked for unusual patterns (compliance/aml.ts).
+// Each kind of flag alerts Jay at most once a day and goes in the shop's history.
+async function watchPayments(payment: Payment): Promise<void> {
+  const businessId = payment.purpose.businessId;
+  if (typeof businessId !== "string" || !amlFor(businessId)) return;
+  const now = new Date();
+  const { data, error } = await supabase
+    .from("payments")
+    .select("product, purpose, amount_kobo, paid_at, wa_id")
+    .eq("status", "paid")
+    .eq("purpose->>businessId", businessId)
+    .gte("paid_at", new Date(now.getTime() - 35 * 86_400_000).toISOString())
+    .limit(5000);
+  if (error) throw new Error(`payment history failed: ${error.message}`);
+  const paid = (data ?? [])
+    .filter((p) => p.product === "monthly" || (p.product === "quote" && (p.purpose as { kind?: unknown } | null)?.kind === "order"))
+    .map((p) => ({ amountKobo: Number(p.amount_kobo), paidAt: new Date(p.paid_at as string), waId: p.wa_id as string }));
+  const currency = payment.currency && isCurrency(payment.currency) ? payment.currency : "NGN";
+  const row = quoteBusinesses ? await createSupabaseBusinesses(supabase).get(businessId) : null;
+  const { verified } = await amlStanding(businessId, row?.branchOf ?? businessId);
+  const flags = unusualPayments(paid, now, { currency, verified });
+  if (!flags.length) return;
+  const recent = await verifications.events(businessId);
+  for (const flag of flags) {
+    const action = `alert_${flag.code}`;
+    if (recent.some((e) => e.action === action && now.getTime() - e.at.getTime() < 86_400_000)) continue;
+    await verifications.logEvent(businessId, action, flag.text, "automatic");
+    const review = ownerApp && config.compliance ? `\n\nReview it: ${ownerApp.publicUrl}/compliance/b/${businessId}` : "";
+    await alerter.alert(
+      `aml:${businessId}:${flag.code}`,
+      "unusual payments",
+      `${row?.name ?? "A shop"}: ${flag.text}\n\nCheck it fits the business. If it doesn't, pause its payments on the compliance page and report it to Paystack or Flutterwave within 24 hours (docs/AML_POLICY.md).${review}`,
+      { urgent: true },
+    );
+  }
+}
+if (config.amlControls) {
+  for (const product of ["quote", "monthly"]) {
+    const handler = paidHandlers[product];
+    if (!handler) continue;
+    paidHandlers[product] = async (payment, paid) => {
+      const notes = await handler(payment, paid);
+      void watchPayments(payment).catch((err) => console.error(`Payment check for ${payment.reference} failed:`, err));
+      return notes;
+    };
+  }
 }
 
 const payoutWebhook = payoutTransfers
@@ -1149,11 +1251,12 @@ const numbers = [
 
 // The owners' and staff app: each logged-in person's business, put together
 // from the same stores the bot uses.
-const verifications = createSupabaseVerifications(supabase);
 const complianceDeps: ComplianceDeps | undefined = config.compliance
   ? {
       password: config.compliance.password,
       store: verifications,
+      bankAccountName: payeeAccountName,
+      screen: screener ? screenBusiness : undefined,
       registry: config.compliance.dojah ? createDojahRegistry(config.compliance.dojah) : undefined,
       // The decision goes to the owner from their business's own number.
       async notifyOwner(businessId, text) {
@@ -1181,8 +1284,13 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         verification: {
           store: verifications,
           // Jay hears about each business that sends its details.
-          onSubmitted: (id, name) =>
-            alerter.alert(`kyb:${id}`, "a business sent its verification", `${name} sent its details and documents for review.\n\n${config.compliance ? `Review it: ${ownerApp.publicUrl}/compliance/b/${id}` : "Switch on the compliance page (COMPLIANCE_PASSWORD) to review it."}`, { urgent: true }),
+          // Jay hears about each business that sends its details, with its sanctions screening.
+          async onSubmitted(id, name) {
+            const screening = screener ? await screenBusiness(id).catch((err) => (console.error(`Sanctions screening for ${name} failed:`, err), null)) : null;
+            const found = screening?.hits.length ? `\n\n⚠️ ${screening.hits.length} possible sanctions list match(es). Check them before approving.` : "";
+            await alerter.alert(`kyb:${id}`, "a business sent its verification", `${name} sent its details and documents for review.${found}\n\n${config.compliance ? `Review it: ${ownerApp.publicUrl}/compliance/b/${id}` : "Switch on the compliance page (COMPLIANCE_PASSWORD) to review it."}`, { urgent: true });
+          },
+          payLinkLimits: (id) => config.quotePayLinks && amlFor(id),
         },
         banks: paystackConfig ? createPaystackBanks(paystackConfig) : undefined,
         async business(id) {
@@ -1333,6 +1441,14 @@ const ownerAppDeps: OwnerAppDeps | undefined =
                 ? {
                     service: payoutsFor(id, name),
                     async topUpLink(waId: string, amountKobo: number) {
+                      if (amlFor(id)) {
+                        // Until verified, ₦200,000 a month can go into the payout balance; nothing while paused.
+                        const { paused, verified } = await amlStanding(id, row?.branchOf ?? id);
+                        if (paused) throw new PaymentsHeld("paused");
+                        if (!verified && (await paidSince("payout_topups_since", id, lagosMonthStart(new Date()))) + amountKobo > unverifiedLimits("NGN").perPaymentKobo) {
+                          throw new PaymentsHeld("limit");
+                        }
+                      }
                       const link = await payments!.createLink({ product: "payouts", waId, amountKobo, purpose: { businessId: id }, title: `${name} payout balance` });
                       if (!link.url) throw new Error("No payout top-up link");
                       return link.url;

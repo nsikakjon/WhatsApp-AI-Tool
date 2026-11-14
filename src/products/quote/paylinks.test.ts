@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Payment } from "../../core/payments/store.js";
-import { feeCapFeature, orderPayLinks, transactionFeeKobo, withOrderPayments } from "./paylinks.js";
+import { feeCapFeature, orderPayLinks, PaymentsHeld, payLinkLimit, transactionFeeKobo, unverifiedLimits, withOrderPayments } from "./paylinks.js";
 
 const payment = (purpose: Record<string, unknown>): Payment => ({
   id: "p1",
@@ -139,5 +139,33 @@ describe("order pay links", () => {
     expect(await handler(payment({ kind: "courier", businessId: "b2", orderNumber: 1010 }))).toEqual([{ to: "z", text: "booked" }]);
     await handler(payment({ kind: "order", businessId: "b2", orderNumber: 1011, courierKobo: 350_000 }));
     expect(orderPaid).toHaveBeenLastCalledWith("b2", 1011, 0, 350_000);
+  });
+});
+
+describe("pay-link limits until a business is verified", () => {
+  it("allows ₦200,000 a payment and ₦1m a month, or about the same elsewhere", () => {
+    expect(unverifiedLimits("NGN")).toEqual({ perPaymentKobo: 20_000_000, perMonthKobo: 100_000_000 });
+    expect(unverifiedLimits("KES")).toEqual({ perPaymentKobo: 2_000_000, perMonthKobo: 10_000_000 });
+  });
+
+  it("refuses a payment over the limit, or one that takes the month over", async () => {
+    const check = payLinkLimit({ currency: "NGN", standing: async () => ({ paused: false, verified: false }), paidThisMonthKobo: async () => 90_000_000 });
+    expect(await check(10_000_000)).toBe("ok");
+    expect(await check(10_000_100)).toBe("limit");
+    expect(await check(20_000_100)).toBe("limit");
+  });
+
+  it("has no limit once the business is verified, and none at all while paused", async () => {
+    const paid = vi.fn(async () => 500_000_000);
+    expect(await payLinkLimit({ currency: "NGN", standing: async () => ({ paused: false, verified: true }), paidThisMonthKobo: paid })(900_000_000)).toBe("ok");
+    expect(paid).not.toHaveBeenCalled();
+    expect(await payLinkLimit({ currency: "NGN", standing: async () => ({ paused: true, verified: true }), paidThisMonthKobo: paid })(100)).toBe("paused");
+  });
+
+  it("makes no link for an order that's held", async () => {
+    const createLink = vi.fn();
+    const link = orderPayLinks({ links: { createLink }, businessId: "b2", businessName: "Demo Shop", orderPrefix: "DEMO", subaccount: "ACCT_abc", check: async () => "limit" });
+    await expect(link({ id: "o1", orderNumber: 1010, totalKobo: 30_000_000, lines: [] }, "2348012345678")).rejects.toBeInstanceOf(PaymentsHeld);
+    expect(createLink).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,9 @@
 import { Hono, type Context } from "hono";
 import { guardedBasicAuth } from "../core/security/guard.js";
 import { adminPage, esc } from "../owner/layout.js";
+import { bankMatches } from "./aml.js";
 import { cleanRcNumber, type Registry } from "./registry.js";
+import type { ScreeningResult } from "./sanctions.js";
 import { DOC_KINDS, STATUS_TEXT, requiredDocs, type VerificationStatus, type VerificationStore } from "./store.js";
 
 // The compliance page at /compliance (COMPLIANCE_PASSWORD), for Jay: every
@@ -14,6 +16,10 @@ export interface ComplianceDeps {
   store: VerificationStore;
   /** CAC check through Dojah; without it the page links to the free public search. */
   registry?: Registry;
+  /** The bank's name for the account the business is paid into (AML_CONTROLS). */
+  bankAccountName?(businessId: string): Promise<string | null>;
+  /** Screens the business against the sanctions lists and saves the result (AML_CONTROLS). */
+  screen?(businessId: string): Promise<ScreeningResult>;
   /** Sends the owner a WhatsApp message about the decision. */
   notifyOwner?(businessId: string, text: string): Promise<void>;
   log?: Pick<Console, "info" | "error">;
@@ -87,7 +93,11 @@ ${filter ? `<p><a href="/compliance">Show all</a></p>` : ""}
   app.get("/b/:id", async (c) => {
     const v = await load(c);
     if (!v) return c.notFound();
-    const [docs, events] = await Promise.all([deps.store.docs(v.businessId), deps.store.events(v.businessId)]);
+    const [docs, events, account] = await Promise.all([
+      deps.store.docs(v.businessId),
+      deps.store.events(v.businessId),
+      deps.bankAccountName ? deps.bankAccountName(v.businessId).catch(() => null) : Promise.resolve(null),
+    ]);
     const required = requiredDocs(v.entityType);
     const missing = required.filter((k) => !docs.some((d) => d.kind === k));
     const detail = (label: string, value: string | null) => `<tr><th style="width:34%">${esc(label)}</th><td>${esc(value ?? "–")}</td></tr>`;
@@ -110,12 +120,29 @@ ${filter ? `<p><a href="/compliance">Show all</a></p>` : ""}
       .map((e) => `<li><b>${esc(e.action.replace(/_/g, " "))}</b> · ${esc(e.actor)} · <span class="muted small">${esc(e.at.toISOString().replace("T", " ").slice(0, 16))} UTC</span>${e.note ? `<br><span class="muted">${esc(e.note)}</span>` : ""}</li>`)
       .join("");
 
+    const s = v.screening;
+    const screening = s
+      ? `${s.hits.length ? `<p class="flash bad">${s.hits.length} possible match${s.hits.length === 1 ? "" : "es"}. Compare dates of birth, nationality and photos on the list before deciding: a shared name alone isn't a match.</p><div class="scroll"><table><tr><th>Our name</th><th>Listed name</th><th>List</th></tr>${s.hits.map((h) => `<tr><td>${esc(h.matched)}</td><td>${esc(h.name)}</td><td>${esc(h.list)} ${esc(h.ref)}</td></tr>`).join("")}</table></div>` : `<p>No matches for ${esc(s.names.join(", ") || "–")}.</p>`}
+<p class="muted small">Checked ${day(v.screenedAt)} against ${esc(s.lists.join(" and ") || "no lists")}${s.error ? `. ${esc(s.error)}` : ""}.</p>`
+      : `<p class="muted">Not screened yet.</p>`;
+    const aml = deps.screen
+      ? `<h2>Sanctions screening</h2>
+<div class="card">${screening}<div class="actions"><form method="post" action="/compliance/b/${v.businessId}/screen"><button class="ghost">Screen now</button></form></div>
+<p class="muted small" style="margin-top:10px">The UN Security Council list (which Nigeria follows) and the US Treasury SDN list. A real match: don't approve, pause payments and report to Paystack or Flutterwave and the NFIU.</p></div>
+<h2>Payments</h2>
+<form method="post" action="/compliance/b/${v.businessId}/pause" class="card">
+${v.paused ? `<p class="flash bad"><b>Online payments and payouts are paused.</b>${v.pausedNote ? `<br>${esc(v.pausedNote)}` : ""}</p>` : `<p class="muted" style="margin-top:0">Pausing stops new pay links, monthly payment links and payouts at once. Orders still come in and the owner can take cash or transfers.</p>`}
+<label>Note to the owner <span class="muted">(shown in their app; don't say you suspect money laundering)</span><input name="note" maxlength="300" placeholder="e.g. We're reviewing some recent payments."></label>
+<div class="actions">${v.paused ? `<button name="paused" value="no">Resume payments</button>` : `<button class="danger" name="paused" value="yes">Pause payments</button>`}</div></form>`
+      : "";
     const body = `<p><a href="/compliance">← All businesses</a></p>
 <div class="card banner"><div><h3 style="margin:0 0 4px">${esc(v.businessName)}</h3><p class="muted small" style="margin:0">Sent ${day(v.submittedAt)}${v.reviewedAt ? ` · last decision ${day(v.reviewedAt)}` : ""}</p></div>${tag(v.status)}</div>
 ${v.reviewNote ? `<p class="muted">Last note to the owner: ${esc(v.reviewNote)}</p>` : ""}
 <div class="split even">
 <section><h2>Details they gave</h2><div class="scroll"><table>
 ${detail("Type", type)}${detail("Registered name", v.registeredName)}${detail(v.entityType === "business_name" ? "BN number" : "RC number", v.rcNumber)}${detail("TIN", v.tin)}${detail("Address", v.address)}${detail("Director or owner", v.directorName)}${detail("Email", v.contactEmail)}
+${detail("Holds or held a senior public office (PEP)", v.pep === null ? null : v.pep ? "YES: get senior approval, ask where their money comes from, watch closely" : "No")}
+${deps.bankAccountName ? detail("Paid into (bank's name for the account)", account ? `${account}${bankMatches(account, v) ? " · matches" : " · DOES NOT MATCH the business or owner"}` : null) : ""}
 </table></div></section>
 <section><h2>Documents</h2><div class="scroll"><table>${docRows || `<tr><td class="muted">No documents.</td></tr>`}</table></div>
 ${missing.length ? `<p class="flash bad" style="margin-top:10px">Missing: ${esc(missing.map((k) => DOC_KINDS[k].split(" (")[0]!).join(", "))}</p>` : ""}</section>
@@ -125,6 +152,7 @@ ${missing.length ? `<p class="flash bad" style="margin-top:10px">Missing: ${esc(
 <div class="actions">${canCheck ? `<form method="post" action="/compliance/b/${v.businessId}/check"><button class="ghost">Check with CAC (Dojah)</button></form>` : ""}
 <a class="button ghost" href="${CAC_SEARCH}" target="_blank" rel="noopener">Search CAC yourself (free)</a></div>
 <p class="muted small" style="margin-top:10px">${deps.registry ? "Each Dojah check costs a little from the Dojah wallet." : "Add DOJAH_APP_ID and DOJAH_SECRET_KEY on Railway to check automatically."} On the free CAC search, type the ${v.entityType === "business_name" ? "BN" : "RC"} number ${v.rcNumber ? `<code>${esc(v.rcNumber)}</code>` : ""} or the name.</p></div>
+${aml}
 <h2>Decision</h2>
 <form method="post" action="/compliance/b/${v.businessId}/decide" class="card">
 <label>Note to the owner <span class="muted">(sent on WhatsApp; needed when asking for more or rejecting)</span><textarea name="note" maxlength="600" placeholder="e.g. The proof of address is older than 3 months. Please upload a recent utility bill."></textarea></label>
@@ -162,6 +190,22 @@ ${missing.length ? `<p class="flash bad" style="margin-top:10px">Missing: ${esc(
     return c.redirect(`/compliance/b/${v.businessId}`, 303);
   });
 
+  app.post("/b/:id/screen", async (c) => {
+    const v = await load(c);
+    if (v && deps.screen) await deps.screen(v.businessId).catch((err) => log.error("Sanctions screening failed:", err));
+    return c.redirect(`/compliance/b/${c.req.param("id")}`, 303);
+  });
+
+  app.post("/b/:id/pause", async (c) => {
+    const v = await load(c);
+    if (!v) return c.notFound();
+    const form = await c.req.parseBody();
+    const note = typeof form.note === "string" ? form.note.trim().slice(0, 300) || null : null;
+    await deps.store.setPaused(v.businessId, form.paused === "yes", note, "Jay");
+    log.info(`Compliance: ${v.businessName} payments ${form.paused === "yes" ? "paused" : "resumed"}`);
+    return c.redirect(`/compliance/b/${v.businessId}`, 303);
+  });
+
   app.post("/b/:id/decide", async (c) => {
     const v = await load(c);
     if (!v) return c.notFound();
@@ -172,6 +216,8 @@ ${missing.length ? `<p class="flash bad" style="margin-top:10px">Missing: ${esc(
       return c.html(adminPage(v.businessName, "Business verification", `<p class="flash bad">Choose a decision${decision ? ", and write a note telling the owner what to fix" : ""}.</p><p><a href="/compliance/b/${v.businessId}">Back</a></p>`), 400);
     }
     await deps.store.review(v.businessId, decision, note, "Jay");
+    // A fresh screening goes with each approval, as the lists change.
+    if (decision === "approved" && deps.screen) await deps.screen(v.businessId).catch((err) => log.error("Sanctions screening failed:", err));
     log.info(`Compliance: ${v.businessName} ${decision}`);
     try {
       await deps.notifyOwner?.(v.businessId, decisionMessage(decision, v.businessName, note));

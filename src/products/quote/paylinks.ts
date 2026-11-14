@@ -34,6 +34,47 @@ export const DEFAULT_FEE_CAP: Record<Currency, number> = {
   MWK: 250_000,
 };
 
+/**
+ * Pay-link limits for a business yarnOga hasn't verified yet
+ * (AML_CONTROLS), in hundredths of its currency: 100 and 500 times the
+ * fee cap, so ₦200,000 a payment and ₦1m a month, or about the same elsewhere.
+ * Verifying the business in the owner app lifts them. Bigger orders still get
+ * an invoice, with the shop's bank details instead of a link.
+ */
+export function unverifiedLimits(currency: Currency): { perPaymentKobo: number; perMonthKobo: number } {
+  return { perPaymentKobo: DEFAULT_FEE_CAP[currency] * 100, perMonthKobo: DEFAULT_FEE_CAP[currency] * 500 };
+}
+
+export type PayLinkCheck = "ok" | "limit" | "paused";
+
+/** No pay link (or payout top-up): over an unverified business's limit, or yarnOga paused its payments. */
+export class PaymentsHeld extends Error {
+  constructor(readonly reason: Exclude<PayLinkCheck, "ok">) {
+    super(reason === "paused" ? "yarnOga has paused this business's online payments" : "Over the pay-link limit for an unverified business");
+  }
+}
+
+/**
+ * Whether a pay link for this amount can go: never while yarnOga has paused
+ * the business, always once it's verified (compliance/aml.ts liftsLimits),
+ * otherwise only within unverifiedLimits, counting what its pay links have
+ * taken since the start of the month.
+ */
+export function payLinkLimit(opts: {
+  currency: Currency;
+  standing: () => Promise<{ paused: boolean; verified: boolean }>;
+  paidThisMonthKobo: () => Promise<number>;
+}): (amountKobo: number) => Promise<PayLinkCheck> {
+  const { perPaymentKobo, perMonthKobo } = unverifiedLimits(opts.currency);
+  return async (amountKobo) => {
+    const { paused, verified } = await opts.standing();
+    if (paused) return "paused";
+    if (verified) return "ok";
+    if (amountKobo > perPaymentKobo) return "limit";
+    return (await opts.paidThisMonthKobo()) + amountKobo <= perMonthKobo ? "ok" : "limit";
+  };
+}
+
 /** The plan feature that can change the cap (migration 0052); other currencies use DEFAULT_FEE_CAP. */
 export function feeCapFeature(currency: Currency): "transaction_fee_cap_ngn" | "transaction_fee_cap_cfa" | null {
   if (currency === "NGN") return "transaction_fee_cap_ngn";
@@ -68,9 +109,13 @@ export function orderPayLinks(opts: {
   feeCap?: () => Promise<number | null>;
   /** A Shipbubble courier's fee in this order, which goes to yarnOga (to pay the courier) rather than the business. */
   courierKobo?: (order: SavedOrder) => Promise<number>;
+  /** Whether the business can take this much by pay link now (payLinkLimit); left out = always. */
+  check?: (amountKobo: number) => Promise<PayLinkCheck>;
 }): (order: SavedOrder, waId: string) => Promise<string> {
   const currency = opts.currency ?? "NGN";
   return async (order, waId) => {
+    const held = opts.check ? await opts.check(order.totalKobo) : "ok";
+    if (held !== "ok") throw new PaymentsHeld(held);
     const cap = (opts.feeCap ? await opts.feeCap() : null) ?? DEFAULT_FEE_CAP[currency];
     const courierKobo = opts.courierKobo ? await opts.courierKobo(order) : 0;
     // Our fee is on the business's part only, not on the courier fee passing through.

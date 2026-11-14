@@ -61,6 +61,23 @@ in live mode.
 The subaccount code isn't a secret (it only says where money goes), but the
 Paystack secret key still only ever goes in Railway.
 
+## Limits until a business is verified
+
+Refunds and disputes come back to yarnOga's Paystack account, so a shop we
+haven't checked can only take so much by pay link. With `AML_CONTROLS=true`
+(and migration `0087_aml_controls.sql`), a shop whose business isn't verified
+yet (owner app > More > Verify business, approved on the compliance page) gets
+pay links up to **₦200,000 a payment** and **₦1,000,000 a month**, counting
+order, ticket and monthly payments paid since the 1st (Lagos time). Outside
+naira it's about the same: 100 and 500 times the fee cap (KSh 20,000 and
+KSh 100,000, 80,000 and 400,000 FCFA).
+
+A bigger order still gets its invoice, with the shop's bank details instead of
+a link, and the owner is told to verify. A verified shop whose invoice bank
+account isn't in its verified business or owner name keeps the limits. The
+main number has no limit. The rest of the controls (pausing a shop, alerts,
+sanctions screening) are in docs/AML_POLICY.md.
+
 ## Trying it
 
 Ask the business's number for a quote, reply YES, and the invoice picture's

@@ -3,6 +3,7 @@ import { formatNaira, parseMoney } from "../../core/money.js";
 import { showWaId } from "../../core/whatsapp/ids.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
+import { PaymentsHeld } from "../../products/quote/paylinks.js";
 import { MIN_PAYOUT_KOBO, MIN_TOPUP_KOBO, type Payout, type PayoutStatus, type Recipient, type UnpaidDelivery } from "../payouts.js";
 import type { AppContext, Env } from "../types.js";
 
@@ -172,6 +173,7 @@ ${
     try {
       return c.redirect(await c.get("biz").payouts!.topUpLink(c.get("user").waId, amount), 303);
     } catch (err) {
+      if (err instanceof PaymentsHeld) return c.redirect(`/home/pay?msg=${err.reason === "paused" ? "payments_paused" : "payout_limit"}`, 303);
       ctx.log.error(`Owner app: payout top-up link for ${c.get("biz").name} failed:`, err);
       return c.redirect("/home/pay?msg=topup_failed", 303);
     }
@@ -270,6 +272,7 @@ ${
 
   app.post("/pay/:id/send", async (c) => {
     if (!UUID.test(c.req.param("id"))) return c.redirect("/home/pay?msg=bad", 303);
+    if ((await ctx.deps.verification?.store.get(c.get("biz").id))?.paused) return c.redirect("/home/pay?msg=payments_paused", 303);
     const result = await c.get("biz").payouts!.service.send(c.req.param("id"));
     return c.redirect(`/home/pay?msg=${SEND_FLASH[result] ?? "pay_unsure"}`, 303);
   });

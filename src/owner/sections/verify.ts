@@ -10,7 +10,10 @@ import {
   type Verification,
   type VerificationDoc,
 } from "../../compliance/store.js";
+import { bankMatches } from "../../compliance/aml.js";
 import { cleanRcNumber } from "../../compliance/registry.js";
+import { formatMoney } from "../../core/money.js";
+import { unverifiedLimits } from "../../products/quote/paylinks.js";
 import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import type { AppContext, Env } from "../types.js";
@@ -41,6 +44,7 @@ export function missingForSubmit(v: Verification, docs: VerificationDoc[]): stri
   if (v.entityType && v.entityType !== "individual" && !v.rcNumber) missing.push(v.entityType === "company" ? "the RC number" : "the BN number");
   if (!v.address) missing.push("the business address");
   if (!v.directorName) missing.push(v.entityType === "company" ? "a director's name" : "the owner's name");
+  if (v.pep === null) missing.push("the public office question");
   for (const kind of requiredDocs(v.entityType)) if (!docs.some((d) => d.kind === kind)) missing.push(DOC_KINDS[kind].split(" (")[0]!);
   return missing;
 }
@@ -63,6 +67,19 @@ export function registerVerify(app: Hono<Env>, ctx: SectionContext) {
     const required = requiredDocs(v.entityType);
     const kinds = [...required, ...KINDS.filter((k) => !required.includes(k) && (v.entityType === "company" || k !== "memart"))];
 
+    const currency = biz.currency ?? "NGN";
+    const limits = kyb.payLinkLimits?.(biz.id) ? unverifiedLimits(currency) : null;
+    const account = limits && v.status === "approved" ? ((await biz.data.banks().catch(() => [])).find((b) => b.isPrimary) ?? null) : null;
+    const limitText = limits ? `pay links take up to ${esc(formatMoney(limits.perPaymentKobo, currency))} a payment and ${esc(formatMoney(limits.perMonthKobo, currency))} a month` : "";
+    const limitNote = v.paused
+      ? `<div class="flash bad"><b>yarnOga has paused online payments and payouts for your business.</b>${v.pausedNote ? `<br>${esc(v.pausedNote)}` : ""}<br><span class="small">Please message yarnOga support.</span></div>`
+      : !limits
+        ? ""
+        : v.status !== "approved"
+          ? `<p class="muted" style="margin:8px 0 0">Until you're verified, ${limitText}. Verified businesses have no limit.</p>`
+          : account && !bankMatches(account.accountName, v)
+            ? `<div class="flash bad">Your invoice bank account is in the name <b>${esc(account.accountName)}</b>, which isn't your verified business or owner name, so ${limitText}. Use an account in the business's or owner's name (Settings &gt; Bank accounts) to lift this.</div>`
+            : `<p class="muted" style="margin:8px 0 0">Your pay links have no yarnOga limit.</p>`;
     const banner =
       v.status === "approved"
         ? `<div class="card glow"><div class="cardhead"><h3>${icon("shield")} Your business is verified</h3>${statusTag(v.status)}</div><p class="muted" style="margin:0">Thank you. To change these details, message yarnOga support.</p></div>`
@@ -91,7 +108,7 @@ ${open ? `<form method="post" action="/home/verify/doc" enctype="multipart/form-
       })
       .join("");
 
-    const body = `${banner}
+    const body = `${banner}${limitNote}
 <h2>1. Your business</h2>
 <form method="post" action="/home/verify/details" class="card">
 <p class="label" style="margin-bottom:8px">What kind of business is it?</p><div class="choices">${typeOptions}</div>
@@ -101,6 +118,8 @@ ${open ? `<form method="post" action="/home/verify/doc" enctype="multipart/form-
 <label>Business address<textarea name="address" maxlength="300"${dis}>${val(v.address)}</textarea></label>
 <div class="row"><label>Director's or owner's full name <span class="muted">(whose ID you upload)</span><input name="director" maxlength="120" value="${val(v.directorName)}"${dis}></label>
 <label>Email <span class="muted">(optional)</span><input name="email" type="email" maxlength="120" value="${val(v.contactEmail)}"${dis}></label></div>
+<p class="label" style="margin:12px 0 8px">Does anyone who owns or runs the business hold, or has held, a senior public office? <span class="muted">(for example a minister, legislator, governor, judge, senior military or police officer, head of a government agency or company, or a party official, or their close family)</span></p>
+<div class="choices"><label class="choice"><input type="radio" name="pep" value="no"${v.pep === false ? " checked" : ""}${dis}><span><b>No</b></span></label><label class="choice"><input type="radio" name="pep" value="yes"${v.pep === true ? " checked" : ""}${dis}><span><b>Yes</b><span class="muted small">We'll ask a few more questions. It doesn't stop you using yarnOga.</span></span></label></div>
 ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
 
 <h2>2. Documents</h2>
@@ -142,6 +161,7 @@ ${open ? `<div class="actions"><button>Save details</button></div>` : ""}</form>
       address: field(form, "address", 300) || null,
       directorName: field(form, "director", 120) || null,
       contactEmail: email || null,
+      pep: form.pep === "yes" ? true : form.pep === "no" ? false : null,
     });
     return c.redirect("/home/verify?msg=saved", 303);
   });

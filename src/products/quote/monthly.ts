@@ -138,6 +138,8 @@ export interface MonthlyDeps {
   businessName: string;
   /** The business's Paystack subaccount (ACCT_...), where the money goes. */
   subaccount: string;
+  /** Whether this much can be taken by link or card now (AML_CONTROLS, paylinks.ts payLinkLimit); left out = always. */
+  check?(amountKobo: number): Promise<"ok" | "limit" | "paused">;
   /** yarnOga's fee on a payment of this many kobo (the plan's transaction_fee). */
   feeKobo(amountKobo: number): Promise<number>;
   canMessageFreely(waId: string): Promise<boolean>;
@@ -154,7 +156,7 @@ export interface MonthlyDeps {
   log?: Pick<Console, "info" | "warn" | "error">;
 }
 
-export type BillResult = { paid: true } | { paid: false; link: string; reached: boolean };
+export type BillResult = { paid: true } | { paid: false; link: string; reached: boolean } | { paid: false; held: "limit" | "paused" };
 
 export function createMonthly(deps: MonthlyDeps) {
   const log = deps.log ?? console;
@@ -250,6 +252,20 @@ export function createMonthly(deps: MonthlyDeps) {
    * Used when the owner adds a customer due today, and by the timer.
    */
   async function bill(m: Member, open: OpenMonth): Promise<BillResult> {
+    if (deps.check) {
+      // Over an unverified business's limit, or paused by yarnOga: nothing goes out, and the owner hears once.
+      const held = await deps.check(open.amountKobo);
+      if (held !== "ok") {
+        if (await deps.store.claimOwnerTold(open.id)) {
+          await tellOwner(
+            held === "paused"
+              ? `${m.name}'s ${formatNaira(open.amountKobo)} for ${what(m, open.period)} wasn't charged, as yarnOga has paused online payments for your business. Please message yarnOga support, and collect it another way for now.`
+              : `${m.name}'s ${formatNaira(open.amountKobo)} for ${what(m, open.period)} wasn't charged: it's over the online payment limit for businesses yarnOga hasn't verified yet. Collect it another way, or verify your business in the app (More > Verify business) to lift the limit.`,
+          );
+        }
+        return { paid: false, held };
+      }
+    }
     const card = await tryCard(m, open);
     if (card === "paid") return { paid: true };
     const link = await makeLink(m, open);

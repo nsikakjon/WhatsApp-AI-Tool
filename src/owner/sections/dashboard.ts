@@ -97,7 +97,7 @@ export function registerDashboard(app: Hono<Env>, ctx: SectionContext) {
     const kyb = user.role === "owner" && ctx.deps.verification ? await ctx.deps.verification.store.get(biz.id).catch(() => null) : null;
     const verifyBanner =
       kyb && kyb.status !== "approved" && kyb.status !== "submitted"
-        ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? "A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes." : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/home/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
+        ? `<div class="card banner${kyb.status === "not_started" ? " glow" : ""}"><div><h3 style="margin:0 0 4px">${kyb.status === "not_started" ? "Verify your business" : "Your verification needs attention"}</h3><p class="muted small" style="margin:0">${kyb.status === "not_started" ? `A few details and documents so customers and yarnOga know who they're dealing with. About 5 minutes.${ctx.deps.verification!.payLinkLimits?.(biz.id) ? " Verified businesses can take bigger payments by pay link." : ""}` : "yarnOga needs a little more from you before your business is verified."}</p></div><a class="button" href="/home/verify">${icon("shield", 18)}${kyb.status === "not_started" ? "Start" : "Open"}</a></div>`
         : "";
 
     // Profit: counter sales and paid WhatsApp orders, from the cost prices they had when sold.

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ScreeningResult } from "./sanctions.js";
 
 // Business verification (KYB, migration 0050): the details and documents an
 // owner sends from the app, and Jay's decisions on the compliance page.
@@ -47,6 +48,8 @@ export interface VerificationDetails {
   address: string | null;
   directorName: string | null;
   contactEmail: string | null;
+  /** The owner's answer to "does anyone who owns or runs it hold, or has held, a prominent public office?" (migration 0087). */
+  pep: boolean | null;
 }
 
 /** What a CAC registry check found (see registry.ts). */
@@ -73,6 +76,12 @@ export interface Verification extends VerificationDetails {
   reviewedAt: Date | null;
   registry: RegistryResult | null;
   registryCheckedAt: Date | null;
+  /** yarnOga stopped its online payments and payouts (migration 0087). */
+  paused: boolean;
+  pausedNote: string | null;
+  /** The last sanctions screening (sanctions.ts). */
+  screening: ScreeningResult | null;
+  screenedAt: Date | null;
 }
 
 export interface VerificationDoc {
@@ -103,6 +112,11 @@ export interface VerificationStore {
   submit(businessId: string, actor: string): Promise<boolean>;
   review(businessId: string, status: "approved" | "rejected" | "more_info", note: string | null, actor: string): Promise<void>;
   saveRegistry(businessId: string, result: RegistryResult, actor: string): Promise<void>;
+  saveScreening(businessId: string, result: ScreeningResult, actor: string): Promise<void>;
+  /** Stops or restarts the business's online payments and payouts. */
+  setPaused(businessId: string, paused: boolean, note: string | null, actor: string): Promise<void>;
+  /** Adds to the business's history, e.g. a payment pattern that was flagged. */
+  logEvent(businessId: string, action: string, note: string | null, actor: string): Promise<void>;
   /** Every quote business with its verification, newest change first. */
   list(): Promise<Array<Verification & { businessName: string; active: boolean }>>;
   events(businessId: string): Promise<VerificationEvent[]>;
@@ -125,6 +139,11 @@ type Row = {
   reviewed_at: string | null;
   registry_result: RegistryResult | null;
   registry_checked_at: string | null;
+  pep?: boolean | null;
+  payments_paused?: boolean | null;
+  paused_note?: string | null;
+  screening?: ScreeningResult | null;
+  screened_at?: string | null;
 };
 
 const date = (v: string | null) => (v ? new Date(v) : null);
@@ -145,6 +164,11 @@ export function blankVerification(businessId: string): Verification {
     reviewedAt: null,
     registry: null,
     registryCheckedAt: null,
+    pep: null,
+    paused: false,
+    pausedNote: null,
+    screening: null,
+    screenedAt: null,
   };
 }
 
@@ -164,6 +188,11 @@ function toVerification(r: Row): Verification {
     reviewedAt: date(r.reviewed_at),
     registry: r.registry_result,
     registryCheckedAt: date(r.registry_checked_at),
+    pep: r.pep ?? null,
+    paused: r.payments_paused === true,
+    pausedNote: r.paused_note ?? null,
+    screening: r.screening ?? null,
+    screenedAt: date(r.screened_at ?? null),
   };
 }
 
@@ -198,6 +227,7 @@ export function createSupabaseVerifications(db: SupabaseClient): VerificationSto
         address: d.address,
         director_name: d.directorName,
         contact_email: d.contactEmail,
+        pep: d.pep,
       });
     },
 
@@ -279,6 +309,18 @@ export function createSupabaseVerifications(db: SupabaseClient): VerificationSto
       await upsert(businessId, { registry_result: result, registry_checked_at: new Date().toISOString() });
       await log(businessId, "registry_check", result.found ? `Found: ${result.name ?? ""}` : (result.error ?? "Not found"), actor);
     },
+
+    async saveScreening(businessId, result, actor) {
+      await upsert(businessId, { screening: result, screened_at: new Date().toISOString() });
+      await log(businessId, "sanctions_screen", result.hits.length ? `${result.hits.length} possible match(es)` : result.error ?? "No matches", actor);
+    },
+
+    async setPaused(businessId, paused, note, actor) {
+      await upsert(businessId, { payments_paused: paused, paused_note: paused ? note : null });
+      await log(businessId, paused ? "payments_paused" : "payments_resumed", note, actor);
+    },
+
+    logEvent: log,
 
     async list() {
       const { data, error } = await db
