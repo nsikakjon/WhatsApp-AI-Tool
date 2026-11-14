@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Hono } from "hono";
 import { formatMoney, formatNaira } from "../../core/money.js";
-import { BUSINESS_DESIGNS, designMax, isBusinessDesign, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem } from "../../products/flyer/business.js";
+import { BUSINESS_DESIGNS, designMax, HEADLINE_FONTS, isBusinessDesign, isHeadlineFont, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem, type FlyerLook } from "../../products/flyer/business.js";
 import { priceFacts } from "../../products/quote/catalogue.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
@@ -26,6 +26,15 @@ const MAX_DRAFTS = 200;
 /** The designs a plan's monthly flyers can use; a flyer pack opens the rest. */
 const PLAN_DESIGNS: BusinessDesign[] = ["spotlight", "grid"];
 
+const SIZES = [
+  { id: "s", name: "Smaller", scale: 0.85 },
+  { id: "m", name: "As designed", scale: 1 },
+  { id: "l", name: "Bigger", scale: 1.15 },
+];
+
+/** Colours offered beside the shop's own in the design console. */
+const SWATCHES = ["#e8541e", "#d62e4c", "#7c3aed", "#1f6feb", "#128c4a", "#c6ff1f", "#ffb800", "#111111"];
+
 const WORDS = {
   en: { from: "from", order: "Order on WhatsApp", headline: "Available now" },
   fr: { from: "dès", order: "Commandez sur WhatsApp", headline: "Disponible maintenant" },
@@ -41,6 +50,11 @@ interface Draft {
   own: Array<{ photo: Buffer; label: string }>;
   prices: boolean;
   colour: string;
+  /** Touches from the design console, kept when the owner switches design. */
+  look: FlyerLook;
+  show: { logo: boolean; link: boolean; number: boolean };
+  /** Goes up with every change in the console, so the browser fetches the new picture. */
+  version: number;
   /**
    * Set once the flyer is counted (see flyer-packs.ts): "plan" is one of a
    * limited plan's monthly flyers (yarnOga tag, plan designs), "pack" came
@@ -171,6 +185,9 @@ ${own}
       own: kept,
       prices: Boolean(body.prices),
       colour: safeColour(field(body, "colour", 7)),
+      look: earlier?.look ?? {},
+      show: earlier?.show ?? { logo: true, link: true, number: true },
+      version: 0,
       pass: biz.flyers ? undefined : "open",
       preview: { tag: false, mark: false },
       made: new Map(),
@@ -182,6 +199,16 @@ ${own}
     ctx.render(c, "Flyers", "/home/flyers", `<p>This flyer was put away after an hour. <a href="/home/flyers">Make it again</a>: it only takes a minute.</p>`, 404);
 
   const count = (draft: Draft) => draft.productIds.length + draft.own.length;
+
+  /** How the small previews look: a limited plan's uncounted flyer says "Preview" across it, and a free flyer carries the yarnOga tag. */
+  const setPreview = async (biz: AppBusiness, draft: Draft, status: FlyerStatus | null) => {
+    const limited = status && status.planLimit != null ? status : null;
+    const freeBefore0082 = !limited && biz.features ? (await biz.features.planCode().catch(() => null)) === "free" : false;
+    draft.preview = { tag: freeBefore0082 || (Boolean(limited) && draft.pass !== "pack" && limited!.packLeft === 0), mark: Boolean(limited) && !draft.pass };
+  };
+
+  /** Whether opening this design spends a flyer: not counted yet, or counted on the plan but outside its designs. */
+  const uncounted = (draft: Draft, design: BusinessDesign) => !draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design));
 
   /** Whether a design needs a flyer pack: on a limited plan, with no pack flyer in hand, it isn't one of the plan's designs. */
   const locked = (design: BusinessDesign, draft: Draft, status: FlyerStatus | null) =>
@@ -208,9 +235,7 @@ ${own}
     const n = count(draft);
     const status = (await c.get("biz").flyers?.status()) ?? null;
     const limited = status && status.planLimit != null ? status : null;
-    const biz = c.get("biz");
-    const freeBefore0082 = !limited && biz.features ? (await biz.features.planCode().catch(() => null)) === "free" : false;
-    draft.preview = { tag: freeBefore0082 || (Boolean(limited) && draft.pass !== "pack" && limited!.packLeft === 0), mark: Boolean(limited) && !draft.pass };
+    await setPreview(c.get("biz"), draft, status);
     const left = !limited
       ? ""
       : draft.pass === "pack" || limited.packLeft > 0
@@ -218,14 +243,14 @@ ${own}
         : `<p class="flash good">${draft.pass === "plan" ? "This flyer is counted." : `${limited.planLeft} of ${limited.planLimit} free flyers left this month.`} Free flyers use the ${PLAN_DESIGNS.map((d) => BUSINESS_DESIGNS.find((x) => x.id === d)!.name).join(" and ")} designs and carry a small yarnOga tag.</p>`;
     const cards = BUSINESS_DESIGNS.map(
       (d) => `<a class="card" href="/home/flyers/${id}/${d.id}" style="padding:10px;text-decoration:none;color:inherit">
-<img src="/home/flyers/${id}/${d.id}.jpg?small=1" alt="${d.name} design" width="540" height="675" loading="lazy" style="width:100%;height:auto;border-radius:12px;display:block">
+<img src="/home/flyers/${id}/${d.id}.jpg?small=1&v=${draft.version}" alt="${d.name} design" width="540" height="675" loading="lazy" style="width:100%;height:auto;border-radius:12px;display:block">
 <p style="margin:10px 4px 0"><b>${d.name}</b> <span class="muted small">${locked(d.id, draft, status) ? "with a flyer pack or a paid plan" : n > d.max ? `shows the first ${d.max === 1 ? "one" : d.max}` : esc(d.about)}</span></p></a>`,
     ).join("");
     return ctx.render(
       c,
       "Pick a design",
       "/home/flyers",
-      `${left}<p>Tap the one you like to share or download it.${limited && !draft.pass ? " A flyer is counted when you open it, and you can then switch between its designs." : ""}</p>
+      `${left}<p>Tap the one you like to fine-tune it in the design console, then share or download it.${limited && !draft.pass ? " A flyer is counted when you tap Use this flyer, and you can then switch between its designs." : ""}</p>
 <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>
 <div class="actions"><a class="button ghost" href="/home/flyers?from=${id}">Change the words or pictures</a></div>`,
     );
@@ -313,53 +338,189 @@ ${own}
     return c.redirect(`${back}?msg=flyer_pack_failed`, 303);
   });
 
+  const offer = async (c: AppContext, id: string, why: string) =>
+    ctx.render(c, "Flyer packs", "/home/flyers", `<p>${why}</p>${await packForms(c, id)}<div class="actions"><a class="button ghost" href="/home/flyers/${id}">Back to the designs</a></div>`);
+
+  /** Counts the flyer (a plan flyer or a pack flyer). Returns a page to show instead when it can't be counted. */
+  const spend = async (c: AppContext, draft: Draft, id: string, status: FlyerStatus): Promise<Response | null> => {
+    let paidBy: "plan" | "pack" | null;
+    try {
+      paidBy = await c.get("biz").flyers!.use();
+    } catch (err) {
+      ctx.log.error("Owner app: counting a flyer failed:", err);
+      return ctx.render(c, "Flyers", "/home/flyers", `<p>The flyer couldn't be opened just now. <a href="/home/flyers/${id}">Go back and try again</a>.</p>`);
+    }
+    if (!paidBy) return offer(c, id, `You've made your ${status.planLimit} free flyers for this month. More come on the 1st.`);
+    draft.pass = status.planLimit == null ? "open" : paidBy;
+    return null;
+  };
+
+  /** The flyer in one design, with the design console beside it. On a limited plan it stays a preview until the owner taps Use this flyer. */
   app.get("/flyers/:draft/:design", async (c) => {
     const draft = draftOf(c);
     const design = c.req.param("design");
     if (!draft || !isBusinessDesign(design)) return expired(c);
     const id = c.req.param("draft");
     const biz = c.get("biz");
-    if (biz.flyers && (!draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design)))) {
-      const status = await biz.flyers.status();
-      const name = BUSINESS_DESIGNS.find((d) => d.id === design)!.name;
-      const offer = async (why: string) =>
-        ctx.render(c, "Flyer packs", "/home/flyers", `<p>${why}</p>${await packForms(c, id)}<div class="actions"><a class="button ghost" href="/home/flyers/${id}">Back to the designs</a></div>`);
-      if (locked(design, draft, status)) return offer(`The ${esc(name)} design comes with a flyer pack or a paid plan.`);
-      let paidBy: "plan" | "pack" | null;
-      try {
-        paidBy = await biz.flyers.use();
-      } catch (err) {
-        ctx.log.error("Owner app: counting a flyer failed:", err);
-        return ctx.render(c, "Flyers", "/home/flyers", `<p>The flyer couldn't be opened just now. <a href="/home/flyers/${id}">Go back and try again</a>.</p>`);
+    const status = (await biz.flyers?.status()) ?? null;
+    if (status && uncounted(draft, design)) {
+      if (locked(design, draft, status)) return offer(c, id, `The ${esc(BUSINESS_DESIGNS.find((d) => d.id === design)!.name)} design comes with a flyer pack or a paid plan.`);
+      // With no monthly number there's nothing to save up, so the flyer is counted as it opens.
+      if (status.planLimit == null) {
+        const stop = await spend(c, draft, id, status);
+        if (stop) return stop;
+      } else if (status.planLeft === 0 && status.packLeft === 0) {
+        return offer(c, id, `You've made your ${status.planLimit} free flyers for this month. More come on the 1st.`);
       }
-      if (!paidBy) return offer(`You've made your ${status.planLimit} free flyers for this month. More come on the 1st.`);
-      draft.pass = status.planLimit == null ? "open" : paidBy;
     }
+    await setPreview(biz, draft, status);
+    const ready = !uncounted(draft, design);
     const src = `/home/flyers/${id}/${design}.jpg`;
     const left = count(draft) - designMax(design);
-    const sendForm = biz.sendFlyer && c.get("user").role === "owner" ? await sendBox(biz.sendFlyer, `${id}/${design}`, [draft.headline, draft.subline].filter(Boolean).join(". ")) : "";
+    const uses = status && status.packLeft > 0 ? `${status.packLeft} pack flyer${status.packLeft === 1 ? "" : "s"}` : `${status?.planLeft ?? 0} free flyer${status?.planLeft === 1 ? "" : "s"} left this month`;
+    const below = ready
+      ? `<div class="actions"><button type="button" id="share" hidden>Share</button><a class="button" id="save" href="${src}?save=1" download="flyer-${design}.jpg">Download</a></div>
+<p class="muted small">Share opens WhatsApp, Instagram and your other apps: choose "My status" in WhatsApp to post it there.</p>`
+      : `<form method="post" action="/home/flyers/${id}/${design}/use"><div class="actions"><button>Use this flyer</button></div>
+<p class="muted small">This is a preview. Get it how you like it, then tap Use this flyer: it uses 1 of your ${uses}, and your changes after that are free.</p></form>`;
+    const sendForm = ready && biz.sendFlyer && c.get("user").role === "owner" ? await sendBox(biz.sendFlyer, `${id}/${design}`, [draft.headline, draft.subline].filter(Boolean).join(". ")) : "";
     return ctx.render(
       c,
-      "Your flyer",
+      ready ? "Your flyer" : "Design your flyer",
       "/home/flyers",
-      `<img id="flyer" src="${src}" alt="Your flyer" width="1080" height="1350" style="width:100%;max-width:480px;height:auto;border-radius:14px;display:block">
-${left > 0 ? `<p class="muted small">This design shows ${designMax(design) === 1 ? "one product" : `${designMax(design)} products`}, so ${left} of yours ${left === 1 ? "is" : "are"} left off.</p>` : ""}
-<div class="actions"><button type="button" id="share" hidden>Share</button><a class="button" id="save" href="${src}?save=1" download="flyer-${design}.jpg">Download</a><a class="button ghost" href="/home/flyers/${id}">Other designs</a><a class="button ghost" href="/home/flyers?from=${id}">Change the words or pictures</a></div>
-<p class="muted small">Share opens WhatsApp, Instagram and your other apps: choose "My status" in WhatsApp to post it there.</p>
+      `<div class="studio"><div class="stage">
+<img id="flyer" src="${ready ? src : `${src}?small=1`}${ready ? "?" : "&"}v=${draft.version}" alt="Your flyer" width="1080" height="1350">
+${left > 0 ? `<p class="muted small">This design shows ${designMax(design) === 1 ? "one product" : `${designMax(design)} products`}, so ${left} of yours ${left === 1 ? "is" : "are"} left off.</p>` : ""}</div>
+${consoleForm(draft, id, design, await shopAccent(biz))}
+<div class="below">${below}</div></div>
 <script>
 (function () {
-  var button = document.getElementById("share");
+  var form = document.getElementById("look"), img = document.getElementById("flyer");
+  var base = img.src.replace(/v=\d+$/, "v="), timer, n = 0;
+  document.getElementById("apply").style.display = "none";
+  function update() {
+    var mine = ++n;
+    form.classList.add("busy");
+    fetch(form.action + "?live=1", { method: "POST", body: new FormData(form), headers: { Accept: "application/json" } })
+      .then(function (r) { return r.json(); })
+      .then(function (out) { if (mine === n) img.src = base + out.version; })
+      .catch(function () { form.submit(); });
+  }
+  img.addEventListener("load", function () { form.classList.remove("busy"); });
+  form.addEventListener("input", function (e) { clearTimeout(timer); timer = setTimeout(update, e.target.type === "text" ? 700 : 300); });
+  form.querySelectorAll("[data-colour]").forEach(function (b) {
+    b.addEventListener("click", function () { form.colour.value = b.dataset.colour; update(); });
+  });${
+        ready
+          ? `
+  // The file to share is fetched ahead each time the picture changes: phones only share straight from a tap.
+  var button = document.getElementById("share"), save = document.getElementById("save"), file;
+  img.addEventListener("load", function () { save.href = img.src + "&save=1"; });
   if (!navigator.canShare) return;
-  fetch(${JSON.stringify(src)}).then(function (r) { return r.blob(); }).then(function (blob) {
-    var file = new File([blob], "flyer-${design}.jpg", { type: "image/jpeg" });
-    if (!navigator.canShare({ files: [file] })) return;
-    button.hidden = false;
-    document.getElementById("save").classList.add("ghost");
-    button.addEventListener("click", function () { navigator.share({ files: [file] }).catch(function () {}); });
-  }).catch(function () {});
+  function ready() {
+    fetch(img.src).then(function (r) { return r.blob(); }).then(function (blob) {
+      file = new File([blob], "flyer-${design}.jpg", { type: "image/jpeg" });
+      if (!navigator.canShare({ files: [file] })) return;
+      button.hidden = false;
+      save.classList.add("ghost");
+    }).catch(function () {});
+  }
+  img.addEventListener("load", ready);
+  ready();
+  button.addEventListener("click", function () { if (file) navigator.share({ files: [file] }).catch(function () {}); });`
+          : ""
+      }
 })();
 </script>${sendForm}`,
     );
+  });
+
+  /** The design console: design, words, colour, headline font and size, photo position, and what the flyer shows. */
+  const consoleForm = (draft: Draft, id: string, design: BusinessDesign, shopColour: string | null) => {
+    const look = draft.look;
+    const words = !draft.pass || draft.pass === "open";
+    const seg = (name: string, options: Array<{ id: string; name: string }>, on: string) =>
+      `<div class="seg">${options.map((o) => `<label><input type="radio" name="${name}" value="${o.id}"${o.id === on ? " checked" : ""}><span>${esc(o.name)}</span></label>`).join("")}</div>`;
+    const range = (name: string, label: string, min: number, max: number, value: number) =>
+      `<label>${label}<input type="range" name="${name}" min="${min}" max="${max}" value="${Math.round(value * 100)}"></label>`;
+    const swatches = [...new Set([...(shopColour ? [safeColour(shopColour)] : []), ...SWATCHES])]
+      .map((hex, i) => `<button type="button" class="swatch" data-colour="${hex}" style="background:${hex}" title="${i === 0 && shopColour ? "Your shop colour" : hex}" aria-label="${i === 0 && shopColour ? "Your shop colour" : hex}"></button>`)
+      .join("");
+    const tick = (name: string, label: string, on: boolean) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
+    return `<form class="console" id="look" method="post" action="/home/flyers/${id}/${design}/look">
+<h3>Design</h3><div class="seg">${BUSINESS_DESIGNS.map((d) => `<a href="/home/flyers/${id}/${d.id}"${d.id === design ? ' class="on"' : ""}>${esc(d.name)}</a>`).join("")}</div>
+<h3>Words</h3>
+${
+  words
+    ? `<label for="h">Headline</label><input id="h" name="headline" maxlength="40" required value="${esc(draft.headline)}">
+<label for="s">Line under it</label><input id="s" name="subline" maxlength="70" value="${esc(draft.subline)}">`
+    : `<p class="muted small">“${esc(draft.headline)}”${draft.subline ? ` · ${esc(draft.subline)}` : ""}<br>New words make a new flyer: <a href="/home/flyers?from=${id}">change the words or pictures</a>.</p>`
+}
+<h3>Colour</h3><div class="swatches">${swatches}<input type="color" name="colour" value="${esc(draft.colour)}" aria-label="Any colour"></div>
+<h3>Headline font</h3>${seg("font", [{ id: "", name: "Design's own" }, ...HEADLINE_FONTS], look.font ?? "")}
+<h3>Headline size</h3>${seg("size", SIZES, SIZES.find((x) => x.scale === (look.size ?? 1))?.id ?? "m")}
+<h3>Photo</h3>
+${range("zoom", "Zoom in", 100, 200, look.zoom ?? 1)}
+${range("photoX", "Move left or right", 0, 100, look.photoX ?? 0.5)}
+${range("photoY", "Move up or down", 0, 100, look.photoY ?? 0.5)}
+<h3>Show on the flyer</h3>
+${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)}${tick("number", "WhatsApp number", draft.show.number)}${tick("link", "Shop page link", draft.show.link)}
+<div class="actions"><button id="apply">Update the flyer</button><button class="ghost" name="reset" value="1">Back to the design's own look</button></div>
+<p class="muted small"><a href="/home/flyers/${id}">See all designs side by side</a> · <a href="/home/flyers?from=${id}">Change the products or pictures</a></p>
+</form>`;
+  };
+
+  app.post("/flyers/:draft/:design/use", async (c) => {
+    const draft = draftOf(c);
+    const design = c.req.param("design");
+    const biz = c.get("biz");
+    if (!draft || !isBusinessDesign(design)) return expired(c);
+    const id = c.req.param("draft");
+    if (biz.flyers && uncounted(draft, design)) {
+      const status = await biz.flyers.status();
+      if (locked(design, draft, status)) return c.redirect(`/home/flyers/${id}/${design}`, 303);
+      const stop = await spend(c, draft, id, status);
+      if (stop) return stop;
+    }
+    return c.redirect(`/home/flyers/${id}/${design}`, 303);
+  });
+
+  /** Saves the console's settings on the flyer. The page's script sends ?live=1 and just reloads the picture. */
+  app.post("/flyers/:draft/:design/look", async (c) => {
+    const draft = draftOf(c);
+    const design = c.req.param("design");
+    if (!draft || !isBusinessDesign(design)) return expired(c);
+    const body = await c.req.parseBody();
+    if (body.reset) {
+      draft.look = {};
+      draft.show = { logo: true, link: true, number: true };
+    } else {
+      // Counted plan and pack flyers keep their words: new words are a new flyer.
+      if (!draft.pass || draft.pass === "open") {
+        const headline = field(body, "headline", 40);
+        if (headline) draft.headline = headline;
+        draft.subline = field(body, "subline", 70);
+      }
+      const share = (name: string, low: number, high: number) => {
+        const n = Number(field(body, name, 4));
+        return Number.isFinite(n) && field(body, name, 4) !== "" ? Math.min(high, Math.max(low, n)) / 100 : undefined;
+      };
+      const font = field(body, "font", 20);
+      draft.look = {
+        font: isHeadlineFont(font) ? font : undefined,
+        size: SIZES.find((x) => x.id === field(body, "size", 2))?.scale,
+        zoom: share("zoom", 100, 200),
+        photoX: share("photoX", 0, 100),
+        photoY: share("photoY", 0, 100),
+      };
+      draft.colour = safeColour(field(body, "colour", 7) || draft.colour);
+      draft.prices = Boolean(body.prices);
+      draft.show = { logo: Boolean(body.logo), link: Boolean(body.link), number: Boolean(body.number) };
+    }
+    draft.version += 1;
+    draft.made.clear();
+    if (c.req.query("live")) return c.json({ version: draft.version });
+    return c.redirect(`/home/flyers/${c.req.param("draft")}/${design}`, 303);
   });
 
   app.post("/flyers/:draft/:design/send", async (c) => {
@@ -415,11 +576,12 @@ ${left > 0 ? `<p class="muted small">This design shows ${designMax(design) === 1
       subline: draft.subline || undefined,
       items,
       businessName: info?.name ?? biz.name,
-      logo: logo ?? undefined,
-      contact: info?.whatsappNumber ? { label: words.order, number: flyerNumber(info.whatsappNumber) } : undefined,
-      link: link?.replace(/^https?:\/\//, ""),
+      logo: draft.show.logo ? (logo ?? undefined) : undefined,
+      contact: draft.show.number && info?.whatsappNumber ? { label: words.order, number: flyerNumber(info.whatsappNumber) } : undefined,
+      link: draft.show.link ? link?.replace(/^https?:\/\//, "") : undefined,
       fromWord: words.from,
       accent: draft.colour,
+      look: draft.look,
       // Until migration 0082 gives Free its limit, Free is known by its plan code.
       credit: tag || (draft.pass === "open" && planCode === "free") ? "Made with yarnOga" : undefined,
     });

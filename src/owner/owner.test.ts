@@ -1141,6 +1141,40 @@ describe("business flyers", () => {
     expect((await get(s, `${path}/nope.jpg`, cookie)).status).toBe(404);
   }, 20_000);
 
+  it("changes the look in the design console and redraws the flyer", async () => {
+    const s = setup();
+    const cookie = await login(s, OWNER);
+    const id = await s.prices.save(null, product([option([tier(300000)])]));
+    const body = new FormData();
+    body.set("headline", "Weekend offer");
+    body.set("product", id);
+    const path = (await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } })).headers.get("location")!.replace("/home", "");
+    const page = await (await get(s, `${path}/menu`, cookie)).text();
+    expect(page).toContain('action="/home' + path + '/menu/look"');
+    expect(page).toContain("Headline font");
+    expect(page).toContain(`${path}/menu.jpg?v=0`);
+    const before = new Uint8Array(await (await get(s, `${path}/menu.jpg`, cookie)).arrayBuffer());
+
+    const live = await s.app.request(
+      `https://${HOST}${path}/menu/look?live=1`,
+      post({ headline: "Christmas sale", subline: "", colour: "#7c3aed", font: "script", size: "l", zoom: "150", photoX: "20", photoY: "80", prices: "on" }, cookie),
+    );
+    expect(await live.json()).toEqual({ version: 1 });
+    const after = await (await get(s, `${path}/menu`, cookie)).text();
+    expect(after).toContain('value="Christmas sale"');
+    expect(after).toContain('value="script" checked');
+    expect(after).toContain('name="zoom" min="100" max="200" value="150"');
+    expect(after).not.toMatch(/name="logo" checked/);
+    expect(after).toContain(`${path}/menu.jpg?v=1`);
+    const redrawn = new Uint8Array(await (await get(s, `${path}/menu.jpg`, cookie)).arrayBuffer());
+    expect(Buffer.from(redrawn).equals(Buffer.from(before))).toBe(false);
+
+    // Without the page's script the form posts back to the flyer; reset brings the design's own look back.
+    const reset = await s.app.request(`https://${HOST}${path}/menu/look`, post({ reset: "1" }, cookie));
+    expect(reset.headers.get("location")).toBe(`/home${path}/menu`);
+    expect(await (await get(s, `${path}/menu`, cookie)).text()).toContain('value="" checked');
+  }, 20_000);
+
   it("asks for something to show, and keeps riders out", async () => {
     const s = setup();
     const cookie = await login(s, OWNER);
@@ -1178,7 +1212,7 @@ describe("business flyers on a plan with a monthly number", () => {
     return made.headers.get("location")!.replace("/home", "");
   }
 
-  it("counts a flyer when it's opened, keeps it to the plan's designs, and offers a pack for the rest", async () => {
+  it("counts a flyer when the owner uses it, keeps it to the plan's designs, and offers a pack for the rest", async () => {
     const s = setup({ flyers: limited(1) });
     const cookie = await login(s, OWNER);
     const path = await draft(s, cookie);
@@ -1194,6 +1228,13 @@ describe("business flyers on a plan with a monthly number", () => {
     expect(locked).toContain("Buy 10 flyers");
     expect(locked).toContain("₦1,000");
 
+    // Opening a design is a free preview in the design console; Use this flyer counts it.
+    const preview = await (await get(s, `${path}/grid`, cookie)).text();
+    expect(preview).toContain("Use this flyer");
+    expect(preview).toContain("uses 1 of your 1 free flyer left this month");
+    expect(preview).not.toContain("Download");
+    expect((await get(s, `${path}/grid.jpg`, cookie)).status).toBe(404);
+    expect((await s.app.request(`https://${HOST}${path}/grid/use`, post({}, cookie))).headers.get("location")).toBe(`/home${path}/grid`);
     expect(await (await get(s, `${path}/grid`, cookie)).text()).toContain("Download");
     expect((await get(s, `${path}/grid.jpg`, cookie)).status).toBe(200);
     expect((await get(s, `${path}/glass.jpg`, cookie)).status).toBe(404);
@@ -1202,12 +1243,26 @@ describe("business flyers on a plan with a monthly number", () => {
     expect(await (await get(s, `${await draft(s, cookie)}/grid`, cookie)).text()).toContain("You've made your 1 free flyers for this month");
   }, 20_000);
 
+  it("keeps a counted flyer's words: new words make a new flyer", async () => {
+    const s = setup({ flyers: limited(2) });
+    const cookie = await login(s, OWNER);
+    const path = await draft(s, cookie);
+    await s.app.request(`https://${HOST}${path}/grid/use`, post({}, cookie));
+    await s.app.request(`https://${HOST}${path}/grid/look?live=1`, post({ headline: "Something else", colour: "#111111" }, cookie));
+    const page = await (await get(s, `${path}/grid`, cookie)).text();
+    expect(page).toContain("“Weekend offer”");
+    expect(page).toContain("New words make a new flyer");
+    expect(page).toContain('value="#111111"');
+  }, 20_000);
+
   it("opens every design with a pack, and sends the owner to pay for one", async () => {
     const flyers = limited(0, 1);
     const s = setup({ flyers });
     const cookie = await login(s, OWNER);
     const path = await draft(s, cookie);
     expect(await (await get(s, path, cookie)).text()).toContain("You have 1 pack flyer left");
+    expect(await (await get(s, `${path}/glass`, cookie)).text()).toContain("uses 1 of your 1 pack flyer");
+    await s.app.request(`https://${HOST}${path}/glass/use`, post({}, cookie));
     expect(await (await get(s, `${path}/glass`, cookie)).text()).toContain("Download");
     expect((await get(s, `${path}/bold.jpg`, cookie)).status).toBe(200);
 
