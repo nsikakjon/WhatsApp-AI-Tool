@@ -442,8 +442,8 @@ describe("verify your business", () => {
     const s = setup();
     const cookie = await login(s, OWNER);
     expect(await (await get(s, "/verify", cookie)).text()).toContain("Let's verify your business");
-    await s.app.request(`https://${HOST}/verify/details`, post({ type: "business_name", name: "Kahn Prints", rc: "BN 3456789", address: "12 Allen Ave", director: "Ada Okafor" }, cookie));
-    expect(s.kyb.rows.get(BIZ)).toMatchObject({ entityType: "business_name", rcNumber: "3456789" });
+    await s.app.request(`https://${HOST}/verify/details`, post({ type: "business_name", name: "Kahn Prints", rc: "BN 3456789", address: "12 Allen Ave", director: "Ada Okafor", pep: "no" }, cookie));
+    expect(s.kyb.rows.get(BIZ)).toMatchObject({ entityType: "business_name", rcNumber: "3456789", pep: false });
 
     // Sending too early is refused.
     expect((await s.app.request(`https://${HOST}/verify/submit`, post({}, cookie))).headers.get("location")).toBe("/home/verify?msg=bad");
@@ -470,8 +470,20 @@ describe("verify your business", () => {
     const s = setup();
     const cookie = await login(s, OWNER);
     expect(await (await get(s, "/verify", cookie)).text()).toContain("pay links take up to ₦200,000 a payment and ₦1,000,000 a month");
+    await s.kyb.store.saveDetails(BIZ, { entityType: "individual", registeredName: "Kahn Prints", rcNumber: null, tin: null, address: "x", directorName: "Ada Okafor", contactEmail: null, pep: false });
     await s.kyb.store.review(BIZ, "approved", null, "jay");
     expect(await (await get(s, "/verify", cookie)).text()).toContain("no yarnOga limit");
+
+    // Money going to someone else's account keeps the limits on.
+    s.biz.data.banks = async () => [{ id: "a1", bankName: "GTBank", bankCode: "058", accountNumber: "0123456789", accountName: "JOHN DOE", isPrimary: true }];
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("isn't your verified business or owner name");
+    s.biz.data.banks = async () => [{ id: "a1", bankName: "GTBank", bankCode: "058", accountNumber: "0123456789", accountName: "OKAFOR ADA", isPrimary: true }];
+    expect(await (await get(s, "/verify", cookie)).text()).toContain("no yarnOga limit");
+
+    await s.kyb.store.setPaused(BIZ, true, "Reviewing recent payments.", "jay");
+    const paused = await (await get(s, "/verify", cookie)).text();
+    expect(paused).toContain("yarnOga has paused online payments and payouts");
+    expect(paused).toContain("Reviewing recent payments.");
   });
 
   it("is for owners only", async () => {

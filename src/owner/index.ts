@@ -86,6 +86,8 @@ export const FLASH: Record<string, { ok: boolean; text: string }> = {
   flyer_send_limit: { ok: false, text: "You have no broadcast messages left, so the flyer wasn't sent." },
   flyer_send_failed: { ok: false, text: "The flyer couldn't be sent just now. Please try again." },
   flyer_pack_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again." },
+  payments_paused: { ok: false, text: "yarnOga has paused online payments and payouts for your business. Please message yarnOga support." },
+  payout_limit: { ok: false, text: "That's over the payout limit for businesses yarnOga hasn't verified yet. Verify your business (More > Verify business) to add more." },
   topup_failed: { ok: false, text: "The payment link couldn't be made just now. Please try again, or send top up to your bot." },
 };
 
