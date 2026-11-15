@@ -147,6 +147,36 @@ Run `supabase/migrations/0088_partner_leads.sql` once in Supabase first. It
 also adds the leads found so far (only while the list is empty). No Railway
 setting is needed.
 
+### Partner packages
+
+Every lead marked **Agreed** gets a panel under **Partner packages** on the
+same page, so anyone on the team can set up what we promised them:
+
+- **Discount code**: the code (e.g. TEDXUNIUYO), percent off the first month,
+  how many people can use it, the last day it works, which plans it works on,
+  and an on/off tick. The panel shows how many have paid with it, how many
+  places are left and how many shops gave it when signing up. After the last
+  day the bot treats it like a code that has ended.
+- **Their shop**: once the partner has signed up on the bot (they send
+  "sign up" to 0704 897 1600), type the WhatsApp number they signed up from to
+  link their shop. Then set:
+  - **Plan** and **Free until**: give them a plan free until a date. After
+    that day they go back to Free and get the usual renewal reminders.
+  - **What the bot knows**: the FAQs the bot answers from (programme, venue,
+    directions, times, who to call), up to 1,500 characters. It's the same
+    "About us" the owner can edit in their app, and it shows on their shop
+    page. The bot uses it from the next message.
+  - **No yarnOga fee**: takes off our 2.5% fee on their pay-link payments
+    (tickets, invoices), whatever their plan. Paystack's own charge still
+    applies.
+
+Turning their ticket types into tickets, and their WhatsApp number, work as
+for any shop (docs/EVENT_TICKETS.md, docs/NUMBER_QUEUE.md).
+
+Run `supabase/migrations/0089_partner_packages.sql` once in Supabase first
+(after 0088). Until then the panels say they couldn't load. No Railway
+setting is needed.
+
 ## Plan editor
 
 A page at `/dashboard/plans` (same password as the dashboard) for changing

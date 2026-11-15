@@ -5,7 +5,8 @@ import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
-import { parsePartnerForm, renderPartners, summarisePartners, type PartnerStore } from "./partners.js";
+import { ownerNumber, parseCodeForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
@@ -33,6 +34,8 @@ export interface DashboardDeps {
   tally?: TallyStore;
   /** Events and organisers we pitch partnerships to, at /dashboard/partners. */
   partners?: PartnerStore;
+  /** Discount codes and shops for agreed partners, on the same page. */
+  partnerPackages?: PartnerPackageStore;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
@@ -239,8 +242,32 @@ export function createDashboard(deps: DashboardDeps) {
         log.error("Partnerships list failed to load:", err);
         return "error" as const;
       });
+    let packages = "";
+    const agreed = summary === "error" ? [] : summary.all.filter((p) => p.status === "Agreed");
+    if (deps.partnerPackages && agreed.length) {
+      const store = deps.partnerPackages;
+      const plans = await store.plans().catch((err) => {
+        log.error("Plans failed to load for partner packages:", err);
+        return [];
+      });
+      const rendered = await Promise.all(
+        agreed.map(async (p) => {
+          const pkg = await store.load(p).catch((err) => {
+            log.error(`Partner package for ${p.name} failed to load:`, err);
+            return "error" as const;
+          });
+          return renderPackage(p, pkg, plans, today());
+        }),
+      );
+      packages = rendered.join("");
+    }
     return c.html(
-      renderPartners(summary, today(), { editId: Number(c.req.query("edit")) || undefined, problem: c.req.query("problem")?.slice(0, 200) }),
+      renderPartners(summary, today(), {
+        editId: Number(c.req.query("edit")) || undefined,
+        problem: c.req.query("problem")?.slice(0, 200),
+        saved: c.req.query("saved")?.slice(0, 120),
+        packages,
+      }),
     );
   });
 
@@ -283,6 +310,54 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToPartners("Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToPartners(), 303);
+  });
+
+  // A partner's package: the discount code and their shop.
+  const backToPackage = (id: number, notice: { problem?: string; saved?: string }) => {
+    const [key, value] = notice.problem ? ["problem", notice.problem] : ["saved", notice.saved ?? "Saved."];
+    return `/dashboard/partners?${key}=${encodeURIComponent(value)}#package-${id}`;
+  };
+  const agreedPartner = async (c: Context): Promise<Partner | null> => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    const partner = (await deps.partners!.list()).find((p) => p.id === id);
+    return partner?.status === "Agreed" ? partner : null;
+  };
+  const packageRoute = (path: string, run: (p: Partner, form: Record<string, unknown>) => Promise<{ problem?: string; saved?: string }>) =>
+    app.post(path, async (c) => {
+      if (!deps.partnerPackages || !partnersAllowed(c)) return c.text("Not allowed.", 403);
+      try {
+        const partner = await agreedPartner(c);
+        if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
+        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody())), 303);
+      } catch (err) {
+        log.error("Couldn't save a partner package:", err);
+        return c.redirect(backToPartners("Couldn't save that just now. If 0089_partner_packages.sql hasn't been run yet, run it, then try again."), 303);
+      }
+    });
+
+  packageRoute("/partners/:id/code", async (p, form) => {
+    const code = parseCodeForm(form);
+    if ("problem" in code) return code;
+    const problem = await deps.partnerPackages!.saveCode(p, code);
+    return problem ? { problem } : { saved: `Code ${code.code} saved.` };
+  });
+  packageRoute("/partners/:id/shop", async (p, form) => {
+    const waId = ownerNumber(form);
+    if (!waId) return { problem: "Type the WhatsApp number they signed up from, e.g. 0803 123 4567." };
+    const problem = await deps.partnerPackages!.linkShop(p, waId);
+    return problem ? { problem } : { saved: "Shop linked." };
+  });
+  packageRoute("/partners/:id/shop/settings", async (p, form) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const shop = parseShopForm(form, await deps.partnerPackages!.plans());
+    if ("problem" in shop) return shop;
+    await deps.partnerPackages!.saveShop(p, shop);
+    return { saved: "Shop saved. The bot uses it from the next message." };
+  });
+  packageRoute("/partners/:id/shop/unlink", async (p) => {
+    await deps.partnerPackages!.unlinkShop(p);
+    return { saved: "Shop unlinked." };
   });
 
   // The plan editor: one form per plan, each saved on its own.
