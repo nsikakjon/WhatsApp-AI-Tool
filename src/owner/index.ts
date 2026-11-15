@@ -11,7 +11,7 @@ import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { clientIp, createGuard } from "../core/security/guard.js";
 import { checkPassword, cookieSecret, hashToken, normaliseWaId, readSession, SESSION_DAYS, sameText, sessionValue } from "./auth.js";
 import { ordersCsv } from "./exports.js";
-import { bare, esc, page } from "./layout.js";
+import { bare, esc, page, shareTags } from "./layout.js";
 import { lagosDate } from "./summary.js";
 import { eventPhase, REPORT_DAYS } from "../dashboard/partner-access.js";
 import { registerDashboard } from "./sections/dashboard.js";
@@ -141,7 +141,8 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   app.get("/brand/:file", (c) => {
     const file = BRAND_FILES.has(c.req.param("file")) ? brandFile(c.req.param("file")) : null;
     if (!file) return c.notFound();
-    return c.body(file as unknown as ArrayBuffer, 200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=604800" });
+    const type = c.req.param("file").endsWith(".jpg") ? "image/jpeg" : "image/png";
+    return c.body(file as unknown as ArrayBuffer, 200, { "Content-Type": type, "Cache-Control": "public, max-age=604800" });
   });
 
   registerScannerAssets(app);
@@ -208,6 +209,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
         "Open your app",
         `<h1>See what you've sold today</h1><p class="muted">Orders, money in and delivered orders, all in one place.</p><form method="post" action="/home/l/${esc(c.req.param("token"))}"><button>Open my app</button></form>
 <p class="muted small">This link works once. If it's expired, send <b>app</b> to your bot again.</p>`,
+        shareTags(deps.publicUrl, "Open your yarnOga app", "Your orders, money in and chats, all in one place. This link works once."),
       ),
     ),
   );
@@ -403,7 +405,7 @@ export type SectionContext = {
   relogin(c: AppContext, user: AppUser): Promise<void>;
 };
 
-const BRAND_FILES = new Set(["logo-96.png", "mark-128.png", "mark-64.png", "mark-32.png", "app-192.png", "app-512.png"]);
+const BRAND_FILES = new Set(["logo-96.png", "mark-128.png", "mark-64.png", "mark-32.png", "app-192.png", "app-512.png", "share-1200.jpg"]);
 const brandDir = fileURLToPath(new URL("../../assets/brand/web/", import.meta.url));
 const brandCache = new Map<string, Uint8Array | null>();
 function brandFile(name: string): Uint8Array | null {
