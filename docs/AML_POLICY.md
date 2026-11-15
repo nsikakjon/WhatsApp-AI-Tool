@@ -63,8 +63,14 @@ answer in the note, and watches its payments more closely.
 | | Not verified | Verified |
 | --- | --- | --- |
 | One pay-link payment | ₦200,000 | no yarnOga limit |
-| Pay links in a month (orders, tickets, monthly payments) | ₦1,000,000 | no yarnOga limit |
+| Pay links in a month (orders, monthly payments) | ₦1,000,000 | no yarnOga limit |
 | Adding to the payout balance in a month | ₦200,000 | no yarnOga limit |
+
+Event tickets have no yarnOga limit, verified or not (jay's decision, 15
+November 2026, so event partners can sell tickets without verifying first). An
+order counts as tickets only when every item in it is a ticket. Pausing a shop
+still stops its ticket links, and the payment alerts in section 3 still watch
+ticket money.
 
 Other currencies: about the same (100 and 500 times the fee cap). Paystack's
 and Flutterwave's own limits always apply. Over a limit, the invoice goes with

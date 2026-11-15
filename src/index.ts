@@ -86,7 +86,7 @@ import {
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
-import { createEventTickets } from "./products/quote/tickets/index.js";
+import { createEventTickets, type EventTickets } from "./products/quote/tickets/index.js";
 import { createTicketLinks } from "./products/quote/tickets/links.js";
 import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
 import { createSiteReporter } from "./products/site/index.js";
@@ -300,6 +300,7 @@ const payLinkFor = (
   features?: PlanFeatures,
   dispatch?: Dispatch,
   verifiedAs?: string,
+  tickets?: Pick<EventTickets, "ticketsOnly">,
 ) => {
   const currency = accounts.currency ?? "NGN";
   const check =
@@ -308,6 +309,7 @@ const payLinkFor = (
           currency,
           standing: () => amlStanding(businessId, verifiedAs),
           paidThisMonthKobo: () => paidSince("paylink_paid_since", businessId, lagosMonthStart(new Date())),
+          ticketsOnly: tickets ? (order) => tickets.ticketsOnly(order.lines) : undefined,
         })
       : undefined;
   const naira = currency === "NGN";
@@ -749,6 +751,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       features.features,
       dispatch,
       planId,
+      ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features),
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
