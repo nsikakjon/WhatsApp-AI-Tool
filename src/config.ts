@@ -364,6 +364,8 @@ export interface Config {
     youtube?: { apiKey: string; handle: string };
     /** TikTok numbers. refreshToken is empty until the owner connects TikTok from the dashboard. */
     tiktok?: { clientKey: string; clientSecret: string; refreshToken?: string };
+    /** Google Analytics for yarnoga.com: the GA4 property number and a service account's JSON key. */
+    googleAnalytics: { propertyId?: string; serviceAccountKey?: string };
   };
   /**
    * The free reply generator on the website. Only set when
@@ -707,6 +709,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
                   refreshToken: env.TIKTOK_REFRESH_TOKEN || undefined,
                 }
               : undefined,
+          googleAnalytics: {
+            propertyId: env.GA_PROPERTY_ID?.trim() || undefined,
+            serviceAccountKey: env.GA_SERVICE_ACCOUNT_KEY?.trim() || undefined,
+          },
         }
       : undefined,
     generator: /^(true|yes|on|1)$/i.test(env.REPLY_GENERATOR_ENABLED ?? "")

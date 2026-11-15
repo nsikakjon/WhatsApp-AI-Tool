@@ -3,6 +3,7 @@ import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono, type Context } from "hono";
 import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
+import type { AnalyticsSource } from "./analytics.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { parsePartnerForm, renderPartners, summarisePartners, type PartnerStore } from "./partners.js";
@@ -23,6 +24,8 @@ export interface DashboardDeps {
   socials?: SocialsSource;
   /** yarnoga.com visitor numbers. */
   website?: WebsiteStatsSource;
+  /** Google Analytics numbers for yarnoga.com. */
+  analytics?: AnalyticsSource;
   /** Money in and out, for the profit and loss section. */
   money?: MoneyStore;
   /** What each shop costs us against what it pays (SHOP_COSTS). */
@@ -57,7 +60,7 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials, website, money, costs, ads] = await Promise.all([
+      const [stats, socials, website, analytics, money, costs, ads] = await Promise.all([
         deps.stats.load(now),
         deps.socials?.load(now) ?? [],
         // A website problem (say, the table isn't created yet) mustn't hide everything else.
@@ -65,6 +68,7 @@ export function createDashboard(deps: DashboardDeps) {
           log.error("Website visits failed to load:", err);
           return "error" as const;
         }),
+        deps.analytics?.load(now),
         deps.money?.list().then(summariseMoney).catch((err) => {
           log.error("Profit and loss failed to load:", err);
           return "error" as const;
@@ -86,6 +90,7 @@ export function createDashboard(deps: DashboardDeps) {
           tab: asked && DASHBOARD_TABS.includes(asked) ? asked : "overview",
           socials,
           website,
+          analytics,
           profit: money && { pnl: money, now, problem, editId },
           costs,
           ads,

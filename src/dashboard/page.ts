@@ -2,6 +2,7 @@ import { pageShell } from "../core/admin-page.js";
 import { formatNaira } from "../core/money.js";
 import { AD_REPORT_DAYS } from "../core/ads.js";
 import type { AdsReport } from "./ads.js";
+import type { AnalyticsResult } from "./analytics.js";
 import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
 import type { MoneyLine, ProfitAndLoss } from "./profit.js";
 import { compareWithPlan, MARKETING_CATEGORY, PLAN_START, type Figures, type PlanComparison, type PlanMonth } from "./projection.js";
@@ -206,11 +207,11 @@ function socialCard(a: SocialAccount): string {
   }</div>`;
 }
 
-function rankTable(heading: string, rows: { label: string; views: number }[], empty: string): string {
+function rankTable(heading: string, rows: { label: string; views: number }[], empty: string, column = "Views"): string {
   const body = rows.length
     ? rows.map((r) => `<tr><td>${esc(r.label)}</td><td>${num(r.views)}</td></tr>`).join("")
     : `<tr><td colspan="2">${esc(empty)}</td></tr>`;
-  return `<table class="plans"><thead><tr><th>${esc(heading)}</th><th>Views</th></tr></thead><tbody>${body}</tbody></table>`;
+  return `<table class="plans"><thead><tr><th>${esc(heading)}</th><th>${esc(column)}</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function websiteSection(w: WebsiteStats | "error" | undefined): string {
@@ -247,6 +248,42 @@ ${tile("Busiest day", num(busiest), "visitors, last 30 days")}
       "Came from, last 30 days",
       w.topSources.map((src) => ({ label: src.source || "Direct (typed, bookmark or an app)", views: src.views })),
       "No visits yet",
+    )}</div>`,
+  );
+}
+
+function analyticsSection(ga: AnalyticsResult | undefined): string {
+  if (!ga) return "";
+  const title = "Google Analytics (yarnoga.com)";
+  const intro =
+    "The same website as seen by Google Analytics, which also follows people from page to page, so it adds sessions and where each visit came from. Its counts differ a little from our own counter above.";
+  if (ga.status === "not_connected") {
+    return section("analytics", title, intro, `<p class="problem">Not connected. Needs GA_PROPERTY_ID and GA_SERVICE_ACCOUNT_KEY on Railway (see docs/DASHBOARD.md).</p>`);
+  }
+  if (ga.status === "error") return section("analytics", title, intro, `<p class="problem">Couldn't load. ${esc(ga.problem)}</p>`);
+  const r = ga.report;
+  return section(
+    "analytics",
+    title,
+    intro,
+    `<div class="tiles">
+${tile("Users", num(r.users30), `last 30 days (${num(r.users7)} this week)`)}
+${tile("New users", num(r.newUsers30), "first visit in the last 30 days")}
+${tile("Sessions", num(r.sessions30), "visits, last 30 days")}
+${tile("Page views", num(r.views30), "last 30 days")}
+</div>${dailyChart(
+      r.daily.map((d) => ({ date: d.date, count: d.users })),
+      { caption: "Users per day", one: "user", many: "users", column: "Users" },
+    )}
+<div class="pair">${rankTable(
+      "Top pages, last 30 days",
+      r.topPages.map((p) => ({ label: p.label, views: p.count })),
+      "No visits yet",
+    )}${rankTable(
+      "Traffic sources, last 30 days",
+      r.sources.map((src) => ({ label: src.label, views: src.count })),
+      "No visits yet",
+      "Sessions",
     )}</div>`,
   );
 }
@@ -435,6 +472,7 @@ export interface DashboardView {
   tab?: DashboardTab;
   socials?: SocialAccount[];
   website?: WebsiteStats | "error";
+  analytics?: AnalyticsResult;
   profit?: ProfitView;
   costs?: ShopCosts | "error";
   ads?: AdsReport | "error";
@@ -445,7 +483,7 @@ export interface DashboardView {
 }
 
 export function renderDashboard(s: DashboardStats, view: DashboardView = {}): string {
-  const { tab = "overview", socials: socialAccounts = [], website, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
+  const { tab = "overview", socials: socialAccounts = [], website, analytics, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -559,6 +597,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
       [costs === "error", "Shop costs couldn't load", "?tab=money#costs"],
       [ads === "error", "Leads from ads couldn't load", "?tab=marketing#ads"],
       [website === "error", "Website visits couldn't load", "?tab=marketing#website"],
+      [analytics?.status === "error", "Google Analytics couldn't load", "?tab=marketing#analytics"],
     ]
       .filter(([bad]) => bad)
       .map(([, text, href]) => [text, href]),
@@ -586,7 +625,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
   const tabs: [DashboardTab, string, string][] = [
     ["overview", "Overview", `${needsLook}${toolCards}`],
     ["money", "Money", `${profitSection(profit)}${planSection(plan)}${costsSection(costs)}`],
-    ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${socials}`],
+    ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${analyticsSection(analytics)}${socials}`],
     ["products", "Products", `${whatsapp}${flyers}${quotes}${reporter}${leads}`],
   ];
   const nav =
