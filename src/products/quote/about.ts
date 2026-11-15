@@ -15,6 +15,13 @@ export type OpeningHours = Partial<Record<Day, [string, string]>>;
 export interface BusinessAbout {
   text: string | null;
   hours: OpeningHours | null;
+  /** Where to find the business (shop_address, migration 0081), for directions. */
+  address?: string | null;
+}
+
+/** A map search for the address, which opens in the customer's map app. */
+export function mapLink(address: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
 export const DAY_NAMES: Record<Lang, Record<Day, string>> = {
@@ -98,7 +105,12 @@ export function nextOpenText(next: { day: Day; time: string; today: boolean; tom
 /** The About section as the AI sees it. */
 export function aboutForAi(about: BusinessAbout | null): string | null {
   if (!about) return null;
-  const parts = [about.text?.trim(), about.hours ? `Opening hours (Lagos time): ${hoursText(about.hours)}.` : null].filter(Boolean);
+  const address = about.address?.trim();
+  const parts = [
+    about.text?.trim(),
+    address ? `Address: ${address}. Directions on a map: ${mapLink(address)}` : null,
+    about.hours ? `Opening hours (Lagos time): ${hoursText(about.hours)}.` : null,
+  ].filter(Boolean);
   return parts.length ? parts.join("\n") : null;
 }
 
@@ -126,6 +138,7 @@ export function createSupabaseAbout(db: SupabaseClient, businessId: string): () 
     if (!data) return null;
     const text = typeof data.about === "string" && data.about.trim() ? data.about.trim() : null;
     const hours = cleanHours(data.opening_hours);
-    return text || hours ? { text, hours } : null;
+    const address = typeof data.shop_address === "string" && data.shop_address.trim() ? data.shop_address.trim() : null;
+    return text || hours || address ? { text, hours, address } : null;
   };
 }
