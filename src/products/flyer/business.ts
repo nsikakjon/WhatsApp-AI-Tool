@@ -17,6 +17,8 @@ export interface BusinessItem {
   price?: string;
   /** The price is the lowest of several ("from ₦4,500"). */
   from?: boolean;
+  /** Where the owner moved the photo in its frame. */
+  pos?: PhotoPos;
 }
 
 export interface BusinessFlyerInput {
@@ -42,6 +44,8 @@ export interface BusinessFlyerInput {
   year?: number;
   /** The owner's own touches from the design console. Left out, each design keeps its own look. */
   look?: FlyerLook;
+  /** When given, filled with where each photo was drawn. */
+  frames?: Frame[];
 }
 
 /** Fonts the owner can pick for the headline; "upper" ones are written in capitals. */
@@ -60,11 +64,23 @@ export interface FlyerLook {
   font?: HeadlineFont;
   /** Headline size against the design's own, 0.85 to 1.15. */
   size?: number;
-  /** Where the photo sits in its frame, 0 (left/top) to 1 (right/bottom). */
-  photoX?: number;
-  photoY?: number;
-  /** 1 fills the frame; up to 2 goes in closer. */
+}
+
+/** Where a photo sits in its frame: x and y from 0 (left/top) to 1 (right/bottom); zoom 1 fills the frame, up to 2 goes in closer. */
+export interface PhotoPos {
+  x?: number;
+  y?: number;
   zoom?: number;
+}
+
+/** Where a product's photo was drawn on the flyer, in flyer pixels, with its frame and picture sizes for moving it by touch. */
+export interface Frame {
+  item: number;
+  box: [number, number, number, number];
+  w: number;
+  h: number;
+  iw: number;
+  ih: number;
 }
 
 export function isHeadlineFont(id: string): id is HeadlineFont {
@@ -168,7 +184,7 @@ async function spotlight(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessIt
   ctx.lineTo(0, PH);
   ctx.closePath();
   ctx.clip();
-  place(ctx, input.look, photo!, 0, 0, W, PH);
+  place(ctx, input, 0, photo!, 0, 0, W, PH);
   ctx.restore();
   ctx.fillStyle = input.accent;
   ctx.beginPath();
@@ -272,7 +288,7 @@ async function grid(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
     ctx.save();
     roundRect(ctx, x + 12, y0 + 12, w - 24, h - 24 - words, 18);
     ctx.clip();
-    place(ctx, input.look, photos[i]!, x + 12, y0 + 12, w - 24, h - 24 - words);
+    place(ctx, input, i, photos[i]!, x + 12, y0 + 12, w - 24, h - 24 - words);
     ctx.restore();
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
@@ -340,7 +356,7 @@ async function menu(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], 
     ctx.beginPath();
     ctx.arc(70 + thumb / 2, cy, thumb / 2, 0, Math.PI * 2);
     ctx.clip();
-    place(ctx, input.look, photos[i]!, 70, cy - thumb / 2, thumb, thumb);
+    place(ctx, input, i, photos[i]!, 70, cy - thumb / 2, thumb, thumb);
     ctx.restore();
     ctx.strokeStyle = withAlpha(bright, 0.8);
     ctx.lineWidth = 3;
@@ -428,7 +444,7 @@ async function bold(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[],
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(-frameW / 2, -frameH / 2, frameW, frameH);
   ctx.shadowColor = "transparent";
-  coverIn(ctx, input.look, photo!, -frameW / 2 + 18, -frameH / 2 + 18, frameW - 36, frameH - 36);
+  coverIn(ctx, input, 0, photo!, -frameW / 2 + 18, -frameH / 2 + 18, frameW - 36, frameH - 36);
   if (item!.name) {
     ctx.font = `40px "Poppins ExtraBold"`;
     fitFont(ctx, item!.name.toUpperCase(), '"Poppins ExtraBold"', 40, 22, frameW - 60);
@@ -524,7 +540,7 @@ async function snapshots(ctx: Ctx, input: BusinessFlyerInput, items: BusinessIte
     ctx.fillStyle = "#fffdf8";
     ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.shadowColor = "transparent";
-    coverIn(ctx, input.look, photos[i]!, -w / 2 + border, -h / 2 + border, w - border * 2, h - border - chin);
+    coverIn(ctx, input, i, photos[i]!, -w / 2 + border, -h / 2 + border, w - border * 2, h - border - chin);
     ctx.fillStyle = "rgba(226,214,186,0.85)";
     ctx.save();
     ctx.rotate(-angle * 2);
@@ -608,7 +624,7 @@ async function glass(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[]
   ctx.save();
   roundRect(ctx, x + 26, cardTop + 26, w - 52, h - 52 - words, 26);
   ctx.clip();
-  place(ctx, input.look, photo!, x + 26, cardTop + 26, w - 52, h - 52 - words);
+  place(ctx, input, 0, photo!, x + 26, cardTop + 26, w - 52, h - 52 - words);
   ctx.restore();
   const midY = cardBottom - 26 - words / 2;
   let priceW = 0;
@@ -805,7 +821,7 @@ function onePhoto(ctx: Ctx, input: BusinessFlyerInput, item: BusinessItem, photo
   ctx.save();
   roundRect(ctx, x, top, w, h, 32);
   ctx.clip();
-  place(ctx, input.look, photo, x, top, w, h);
+  place(ctx, input, 0, photo, x, top, w, h);
   ctx.restore();
   if (item.price) goldTag(ctx, priceLine(item, input.fromWord), x + w - 24, top + h - 64, true);
   if (item.name) {
@@ -850,7 +866,7 @@ function roundPhotos(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[],
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.clip();
-    place(ctx, input.look, photos[i]!, cx - r, cy - r, r * 2, r * 2);
+    place(ctx, input, i, photos[i]!, cx - r, cy - r, r * 2, r * 2);
     ctx.restore();
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
@@ -1106,21 +1122,38 @@ function footer(ctx: Ctx, input: BusinessFlyerInput, colours: { text: string; mu
 }
 
 /** The photo filling a box, with what spills over cut off. */
-function coverIn(ctx: Ctx, look: FlyerLook | undefined, img: Image | Canvas, x: number, y: number, w: number, h: number) {
+function coverIn(ctx: Ctx, input: BusinessFlyerInput, i: number, img: Image | Canvas, x: number, y: number, w: number, h: number) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, w, h);
   ctx.clip();
-  place(ctx, look, img, x, y, w, h);
+  place(ctx, input, i, img, x, y, w, h);
   ctx.restore();
 }
 
-/** The photo filling a box (the caller clips it), moved and zoomed the way the owner set it in the console. */
-function place(ctx: Ctx, look: FlyerLook | undefined, img: Image | Canvas, x: number, y: number, w: number, h: number) {
-  const s = Math.max(w / img.width, h / img.height) * (look?.zoom ?? 1);
+/**
+ * The photo filling a box (the caller clips it), moved and zoomed the way the
+ * owner set it for that photo. Where the box lands on the flyer is noted in
+ * input.frames, so the app knows which photo a finger is on.
+ */
+function place(ctx: Ctx, input: BusinessFlyerInput, i: number, img: Image | Canvas, x: number, y: number, w: number, h: number) {
+  const pos = input.items[i]?.pos;
+  const s = Math.max(w / img.width, h / img.height) * (pos?.zoom ?? 1);
   const iw = img.width * s,
     ih = img.height * s;
-  ctx.drawImage(img, x + (w - iw) * (look?.photoX ?? 0.5), y + (h - ih) * (look?.photoY ?? 0.5), iw, ih);
+  ctx.drawImage(img, x + (w - iw) * (pos?.x ?? 0.5), y + (h - ih) * (pos?.y ?? 0.5), iw, ih);
+  if (!input.frames || !input.items[i]?.photo) return;
+  const m = ctx.getTransform();
+  const corners = [
+    [x, y],
+    [x + w, y],
+    [x, y + h],
+    [x + w, y + h],
+  ].map(([px, py]) => [m.a * px! + m.c * py! + m.e, m.b * px! + m.d * py! + m.f]);
+  const xs = corners.map((c) => c[0]!),
+    ys = corners.map((c) => c[1]!);
+  const scale = Math.hypot(m.a, m.b);
+  input.frames.push({ item: i, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map(Math.round) as Frame["box"], w: w * scale, h: h * scale, iw: img.width, ih: img.height });
 }
 
 /** The headline at the biggest size that fits, in the design's own font or the one the owner picked, made bigger or smaller as they set it. */
