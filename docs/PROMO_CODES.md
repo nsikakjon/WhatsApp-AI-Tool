@@ -43,6 +43,9 @@ flyer number:
 To add another code later (say 30% off for 5 people), add a row in the same
 table: `code` in capitals (letters and numbers only), `percent_off`, `max_uses`.
 Set `product` to `flyer` or `quote` to limit it to one product.
+Set `ends_on` (migration 0089) to the last day it works; empty means no end.
+Codes for partners are easier to set up on the dashboard's Partnerships page
+(docs/DASHBOARD.md, Partner packages).
 
 ## Referral codes for the quote and order bot
 
