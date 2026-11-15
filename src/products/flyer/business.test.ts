@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSINESS_DESIGNS, designMax, HEADLINE_FONTS, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem } from "./business.js";
+import { BUSINESS_DESIGNS, comingYear, designMax, inSeason, HEADLINE_FONTS, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem } from "./business.js";
 import { placeholderPortrait } from "./render.js";
 
 const isJpeg = (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8;
@@ -20,6 +20,8 @@ describe("business flyers", () => {
           fromWord: "from",
           accent: "#c6ff1f",
           credit: "Made with yarnOga",
+          place: "Stand 14, Christmas Unplugged, Uyo",
+          lang: "fr",
         });
         expect(isJpeg(flyer)).toBe(true);
       }
@@ -42,6 +44,15 @@ describe("business flyers", () => {
       }
     }
   }, 60_000);
+
+  it("offers the seasonal designs from November to mid-January, welcoming the right year", () => {
+    expect(inSeason(new Date("2026-11-01T00:00:00Z"))).toBe(true);
+    expect(inSeason(new Date("2027-01-15T12:00:00Z"))).toBe(true);
+    expect(inSeason(new Date("2027-01-16T12:00:00Z"))).toBe(false);
+    expect(inSeason(new Date("2026-07-01T00:00:00Z"))).toBe(false);
+    expect(comingYear(new Date("2026-12-20T00:00:00Z"))).toBe(2027);
+    expect(comingYear(new Date("2027-01-03T00:00:00Z"))).toBe(2027);
+  });
 
   it("has one-product designs and designs for a whole list", () => {
     expect(designMax("spotlight")).toBe(1);

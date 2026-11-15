@@ -4,7 +4,7 @@
 // worked out from the price list and formatted: this file only draws them.
 import { createCanvas, loadImage, type Canvas, type Image, type SKRSContext2D } from "@napi-rs/canvas";
 import { drawCredit } from "./credit.js";
-import { cover, fitFont, H, rng, W, wrap } from "./designs4.js";
+import { balloon, bokeh, cover, fitFont, GOLD, H, metal, rng, sparkle, W, wrap } from "./designs4.js";
 import { roundRect } from "./designs7.js";
 import { loadFonts } from "./render.js";
 
@@ -34,6 +34,12 @@ export interface BusinessFlyerInput {
   /** The business's colour, e.g. "#e8541e". */
   accent: string;
   credit?: string;
+  /** Where to find the business, e.g. "Stand 14, Christmas Unplugged, Uyo". */
+  place?: string;
+  /** The language of the greeting on a seasonal design. */
+  lang?: "en" | "fr";
+  /** The year a New Year flyer welcomes; left out, the coming one. */
+  year?: number;
   /** The owner's own touches from the design console. Left out, each design keeps its own look. */
   look?: FlyerLook;
 }
@@ -72,7 +78,21 @@ export const BUSINESS_DESIGNS = [
   { id: "bold", name: "Bold", about: "Loud colour and a price sticker, for offers", max: 1 },
   { id: "snapshots", name: "Snapshots", about: "Up to three products as instant photos", max: 3 },
   { id: "glass", name: "Glass", about: "One product on frosted glass", max: 1 },
+  { id: "christmas", name: "Christmas", about: "Red and gold, with your products as baubles", max: 4, season: true },
+  { id: "lights", name: "Christmas lights", about: "Fairy lights on deep green", max: 4, season: true },
+  { id: "newyear", name: "New Year", about: "Gold fireworks for the new year", max: 4, season: true },
 ] as const;
+
+/** Seasonal designs keep their own colours and work with no products, as a greeting from the business. */
+export function isSeasonal(id: BusinessDesign): boolean {
+  return BUSINESS_DESIGNS.some((d) => d.id === id && "season" in d);
+}
+
+/** Christmas and New Year designs are offered from 1 November to 15 January. */
+export function inSeason(now: Date): boolean {
+  const m = now.getUTCMonth();
+  return m === 10 || m === 11 || (m === 0 && now.getUTCDate() <= 15);
+}
 
 export type BusinessDesign = (typeof BUSINESS_DESIGNS)[number]["id"];
 
@@ -92,7 +112,7 @@ export async function renderBusinessFlyer(design: BusinessDesign, input: Busines
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
   const items = input.items.slice(0, designMax(design));
-  if (!items.length) items.push({});
+  if (!items.length && !isSeasonal(design)) items.push({});
   const photos = await Promise.all(items.map((item) => picture(item, input.accent)));
   await DRAW[design](ctx, input, items, photos);
   drawCredit(ctx, input.credit, W, H - FOOT + 2);
@@ -132,7 +152,7 @@ export async function previewOf(jpeg: Uint8Array, mark = false, width = 540): Pr
 
 type Draw = (ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>) => Promise<void> | void;
 
-const DRAW: Record<BusinessDesign, Draw> = { spotlight, grid, menu, bold, snapshots, glass };
+const DRAW: Record<BusinessDesign, Draw> = { spotlight, grid, menu, bold, snapshots, glass, christmas, lights, newyear };
 
 // ---------- 1. Spotlight: the photo on a slant, headline and a round price badge ----------
 
@@ -614,6 +634,441 @@ async function glass(ctx: Ctx, input: BusinessFlyerInput, [item]: BusinessItem[]
   footer(ctx, input, { text: "#ffffff", muted: "rgba(255,255,255,0.72)", rule: "rgba(255,255,255,0.25)" });
 }
 
+// ---------- 7 to 9. Seasonal: Christmas, Christmas lights and New Year ----------
+// One layout under three backgrounds: a greeting in gold script, the headline,
+// then the products (none, one big, or two to four round ones), where to find
+// the business, and the footer. With no products the logo sits in a wreath.
+
+interface Season {
+  greeting: { en: string; fr: string };
+  font: HeadlineFont;
+  lead: number;
+  /** Paints the background and the decorations at the top. */
+  scene: (ctx: Ctx, input: BusinessFlyerInput) => void;
+  /** The wreath around the logo when there are no products: leaves, or gold for New Year. */
+  leaves: boolean;
+  /** Where the words start, below the decorations. */
+  top: number;
+}
+
+const RED = "#c8102e";
+const PINE = ["#0f5132", "#1a6b43", "#2d8a57"];
+
+const SEASONS: Record<"christmas" | "lights" | "newyear", Season> = {
+  christmas: {
+    greeting: { en: "Merry Christmas", fr: "Joyeux Noël" },
+    font: "elegant",
+    lead: 1.1,
+    leaves: true,
+    top: 150,
+    scene(ctx, input) {
+      const bg = ctx.createRadialGradient(W / 2, H * 0.4, 80, W / 2, H * 0.4, H * 0.85);
+      bg.addColorStop(0, "#a3122a");
+      bg.addColorStop(1, "#4a0612");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      const rand = rng(`christmas${input.businessName}`);
+      for (let i = 0; i < 40; i++) sparkle(ctx, rand() * W, rand() * (H - FOOT), 4 + rand() * 10, `rgba(255,226,150,${0.25 + rand() * 0.5})`);
+      sprig(ctx, -20, 22, 0.1, 360);
+      sprig(ctx, W + 20, 22, Math.PI - 0.1, 360);
+      bauble(ctx, 70, 120, 34, "#f3cf6b", "#8a5a12");
+      bauble(ctx, 160, 95, 22, "#ffffff", "#b9c2cc");
+      bauble(ctx, W - 70, 125, 36, "#1a6b43", "#06301c");
+      bauble(ctx, W - 160, 95, 22, "#f3cf6b", "#8a5a12");
+    },
+  },
+  lights: {
+    greeting: { en: "Season's Greetings", fr: "Joyeuses fêtes" },
+    font: "modern",
+    lead: 1.12,
+    leaves: true,
+    top: 140,
+    scene(ctx, input) {
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, "#0b3d2b");
+      bg.addColorStop(1, "#04180f");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      const rand = rng(`lights${input.businessName}`);
+      bokeh(ctx, rand, 30, { x: 0, y: 0, w: W, h: H - FOOT }, ["rgba(255,200,90,0.9)", "rgba(255,120,80,0.7)", "rgba(255,240,200,0.8)"], 20, 70);
+      fairyLights(ctx, rand, -40, 20, W + 40, 30, 150);
+    },
+  },
+  newyear: {
+    greeting: { en: "Happy New Year", fr: "Bonne année" },
+    font: "tall",
+    lead: 1.04,
+    leaves: false,
+    top: 70,
+    scene(ctx, input) {
+      const bg = ctx.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, "#1b1446");
+      bg.addColorStop(1, "#05040f");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.font = `520px "Anton"`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.strokeStyle = "rgba(243,207,107,0.13)";
+      ctx.lineWidth = 4;
+      ctx.strokeText(String(input.year ?? comingYear(new Date())), W / 2, H * 0.52);
+      ctx.restore();
+      const rand = rng(`newyear${input.businessName}`);
+      firework(ctx, rand, 150, 150, 120, "#f3cf6b");
+      firework(ctx, rand, W - 150, 120, 140, "#ff7ab6");
+      firework(ctx, rand, W - 70, 420, 70, "#f3cf6b");
+      for (let i = 0; i < 90; i++) {
+        ctx.save();
+        ctx.translate(rand() * W, rand() * (H - FOOT));
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillStyle = ["#f3cf6b", "#ff7ab6", "#ffffff", "#7ad7ff"][Math.floor(rand() * 4)]!;
+        ctx.globalAlpha = 0.35 + rand() * 0.45;
+        ctx.fillRect(-7, -3, 14, 6);
+        ctx.restore();
+      }
+    },
+  },
+};
+
+/** Before 15 January the year just begun, otherwise the one coming. */
+export function comingYear(now: Date): number {
+  return now.getUTCMonth() === 0 ? now.getUTCFullYear() : now.getUTCFullYear() + 1;
+}
+
+function christmas(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>) {
+  return seasonal(ctx, input, items, photos, SEASONS.christmas);
+}
+function lights(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>) {
+  return seasonal(ctx, input, items, photos, SEASONS.lights);
+}
+function newyear(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>) {
+  return seasonal(ctx, input, items, photos, SEASONS.newyear);
+}
+
+async function seasonal(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>, season: Season) {
+  season.scene(ctx, input);
+  const gold = (y0: number, y1: number) => metal(ctx, y0, y1, GOLD);
+  let y = season.top;
+  if (input.logo && items.length) {
+    await logoTile(ctx, input.logo, W / 2 - 44, y, 88);
+    y += 104;
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const greeting = season.greeting[input.lang ?? "en"];
+  const gSize = fitFont(ctx, greeting, '"Great Vibes"', 104, 60, W - 420);
+  ctx.fillStyle = gold(y, y + gSize);
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 12;
+  ctx.fillText(greeting, W / 2, y);
+  ctx.shadowColor = "transparent";
+  y += gSize * 1.2;
+  ctx.fillStyle = "#ffffff";
+  const head = headlineFit(ctx, input, season.font, season.lead, items.length ? 92 : 110, 50, W - 160, 2);
+  for (const line of head.lines) {
+    ctx.fillText(line, W / 2, y);
+    y += head.step;
+  }
+  if (input.subline) {
+    ctx.fillStyle = "rgba(255,244,220,0.85)";
+    ctx.font = `30px "Poppins"`;
+    for (const line of wrap(ctx, input.subline, W - 160).slice(0, 2)) {
+      ctx.fillText(line, W / 2, y + 6);
+      y += 42;
+    }
+  }
+
+  const bottom = H - FOOT - (input.place ? 112 : 36);
+  const top = y + 36;
+  if (!items.length) await wreath(ctx, input, W / 2, (top + bottom) / 2, Math.min(230, (bottom - top) / 2 - 20), season.leaves);
+  else if (items.length === 1) onePhoto(ctx, input, items[0]!, photos[0]!, top, bottom);
+  else roundPhotos(ctx, input, items, photos, top, bottom);
+
+  if (input.place) placePill(ctx, input.place, H - FOOT - 86);
+  footer(ctx, { ...input, place: undefined }, { text: "#ffffff", muted: "rgba(255,244,220,0.7)", rule: "rgba(243,207,107,0.45)" });
+}
+
+/** One product: its photo in a gold frame, the name under it and the price on a gold tag. */
+function onePhoto(ctx: Ctx, input: BusinessFlyerInput, item: BusinessItem, photo: Image | Canvas, top: number, bottom: number) {
+  const words = item.name ? 64 : 0;
+  const h = bottom - top - words;
+  const w = Math.min(W - 200, h * 1.1);
+  const x = (W - w) / 2;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.4)";
+  ctx.shadowBlur = 40;
+  ctx.fillStyle = metal(ctx, top, top + h, GOLD);
+  roundRect(ctx, x - 10, top - 10, w + 20, h + 20, 40);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  roundRect(ctx, x, top, w, h, 32);
+  ctx.clip();
+  place(ctx, input.look, photo, x, top, w, h);
+  ctx.restore();
+  if (item.price) goldTag(ctx, priceLine(item, input.fromWord), x + w - 24, top + h - 64, true);
+  if (item.name) {
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    fitFont(ctx, item.name, '"Poppins SemiBold"', 44, 26, W - 160);
+    ctx.fillText(item.name, W / 2, top + h + 26);
+  }
+}
+
+/** Two to four products as round photos in gold rings, like baubles on a string. */
+function roundPhotos(ctx: Ctx, input: BusinessFlyerInput, items: BusinessItem[], photos: Array<Image | Canvas>, top: number, bottom: number) {
+  const rows = items.length === 4 ? 2 : 1;
+  const perRow = items.length === 4 ? 2 : items.length;
+  const rowH = (bottom - top) / rows;
+  const words = items.some((i) => i.name || i.price) ? 96 : 0;
+  const r = Math.min((W - 120) / perRow / 2 - 24, (rowH - words - 60) / 2);
+  const gap = (rowH - (r * 2 + 30 + words)) / 2;
+  items.forEach((item, i) => {
+    const row = Math.floor(i / perRow);
+    const cx = (W / (perRow * 2)) * ((i % perRow) * 2 + 1);
+    const cy = top + row * rowH + gap + 30 + r;
+    ctx.strokeStyle = "rgba(243,207,107,0.7)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, top + row * rowH - 30);
+    ctx.lineTo(cx, cy - r - 22);
+    ctx.stroke();
+    ctx.fillStyle = metal(ctx, cy - r - 34, cy - r - 4, GOLD);
+    roundRect(ctx, cx - r * 0.16, cy - r - 30, r * 0.32, 30, 6);
+    ctx.fill();
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = metal(ctx, cy - r, cy + r, GOLD);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    place(ctx, input.look, photos[i]!, cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const span = W / perRow - 40;
+    let ty = cy + r + 22;
+    if (item.name) {
+      ctx.fillStyle = "#ffffff";
+      fitFont(ctx, item.name, '"Poppins SemiBold"', 34, 20, span);
+      ctx.fillText(item.name, cx, ty);
+      ty += 46;
+    }
+    if (item.price) {
+      ctx.fillStyle = metal(ctx, ty, ty + 36, GOLD);
+      fitFont(ctx, priceLine(item, input.fromWord), '"Inter ExtraBold"', 36, 20, span);
+      ctx.fillText(priceLine(item, input.fromWord), cx, ty);
+    }
+  });
+}
+
+/** No products: the logo, or the business's initials, inside a wreath. */
+async function wreath(ctx: Ctx, input: BusinessFlyerInput, cx: number, cy: number, r: number, leaves: boolean) {
+  const rand = rng(`wreath${input.businessName}`);
+  if (leaves) {
+    for (let i = 0; i < 70; i++) {
+      const a = (i / 70) * Math.PI * 2 + rand() * 0.1;
+      const rr = r + (rand() - 0.5) * 34;
+      ctx.save();
+      ctx.translate(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+      ctx.rotate(a + Math.PI / 2 + (rand() - 0.5) * 1.2);
+      ctx.fillStyle = PINE[Math.floor(rand() * PINE.length)]!;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 30, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    for (let i = 0; i < 14; i++) {
+      const a = rand() * Math.PI * 2;
+      balloon(ctx, cx + Math.cos(a) * r, cy + Math.sin(a) * r, 9, RED, "#6d0716", { string: false, oval: 1 });
+    }
+  } else {
+    ctx.strokeStyle = metal(ctx, cy - r, cy + r, GOLD);
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      sparkle(ctx, cx + Math.cos(a) * (r + 40), cy + Math.sin(a) * (r + 40), 10 + rand() * 12, "#f3cf6b");
+    }
+  }
+  const inner = r - 30;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(cx, cy, inner, 0, Math.PI * 2);
+  ctx.fill();
+  if (input.logo) {
+    const img = await loadImage(Buffer.from(input.logo));
+    const s = Math.min((inner * 1.3) / img.width, (inner * 1.3) / img.height);
+    ctx.drawImage(img, cx - (img.width * s) / 2, cy - (img.height * s) / 2, img.width * s, img.height * s);
+  } else {
+    const initials = input.businessName
+      .split(/\s+/)
+      .filter((w) => /\p{L}/u.test(w))
+      .slice(0, 2)
+      .map((w) => w.match(/\p{L}/u)![0]!.toUpperCase())
+      .join("");
+    ctx.fillStyle = "#4a0612";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    fitFont(ctx, initials, '"Playfair Display Black"', Math.round(inner * 0.9), 40, inner * 1.5);
+    ctx.fillText(initials, cx, cy + 6);
+  }
+}
+
+/** Where to find the business, on a gold-edged pill with a map pin. */
+function placePill(ctx: Ctx, text: string, y: number) {
+  fitFont(ctx, text, '"Poppins SemiBold"', 32, 20, W - 260);
+  const w = ctx.measureText(text).width + 110;
+  const x = (W - w) / 2;
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  roundRect(ctx, x, y, w, 64, 32);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(243,207,107,0.8)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, 64, 32);
+  ctx.stroke();
+  const px = x + 42,
+    py = y + 28;
+  ctx.fillStyle = "#f3cf6b";
+  ctx.beginPath();
+  ctx.arc(px, py, 12, Math.PI, 0);
+  ctx.lineTo(px, py + 22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#3a2a08";
+  ctx.beginPath();
+  ctx.arc(px, py, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + 72, y + 33);
+}
+
+/** A price on a gold tag; `right` ends it at x instead of centring it there. */
+function goldTag(ctx: Ctx, text: string, x: number, y: number, right = false) {
+  fitFont(ctx, text, '"Inter ExtraBold"', 44, 24, 420);
+  const w = ctx.measureText(text).width + 60;
+  const left = right ? x - w : x - w / 2;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = metal(ctx, y - 40, y + 40, GOLD);
+  roundRect(ctx, left, y - 40, w, 80, 40);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = "#2a1a04";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, left + w / 2, y + 2);
+}
+
+/** A pine branch growing from a corner, with a few red berries. */
+function sprig(ctx: Ctx, x: number, y: number, angle: number, length: number) {
+  const rand = rng(`sprig${x}`);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.strokeStyle = "#3b2414";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(length, 0);
+  ctx.stroke();
+  for (let t = 0; t < length; t += 7) {
+    const n = 30 * (1 - t / length) + 16;
+    for (const side of [-1, 1]) {
+      ctx.strokeStyle = PINE[Math.floor(rand() * PINE.length)]!;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(t, 0);
+      ctx.lineTo(t + n * 0.55, side * n);
+      ctx.stroke();
+    }
+  }
+  for (let i = 0; i < 4; i++) balloon(ctx, length * (0.35 + i * 0.12), (rand() - 0.5) * 24, 9, RED, "#6d0716", { string: false, oval: 1 });
+  ctx.restore();
+}
+
+/** A Christmas bauble hanging from the top edge on a thin gold thread. */
+function bauble(ctx: Ctx, x: number, y: number, r: number, base: string, dark: string) {
+  ctx.strokeStyle = "rgba(243,207,107,0.8)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, y - r);
+  ctx.stroke();
+  ctx.fillStyle = metal(ctx, y - r - 14, y - r + 4, GOLD);
+  ctx.fillRect(x - r * 0.22, y - r - 12, r * 0.44, 16);
+  balloon(ctx, x, y, r, base, dark, { string: false, oval: 1 });
+}
+
+/** A string of glowing fairy lights hanging between two points. */
+function fairyLights(ctx: Ctx, rand: () => number, x0: number, y0: number, x1: number, y1: number, sag: number) {
+  const point = (t: number) => {
+    const mx = (x0 + x1) / 2,
+      my = (y0 + y1) / 2 + sag;
+    return [(1 - t) ** 2 * x0 + 2 * (1 - t) * t * mx + t ** 2 * x1, (1 - t) ** 2 * y0 + 2 * (1 - t) * t * my + t ** 2 * y1] as const;
+  };
+  ctx.strokeStyle = "#1d1d1d";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let t = 0; t <= 1.001; t += 0.02) {
+    const [px, py] = point(t);
+    if (t === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  const colours = ["#ffd166", "#ff5a5f", "#3ddc97", "#5ab0ff", "#fff4d6"];
+  const n = Math.round(Math.hypot(x1 - x0, y1 - y0) / 70);
+  for (let i = 1; i < n; i++) {
+    const [px, py] = point(i / n);
+    const c = colours[Math.floor(rand() * colours.length)]!;
+    const glow = ctx.createRadialGradient(px, py + 16, 0, px, py + 16, 46);
+    glow.addColorStop(0, withAlpha(c, 0.55));
+    glow.addColorStop(1, withAlpha(c, 0));
+    ctx.fillStyle = glow;
+    ctx.fillRect(px - 46, py - 30, 92, 92);
+    ctx.fillStyle = "#2b2b2b";
+    ctx.fillRect(px - 5, py - 2, 10, 10);
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.ellipse(px, py + 18, 8, 13, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** A firework: gold streaks bursting out from a point, with sparks at the ends. */
+function firework(ctx: Ctx, rand: () => number, x: number, y: number, r: number, colour: string) {
+  for (let i = 0; i < 28; i++) {
+    const a = (i / 28) * Math.PI * 2 + rand() * 0.1;
+    const len = r * (0.6 + rand() * 0.4);
+    const g = ctx.createLinearGradient(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
+    g.addColorStop(0, withAlpha(colour, 0));
+    g.addColorStop(1, withAlpha(colour, 0.95));
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(a) * r * 0.15, y + Math.sin(a) * r * 0.15);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    ctx.stroke();
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(a) * (len + 8), y + Math.sin(a) * (len + 8), 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // ---------- Shared pieces ----------
 
 /** The business at the bottom: logo, name and shop link on the left, the number to order on at the right. */
@@ -640,12 +1095,13 @@ function footer(ctx: Ctx, input: BusinessFlyerInput, colours: { text: string; mu
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = colours.text;
+  const second = input.place ?? input.link;
   fitFont(ctx, input.businessName, '"Poppins SemiBold"', 36, 20, right - left);
-  ctx.fillText(input.businessName, left, input.link ? mid - 2 : mid + 12);
-  if (input.link) {
+  ctx.fillText(input.businessName, left, second ? mid - 2 : mid + 12);
+  if (second) {
     ctx.fillStyle = colours.muted;
-    fitFont(ctx, input.link, '"Poppins"', 24, 16, right - left);
-    ctx.fillText(input.link, left, mid + 36);
+    fitFont(ctx, second, '"Poppins"', 24, 16, right - left);
+    ctx.fillText(second, left, mid + 36);
   }
 }
 
