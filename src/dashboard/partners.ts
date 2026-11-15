@@ -45,6 +45,8 @@ export interface Partner extends NewPartner {
   reminderOn?: boolean;
   reminderSentAt?: string | null;
   reminderSentCount?: number | null;
+  /** Last day of the event (migration 0092); organisers get the report only for a month after it. */
+  endsOn?: string | null;
 }
 
 export interface PartnerStore {
@@ -258,6 +260,7 @@ interface PartnerRow {
   reminder_on?: boolean;
   reminder_sent_at?: string | null;
   reminder_sent_count?: number | null;
+  ends_on?: string | null;
 }
 
 const columns = (p: NewPartner) => ({
@@ -301,6 +304,7 @@ export function createSupabasePartnerStore(db: SupabaseClient): PartnerStore {
         reminderOn: r.reminder_on === true,
         reminderSentAt: r.reminder_sent_at ?? null,
         reminderSentCount: r.reminder_sent_count ?? null,
+        endsOn: r.ends_on ?? null,
       }));
     },
     async add(p) {
