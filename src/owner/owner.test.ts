@@ -1161,13 +1161,15 @@ describe("business flyers", () => {
 
     const live = await s.app.request(
       `https://${HOST}${path}/menu/look?live=1`,
-      post({ headline: "Christmas sale", subline: "", colour: "#7c3aed", font: "script", size: "l", zoom: "150", photoX: "20", photoY: "80", prices: "on" }, cookie),
+      post({ headline: "Christmas sale", subline: "", colour: "#7c3aed", font: "script", size: "l", photo: id, zoom: "150", photoX: "20", photoY: "80", prices: "on" }, cookie),
     );
     expect(await live.json()).toEqual({ version: 1 });
     const after = await (await get(s, `${path}/menu`, cookie)).text();
     expect(after).toContain('value="Christmas sale"');
     expect(after).toContain('value="script" checked');
     expect(after).toContain('name="zoom" min="100" max="200" value="150"');
+    const frames = (await (await get(s, `${path}/menu/frames`, cookie)).json()) as Array<{ key: string; box: number[] }>;
+    expect(frames).toEqual([]); // the product has no photo, so there is nothing to drag
     expect(after).not.toMatch(/name="logo" checked/);
     expect(after).toContain(`${path}/menu.jpg?v=1`);
     const redrawn = new Uint8Array(await (await get(s, `${path}/menu.jpg`, cookie)).arrayBuffer());

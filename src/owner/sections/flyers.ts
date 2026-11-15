@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Hono } from "hono";
 import { formatMoney, formatNaira } from "../../core/money.js";
-import { BUSINESS_DESIGNS, comingYear, designMax, HEADLINE_FONTS, inSeason, isBusinessDesign, isHeadlineFont, isSeasonal, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem, type FlyerLook } from "../../products/flyer/business.js";
+import { BUSINESS_DESIGNS, comingYear, designMax, HEADLINE_FONTS, inSeason, isBusinessDesign, isHeadlineFont, isSeasonal, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem, type FlyerLook, type Frame, type PhotoPos } from "../../products/flyer/business.js";
 import { priceFacts } from "../../products/quote/catalogue.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
@@ -35,6 +35,8 @@ const SIZES = [
 /** Colours offered beside the shop's own in the design console. */
 const SWATCHES = ["#e8541e", "#d62e4c", "#7c3aed", "#1f6feb", "#128c4a", "#c6ff1f", "#ffb800", "#111111"];
 
+const PLACE_HINT = "e.g. Stand 14, Christmas Unplugged, Uyo";
+
 const WORDS = {
   en: { from: "from", order: "Order on WhatsApp", headline: "Available now" },
   fr: { from: "dès", order: "Commandez sur WhatsApp", headline: "Disponible maintenant" },
@@ -54,6 +56,10 @@ interface Draft {
   colour: string;
   /** Touches from the design console, kept when the owner switches design. */
   look: FlyerLook;
+  /** Where the owner moved each photo, by product id or "own0" to "own3". */
+  photos: Record<string, PhotoPos>;
+  /** Where each design drew the photos, noted as it draws, so a finger on the flyer finds its photo. */
+  frames: Map<string, Array<Frame & { key: string }>>;
   show: { logo: boolean; link: boolean; number: boolean };
   /** Goes up with every change in the console, so the browser fetches the new picture. */
   version: number;
@@ -132,7 +138,7 @@ ${problems.length ? `<div class="flash bad"><ul>${problems.map((x) => `<li>${esc
 ${draft ? `<input type="hidden" name="draft" value="${esc(draftId)}">` : ""}
 <label for="h">Headline</label><input id="h" name="headline" maxlength="40" required value="${esc(draft?.headline ?? words.headline)}">
 <label for="s">Line under it <span class="muted">(optional)</span></label><input id="s" name="subline" maxlength="70" value="${esc(draft?.subline ?? "")}" placeholder="e.g. Order before Friday, free delivery in Lekki">
-<label for="w">Where to find you <span class="muted">(optional)</span></label><input id="w" name="place" maxlength="60" value="${esc(draft?.place ?? "")}" placeholder="e.g. Stand 14, Christmas Unplugged, Uyo">
+<label for="w">Where to find you <span class="muted">(optional)</span></label><input id="w" name="place" maxlength="60" value="${esc(draft?.place ?? "")}" placeholder="${PLACE_HINT}">
 ${season ? `<p class="muted small">Christmas and New Year designs are on. They work with no products too, as a season's greeting from your business.</p>` : ""}
 <h2>From your price list</h2>
 ${products.length ? `<p class="muted small">Tick up to ${MAX_PRODUCTS}. Photos, names and prices come from your <a href="/home/prices">price list</a>.</p><div class="cards">${list}</div>` : `<p class="muted">Your price list is empty. <a href="/home/prices/new">Add a product</a>, or use your own pictures below.</p>`}
@@ -192,6 +198,8 @@ ${own}
       prices: Boolean(body.prices),
       colour: safeColour(field(body, "colour", 7)),
       look: earlier?.look ?? {},
+      photos: earlier?.photos ?? {},
+      frames: new Map(),
       show: earlier?.show ?? { logo: true, link: true, number: true },
       version: 0,
       pass: biz.flyers ? undefined : "open",
@@ -205,6 +213,9 @@ ${own}
     ctx.render(c, "Flyers", "/home/flyers", `<p>This flyer was put away after an hour. <a href="/home/flyers">Make it again</a>: it only takes a minute.</p>`, 404);
 
   const count = (draft: Draft) => draft.productIds.length + draft.own.length;
+
+  /** Each photo's key, in the order the flyer shows them: products by id, then the owner's own pictures. */
+  const keysOf = (draft: Draft) => [...draft.productIds, ...draft.own.map((_, i) => `own${i}`)];
 
   /** The designs on offer now: seasonal ones first while their season is on, and hidden after it. */
   const designsNow = () => {
@@ -374,6 +385,22 @@ ${n === 0 ? `<p class="muted small">With no products or pictures, your flyer is 
     return null;
   };
 
+  /** Where each photo sits on the flyer, for picking and dragging photos on the page. */
+  app.get("/flyers/:draft/:design/frames", async (c) => {
+    const draft = draftOf(c);
+    const design = c.req.param("design");
+    if (!draft || !isBusinessDesign(design) || !fits(draft, design)) return c.notFound();
+    if (!draft.frames.has(design)) {
+      try {
+        await flyer(c.get("biz"), draft, design, draft.preview.tag);
+      } catch (err) {
+        ctx.log.error("Owner app: drawing a business flyer failed:", err);
+        return c.json([]);
+      }
+    }
+    return c.json(draft.frames.get(design) ?? []);
+  });
+
   /** The flyer in one design, with the design console beside it. On a limited plan it stays a preview until the owner taps Use this flyer. */
   app.get("/flyers/:draft/:design", async (c) => {
     const draft = draftOf(c);
@@ -409,14 +436,14 @@ ${n === 0 ? `<p class="muted small">With no products or pictures, your flyer is 
       ready ? "Your flyer" : "Design your flyer",
       "/home/flyers",
       `<div class="studio"><div class="stage">
-<img id="flyer" src="${ready ? src : `${src}?small=1`}${ready ? "?" : "&"}v=${draft.version}" alt="Your flyer" width="1080" height="1350">
+<img id="flyer" src="${ready ? src : `${src}?small=1`}${ready ? "?" : "&"}v=${draft.version}" alt="Your flyer" width="1080" height="1350"><div id="ring" hidden></div>
 ${left > 0 ? `<p class="muted small">This design shows ${designMax(design) === 1 ? "one product" : `${designMax(design)} products`}, so ${left} of yours ${left === 1 ? "is" : "are"} left off.</p>` : ""}</div>
 ${consoleForm(draft, id, design, await shopAccent(biz))}
 <div class="below">${below}</div></div>
 <script>
 (function () {
   var form = document.getElementById("look"), img = document.getElementById("flyer");
-  var base = img.src.replace(/v=\d+$/, "v="), timer, n = 0;
+  var base = img.src.replace(/v=[0-9]+$/, "v="), timer, n = 0;
   document.getElementById("apply").style.display = "none";
   function update() {
     var mine = ++n;
@@ -430,7 +457,117 @@ ${consoleForm(draft, id, design, await shopAccent(biz))}
   form.addEventListener("input", function (e) { clearTimeout(timer); timer = setTimeout(update, e.target.type === "text" ? 700 : 300); });
   form.querySelectorAll("[data-colour]").forEach(function (b) {
     b.addEventListener("click", function () { form.colour.value = b.dataset.colour; update(); });
-  });${
+  });
+  // Photos on the flyer: touch one to pick it, drag to move it, pinch (or scroll on a laptop) to zoom.
+  var ring = document.getElementById("ring"), photos = JSON.parse(form.dataset.photos || "{}"), frames = [], picked = null, drag = null, pending = false, points = {};
+  if (form.photo) {
+    var buzz = function (ms) { if (navigator.vibrate) navigator.vibrate(ms); };
+    var clamp = function (v) { return Math.min(1, Math.max(0, v)); };
+    var fit = function () {
+      var s = Math.min(img.clientWidth / 1080, img.clientHeight / 1350);
+      return { s: s, x: (img.clientWidth - 1080 * s) / 2, y: (img.clientHeight - 1350 * s) / 2 };
+    };
+    var at = function (e) {
+      var r = img.getBoundingClientRect(), f = fit();
+      return { x: (e.clientX - r.left - f.x) / f.s, y: (e.clientY - r.top - f.y) / f.s };
+    };
+    var pos = function (key) { var p = photos[key] || {}; return { x: p.x == null ? 0.5 : p.x, y: p.y == null ? 0.5 : p.y, zoom: p.zoom || 1 }; };
+    var show = function () {
+      var fr = frames.filter(function (f) { return f.key === picked; })[0];
+      ring.hidden = !fr;
+      if (!fr) return;
+      var f = fit();
+      ring.style.left = img.offsetLeft + f.x + fr.box[0] * f.s + "px";
+      ring.style.top = img.offsetTop + f.y + fr.box[1] * f.s + "px";
+      ring.style.width = (fr.box[2] - fr.box[0]) * f.s + "px";
+      ring.style.height = (fr.box[3] - fr.box[1]) * f.s + "px";
+    };
+    var pick = function (key) {
+      picked = key;
+      form.photo.value = key;
+      var p = pos(key);
+      form.zoom.value = Math.round(p.zoom * 100);
+      form.photoX.value = Math.round(p.x * 100);
+      form.photoY.value = Math.round(p.y * 100);
+      show();
+    };
+    var set = function (key, p) {
+      photos[key] = p;
+      form.zoom.value = Math.round(p.zoom * 100);
+      form.photoX.value = Math.round(p.x * 100);
+      form.photoY.value = Math.round(p.y * 100);
+      if (form.classList.contains("busy")) pending = true;
+      else update();
+    };
+    var load = function () {
+      fetch(form.action.replace(/look$/, "frames")).then(function (r) { return r.json(); }).then(function (f) {
+        frames = f;
+        img.classList.toggle("touch", frames.length > 0);
+        show();
+      }).catch(function () {});
+    };
+    picked = form.photo.value;
+    img.draggable = false;
+    img.addEventListener("load", function () {
+      if (pending) { pending = false; update(); }
+      load();
+    });
+    window.addEventListener("resize", show);
+    form.addEventListener("input", function (e) {
+      if (["zoom", "photoX", "photoY"].indexOf(e.target.name) >= 0) photos[picked] = { x: form.photoX.value / 100, y: form.photoY.value / 100, zoom: form.zoom.value / 100 };
+    });
+    img.addEventListener("pointerdown", function (e) {
+      var p = at(e), hit = frames.filter(function (f) { return p.x >= f.box[0] && p.x <= f.box[2] && p.y >= f.box[1] && p.y <= f.box[3]; }).pop();
+      points[e.pointerId] = p;
+      var ids = Object.keys(points);
+      if (ids.length === 2 && drag) {
+        var a = points[ids[0]], b = points[ids[1]];
+        drag.spread = Math.hypot(a.x - b.x, a.y - b.y);
+        drag.zoom = pos(picked).zoom;
+        return;
+      }
+      if (!hit) return;
+      e.preventDefault();
+      img.setPointerCapture(e.pointerId);
+      if (hit.key !== picked) pick(hit.key);
+      buzz(10);
+      drag = { frame: hit, from: p, start: pos(hit.key), edge: false };
+    });
+    img.addEventListener("pointermove", function (e) {
+      if (!drag || !points[e.pointerId]) return;
+      points[e.pointerId] = at(e);
+      var ids = Object.keys(points), fr = drag.frame, now = pos(fr.key);
+      if (ids.length === 2 && drag.spread) {
+        var a = points[ids[0]], b = points[ids[1]];
+        var zoom = Math.min(2, Math.max(1, drag.zoom * Math.hypot(a.x - b.x, a.y - b.y) / drag.spread));
+        set(fr.key, { x: now.x, y: now.y, zoom: zoom });
+        return;
+      }
+      var p = points[e.pointerId], scale = Math.max(fr.w / fr.iw, fr.h / fr.ih) * drag.start.zoom;
+      var roomX = fr.iw * scale - fr.w, roomY = fr.ih * scale - fr.h;
+      var x = roomX > 1 ? drag.start.x - (p.x - drag.from.x) / roomX : now.x;
+      var y = roomY > 1 ? drag.start.y - (p.y - drag.from.y) / roomY : now.y;
+      var edge = x !== clamp(x) || y !== clamp(y);
+      if (edge && !drag.edge) buzz(20);
+      drag.edge = edge;
+      set(fr.key, { x: clamp(x), y: clamp(y), zoom: now.zoom });
+    });
+    var end = function (e) {
+      delete points[e.pointerId];
+      if (drag && !Object.keys(points).length) { drag = null; buzz(5); }
+    };
+    img.addEventListener("pointerup", end);
+    img.addEventListener("pointercancel", end);
+    img.addEventListener("wheel", function (e) {
+      var p = at(e), hit = frames.filter(function (f) { return p.x >= f.box[0] && p.x <= f.box[2] && p.y >= f.box[1] && p.y <= f.box[3]; }).pop();
+      if (!hit) return;
+      e.preventDefault();
+      if (hit.key !== picked) pick(hit.key);
+      var now = pos(hit.key);
+      set(hit.key, { x: now.x, y: now.y, zoom: Math.min(2, Math.max(1, now.zoom - e.deltaY / 1000)) });
+    }, { passive: false });
+    load();
+  }${
         ready
           ? `
   // The file to share is fetched ahead each time the picture changes: phones only share straight from a tap.
@@ -466,15 +603,17 @@ ${consoleForm(draft, id, design, await shopAccent(biz))}
     const swatches = [...new Set([...(shopColour ? [safeColour(shopColour)] : []), ...SWATCHES])]
       .map((hex, i) => `<button type="button" class="swatch" data-colour="${hex}" style="background:${hex}" title="${i === 0 && shopColour ? "Your shop colour" : hex}" aria-label="${i === 0 && shopColour ? "Your shop colour" : hex}"></button>`)
       .join("");
+    const photoKey = keysOf(draft)[0];
+    const pos = (photoKey && draft.photos[photoKey]) || {};
     const tick = (name: string, label: string, on: boolean) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
-    return `<form class="console" id="look" method="post" action="/home/flyers/${id}/${design}/look">
+    return `<form class="console" id="look" method="post" action="/home/flyers/${id}/${design}/look" data-photos="${esc(JSON.stringify(draft.photos))}">
 <h3>Design</h3><div class="seg">${designsNow().filter((d) => fits(draft, d.id)).map((d) => `<a href="/home/flyers/${id}/${d.id}"${d.id === design ? ' class="on"' : ""}>${esc(d.name)}</a>`).join("")}</div>
 <h3>Words</h3>
 ${
   words
     ? `<label for="h">Headline</label><input id="h" name="headline" maxlength="40" required value="${esc(draft.headline)}">
 <label for="s">Line under it</label><input id="s" name="subline" maxlength="70" value="${esc(draft.subline)}">
-<label for="w">Where to find you</label><input id="w" name="place" maxlength="60" value="${esc(draft.place)}">`
+<label for="w">Where to find you</label><input id="w" name="place" maxlength="60" value="${esc(draft.place)}" placeholder="${PLACE_HINT}">`
     : `<p class="muted small">“${esc(draft.headline)}”${draft.subline ? ` · ${esc(draft.subline)}` : ""}${draft.place ? ` · ${esc(draft.place)}` : ""}<br>New words make a new flyer: <a href="/home/flyers?from=${id}">change the words or pictures</a>.</p>`
 }
 ${
@@ -484,10 +623,15 @@ ${
 }
 <h3>Headline font</h3>${seg("font", [{ id: "", name: "Design's own" }, ...HEADLINE_FONTS], look.font ?? "")}
 <h3>Headline size</h3>${seg("size", SIZES, SIZES.find((x) => x.scale === (look.size ?? 1))?.id ?? "m")}
-<h3>Photo</h3>
-${range("zoom", "Zoom in", 100, 200, look.zoom ?? 1)}
-${range("photoX", "Move left or right", 0, 100, look.photoX ?? 0.5)}
-${range("photoY", "Move up or down", 0, 100, look.photoY ?? 0.5)}
+${
+  photoKey
+    ? `<h3>Photo</h3><p class="muted small">Touch a photo on the flyer to pick it, drag it to move it, and pinch to zoom.</p>
+<input type="hidden" name="photo" value="${esc(photoKey)}">
+${range("zoom", "Zoom in", 100, 200, pos.zoom ?? 1)}
+${range("photoX", "Move left or right", 0, 100, pos.x ?? 0.5)}
+${range("photoY", "Move up or down", 0, 100, pos.y ?? 0.5)}`
+    : ""
+}
 <h3>Show on the flyer</h3>
 ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)}${tick("number", "WhatsApp number", draft.show.number)}${tick("link", "Shop page link", draft.show.link)}
 <div class="actions"><button id="apply">Update the flyer</button><button class="ghost" name="reset" value="1">Back to the design's own look</button></div>
@@ -519,6 +663,7 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
     const body = await c.req.parseBody();
     if (body.reset) {
       draft.look = {};
+      draft.photos = {};
       draft.show = { logo: true, link: true, number: true };
     } else {
       // Counted plan and pack flyers keep their words: new words are a new flyer.
@@ -536,16 +681,16 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
       draft.look = {
         font: isHeadlineFont(font) ? font : undefined,
         size: SIZES.find((x) => x.id === field(body, "size", 2))?.scale,
-        zoom: share("zoom", 100, 200),
-        photoX: share("photoX", 0, 100),
-        photoY: share("photoY", 0, 100),
       };
+      const key = field(body, "photo", 40);
+      if (keysOf(draft).includes(key)) draft.photos[key] = { zoom: share("zoom", 100, 200), x: share("photoX", 0, 100), y: share("photoY", 0, 100) };
       draft.colour = safeColour(field(body, "colour", 7) || draft.colour);
       draft.prices = Boolean(body.prices);
       draft.show = { logo: Boolean(body.logo), link: Boolean(body.link), number: Boolean(body.number) };
     }
     draft.version += 1;
     draft.made.clear();
+    draft.frames.clear();
     if (c.req.query("live")) return c.json({ version: draft.version });
     return c.redirect(`/home/flyers/${c.req.param("draft")}/${design}`, 303);
   });
@@ -584,21 +729,27 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
     const wanted = draft.productIds.slice(0, designMax(design));
     const byId = new Map((await biz.prices.products()).map((p) => [p.id, p]));
     const items: BusinessItem[] = [];
+    const keys: string[] = [];
     for (const id of wanted) {
       const p = byId.get(id);
       if (!p) continue;
       const price = draft.prices ? flyerPrice(p) : null;
       const photo = p.photoPath && biz.photos ? await biz.photos.photo(p.photoPath).catch(() => null) : null;
-      items.push({ name: p.name, photo: photo?.data, price: price ? formatMoney(price.kobo, biz.currency) : undefined, from: price?.from });
+      items.push({ name: p.name, photo: photo?.data, price: price ? formatMoney(price.kobo, biz.currency) : undefined, from: price?.from, pos: draft.photos[id] });
+      keys.push(id);
     }
-    for (const o of draft.own) items.push({ photo: o.photo, name: o.label || undefined });
+    draft.own.forEach((o, i) => {
+      items.push({ photo: o.photo, name: o.label || undefined, pos: draft.photos[`own${i}`] });
+      keys.push(`own${i}`);
+    });
+    const frames: Frame[] = [];
     const [info, logo, planCode, link] = await Promise.all([
       biz.data.info().catch(() => null),
       biz.logo().catch(() => null),
       biz.features ? biz.features.planCode().catch(() => null) : null,
       ctx.deps.shop ? ctx.deps.shop.link(biz.id, biz.name).catch(() => null) : null,
     ]);
-    return renderBusinessFlyer(design, {
+    const jpeg = await renderBusinessFlyer(design, {
       headline: draft.headline,
       subline: draft.subline || undefined,
       place: draft.place || undefined,
@@ -612,8 +763,11 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
       fromWord: words.from,
       accent: draft.colour,
       look: draft.look,
+      frames,
       // Until migration 0082 gives Free its limit, Free is known by its plan code.
       credit: tag || (draft.pass === "open" && planCode === "free") ? "Made with yarnOga" : undefined,
     });
+    draft.frames.set(design, frames.map((f) => ({ ...f, key: keys[f.item]! })));
+    return jpeg;
   };
 }
