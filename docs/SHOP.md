@@ -1,7 +1,8 @@
 # Shop link
 
-Every quote-bot business gets a public shop page, for example
-`https://app.yarnoga.com/shop/mama-put`. Owners put it in their Instagram bio,
+Every quote-bot business gets a public shop page, shared as a short link
+like `https://yarnoga.com/s/mama-put` (the page itself lives at
+`https://app.yarnoga.com/shop/mama-put`). Owners put it in their Instagram bio,
 on their WhatsApp status or on flyers. It works as the business's one-page
 website: products and prices first, then everything else a customer wants to
 know before ordering.
@@ -123,3 +124,30 @@ It's on every plan, Free included: it's how customers find the bot.
    Shop that's `2347048971600`.
 
 The page is cached for a minute, so price list changes show within a minute.
+
+## Short links
+
+Shop links are shared as `yarnoga.com/s/<name>`: in the "shop" reply, the
+owner app, Share and Save our number on the page, invoices and emails. The
+website (on Hostinger) forwards anything under `/s/` to the shop page in the
+app, so the short link and the long one open the same page and old long links
+keep working.
+
+1. On Hostinger, open **Websites > yarnoga.com > File Manager**, go into
+   `public_html` and turn on hidden files (Settings > Show hidden files).
+2. If there's a file called `.htaccess`, open it. If not, create a new file
+   with that name. Paste these lines at the bottom and save:
+
+   ```
+   # Short shop links: yarnoga.com/s/mama-put opens that shop's page.
+   RewriteEngine On
+   RewriteRule ^s/([A-Za-z0-9-]+)/?$ https://app.yarnoga.com/shop/$1 [R=301,L]
+   ```
+
+3. Open `https://yarnoga.com/s/<a real shop name>` on your phone. It should
+   land on that shop's page.
+4. Only then, on Railway, add `SHOP_LINK_BASE=https://yarnoga.com/s`. From the
+   next deploy every link the app gives out uses the short form.
+
+`app.yarnoga.com/s/<name>` works too: the app sends it on to the same page.
+Shop names live under `/s/`, so they can never clash with a page on the website.

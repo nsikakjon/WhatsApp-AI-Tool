@@ -541,7 +541,7 @@ export function createSupabaseQuoteEmailFacts(
     main?: { id: string; name: string; plan?: string; phoneNumberId: string };
     /** Whether the business's plan has this feature. */
     onPlan(businessId: string, feature: "daily_summary" | "order_again"): Promise<boolean>;
-    /** Where shop pages live (QUOTE_SHOP), e.g. https://app.yarnoga.com; none when they're off. */
+    /** What shop links start with (QUOTE_SHOP), e.g. https://yarnoga.com/s; none when they're off. */
     shopUrl?: string;
     now?: () => Date;
   },
@@ -606,7 +606,7 @@ export function createSupabaseQuoteEmailFacts(
       morningSummary: await opts.onPlan(businessId, "daily_summary"),
       orderAgain: await opts.onPlan(businessId, "order_again"),
       shopUrl:
-        opts.shopUrl && row.shop_slug && row.whatsapp_number ? `${opts.shopUrl.replace(/\/+$/, "")}/shop/${row.shop_slug as string}` : null,
+        opts.shopUrl && row.shop_slug && row.whatsapp_number ? `${opts.shopUrl}/${row.shop_slug as string}` : null,
       planName: planRows.find((r) => r.code === planCode)?.name ?? "Free",
       month: {
         chats: new Set(((chats.data ?? []) as Array<{ contact_id: string }>).map((r) => r.contact_id)).size,

@@ -12,7 +12,7 @@ const facts: QuoteEmailFacts = {
   pharmacy: false,
   morningSummary: false,
   orderAgain: false,
-  shopUrl: "https://app.yarnoga.com/shop/demo-shop",
+  shopUrl: "https://yarnoga.com/s/demo-shop",
   planName: "Free",
   month: { chats: 41, quotes: 12, orders: 2, paidKobo: 1_250_000 },
   prices: { starter: { monthly: 700_000, yearly: 625_000 }, pro: { monthly: 2_300_000, yearly: 1_925_000 } },
@@ -38,7 +38,7 @@ describe("quote bot emails", () => {
   });
 
   it("gives the shop link when there is one, and the shop command when not", () => {
-    expect(render("G1").text).toContain("Your link is https://app.yarnoga.com/shop/demo-shop.");
+    expect(render("G1").text).toContain("Your link is https://yarnoga.com/s/demo-shop.");
     expect(render("G1", { ...facts, shopUrl: null }).text).toContain("Send shop to your bot and it replies with your link.");
     expect(render("G2").text).toContain("post your shop link as text");
     expect(quoteEmails("https://x", async () => facts).emails.find((e) => e.key === "G2")!.content(facts, "Ada").blocks.join(" ")).not.toContain("shop link");

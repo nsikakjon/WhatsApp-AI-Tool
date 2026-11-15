@@ -223,7 +223,7 @@ export function createSupabaseBusinesses(db: SupabaseClient): BusinessStore {
   };
 }
 
-/** `shopBase` is the public address shop pages live under (QUOTE_SHOP); without it no shop link is printed. */
+/** `shopBase` is what shop links start with (QUOTE_SHOP), e.g. https://yarnoga.com/s; without it no shop link is printed. */
 export function createSupabaseBranding(db: SupabaseClient, businessId?: string, shopBase?: string): BrandingStore {
   const LOGO_PATH = logoPath(businessId);
   return {
@@ -240,7 +240,7 @@ export function createSupabaseBranding(db: SupabaseClient, businessId?: string, 
       if (error) throw new Error(`brand look failed: ${error.message}`);
       const slug = data?.shop_slug as string | null;
       // The shop page is closed without a WhatsApp number, so don't point customers at it.
-      const shopUrl = shopBase && slug && data?.whatsapp_number ? `${shopBase.replace(/\/+$/, "")}/shop/${slug}` : null;
+      const shopUrl = shopBase && slug && data?.whatsapp_number ? `${shopBase}/${slug}` : null;
       const socials = Object.entries(cleanSocials(data?.shop_socials)).map(([n, url]) => ({ network: SOCIALS[n as Social].name, url: url! }));
       return { accent: (data?.shop_accent as string | null) ?? null, shopUrl, socials };
     },

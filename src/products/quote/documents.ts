@@ -340,7 +340,7 @@ export async function renderDocument(input: DocumentInput): Promise<Buffer> {
   return canvas.toBuffer("image/jpeg", 92);
 }
 
-/** "Shop online: app.yarnoga.com/shop/kahnprints", then the social pages two to a line, e.g. "Instagram @kahnprints". */
+/** "Shop online: yarnoga.com/s/kahnprints", then the social pages two to a line, e.g. "Instagram @kahnprints". */
 function onlineLines(input: DocumentInput, w: (typeof WORDS)["en"]): string[] {
   const bare = (url: string) => url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "");
   const handle = (url: string) => {

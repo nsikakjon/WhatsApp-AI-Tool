@@ -14,7 +14,8 @@ import { STARS } from "./ratings.js";
 import { pickWidth, previewCard, resized } from "./shop-images.js";
 
 // Each business's public shop page (QUOTE_SHOP, migration 0059), for an
-// Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>.
+// Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>, shared
+// as the short yarnoga.com/s/<name> when SHOP_LINK_BASE is set.
 // It's the business's one-page website.
 //
 // It lists the price list with prices worked out in code from the database,
@@ -141,6 +142,8 @@ export interface ShopDeps {
   slugs: SlugStore;
   business(id: string): Promise<ShopBusiness | null>;
   publicUrl: string;
+  /** What links people share start with, e.g. https://yarnoga.com/s (SHOP_LINK_BASE). */
+  linkBase: string;
   now?: () => Date;
   log?: Pick<Console, "error">;
 }
@@ -161,8 +164,8 @@ export function slugify(name: string): string {
   return slug.length >= 3 ? slug : `${slug || "my"}-shop`;
 }
 
-export function createShopLinks(opts: { publicUrl: string; slugs: SlugStore }) {
-  const url = (slug: string) => `${opts.publicUrl.replace(/\/+$/, "")}/shop/${slug}`;
+export function createShopLinks(opts: { linkBase: string; slugs: SlugStore }) {
+  const url = (slug: string) => `${opts.linkBase}/${slug}`;
 
   async function link(businessId: string, name: string): Promise<string> {
     const existing = await opts.slugs.slugOf(businessId);
@@ -415,6 +418,12 @@ export function createShopPage(deps: ShopDeps) {
     return id ? deps.business(id) : null;
   }
 
+  // The short link (yarnoga.com/s/<name> is forwarded here by the website, see docs/SHOP.md).
+  app.get("/s/:slug", (c) => {
+    const slug = c.req.param("slug").toLowerCase();
+    return SLUG.test(slug) ? c.redirect(`/shop/${slug}`, 301) : c.notFound();
+  });
+
   // The page is mostly text: gzipped, it's about a third of the size over a slow connection.
   app.use("/shop/:slug", compress());
 
@@ -537,7 +546,7 @@ export function createShopPage(deps: ShopDeps) {
   <div class="actions">
     <a class="pill main" href="${wa(t.hello(b.name))}">${t.chat}</a>
     ${directions ? html`<a class="pill" href="${directions}" target="_blank" rel="noopener">${t.directions}</a>` : ""}
-    <a class="pill" id="share" href="https://wa.me/?text=${encodeURIComponent(`${t.shared(b.name)} ${base}/shop/${slug}`)}">${t.share}</a>
+    <a class="pill" id="share" href="https://wa.me/?text=${encodeURIComponent(`${t.shared(b.name)} ${deps.linkBase}/${slug}`)}">${t.share}</a>
     <a class="pill" href="/shop/${slug}/contact.vcf">${t.save}</a>
   </div>
   </div>
@@ -895,7 +904,7 @@ ${products.length > 0
     const b = await load(slug);
     if (!b?.whatsappNumber) return c.notFound();
     const name = b.name.replace(/[\\;,]/g, (ch) => `\\${ch}`).replace(/\s+/g, " ");
-    const card = ["BEGIN:VCARD", "VERSION:3.0", `FN:${name}`, `ORG:${name}`, `TEL;TYPE=CELL:+${b.whatsappNumber}`, `URL:${base}/shop/${slug}`, "END:VCARD", ""].join("\r\n");
+    const card = ["BEGIN:VCARD", "VERSION:3.0", `FN:${name}`, `ORG:${name}`, `TEL;TYPE=CELL:+${b.whatsappNumber}`, `URL:${deps.linkBase}/${slug}`, "END:VCARD", ""].join("\r\n");
     return c.body(card, 200, { "Content-Type": "text/vcard; charset=utf-8", "Content-Disposition": `attachment; filename="${slug}.vcf"`, "Cache-Control": "public, max-age=3600" });
   });
 

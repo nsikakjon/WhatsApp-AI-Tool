@@ -108,6 +108,7 @@ function pageApp(b: ShopBusiness | null = business(), now = new Date("2026-10-26
     slugs: memorySlugs({ "adas-prints": BIZ }),
     business: async (id) => (b && id === b.id ? b : null),
     publicUrl: "https://app.yarnoga.com/",
+    linkBase: "https://yarnoga.com/s",
     now: () => now,
     log: { error() {} },
   });
@@ -127,18 +128,18 @@ describe("shop names", () => {
 
   it("gives each business its own name, numbering a taken one, and keeps it", async () => {
     const slugs = memorySlugs({ "adas-prints": OTHER });
-    const links = createShopLinks({ publicUrl: "https://app.yarnoga.com", slugs });
-    expect(await links.link(BIZ, "Ada's Prints")).toBe("https://app.yarnoga.com/shop/adas-prints-2");
-    expect(await links.link(BIZ, "Renamed Business")).toBe("https://app.yarnoga.com/shop/adas-prints-2");
+    const links = createShopLinks({ linkBase: "https://yarnoga.com/s", slugs });
+    expect(await links.link(BIZ, "Ada's Prints")).toBe("https://yarnoga.com/s/adas-prints-2");
+    expect(await links.link(BIZ, "Renamed Business")).toBe("https://yarnoga.com/s/adas-prints-2");
   });
 
   it("lets the owner change the name, unless it's taken or not link-safe", async () => {
     const slugs = memorySlugs({ "mama-put": OTHER });
-    const links = createShopLinks({ publicUrl: "https://app.yarnoga.com", slugs });
+    const links = createShopLinks({ linkBase: "https://yarnoga.com/s", slugs });
     expect(await links.rename(BIZ, "mama-put")).toEqual({ ok: false, reason: "taken" });
     expect(await links.rename(BIZ, "a")).toEqual({ ok: false, reason: "format" });
     expect(await links.rename(BIZ, "bad--name")).toEqual({ ok: false, reason: "format" });
-    expect(await links.rename(BIZ, "Ada Prints Ikeja")).toEqual({ ok: true, link: "https://app.yarnoga.com/shop/ada-prints-ikeja" });
+    expect(await links.rename(BIZ, "Ada Prints Ikeja")).toEqual({ ok: true, link: "https://yarnoga.com/s/ada-prints-ikeja" });
     expect(await slugs.bySlug("ada-prints-ikeja")).toBe(BIZ);
   });
 });
@@ -147,22 +148,22 @@ describe("owner shop commands", () => {
   const owner = (hasNumber: boolean) => ({ id: BIZ, name: "Ada's Prints", lang: "en" as const, hasNumber: async () => hasNumber });
 
   it("sends the link, and warns when customers' number isn't saved yet", async () => {
-    const links = createShopLinks({ publicUrl: "https://app.yarnoga.com", slugs: memorySlugs() });
+    const links = createShopLinks({ linkBase: "https://yarnoga.com/s", slugs: memorySlugs() });
     const reply = await links.ownerCommand(owner(true), msg("shop"));
-    expect(reply).toContain("Your shop: https://app.yarnoga.com/shop/adas-prints");
+    expect(reply).toContain("Your shop: https://yarnoga.com/s/adas-prints");
     expect(reply).not.toContain("stays closed");
     expect(await links.ownerCommand(owner(false), msg("my shop link"))).toContain("Until then the shop stays closed");
     expect(await links.ownerCommand(owner(true), msg("shopping list"))).toBeNull();
   });
 
   it("changes the link name", async () => {
-    const links = createShopLinks({ publicUrl: "https://app.yarnoga.com", slugs: memorySlugs({ taken: OTHER }) });
-    expect(await links.ownerCommand(owner(true), msg("shop link ada-ikeja"))).toContain("https://app.yarnoga.com/shop/ada-ikeja");
+    const links = createShopLinks({ linkBase: "https://yarnoga.com/s", slugs: memorySlugs({ taken: OTHER }) });
+    expect(await links.ownerCommand(owner(true), msg("shop link ada-ikeja"))).toContain("https://yarnoga.com/s/ada-ikeja");
     expect(await links.ownerCommand(owner(true), msg("shop link taken"))).toContain("already has that name");
   });
 
   it("is one of the quote bot's owner commands", async () => {
-    const links = createShopLinks({ publicUrl: "https://app.yarnoga.com", slugs: memorySlugs() });
+    const links = createShopLinks({ linkBase: "https://yarnoga.com/s", slugs: memorySlugs() });
     const bot = createQuoteProduct({
       businessName: "Ada's Prints",
       orderPrefix: "AP",
@@ -174,7 +175,7 @@ describe("owner shop commands", () => {
       log: { error() {} },
     });
     const ctx = { contactId: "c1", history: [], downloadMedia: async () => ({ data: new Blob(), mimeType: "image/jpeg" }) };
-    expect((await bot.handle(msg("shop"), ctx))?.text).toContain("/shop/adas-prints");
+    expect((await bot.handle(msg("shop"), ctx))?.text).toContain("/s/adas-prints");
     expect((await bot.handle(msg("menu"), ctx))?.text).toContain("*shop*: your shop link");
   });
 });
@@ -312,6 +313,7 @@ describe("shop page", () => {
     expect(page).toContain('href="https://www.google.com/maps/search/?api=1&amp;query=12%20Allen%20Avenue%2C%20Ikeja%2C%20Lagos"');
     expect(page).toContain('<a class="pill" href="https://instagram.com/adasprints" target="_blank" rel="noopener">Instagram</a>');
     expect(page).toContain('id="share" href="https://wa.me/?text=');
+    expect(page).toContain(encodeURIComponent(" https://yarnoga.com/s/adas-prints"));
 
     const plain = await (await pageApp(business({ address: { text: "Shop 4, Computer Village. 0801 111 2222", directions: false } })).request("/shop/adas-prints")).text();
     expect(plain).toContain("Shop 4, Computer Village");
@@ -341,13 +343,20 @@ describe("shop page", () => {
     expect(await (await pageApp(business({ recentOrders: async () => [["v3"], ["v3"], ["v3"]] })).request("/shop/adas-prints")).text()).not.toContain('id="picks"');
   });
 
+  it("sends the short link on to the shop page", async () => {
+    const res = await pageApp().request("/s/Adas-Prints");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("/shop/adas-prints");
+    expect((await pageApp().request("/s/..")).status).toBe(404);
+  });
+
   it("gives a contact card to save the number", async () => {
     const res = await pageApp(business({ name: "Ada, Sons; Co" })).request("/shop/adas-prints/contact.vcf");
     expect(res.headers.get("content-type")).toContain("text/vcard");
     const card = await res.text();
     expect(card).toContain("FN:Ada\\, Sons\\; Co\r\n");
     expect(card).toContain("TEL;TYPE=CELL:+2348011112222\r\n");
-    expect(card).toContain("URL:https://app.yarnoga.com/shop/adas-prints\r\n");
+    expect(card).toContain("URL:https://yarnoga.com/s/adas-prints\r\n");
     expect((await pageApp(business({ whatsappNumber: null })).request("/shop/adas-prints/contact.vcf")).status).toBe(404);
   });
 
