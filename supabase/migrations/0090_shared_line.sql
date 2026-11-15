@@ -15,6 +15,7 @@ create table if not exists public.quote_line_guests (
   wa_id       text not null,
   number_id   text not null,
   business_id uuid not null references public.quote_businesses (id) on delete cascade,
+  first_at    timestamptz not null default now(),
   last_at     timestamptz not null default now(),
   left_at     timestamptz,
   primary key (wa_id, number_id, business_id)

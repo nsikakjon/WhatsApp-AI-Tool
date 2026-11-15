@@ -21,8 +21,11 @@ export interface LoginBusiness {
 export function withAppLogin(
   bot: Product,
   opts: {
-    /** The business answering on this WhatsApp number (undefined = main number). */
-    businessFor(numberId: string | undefined): Promise<LoginBusiness | null>;
+    /**
+     * The business answering on this WhatsApp number (undefined = main number).
+     * `from` is the sender, for a number several shops share (the yarnOga quotes line).
+     */
+    businessFor(numberId: string | undefined, from: string): Promise<LoginBusiness | null>;
     users: UserStore;
     publicUrl: string;
     now?: () => Date;
@@ -37,7 +40,7 @@ export function withAppLogin(
       if (msg.text === SUMMARY_SEEN) return { text: "👍 See you tomorrow morning." };
       if (msg.type === "text" && msg.text && APP_COMMAND.test(msg.text)) {
         try {
-          const business = await opts.businessFor(msg.businessNumberId);
+          const business = await opts.businessFor(msg.businessNumberId, msg.from);
           if (business) {
             const user =
               business.ownerWaId && msg.from === business.ownerWaId

@@ -30,6 +30,11 @@ export interface AppBusiness {
   numberId: string;
   /** The main number also has old messages saved without a number. */
   includeUnnumbered: boolean;
+  /**
+   * Set for a shop on the yarnOga quotes line (its id): that number carries
+   * everyone's chats, so the inbox shows only people who sent its keyword.
+   */
+  lineGuestsOf?: string;
   features?: PlanFeatures;
   board: BoardStore;
   prices: PriceStore;
