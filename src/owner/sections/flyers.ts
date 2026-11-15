@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Hono } from "hono";
 import { formatMoney, formatNaira } from "../../core/money.js";
-import { BUSINESS_DESIGNS, designMax, HEADLINE_FONTS, isBusinessDesign, isHeadlineFont, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem, type FlyerLook } from "../../products/flyer/business.js";
+import { BUSINESS_DESIGNS, comingYear, designMax, HEADLINE_FONTS, inSeason, isBusinessDesign, isHeadlineFont, isSeasonal, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessDesign, type BusinessItem, type FlyerLook } from "../../products/flyer/business.js";
 import { priceFacts } from "../../products/quote/catalogue.js";
 import type { SectionContext } from "../index.js";
 import { esc, field } from "../layout.js";
@@ -24,7 +24,7 @@ const HOUR = 3_600_000;
 const MAX_DRAFTS = 200;
 
 /** The designs a plan's monthly flyers can use; a flyer pack opens the rest. */
-const PLAN_DESIGNS: BusinessDesign[] = ["spotlight", "grid"];
+const PLAN_DESIGNS: BusinessDesign[] = ["spotlight", "grid", "christmas", "lights", "newyear"];
 
 const SIZES = [
   { id: "s", name: "Smaller", scale: 0.85 },
@@ -46,6 +46,8 @@ interface Draft {
   at: number;
   headline: string;
   subline: string;
+  /** Where to find the business, e.g. a stand at a fair. */
+  place: string;
   productIds: string[];
   own: Array<{ photo: Buffer; label: string }>;
   prices: boolean;
@@ -107,6 +109,7 @@ export function registerFlyers(app: Hono<Env>, ctx: SectionContext) {
     const biz = c.get("biz");
     const draft = drafts.get(draftId)?.businessId === biz.id ? drafts.get(draftId)! : null;
     const words = WORDS[biz.language === "fr" ? "fr" : "en"];
+    const season = inSeason(ctx.now());
     const products = (await biz.prices.products()).filter((p) => p.active);
     const picked = new Set(draft ? draft.productIds : [c.req.query("p") ?? ""]);
     const colour = draft?.colour ?? safeColour(await shopAccent(biz));
@@ -129,6 +132,8 @@ ${problems.length ? `<div class="flash bad"><ul>${problems.map((x) => `<li>${esc
 ${draft ? `<input type="hidden" name="draft" value="${esc(draftId)}">` : ""}
 <label for="h">Headline</label><input id="h" name="headline" maxlength="40" required value="${esc(draft?.headline ?? words.headline)}">
 <label for="s">Line under it <span class="muted">(optional)</span></label><input id="s" name="subline" maxlength="70" value="${esc(draft?.subline ?? "")}" placeholder="e.g. Order before Friday, free delivery in Lekki">
+<label for="w">Where to find you <span class="muted">(optional)</span></label><input id="w" name="place" maxlength="60" value="${esc(draft?.place ?? "")}" placeholder="e.g. Stand 14, Christmas Unplugged, Uyo">
+${season ? `<p class="muted small">Christmas and New Year designs are on. They work with no products too, as a season's greeting from your business.</p>` : ""}
 <h2>From your price list</h2>
 ${products.length ? `<p class="muted small">Tick up to ${MAX_PRODUCTS}. Photos, names and prices come from your <a href="/home/prices">price list</a>.</p><div class="cards">${list}</div>` : `<p class="muted">Your price list is empty. <a href="/home/prices/new">Add a product</a>, or use your own pictures below.</p>`}
 <h2>Your own pictures</h2>
@@ -172,7 +177,7 @@ ${own}
       }
     }
     const kept = own.length ? own : (earlier?.own ?? []).map((o, i) => ({ ...o, label: field(body, `label${i}`, 40) }));
-    if (!productIds.length && !kept.length) problems.push("Tick a product or add a picture.");
+    if (!productIds.length && !kept.length && !inSeason(ctx.now())) problems.push("Tick a product or add a picture.");
     if (problems.length) return form(c, problems, earlier ? field(body, "draft", 40) : "");
 
     const id = randomBytes(12).toString("hex");
@@ -181,6 +186,7 @@ ${own}
       at: ctx.now().getTime(),
       headline,
       subline: field(body, "subline", 70),
+      place: field(body, "place", 60),
       productIds,
       own: kept,
       prices: Boolean(body.prices),
@@ -199,6 +205,15 @@ ${own}
     ctx.render(c, "Flyers", "/home/flyers", `<p>This flyer was put away after an hour. <a href="/home/flyers">Make it again</a>: it only takes a minute.</p>`, 404);
 
   const count = (draft: Draft) => draft.productIds.length + draft.own.length;
+
+  /** The designs on offer now: seasonal ones first while their season is on, and hidden after it. */
+  const designsNow = () => {
+    const season = inSeason(ctx.now());
+    return [...BUSINESS_DESIGNS.filter((d) => season && isSeasonal(d.id)), ...BUSINESS_DESIGNS.filter((d) => !isSeasonal(d.id))];
+  };
+
+  /** A flyer with nothing to show only fits a seasonal design, as a greeting. */
+  const fits = (draft: Draft, design: BusinessDesign) => count(draft) > 0 || isSeasonal(design);
 
   /** How the small previews look: a limited plan's uncounted flyer says "Preview" across it, and a free flyer carries the yarnOga tag. */
   const setPreview = async (biz: AppBusiness, draft: Draft, status: FlyerStatus | null) => {
@@ -241,17 +256,21 @@ ${own}
       : draft.pass === "pack" || limited.packLeft > 0
         ? `<p class="flash good">${draft.pass === "pack" ? "This flyer is from your flyer pack" : `You have ${limited.packLeft} pack flyer${limited.packLeft === 1 ? "" : "s"} left`}: every design, no yarnOga tag.</p>`
         : `<p class="flash good">${draft.pass === "plan" ? "This flyer is counted." : `${limited.planLeft} of ${limited.planLimit} free flyers left this month.`} Free flyers use the ${PLAN_DESIGNS.map((d) => BUSINESS_DESIGNS.find((x) => x.id === d)!.name).join(" and ")} designs and carry a small yarnOga tag.</p>`;
-    const cards = BUSINESS_DESIGNS.map(
-      (d) => `<a class="card" href="/home/flyers/${id}/${d.id}" style="padding:10px;text-decoration:none;color:inherit">
+    const cards = designsNow()
+      .filter((d) => fits(draft, d.id))
+      .map(
+        (d) => `<a class="card" href="/home/flyers/${id}/${d.id}" style="padding:10px;text-decoration:none;color:inherit">
 <img src="/home/flyers/${id}/${d.id}.jpg?small=1&v=${draft.version}" alt="${d.name} design" width="540" height="675" loading="lazy" style="width:100%;height:auto;border-radius:12px;display:block">
 <p style="margin:10px 4px 0"><b>${d.name}</b> <span class="muted small">${locked(d.id, draft, status) ? "with a flyer pack or a paid plan" : n > d.max ? `shows the first ${d.max === 1 ? "one" : d.max}` : esc(d.about)}</span></p></a>`,
-    ).join("");
+      )
+      .join("");
     return ctx.render(
       c,
       "Pick a design",
       "/home/flyers",
       `${left}<p>Tap the one you like to fine-tune it in the design console, then share or download it.${limited && !draft.pass ? " A flyer is counted when you tap Use this flyer, and you can then switch between its designs." : ""}</p>
 <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>
+${n === 0 ? `<p class="muted small">With no products or pictures, your flyer is a season's greeting. Tick products or add pictures to use the other designs.</p>` : ""}
 <div class="actions"><a class="button ghost" href="/home/flyers?from=${id}">Change the words or pictures</a></div>`,
     );
   });
@@ -259,7 +278,7 @@ ${own}
   app.get("/flyers/:draft/:file{[a-z]+\\.jpg}", async (c) => {
     const draft = draftOf(c);
     const design = c.req.param("file").replace(".jpg", "");
-    if (!draft || !isBusinessDesign(design)) return c.notFound();
+    if (!draft || !isBusinessDesign(design) || !fits(draft, design)) return c.notFound();
     const small = Boolean(c.req.query("small"));
     // The full-size flyer is only for a flyer that has been counted, on a design its pass covers.
     if (!small && (!draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design)))) return c.notFound();
@@ -361,6 +380,7 @@ ${own}
     const design = c.req.param("design");
     if (!draft || !isBusinessDesign(design)) return expired(c);
     const id = c.req.param("draft");
+    if (!fits(draft, design)) return c.redirect(`/home/flyers/${id}`, 303);
     const biz = c.get("biz");
     const status = (await biz.flyers?.status()) ?? null;
     if (status && uncounted(draft, design)) {
@@ -448,15 +468,20 @@ ${consoleForm(draft, id, design, await shopAccent(biz))}
       .join("");
     const tick = (name: string, label: string, on: boolean) => `<label class="check"><input type="checkbox" name="${name}"${on ? " checked" : ""}> ${label}</label>`;
     return `<form class="console" id="look" method="post" action="/home/flyers/${id}/${design}/look">
-<h3>Design</h3><div class="seg">${BUSINESS_DESIGNS.map((d) => `<a href="/home/flyers/${id}/${d.id}"${d.id === design ? ' class="on"' : ""}>${esc(d.name)}</a>`).join("")}</div>
+<h3>Design</h3><div class="seg">${designsNow().filter((d) => fits(draft, d.id)).map((d) => `<a href="/home/flyers/${id}/${d.id}"${d.id === design ? ' class="on"' : ""}>${esc(d.name)}</a>`).join("")}</div>
 <h3>Words</h3>
 ${
   words
     ? `<label for="h">Headline</label><input id="h" name="headline" maxlength="40" required value="${esc(draft.headline)}">
-<label for="s">Line under it</label><input id="s" name="subline" maxlength="70" value="${esc(draft.subline)}">`
-    : `<p class="muted small">“${esc(draft.headline)}”${draft.subline ? ` · ${esc(draft.subline)}` : ""}<br>New words make a new flyer: <a href="/home/flyers?from=${id}">change the words or pictures</a>.</p>`
+<label for="s">Line under it</label><input id="s" name="subline" maxlength="70" value="${esc(draft.subline)}">
+<label for="w">Where to find you</label><input id="w" name="place" maxlength="60" value="${esc(draft.place)}">`
+    : `<p class="muted small">“${esc(draft.headline)}”${draft.subline ? ` · ${esc(draft.subline)}` : ""}${draft.place ? ` · ${esc(draft.place)}` : ""}<br>New words make a new flyer: <a href="/home/flyers?from=${id}">change the words or pictures</a>.</p>`
 }
-<h3>Colour</h3><div class="swatches">${swatches}<input type="color" name="colour" value="${esc(draft.colour)}" aria-label="Any colour"></div>
+${
+  isSeasonal(design)
+    ? `<input type="hidden" name="colour" value="${esc(draft.colour)}">`
+    : `<h3>Colour</h3><div class="swatches">${swatches}<input type="color" name="colour" value="${esc(draft.colour)}" aria-label="Any colour"></div>`
+}
 <h3>Headline font</h3>${seg("font", [{ id: "", name: "Design's own" }, ...HEADLINE_FONTS], look.font ?? "")}
 <h3>Headline size</h3>${seg("size", SIZES, SIZES.find((x) => x.scale === (look.size ?? 1))?.id ?? "m")}
 <h3>Photo</h3>
@@ -476,6 +501,7 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
     const biz = c.get("biz");
     if (!draft || !isBusinessDesign(design)) return expired(c);
     const id = c.req.param("draft");
+    if (!fits(draft, design)) return c.redirect(`/home/flyers/${id}`, 303);
     if (biz.flyers && uncounted(draft, design)) {
       const status = await biz.flyers.status();
       if (locked(design, draft, status)) return c.redirect(`/home/flyers/${id}/${design}`, 303);
@@ -500,6 +526,7 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
         const headline = field(body, "headline", 40);
         if (headline) draft.headline = headline;
         draft.subline = field(body, "subline", 70);
+        draft.place = field(body, "place", 60);
       }
       const share = (name: string, low: number, high: number) => {
         const n = Number(field(body, name, 4));
@@ -529,7 +556,7 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
     const draft = draftOf(c);
     const design = c.req.param("design");
     const biz = c.get("biz");
-    if (!draft || !isBusinessDesign(design) || !biz.sendFlyer) return expired(c);
+    if (!draft || !isBusinessDesign(design) || !fits(draft, design) || !biz.sendFlyer) return expired(c);
     const back = `/home/flyers/${c.req.param("draft")}/${design}`;
     // Only a flyer that has been counted, on a design its pass covers, can go out.
     if (!draft.pass || (draft.pass === "plan" && !PLAN_DESIGNS.includes(design))) return c.redirect(back, 303);
@@ -574,6 +601,9 @@ ${tick("prices", "Prices", draft.prices)}${tick("logo", "Logo", draft.show.logo)
     return renderBusinessFlyer(design, {
       headline: draft.headline,
       subline: draft.subline || undefined,
+      place: draft.place || undefined,
+      lang: biz.language === "fr" ? "fr" : "en",
+      year: comingYear(ctx.now()),
       items,
       businessName: info?.name ?? biz.name,
       logo: draft.show.logo ? (logo ?? undefined) : undefined,

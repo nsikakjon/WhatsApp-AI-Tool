@@ -1175,8 +1175,32 @@ describe("business flyers", () => {
     expect(await (await get(s, `${path}/menu`, cookie)).text()).toContain('value="" checked');
   }, 20_000);
 
-  it("asks for something to show, and keeps riders out", async () => {
-    const s = setup();
+  it("makes a season's greeting with no products, on the seasonal designs only", async () => {
+    let clock = new Date();
+    const s = setup({}, { now: () => clock });
+    const cookie = await login(s, OWNER);
+    clock = new Date("2026-12-01T10:00:00Z");
+    expect(await (await get(s, "/flyers", cookie)).text()).toContain("Christmas and New Year designs are on");
+    const body = new FormData();
+    body.set("headline", "From all of us to you");
+    body.set("place", "Stand 14, Christmas Unplugged, Uyo");
+    const made = await s.app.request(`https://${HOST}/flyers`, { method: "POST", body, headers: { Origin: `https://${HOST}`, Host: HOST, cookie } });
+    expect(made.status).toBe(303);
+    const path = made.headers.get("location")!.replace("/home", "");
+    const designs = await (await get(s, path, cookie)).text();
+    for (const d of ["christmas", "lights", "newyear"]) expect(designs).toContain(`${path}/${d}.jpg?small=1`);
+    expect(designs).not.toContain(`${path}/grid.jpg`);
+    expect(designs).toContain("a season's greeting");
+    expect((await get(s, `${path}/grid`, cookie)).headers.get("location")).toBe(`/home${path}`);
+    expect((await get(s, `${path}/grid.jpg?small=1`, cookie)).status).toBe(404);
+    const page = await (await get(s, `${path}/christmas`, cookie)).text();
+    expect(page).toContain('value="Stand 14, Christmas Unplugged, Uyo"');
+    expect(page).not.toContain("<h3>Colour</h3>");
+    expect(new Uint8Array(await (await get(s, `${path}/newyear.jpg`, cookie)).arrayBuffer())[0]).toBe(0xff);
+  }, 20_000);
+
+  it("asks for something to show out of season, and keeps riders out", async () => {
+    const s = setup({}, { now: () => new Date("2026-07-01T10:00:00Z") });
     const cookie = await login(s, OWNER);
     const body = new FormData();
     body.set("headline", "Weekend offer");
