@@ -118,7 +118,8 @@ export async function sendDueReminders(deps: ReminderDeps): Promise<ReminderResu
   return result;
 }
 
-export function createSupabaseReminderStore(db: SupabaseClient, mainPhoneNumberId?: string): ReminderStore {
+/** `lineNumberId`: the yarnOga quotes line, which shops with a keyword there (migration 0090) send from. */
+export function createSupabaseReminderStore(db: SupabaseClient, mainPhoneNumberId?: string, lineNumberId?: string): ReminderStore {
   return {
     async due(eventDate) {
       const { data, error } = await db
@@ -134,7 +135,7 @@ export function createSupabaseReminderStore(db: SupabaseClient, mainPhoneNumberI
       for (const lead of data ?? []) {
         const { data: shop, error: shopError } = await db.from("quote_businesses").select("*").eq("id", lead.business_id).maybeSingle();
         if (shopError) throw new Error(`reminder shop failed: ${shopError.message}`);
-        const phoneNumberId = (shop?.phone_number_id as string | null) ?? mainPhoneNumberId;
+        const phoneNumberId = (shop?.phone_number_id as string | null) ?? (shop?.line_keyword ? lineNumberId : undefined) ?? mainPhoneNumberId;
         if (!shop || !phoneNumberId) continue;
         out.push({
           leadId: Number(lead.id),

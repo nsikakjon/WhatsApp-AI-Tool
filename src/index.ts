@@ -60,6 +60,7 @@ import {
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, preview, withChatSignup } from "./products/quote/chat-signup.js";
+import { createSupabaseLineGuests, withSharedLine } from "./products/quote/shared-line.js";
 import { checkDueSheets, createSheetSync, createSupabaseSheets } from "./products/quote/sheet-sync.js";
 import { fetchSheet } from "./core/sheets.js";
 import { memoryOrderStore, readOnlyBranding } from "./bottest/sandbox.js";
@@ -561,6 +562,11 @@ const withVoice = (bot: Product, enabled: () => boolean, language?: Lang): Produ
 let product: Product = echoProduct;
 let mainQuoteBot: QuoteProduct | undefined;
 
+/** The number a business's customers reach it on: its own, or the yarnOga quotes line for a shop with a keyword there (null = main number). */
+function numberOf(business: QuoteBusiness): string | null {
+  return business.phoneNumberId ?? (business.lineKeyword ? (config.quoteChatSignup?.phoneNumberId ?? null) : null);
+}
+
 /** A business's quote bot and the number it answers on (null = main number), for work that starts outside a chat. */
 async function quoteBotFor(
   businessId: string,
@@ -580,7 +586,7 @@ async function quoteBotFor(
   if (!business) return null;
   return {
     bot: businessBot(business, quoteBusinesses),
-    fromNumberId: business.phoneNumberId,
+    fromNumberId: numberOf(business),
     name: business.name,
     orderPrefix: business.orderPrefix,
     ownerWaId: business.ownerWaId,
@@ -694,7 +700,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
           orderPrefix: business.orderPrefix,
           ownerWaId: business.ownerWaId ?? undefined,
           pickup: business.businessDetails ?? undefined,
-          fromNumberId: business.phoneNumberId ?? undefined,
+          fromNumberId: numberOf(business) ?? undefined,
           store: createSupabaseDeliveryStore(supabase, business.id),
           orders,
           links: trackingLinks,
@@ -758,23 +764,26 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       description: business.description ?? undefined,
       language: business.language,
       currency: business.currency,
-      onUsage: business.phoneNumberId ? countAi(business.phoneNumberId, multi.model) : undefined,
+      onUsage: numberOf(business) ? countAi(numberOf(business)!, multi.model) : undefined,
     }),
   });
+}
+/** A business's whole bot as its customers meet it: voice replies, owner alerts and broadcast replies included. */
+function customerBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBusinesses>): Product {
+  return addBroadcasts(
+    withAlerts(withVoice(businessBot(business, multi), () => business.voiceReplies === true, business.language), business.id, business.ownerWaId),
+    business.id,
+    business.name,
+    business.ownerWaId ?? undefined,
+    Boolean(business.branchOf),
+  );
 }
 if (quoteBusinesses) {
   product = createQuoteRouter({
     businesses: createSupabaseBusinesses(supabase),
     fallback: product,
     fallbackNumberIds: [config.whatsapp.phoneNumberId],
-    build: (business) =>
-      addBroadcasts(
-        withAlerts(withVoice(businessBot(business, quoteBusinesses), () => business.voiceReplies === true, business.language), business.id, business.ownerWaId),
-        business.id,
-        business.name,
-        business.ownerWaId ?? undefined,
-        Boolean(business.branchOf),
-      ),
+    build: (business) => customerBot(business, quoteBusinesses),
   });
 }
 
@@ -844,6 +853,20 @@ if (chatSignup && quoteBusinesses) {
           onUsage: countAi(chatSignup.phoneNumberId, quoteBusinesses.model),
         }),
       });
+    },
+  });
+
+  // Partners without a number of their own: visitors send the shop's keyword
+  // (set on the dashboard's Partnerships page) and chat with its bot here.
+  const signups = createSupabaseSignups(supabase);
+  product = withSharedLine(product, {
+    numberId: chatSignup.phoneNumberId,
+    store: createSupabaseLineGuests(supabase),
+    businesses,
+    build: (business) => customerBot(business, quoteBusinesses),
+    busy: async (waId) => {
+      const signup = await signups.get(waId);
+      return Boolean(signup && signup.step !== "done");
     },
   });
 }
@@ -2144,7 +2167,7 @@ if (ownerAppDeps) {
 if (config.dashboard && config.activeProduct === "quote") {
   const deps = { store, whatsapp };
   const template = config.eventReminderTemplate;
-  const reminders = createSupabaseReminderStore(supabase, config.whatsapp.phoneNumberId);
+  const reminders = createSupabaseReminderStore(supabase, config.whatsapp.phoneNumberId, config.quoteChatSignup?.phoneNumberId);
   runEvery(15 * 60 * 1000, async () => {
     try {
       await sendDueReminders({
