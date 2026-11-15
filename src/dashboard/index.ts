@@ -5,7 +5,8 @@ import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
-import { ownerNumber, parseCodeForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { ownerNumber, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { renderReport, type ReportSource } from "./partner-report.js";
 import { parseTicketForm } from "./partner-tickets.js";
 import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
@@ -37,6 +38,8 @@ export interface DashboardDeps {
   partners?: PartnerStore;
   /** Discount codes and shops for agreed partners, on the same page. */
   partnerPackages?: PartnerPackageStore;
+  /** The event report for an agreed partnership. */
+  partnerReports?: ReportSource;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
@@ -380,6 +383,30 @@ export function createDashboard(deps: DashboardDeps) {
     const problem = await ticketsOf(p).remove(c.req.param("variant")!);
     return problem ? { problem } : { saved: "Taken off their price list." };
   });
+  packageRoute("/partners/:id/reminder", async (p, form) => {
+    if (p.reminderSentAt) return { problem: "The reminder has already gone out." };
+    const reminder = parseReminderForm(form);
+    if ("problem" in reminder) return reminder;
+    if (reminder.on && !p.eventDate) return { problem: "Set the event day on the lead (Edit) first." };
+    await deps.partnerPackages!.saveReminder(p, reminder);
+    return { saved: reminder.on ? "Reminder on." : "Reminder saved, switched off." };
+  });
+
+  app.get("/partners/:id/report", async (c) => {
+    if (!deps.partners || !deps.partnerPackages || !deps.partnerReports) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const partner = await agreedPartner(c).catch(() => null);
+    if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a report."), 303);
+    const report = await deps.partnerPackages
+      .load(partner)
+      .then((pkg) => deps.partnerReports!.report(partner, pkg.code))
+      .catch((err) => {
+        log.error("Partner report failed:", err);
+        return "error" as const;
+      });
+    return c.html(renderReport(partner, report, today()));
+  });
+
   packageRoute("/partners/:id/shop/unlink", async (p) => {
     await deps.partnerPackages!.unlinkShop(p);
     return { saved: "Shop unlinked." };

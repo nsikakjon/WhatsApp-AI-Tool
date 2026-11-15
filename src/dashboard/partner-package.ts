@@ -4,6 +4,7 @@ import { createSupabasePromoAdmin } from "../core/payments/promos.js";
 import { normaliseWaId } from "../owner/auth.js";
 import { esc } from "./page.js";
 import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
+import { reminderText } from "./partner-reminder.js";
 import type { Partner } from "./partners.js";
 
 // The package for an agreed partnership, set up from /dashboard/partners by
@@ -96,6 +97,19 @@ export interface PartnerPackageStore {
   saveShop(partner: Partner, shop: ShopInput): Promise<void>;
   /** Their tickets and price list, once a shop is linked. */
   tickets(partner: Partner): TicketAdmin | null;
+  saveReminder(partner: Partner, reminder: ReminderInput): Promise<void>;
+}
+
+export interface ReminderInput {
+  on: boolean;
+  /** "09:00", or null when not set. */
+  eventTime: string | null;
+}
+
+export function parseReminderForm(form: Record<string, unknown>): ReminderInput | { problem: string } {
+  const time = field(form, "event_time", 8);
+  if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return { problem: "Pick the start time from the clock." };
+  return { on: field(form, "reminder_on") === "on", eventTime: time || null };
 }
 
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
@@ -172,6 +186,26 @@ function codeForm(p: Partner, c: PartnerCode | null): string {
 </form>`;
 }
 
+function reminderForm(p: Partner, s: PartnerShop): string {
+  const status =
+    p.reminderSentAt != null
+      ? `Sent to ${p.reminderSentCount ?? 0} ticket holder${p.reminderSentCount === 1 ? "" : "s"}.`
+      : !p.eventDate
+        ? "Set the event day on the lead (Edit) first."
+        : p.reminderOn
+          ? "On: it goes out the day before, from 10am, to everyone holding a ticket that hasn't been used."
+          : "Off.";
+  const preview = p.eventDate ? reminderText({ event: p.name, eventDate: p.eventDate, eventTime: p.eventTime ?? null, address: s.address }) : "";
+  return `<form class="entry" method="post" action="/dashboard/partners/${p.id}/reminder">
+<h3>Reminder the day before</h3>
+<p class="small wide-all">${esc(status)}</p>
+<label>Starts at <input type="time" name="event_time" value="${esc(p.eventTime ?? "")}"></label>
+<div class="ticks"><label class="tick"><input type="checkbox" name="reminder_on"${p.reminderOn ? " checked" : ""}${p.reminderSentAt ? " disabled" : ""}> Send ticket holders a reminder</label></div>
+${preview ? `<pre class="preview wide-all">${esc(preview)}</pre>` : ""}
+<div class="buttons"><button type="submit"${p.reminderSentAt ? " disabled" : ""}>Save reminder</button><a href="/dashboard/partners/${p.id}/report">Event report</a></div>
+</form>`;
+}
+
 function linkList(l: PartnerLinks | undefined): string {
   const rows = [
     l?.chat && ["Chat link (for flyers and QR codes)", l.chat],
@@ -214,7 +248,7 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
     pkg === "error"
       ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
       : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
-          pkg.shop ? `${linkList(pkg.links)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}` : ""
+          pkg.shop ? `${linkList(pkg.links)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}` : ""
         }`;
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
@@ -234,6 +268,7 @@ export const PACKAGE_CSS = `.package { margin-top:18px; padding:4px 0 8px; borde
 .package h4 { margin:22px 0 8px; font:600 15px/1.3 var(--accent); }
 .links { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:8px; }
 .links a { word-break:break-all; }
+.preview { white-space:pre-wrap; margin:0; padding:12px 14px; border-radius:10px; background:var(--bg); border:1px solid var(--line2); color:var(--muted); font:14px/1.5 inherit; }
 ${TICKETS_CSS}`;
 
 export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks: ShopLinkMaker = {}): PartnerPackageStore {
@@ -345,6 +380,9 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       return null;
     },
     tickets: (p) => (p.businessId ? createSupabaseTicketAdmin(db, p.businessId) : null),
+    async saveReminder(p, r) {
+      await setLead(p.id, { reminder_on: r.on, event_time: r.eventTime });
+    },
     async unlinkShop(p) {
       await setLead(p.id, { business_id: null });
     },

@@ -12,6 +12,7 @@ import {
 } from "./partner-package.js";
 import { parseTicketForm, renderTickets, type TicketInput, type TicketRow } from "./partner-tickets.js";
 import type { Partner, PartnerStore } from "./partners.js";
+import { renderReport } from "./partner-report.js";
 import { NOW, sampleStats } from "./testing.js";
 
 const PLANS: PlanChoice[] = [
@@ -97,6 +98,9 @@ function stores() {
     async saveShop(p, s: ShopInput) {
       Object.assign(shops.get(p.businessId!)!, s);
     },
+  };
+  packages.saveReminder = async (p, r) => {
+    Object.assign(leads.find((l) => l.id === p.id)!, { reminderOn: r.on, eventTime: r.eventTime });
   };
   return { leads, codes, shops, partners, packages, ticketRows, savedTickets };
 }
@@ -267,5 +271,61 @@ describe("partner package pages", () => {
     const res = await app.request("/partners/2/code", post({ code: "FOODFEST26", percent_off: "50" }));
     expect(decodeURIComponent(res.headers.get("location")!)).toContain("Only an agreed partnership has a package.");
     expect(s.codes.size).toBe(0);
+  });
+});
+
+describe("partner reminder and report", () => {
+  const auth = { Authorization: `Basic ${btoa("jay:secret")}`, Host: "app.example.com" };
+  const post = (body: Record<string, string>) =>
+    ({ method: "POST", headers: { ...auth, Origin: "https://app.example.com", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) }) as RequestInit;
+
+  it("switches the reminder on with the start time and shows a preview", async () => {
+    const s = stores();
+    s.leads[0]!.businessId = "biz-1";
+    s.shops.get("biz-1")!.address = "Main Auditorium, University of Uyo";
+    const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, partners: s.partners, partnerPackages: s.packages, now: () => NOW });
+
+    expect(decodeURIComponent((await app.request("/partners/1/reminder", post({ event_time: "9am" }))).headers.get("location")!)).toContain("problem=");
+    await app.request("/partners/1/reminder", post({ event_time: "09:00", reminder_on: "on" }));
+    expect(s.leads[0]).toMatchObject({ reminderOn: true, eventTime: "09:00" });
+    const page = await (await app.request("/partners", { headers: auth })).text();
+    expect(page).toContain("is tomorrow, Saturday 28 November at 9am.");
+    expect(page).toContain('href="/dashboard/partners/1/report"');
+
+    s.leads[0]!.reminderSentAt = "2026-11-27T10:00:00Z";
+    expect(decodeURIComponent((await app.request("/partners/1/reminder", post({ reminder_on: "" }))).headers.get("location")!)).toContain("already gone out");
+  });
+
+  it("shows the event report for an agreed partnership only", async () => {
+    const s = stores();
+    const app = createDashboard({
+      password: "secret",
+      stats: { load: async () => sampleStats() },
+      partners: s.partners,
+      partnerPackages: s.packages,
+      partnerReports: {
+        report: async () => ({
+          shopName: "TEDxUNIUYO",
+          tickets: [{ name: "TEDxUNIUYO 2026: VIP", sold: 40, checkedIn: 30 }],
+          ticketMoneyKobo: 40_000_000,
+          people: 310,
+          replies: 1_204,
+          code: null,
+        }),
+      },
+      now: () => NOW,
+    });
+    const report = await (await app.request("/partners/1/report", { headers: auth })).text();
+    expect(report).toContain("TEDxUNIUYO 2026: VIP");
+    expect(report).toContain("₦400,000");
+    expect(report).toContain("75%");
+    expect(report).toContain("1,204 replies sent");
+    expect((await app.request("/partners/2/report", { headers: auth })).status).toBe(303);
+  });
+
+  it("says when the reminder went out", () => {
+    const html = renderReport(partner({ reminderSentAt: "2026-11-27T10:00:00Z", reminderSentCount: 38 }), { shopName: null, tickets: [], ticketMoneyKobo: 0, people: 0, replies: 0, code: null }, "2026-11-29");
+    expect(html).toContain("Sent the day before to 38 ticket holders.");
+    expect(html).toContain("No tickets sold through yarnOga.");
   });
 });

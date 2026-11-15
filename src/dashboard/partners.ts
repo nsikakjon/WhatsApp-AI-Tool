@@ -39,6 +39,12 @@ export interface Partner extends NewPartner {
   promoCode?: string | null;
   /** The partner's own shop on yarnOga (migration 0089). */
   businessId?: string | null;
+  /** When the event starts, "09:00" (migration 0089). */
+  eventTime?: string | null;
+  /** Ticket holders get a reminder the day before (partner-reminder.ts). */
+  reminderOn?: boolean;
+  reminderSentAt?: string | null;
+  reminderSentCount?: number | null;
 }
 
 export interface PartnerStore {
@@ -248,6 +254,10 @@ interface PartnerRow {
   notes: string | null;
   promo_code?: string | null;
   business_id?: string | null;
+  event_time?: string | null;
+  reminder_on?: boolean;
+  reminder_sent_at?: string | null;
+  reminder_sent_count?: number | null;
 }
 
 const columns = (p: NewPartner) => ({
@@ -287,6 +297,10 @@ export function createSupabasePartnerStore(db: SupabaseClient): PartnerStore {
         notes: r.notes,
         promoCode: r.promo_code ?? null,
         businessId: r.business_id ?? null,
+        eventTime: r.event_time ? r.event_time.slice(0, 5) : null,
+        reminderOn: r.reminder_on === true,
+        reminderSentAt: r.reminder_sent_at ?? null,
+        reminderSentCount: r.reminder_sent_count ?? null,
       }));
     },
     async add(p) {
