@@ -42,6 +42,7 @@ sheet, plan editor, numbers to connect) next to them:
 | Site Reporter | active sites, team members, updates, photos, voice notes, daily reports |
 | Lead qualifier | enquiries, hot/warm/cold, handed to an agent |
 | Website (yarnoga.com) | visitors today, page views, a 30-day visitors chart, top pages and where visitors came from |
+| Google Analytics (yarnoga.com) | users, new users, sessions and page views over 30 days, a users-per-day chart, top pages and traffic sources, once connected (below) |
 | Socials | Instagram, Facebook, TikTok and YouTube numbers once connected (below) |
 
 "Paid plans are worth" is the monthly list price of the plans groups are on,
@@ -395,3 +396,56 @@ the new pages are live; nothing before that can be recovered.
 
 If the Railway address ever changes, the counter's address at the bottom of
 each site page (search for `yarnOga visitor counter`) must change too.
+
+### Google Analytics
+
+Google Analytics (GA) watches yarnoga.com alongside our own counter. It adds
+sessions (visits) and where each visit came from (Google search, Instagram,
+an ad, typed in). It needs two things: GA's code on every site page, and a
+Google Cloud "robot account" that is allowed to read the numbers.
+
+**Part 1: put GA on the website**
+
+1. Go to [analytics.google.com](https://analytics.google.com), signed in with
+   the Google account that owns the yarnoga-dashboard Cloud project.
+2. **Admin** (gear icon, bottom left) > **Create** > **Property**. Name it
+   `yarnOga website`, time zone **Nigeria**, currency **Nigerian Naira**.
+   Fill in the business questions and click **Create**.
+3. When asked to choose a platform, pick **Web**. Website URL `yarnoga.com`,
+   stream name `yarnoga.com`, then **Create stream**.
+4. Copy the **Measurement ID** (starts with `G-`). It isn't secret: it shows
+   in every page's code. Every page needs GA's tag inside `<head>`:
+
+   ```html
+   <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+   <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-XXXXXXXXXX');</script>
+   ```
+
+   with your ID in place of `G-XXXXXXXXXX` (twice), then upload the site to
+   Hostinger. GA sets cookies, so the privacy page's "Our website" section
+   must say so.
+5. Back in **Admin** > **Property details**, copy the **Property ID** (a
+   number, e.g. `512345678`). This one is for Railway, not the website.
+
+**Part 2: let the dashboard read GA**
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and pick
+   the **yarnoga-dashboard** project at the top.
+2. **APIs & Services > Library**: search **Google Analytics Data API** and click
+   **Enable**.
+3. **IAM & Admin > Service accounts > Create service account**. Name it
+   `ga-dashboard`, click **Create and continue**, skip the roles, click
+   **Done**.
+4. Click the new account > **Keys** > **Add key** > **Create new key** >
+   **JSON** > **Create**. A small file downloads. Treat it like a password:
+   don't send it in chat or email.
+5. Copy the account's email (ends in `iam.gserviceaccount.com`). In Google
+   Analytics: **Admin** > **Property access management** > **+** > **Add users**,
+   paste the email, role **Viewer**, untick "Notify new users", **Add**.
+6. On Railway add `GA_PROPERTY_ID` (the number from Part 1 step 5) and
+   `GA_SERVICE_ACCOUNT_KEY`: open the downloaded file in Notepad, select
+   everything from `{` to `}`, and paste it as the value.
+
+After the redeploy the Marketing tab shows the numbers (refreshed every 10
+minutes). GA only counts from the day its tag went live on the site. If it
+shows "Couldn't load", the reason under it says which step to check.

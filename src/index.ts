@@ -125,6 +125,7 @@ import { createWishWriter } from "./products/flyer/wish.js";
 import { TRIAL } from "./products/flyer/plans.js";
 import { createSupabaseStats } from "./dashboard/stats.js";
 import { createSocials } from "./dashboard/socials.js";
+import { createAnalytics } from "./dashboard/analytics.js";
 import { createConnectionAccounts, createConnectionDirectory, createConnectionTokens, createSupabaseConnectionStore } from "./signup/store.js";
 import { createTemplateProvisioner } from "./core/whatsapp/templates.js";
 import { signupLink } from "./signup/index.js";
@@ -1591,6 +1592,7 @@ const app = createApp({
         : undefined,
       ads: adLeadReader ? createSupabaseAdsSource(supabase, adLeadReader, dashboardNumbers) : undefined,
       website: createSupabaseWebsiteStats(supabase),
+      analytics: createAnalytics(config.dashboard.googleAnalytics),
       money: createSupabaseMoneyStore(supabase),
       tally: createSupabaseTallyStore(supabase),
       partners: createSupabasePartnerStore(supabase),
