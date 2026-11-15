@@ -29,6 +29,8 @@ export interface OrganiserLogin {
 export interface OrganiserInput {
   name: string;
   waId: string;
+  /** Make them the shop's account owner (full app: bank account, settings), for a shop made from the dashboard that has none. */
+  owner?: boolean;
 }
 
 export function parseOrganiserForm(form: Record<string, unknown>): OrganiserInput | { problem: string } {
@@ -36,10 +38,11 @@ export function parseOrganiserForm(form: Record<string, unknown>): OrganiserInpu
   if (!name) return { problem: "Type the organiser's name." };
   const waId = normaliseWaId(typeof form.number === "string" ? form.number : "");
   if (!waId) return { problem: "Type the organiser's WhatsApp number, e.g. 0803 123 4567." };
-  return { name, waId };
+  return { name, waId, ...(form.account_owner === "on" ? { owner: true } : {}) };
 }
 
-export function renderOrganisers(p: Partner, team: Organiser[] | "error" | undefined): string {
+/** `needsOwner`: the shop has no account owner yet, so the form offers to make this person it. */
+export function renderOrganisers(p: Partner, team: Organiser[] | "error" | undefined, needsOwner = false): string {
   if (team === undefined) return "";
   const list =
     team === "error"
@@ -57,6 +60,11 @@ export function renderOrganisers(p: Partner, team: Organiser[] | "error" | undef
 <p class="small wide-all">Each person on their team gets their own login to the yarnOga app: chats, orders, ticket buyers and ticket money, but no settings, bank details or plan. The link works once, within ${ORGANISER_LINK_HOURS} hours.</p>
 <label>Name <input name="name" required maxlength="60" placeholder="e.g. Ime Udo" autocomplete="off"></label>
 <label>WhatsApp number <input name="number" required inputmode="tel" maxlength="40" placeholder="e.g. 0803 123 4567" autocomplete="off"></label>
+${
+    needsOwner
+      ? `<div class="ticks"><label class="tick"><input type="checkbox" name="account_owner" checked> Make them the account owner: the full app, including Settings, where they add the bank account for ticket money. Only one person can be.</label></div>`
+      : ""
+  }
 <div class="buttons"><button type="submit">Make login link</button></div>
 ${list}
 </form>`;
@@ -68,13 +76,14 @@ export function renderOrganiserLink(p: Partner, who: OrganiserInput, login: Orga
     `Hi ${who.name}, here's your login to the ${p.name} yarnOga app: ${login.url}`,
     "",
     `It works once, within ${ORGANISER_LINK_HOURS} hours, so please don't forward it. Once you're in, set a password under Settings to log in any time.`,
+    ...(login.owner ? ["", "As the account owner, please add the bank account for ticket money under Settings > Bank accounts. Ticket payments go straight into it."] : []),
     ...(door ? ["", `Door check-in screen, for the team at the entrance: ${door}`] : []),
   ].join("\n");
   const body = `<section>
 <h2>Login for ${esc(who.name)}</h2>
 <p class="intro">${
     login.owner
-      ? `+${esc(who.waId)} is the shop owner's number, so this is their usual full login.`
+      ? `${esc(who.name)} (+${esc(who.waId)}) is the account owner, with the full app, including Settings where they add the bank account.`
       : `${esc(who.name)} (+${esc(who.waId)}) can now open the app as an event organiser.`
   } Send them the link below. It's shown only once.</p>
 <pre class="preview">${esc(message)}</pre>

@@ -354,6 +354,10 @@ export function createDashboard(deps: DashboardDeps) {
     const problem = await deps.partnerPackages!.linkShop(p, waId);
     return problem ? { problem } : { saved: "Shop linked." };
   });
+  packageRoute("/partners/:id/shop/create", async (p) => {
+    const problem = await deps.partnerPackages!.createShop(p);
+    return problem ? { problem } : { saved: `Shop created for ${p.name}. Give it a keyword and make their logins below.` };
+  });
   packageRoute("/partners/:id/shop/settings", async (p, form) => {
     if (!p.businessId) return { problem: "Link their shop first." };
     const shop = parseShopForm(form, await deps.partnerPackages!.plans());
@@ -410,6 +414,7 @@ export function createDashboard(deps: DashboardDeps) {
       const who = parseOrganiserForm(await c.req.parseBody());
       if ("problem" in who) return c.redirect(backToPackage(partner.id, who), 303);
       const login = await deps.partnerPackages.organiserLogin(partner, who);
+      if (login && "problem" in login) return c.redirect(backToPackage(partner.id, login), 303);
       if (!login) return c.redirect(backToPackage(partner.id, { problem: "Link their shop first, and check the owner app is switched on." }), 303);
       return c.html(renderOrganiserLink(partner, who, login, deps.partnerPackages.doorLink(partner)));
     } catch (err) {
