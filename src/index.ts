@@ -462,7 +462,7 @@ const catalogueFor = (businessId: string, features?: PlanFeatures, currency?: Cu
 // Each business's public shop page (QUOTE_SHOP): "shop" sends the owner its link.
 const shopConfig = config.activeProduct === "quote" ? config.quoteShop : undefined;
 const shopSlugs = shopConfig && createSupabaseSlugs(supabase);
-const shopLinks = shopConfig && shopSlugs && createShopLinks({ publicUrl: shopConfig.publicUrl, slugs: shopSlugs });
+const shopLinks = shopConfig && shopSlugs && createShopLinks({ linkBase: shopConfig.linkBase, slugs: shopSlugs });
 async function shopNumber(businessId: string): Promise<string | null> {
   const { data, error } = await supabase.from("quote_businesses").select("whatsapp_number").eq("id", businessId).maybeSingle();
   if (error) throw new Error(`shop number failed: ${error.message}`);
@@ -632,7 +632,7 @@ if (config.activeProduct === "quote" && config.quote) {
     customerFiles: customerFilesFor(DEFAULT_BUSINESS_ID),
     businessDetails: config.quote.businessDetails,
     paymentDetails: config.quote.paymentDetails,
-    branding: createSupabaseBranding(supabase, mainBusinessId, shopConfig?.publicUrl),
+    branding: createSupabaseBranding(supabase, mainBusinessId, shopConfig?.linkBase),
     catalog: createSupabaseCatalog(supabase, mainBusinessId),
     orders,
     delivery: mainDispatch,
@@ -730,7 +730,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     customerFiles: customerFilesFor(business.id),
     businessDetails: business.businessDetails ?? undefined,
     paymentDetails: business.paymentDetails ?? undefined,
-    branding: createSupabaseBranding(supabase, business.id, shopConfig?.publicUrl),
+    branding: createSupabaseBranding(supabase, business.id, shopConfig?.linkBase),
     catalog: createSupabaseCatalog(supabase, business.id),
     orders,
     delivery: dispatch,
@@ -845,7 +845,7 @@ if (chatSignup && quoteBusinesses) {
         businessDetails: business.businessDetails ?? undefined,
         paymentDetails: business.paymentDetails ?? undefined,
         catalog: createSupabaseCatalog(supabase, business.id),
-        branding: readOnlyBranding(createSupabaseBranding(supabase, business.id, shopConfig?.publicUrl)),
+        branding: readOnlyBranding(createSupabaseBranding(supabase, business.id, shopConfig?.linkBase)),
         orders: memoryOrderStore(),
         language: business.language,
         currency: business.currency,
@@ -1361,7 +1361,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const numberId = main ? config.whatsapp.phoneNumberId : ownNumber!;
           const planParts = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? id);
           const features = planParts.features;
-          const branding = createSupabaseBranding(supabase, id, shopConfig?.publicUrl);
+          const branding = createSupabaseBranding(supabase, id, shopConfig?.linkBase);
           const sentNumbers = main ? [numberId, ""] : [numberId];
           const allNumberIds = [...sentNumbers, ...branches.map((b) => b.phoneNumberId).filter((n): n is string => Boolean(n))];
           const language = main ? config.quote!.language : (row!.language ?? "en");
@@ -1830,7 +1830,7 @@ const app = createApp({
         },
       }
     : undefined,
-  shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl } : undefined,
+  shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl, linkBase: shopConfig.linkBase } : undefined,
   screenShield: config.screenShield,
   processed: config.processedCounterMinKobo
     ? { totalKobo: createSupabaseProcessedTotal(supabase), minKobo: config.processedCounterMinKobo }
@@ -1870,7 +1870,7 @@ if (emailConfig && emailStore) {
         main: config.quote && { id: DEFAULT_BUSINESS_ID, name: config.quote.businessName, plan: config.quote.plan, phoneNumberId: config.whatsapp.phoneNumberId },
         onPlan: async (id, feature) =>
           onPlan({ id, branchOf: id === DEFAULT_BUSINESS_ID ? null : ((await businesses.get(id))?.branchOf ?? null) }, feature),
-        shopUrl: shopConfig?.publicUrl,
+        shopUrl: shopConfig?.linkBase,
       }),
       { shop: Boolean(shopConfig), counterSales: config.quoteCounterSales, discountCodes: config.quoteDiscountCodes, broadcasts: Boolean(broadcastConfig) },
     );

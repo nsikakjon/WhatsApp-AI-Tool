@@ -160,8 +160,11 @@ export interface Config {
   quoteWalkIn?: { publicUrl: string };
   /** Event tickets with a QR code each and a door screen (migration 0068). Only set when QUOTE_EVENT_TICKETS is true. */
   quoteEventTickets?: { publicUrl: string };
-  /** Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true. */
-  quoteShop?: { publicUrl: string };
+  /**
+   * Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true.
+   * `linkBase` is what links shown to people start with: SHOP_LINK_BASE (e.g. https://yarnoga.com/s), else <PUBLIC_URL>/shop.
+   */
+  quoteShop?: { publicUrl: string; linkBase: string };
   /** Product photos and stock levels for the quote bot (migration 0037). Off unless QUOTE_CATALOGUE is true. */
   quoteCatalogue: boolean;
   /** Catalogue cards as one swipe message (QUOTE_CAROUSEL). Off unless true. */
@@ -621,9 +624,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteEventTickets: /^(true|yes|on|1)$/i.test(env.QUOTE_EVENT_TICKETS ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
       : undefined,
-    quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "")
-      ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
-      : undefined,
+    quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "") ? shopSettings(env) : undefined,
     broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")
       ? {
           template: {
@@ -764,6 +765,15 @@ function publicUrl(value: string): string {
     throw new Error(`PUBLIC_URL must be the server's https address with nothing after it, e.g. https://app.yarnoga.com (got "${value}")`);
   }
   return url;
+}
+
+function shopSettings(env: NodeJS.ProcessEnv): Config["quoteShop"] {
+  const url = publicUrl(required(env, "PUBLIC_URL"));
+  const short = env.SHOP_LINK_BASE?.trim().replace(/\/+$/, "");
+  if (short && !/^https:\/\/[^/\s]+\/[^\s]*$/.test(short)) {
+    throw new Error(`SHOP_LINK_BASE must be an https address with a path, e.g. https://yarnoga.com/s (got "${short}")`);
+  }
+  return { publicUrl: url, linkBase: short || `${url}/shop` };
 }
 
 /** A typo here shouldn't stop the whole bot, so it falls back to 3 days with a warning. */

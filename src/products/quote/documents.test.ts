@@ -61,7 +61,7 @@ describe("invoices and receipts", () => {
 
   it("prints the shop page and social pages at the bottom", async () => {
     const socials = [{ network: "Instagram", url: "https://instagram.com/kahnprints" }, { network: "TikTok", url: "https://www.tiktok.com/@kahnprints" }];
-    expect(isJpeg(await renderDocument({ ...base, shopUrl: "https://app.yarnoga.com/shop/kahnprints", socials }))).toBe(true);
+    expect(isJpeg(await renderDocument({ ...base, shopUrl: "https://yarnoga.com/s/kahnprints", socials }))).toBe(true);
   });
 
   it("dates documents in Lagos time", () => {

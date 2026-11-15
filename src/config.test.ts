@@ -122,6 +122,13 @@ describe("loadConfig", () => {
     });
   });
 
+  it("shares shop links as the short website address when SHOP_LINK_BASE is set", () => {
+    const shop = { ...base, QUOTE_SHOP: "true", PUBLIC_URL: "https://app.yarnoga.com" };
+    expect(loadConfig(shop).quoteShop).toEqual({ publicUrl: "https://app.yarnoga.com", linkBase: "https://app.yarnoga.com/shop" });
+    expect(loadConfig({ ...shop, SHOP_LINK_BASE: "https://yarnoga.com/s/" }).quoteShop?.linkBase).toBe("https://yarnoga.com/s");
+    expect(() => loadConfig({ ...shop, SHOP_LINK_BASE: "yarnoga.com/s" })).toThrow(/SHOP_LINK_BASE/);
+  });
+
   it("keeps delivery off unless QUOTE_DELIVERY is true, and then needs the public address", () => {
     expect(loadConfig(base).delivery).toBeUndefined();
     expect(() => loadConfig({ ...base, QUOTE_DELIVERY: "true" })).toThrow("PUBLIC_URL");
