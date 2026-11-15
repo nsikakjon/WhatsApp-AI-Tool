@@ -169,6 +169,8 @@ import {
   createSupabaseUsers,
 } from "./owner/store.js";
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
+import { newLoginToken } from "./owner/auth.js";
+import { ORGANISER_LINK_HOURS } from "./dashboard/partner-organisers.js";
 import { createSupabaseVerifications } from "./compliance/store.js";
 import { liftsLimits, unusualPayments } from "./compliance/aml.js";
 import { createScreener, type ScreeningResult } from "./compliance/sanctions.js";
@@ -878,11 +880,17 @@ if (ownerApp && appUsers) {
   product = withAppLogin(product, {
     users: appUsers,
     publicUrl: ownerApp.publicUrl,
-    async businessFor(numberId) {
+    async businessFor(numberId, from) {
       if (!numberId || numberId === config.whatsapp.phoneNumberId) {
         return config.quote ? { id: DEFAULT_BUSINESS_ID, ownerWaId: config.quote.ownerWaId ?? null } : null;
       }
       if (!quoteBusinesses) return null;
+      // On the quotes line, a partner's owner or organiser gets their own shop's app.
+      if (numberId === chatSignup?.phoneNumberId) {
+        const teams = new Set((await appUsers.byWaId(from)).map((u) => u.businessId));
+        const shop = (await businesses.list()).find((b) => b.lineKeyword && !b.phoneNumberId && (b.ownerWaId === from || teams.has(b.id)));
+        if (shop) return { id: shop.id, ownerWaId: shop.ownerWaId };
+      }
       const b = await businesses.findByPhoneNumberId(numberId);
       // A switched-off business can still log in, to set up before going live.
       return b ? { id: b.id, ownerWaId: b.ownerWaId } : null;
@@ -1325,13 +1333,16 @@ const ownerAppDeps: OwnerAppDeps | undefined =
           const main = id === DEFAULT_BUSINESS_ID;
           if (main && !config.quote) return null;
           const row = main ? null : quoteBusinesses ? await businesses.get(id) : null;
-          if (!main && (!row || !row.phoneNumberId)) return null;
+          // A shop with no number of its own works from the yarnOga quotes line once it has a keyword there.
+          const ownNumber = main ? null : row ? numberOf(row) : null;
+          if (!main && !ownNumber) return null;
+          const lineGuestsOf = !main && !row!.phoneNumberId ? id : undefined;
           // A main business's numbers include its branches'.
           const branches = config.quoteBranches ? (await businesses.list()).filter((b) => b.branchOf === id) : [];
           const ids = [id, ...branches.map((b) => b.id)];
           const name = main ? config.quote!.businessName : row!.name;
           const orderPrefix = main ? config.quote!.orderPrefix : row!.orderPrefix;
-          const numberId = main ? config.whatsapp.phoneNumberId : row!.phoneNumberId!;
+          const numberId = main ? config.whatsapp.phoneNumberId : ownNumber!;
           const planParts = main ? (config.quote!.plan ? planFeatures(id, config.quote!.plan) : {}) : planFeatures(row!.branchOf ?? id);
           const features = planParts.features;
           const branding = createSupabaseBranding(supabase, id, shopConfig?.publicUrl);
@@ -1360,6 +1371,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             fromEnv: main,
             numberId,
             includeUnnumbered: main,
+            lineGuestsOf,
             features,
             board: createSupabaseBoardStore(supabase, ids, { withDelivery: Boolean(delivery), withDetails: config.quoteCustomerFiles }),
             prices: createSupabasePrices(supabase, id, { costs: config.quoteCounterSales, barcodes: config.quoteBarcodes, askFor: config.quoteCustomerFiles }),
@@ -1367,7 +1379,8 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
-            ads: adLeadReader ? { leads: (now) => adLeadReader.leads(allNumberIds, now), orders: createSupabaseAdOrders(supabase, ids) } : undefined,
+            // The quotes line's ad leads are yarnOga's, not a line shop's.
+            ads: adLeadReader && !lineGuestsOf ? { leads: (now) => adLeadReader.leads(allNumberIds, now), orders: createSupabaseAdOrders(supabase, ids) } : undefined,
             barcodes: config.quoteBarcodes,
             delivery: delivery
               ? createSupabaseDeliverySetup(supabase, id, trackingLinks ? (deliveryId) => trackingLinks.customer({ id: deliveryId }) : undefined)
@@ -1377,6 +1390,7 @@ const ownerAppDeps: OwnerAppDeps | undefined =
               businessIds: ids,
               numberIds: allNumberIds,
               orderPrefix,
+              lineGuestsOf,
             }),
             logo: () => branding.logo(),
             saveLogo: (data, mimeType) => branding.saveLogo(data, mimeType),
@@ -1568,6 +1582,19 @@ const app = createApp({
       partnerPackages: createSupabasePartnerPackageStore(supabase, {
         door: ticketLinks ? (id) => ticketLinks.door(id) : undefined,
         shop: shopLinks ? (id, name) => shopLinks.link(id, name) : undefined,
+        login:
+          ownerApp && appUsers
+            ? async (shop, who) => {
+                const owner = who.waId === shop.ownerWaId;
+                const user = owner ? await appUsers.ensureOwner(shop.id, who.waId) : await appUsers.addStaff(shop.id, who.waId, who.name, "organiser");
+                const { token, hash } = newLoginToken();
+                await appUsers.saveToken(user.id, hash, new Date(Date.now() + ORGANISER_LINK_HOURS * 3_600_000));
+                return { url: `${ownerApp.publicUrl.replace(/\/+$/, "")}/home/l/${token}`, owner };
+              }
+            : undefined,
+        lineNumber: config.quoteChatSignup
+          ? async () => (await phoneDetails(fetch, config.whatsapp, config.quoteChatSignup!.phoneNumberId, config.whatsapp.accessToken)).displayNumber?.replace(/\D/g, "") || null
+          : undefined,
       }),
       partnerReports: createSupabaseReportSource(supabase, config.whatsapp.phoneNumberId),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,

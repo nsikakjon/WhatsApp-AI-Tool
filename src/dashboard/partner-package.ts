@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatNaira } from "../core/money.js";
 import { createSupabasePromoAdmin } from "../core/payments/promos.js";
 import { normaliseWaId } from "../owner/auth.js";
+import { cleanKeyword } from "../products/quote/shared-line.js";
 import { esc } from "./page.js";
+import { renderOrganisers, type Organiser, type OrganiserInput, type OrganiserLogin } from "./partner-organisers.js";
 import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
 import { reminderText } from "./partner-reminder.js";
 import type { Partner } from "./partners.js";
@@ -47,6 +49,12 @@ export interface ShopInput {
   noFee: boolean;
   /** Where the event is, for the Directions button and the bot, e.g. "University of Uyo main auditorium, Uyo". */
   address: string | null;
+  /**
+   * Its keyword on the yarnOga quotes line (migration 0090), for a shop with no
+   * number of its own. Undefined leaves it as it is (the field isn't shown
+   * before that migration is run).
+   */
+  keyword?: string | null;
 }
 
 export interface PartnerShop extends ShopInput {
@@ -55,10 +63,12 @@ export interface PartnerShop extends ShopInput {
   ownerWaId: string | null;
   /** False until its own WhatsApp number is connected. */
   live: boolean;
+  /** True when it has a number of its own, so a keyword on the yarnOga line isn't needed. */
+  ownNumber?: boolean;
 }
 
 export interface PartnerLinks {
-  /** Their customers' WhatsApp chat link (wa.me), once their number is connected. */
+  /** Their customers' WhatsApp chat link (wa.me): their own number, or the yarnOga line with their keyword typed in. */
   chat?: string;
   /** Their shop page. */
   shop?: string;
@@ -72,11 +82,17 @@ export interface PartnerPackage {
   /** Their price list, once a shop is linked. */
   tickets?: TicketRow[] | "error";
   links?: PartnerLinks;
+  /** Their team's owner app logins; undefined when the owner app is off. */
+  organisers?: Organiser[] | "error";
 }
 
 /** Links the app can make for a shop, when those features are switched on. */
 export interface ShopLinkMaker {
   door?(businessId: string): string;
+  /** Makes a one-time owner app login for someone on the shop's team (the owner app must be on). */
+  login?(shop: { id: string; ownerWaId: string | null }, who: OrganiserInput): Promise<OrganiserLogin>;
+  /** The yarnOga quotes line's number (digits), for keyword chat links. */
+  lineNumber?(): Promise<string | null>;
   shop?(businessId: string, name: string): Promise<string>;
 }
 
@@ -94,10 +110,15 @@ export interface PartnerPackageStore {
   /** Finds the shop that signed up from this owner number and links it. Returns a problem, or null. */
   linkShop(partner: Partner, ownerWaId: string): Promise<string | null>;
   unlinkShop(partner: Partner): Promise<void>;
-  saveShop(partner: Partner, shop: ShopInput): Promise<void>;
+  /** Returns a problem to show (e.g. the keyword is taken), or null. */
+  saveShop(partner: Partner, shop: ShopInput): Promise<string | null>;
   /** Their tickets and price list, once a shop is linked. */
   tickets(partner: Partner): TicketAdmin | null;
   saveReminder(partner: Partner, reminder: ReminderInput): Promise<void>;
+  /** A login link for one of their organisers, or null when the owner app is off or no shop is linked. */
+  organiserLogin(partner: Partner, who: OrganiserInput): Promise<OrganiserLogin | null>;
+  /** The door screen link, to send organisers with their login. */
+  doorLink(partner: Partner): string | undefined;
 }
 
 export interface ReminderInput {
@@ -150,7 +171,12 @@ export function parseShopForm(form: Record<string, unknown>, plans: PlanChoice[]
   if (about.length > SHOP_ABOUT_MAX) return { problem: `What the bot knows is ${about.length} characters; the most it takes is ${SHOP_ABOUT_MAX}.` };
   const address = field(form, "address", 400);
   if (address.length > SHOP_ADDRESS_MAX) return { problem: `The venue address is over ${SHOP_ADDRESS_MAX} characters. Keep it to the address; directions go in the FAQs.` };
-  return { about: about || null, address: address || null, planCode, planUntil: planCode === "free" ? null : planUntil || null, noFee: field(form, "no_fee") === "on" };
+  let keyword: string | null | undefined;
+  if (typeof form.keyword === "string") {
+    keyword = form.keyword.trim() ? cleanKeyword(form.keyword) : null;
+    if (keyword === null && form.keyword.trim()) return { problem: "The keyword needs 3 to 30 letters or numbers, e.g. TEDXUNIUYO." };
+  }
+  return { about: about || null, address: address || null, planCode, planUntil: planCode === "free" ? null : planUntil || null, noFee: field(form, "no_fee") === "on", keyword };
 }
 
 /** "08012345678" -> "2348012345678", or null. */
@@ -231,7 +257,19 @@ function shopForms(p: Partner, s: PartnerShop | null, plans: PlanChoice[]): stri
     .join("");
   return `<form class="entry" method="post" action="/dashboard/partners/${p.id}/shop/settings">
 <h3>Their shop: ${esc(s.name)}</h3>
-<p class="small wide-all">${s.live ? "Live on WhatsApp." : "Not live yet: waiting for its WhatsApp number to be connected (Numbers to connect)."}${s.ownerWaId ? ` Owner +${esc(s.ownerWaId)}.` : ""}</p>
+<p class="small wide-all">${
+    s.ownNumber && s.live
+      ? "Live on its own WhatsApp number."
+      : s.keyword
+        ? `Live on the yarnOga quotes line: visitors send ${esc(s.keyword.toUpperCase())} (or tap the chat link below).`
+        : "Not live yet: connect its own WhatsApp number (Numbers to connect), or give it a keyword below to run on the yarnOga quotes line."
+  }${s.ownerWaId ? ` Owner +${esc(s.ownerWaId)}.` : ""}</p>
+${
+  s.keyword !== undefined
+    ? `<label class="wide-all">Keyword on the yarnOga quotes line (for a partner with no number of its own; empty = off) <input name="keyword" maxlength="30" value="${esc((s.keyword ?? "").toUpperCase())}" placeholder="e.g. TEDXUNIUYO" autocomplete="off"></label>
+<p class="small wide-all">Visitors who send it chat with this shop's bot on our line until they send EXIT, another partner's keyword or "sign up", or go quiet for 14 days.</p>`
+    : ""
+}
 <label class="wide-all">Venue address (for the Directions button and the bot) <input name="address" maxlength="${SHOP_ADDRESS_MAX}" value="${esc(s.address ?? "")}" placeholder="e.g. Main Auditorium, University of Uyo, Nwaniba Road, Uyo"></label>
 <label>Plan <select name="plan_code">${choices}</select></label>
 <label>Free until <input type="date" name="plan_until" value="${esc(s.planUntil ?? "")}"></label>
@@ -248,7 +286,7 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
     pkg === "error"
       ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
       : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
-          pkg.shop ? `${linkList(pkg.links)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}` : ""
+          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}` : ""
         }`;
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
@@ -311,17 +349,33 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       noFee: data.no_fee === true,
       about: data.about ?? null,
       address: data.shop_address ?? null,
+      // Undefined until migration 0090 is run, which hides the keyword field.
+      keyword: "line_keyword" in data ? (data.line_keyword ?? null) : undefined,
+      ownNumber: Boolean(data.phone_number_id),
       whatsappNumber: data.whatsapp_number ?? null,
     };
   }
 
   async function linksFor(shop: PartnerShop & { whatsappNumber?: string | null }): Promise<PartnerLinks> {
     const digits = shop.whatsappNumber?.replace(/\D/g, "");
+    const line = !shop.ownNumber && shop.keyword && makeLinks.lineNumber ? await makeLinks.lineNumber().catch(() => null) : null;
     return {
-      chat: shop.live && digits ? `https://wa.me/${digits}` : undefined,
+      chat: line ? `https://wa.me/${line}?text=${encodeURIComponent(shop.keyword!.toUpperCase())}` : shop.live && digits ? `https://wa.me/${digits}` : undefined,
       shop: makeLinks.shop ? await makeLinks.shop(shop.id, shop.name).catch(() => undefined) : undefined,
       door: makeLinks.door?.(shop.id),
     };
+  }
+
+  async function readTeam(businessId: string): Promise<Organiser[]> {
+    const { data, error } = await db
+      .from("app_users")
+      .select("name, wa_id, role, last_login_at")
+      .eq("business_id", businessId)
+      .eq("active", true)
+      .in("role", ["owner", "organiser"])
+      .order("created_at");
+    if (error) throw new Error(`partner logins failed: ${error.message}`);
+    return (data ?? []).map((r) => ({ name: r.name ?? null, waId: r.wa_id, role: r.role, lastLoginAt: r.last_login_at ?? null }));
   }
 
   async function setLead(id: number, change: Record<string, unknown>) {
@@ -334,7 +388,7 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       const shop = p.businessId ? await readShop(p.businessId) : null;
       if (!shop) return { code: p.promoCode ? await readCode(p.promoCode) : null, shop: null };
       const { whatsappNumber: _number, ...rest } = shop;
-      const [code, tickets, links] = await Promise.all([
+      const [code, tickets, links, organisers] = await Promise.all([
         p.promoCode ? readCode(p.promoCode) : null,
         createSupabaseTicketAdmin(db, shop.id)
           .rows()
@@ -343,8 +397,9 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
             return "error" as const;
           }),
         linksFor(shop),
+        makeLinks.login ? readTeam(shop.id).catch((err) => (console.error("Partner's logins failed to load:", err), "error" as const)) : undefined,
       ]);
-      return { code, shop: rest, tickets, links };
+      return { code, shop: rest, tickets, links, organisers };
     },
     async plans() {
       const { data, error } = await db.from("quote_plans").select("code, name, monthly_price_kobo, active, sort_order").order("sort_order");
@@ -380,6 +435,12 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       return null;
     },
     tickets: (p) => (p.businessId ? createSupabaseTicketAdmin(db, p.businessId) : null),
+    async organiserLogin(p, who) {
+      if (!p.businessId || !makeLinks.login) return null;
+      const shop = await readShop(p.businessId);
+      return shop ? makeLinks.login({ id: shop.id, ownerWaId: shop.ownerWaId }, who) : null;
+    },
+    doorLink: (p) => (p.businessId ? makeLinks.door?.(p.businessId) : undefined),
     async saveReminder(p, r) {
       await setLead(p.id, { reminder_on: r.on, event_time: r.eventTime });
     },
@@ -397,9 +458,12 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
           plan_paid_until: s.planUntil ? new Date(`${s.planUntil}T23:59:59+01:00`).toISOString() : null,
           no_fee: s.noFee,
           shop_address: s.address,
+          ...(s.keyword !== undefined ? { line_keyword: s.keyword } : {}),
         })
         .eq("id", p.businessId);
+      if (error?.code === "23505") return `Another shop already uses the keyword ${s.keyword?.toUpperCase()}. Pick another.`;
       if (error) throw new Error(`partner shop save failed: ${error.message}`);
+      return null;
     },
   };
 }
