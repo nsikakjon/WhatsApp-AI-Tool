@@ -190,19 +190,27 @@ export function adminPage(title: string, crumb: string, body: string): string {
 }
 
 /** A page with no menu: login and link pages. */
-export function bare(title: string, body: string): string {
+export function bare(title: string, body: string, head = ""): string {
   return doc(
     title,
     `<div class="auth"><div class="authcard">${logo("mb", "brand big")}${body}</div>
 <p class="authfoot">Your WhatsApp sales assistant · <a href="https://yarnoga.com">yarnoga.com</a></p></div>`,
+    head,
   );
+}
+
+/** The card WhatsApp shows when a link to the app is sent: a wide yarnOga banner instead of a cropped tab icon. */
+export function shareTags(publicUrl: string, title: string, description: string): string {
+  const image = `${publicUrl.replace(/\/+$/, "")}/home/brand/share-1200.jpg`;
+  return `<meta property="og:type" content="website"><meta property="og:site_name" content="yarnOga"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}">
+<meta property="og:image" content="${esc(image)}"><meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image">`;
 }
 
 /** A whole page in the app's look. `head` adds tags to its head (e.g. the till's manifest). */
 export function doc(title: string, body: string, head = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><meta name="theme-color" content="#0a0b0b"><title>${esc(title)} · yarnOga</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/home/brand/mark-32.png"><link rel="icon" type="image/png" sizes="64x64" href="/home/brand/mark-64.png"><link rel="apple-touch-icon" href="/home/brand/mark-128.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/home/brand/mark-32.png"><link rel="icon" type="image/png" sizes="64x64" href="/home/brand/mark-64.png"><link rel="apple-touch-icon" sizes="192x192" href="/home/brand/app-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Instrument+Sans:wght@400;500;600&family=Schibsted+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
 <style>${CSS}</style>${head}</head><body>${body}</body></html>`;

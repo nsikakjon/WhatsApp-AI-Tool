@@ -237,7 +237,11 @@ describe("owner app login", () => {
     const owner = await s.users.store.ensureOwner(BIZ, OWNER);
     await s.users.store.saveToken(owner.id, hashToken("abc"), new Date(Date.now() + 60_000));
     // Opening the link only shows a button, so link previews can't use it up.
-    expect(await (await s.app.request("/l/abc")).text()).toContain("Open my app");
+    const opened = await (await s.app.request("/l/abc")).text();
+    expect(opened).toContain("Open my app");
+    expect(opened).toContain('<meta property="og:image" content="https://app.example.com/home/brand/share-1200.jpg">');
+    const banner = await s.app.request("/brand/share-1200.jpg");
+    expect(banner.headers.get("content-type")).toBe("image/jpeg");
     const first = await s.app.request(`https://${HOST}/l/abc`, post({}));
     expect(first.headers.get("location")).toBe("/home");
     const dash = await get(s, "/", cookieOf(first));
