@@ -6,6 +6,7 @@ import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { ownerNumber, parseCodeForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { parseTicketForm } from "./partner-tickets.js";
 import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
@@ -323,13 +324,13 @@ export function createDashboard(deps: DashboardDeps) {
     const partner = (await deps.partners!.list()).find((p) => p.id === id);
     return partner?.status === "Agreed" ? partner : null;
   };
-  const packageRoute = (path: string, run: (p: Partner, form: Record<string, unknown>) => Promise<{ problem?: string; saved?: string }>) =>
+  const packageRoute = (path: string, run: (p: Partner, form: Record<string, unknown>, c: Context) => Promise<{ problem?: string; saved?: string }>) =>
     app.post(path, async (c) => {
       if (!deps.partnerPackages || !partnersAllowed(c)) return c.text("Not allowed.", 403);
       try {
         const partner = await agreedPartner(c);
         if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
-        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody())), 303);
+        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c)), 303);
       } catch (err) {
         log.error("Couldn't save a partner package:", err);
         return c.redirect(backToPartners("Couldn't save that just now. If 0089_partner_packages.sql hasn't been run yet, run it, then try again."), 303);
@@ -353,7 +354,31 @@ export function createDashboard(deps: DashboardDeps) {
     const shop = parseShopForm(form, await deps.partnerPackages!.plans());
     if ("problem" in shop) return shop;
     await deps.partnerPackages!.saveShop(p, shop);
-    return { saved: "Shop saved. The bot uses it from the next message." };
+    return { saved: "Shop saved. The bot picks it up within a minute." };
+  });
+  const ticketsOf = (p: Partner) => {
+    const admin = deps.partnerPackages!.tickets(p);
+    if (!admin) throw new Error("No shop linked to this partner.");
+    return admin;
+  };
+  packageRoute("/partners/:id/tickets", async (p, form) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const ticket = await parseTicketForm(form);
+    if ("problem" in ticket) return ticket;
+    const problem = await ticketsOf(p).save(ticket);
+    return problem ? { problem } : { saved: `${ticket.event}: ${ticket.type} saved as a ticket.` };
+  });
+  for (const [state, on] of [["on", true], ["off", false]] as const) {
+    packageRoute(`/partners/:id/tickets/:product/${state}`, async (p, _form, c) => {
+      if (!p.businessId) return { problem: "Link their shop first." };
+      await ticketsOf(p).mark(c.req.param("product")!, on);
+      return { saved: on ? "Now sold as a ticket with a QR code." : "No longer sold as a ticket." };
+    });
+  }
+  packageRoute("/partners/:id/tickets/row/:variant/remove", async (p, _form, c) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const problem = await ticketsOf(p).remove(c.req.param("variant")!);
+    return problem ? { problem } : { saved: "Taken off their price list." };
   });
   packageRoute("/partners/:id/shop/unlink", async (p) => {
     await deps.partnerPackages!.unlinkShop(p);

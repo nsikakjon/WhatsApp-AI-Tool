@@ -10,6 +10,7 @@ import {
   type PlanChoice,
   type ShopInput,
 } from "./partner-package.js";
+import { parseTicketForm, renderTickets, type TicketInput, type TicketRow } from "./partner-tickets.js";
 import type { Partner, PartnerStore } from "./partners.js";
 import { NOW, sampleStats } from "./testing.js";
 
@@ -38,8 +39,10 @@ function stores() {
   const leads = [partner(), partner({ id: 2, name: "Food Fest", status: "Sent" })];
   const codes = new Map<string, CodeInput>();
   const shops = new Map<string, PartnerShop>([
-    ["biz-1", { id: "biz-1", name: "TEDxUNIUYO", ownerWaId: "2348031234567", live: false, planCode: "free", planUntil: null, noFee: false, about: null }],
+    ["biz-1", { id: "biz-1", name: "TEDxUNIUYO", ownerWaId: "2348031234567", live: false, planCode: "free", planUntil: null, noFee: false, about: null, address: null }],
   ]);
+  const ticketRows: TicketRow[] = [];
+  const savedTickets: TicketInput[] = [];
   const partners: PartnerStore = {
     list: async () => leads.map((l) => ({ ...l })),
     add: async () => {},
@@ -52,6 +55,27 @@ function stores() {
       return {
         code: c ? { ...c, used: 3, waiting: 1, signups: 5 } : null,
         shop: p.businessId ? (shops.get(p.businessId) ?? null) : null,
+        tickets: p.businessId ? ticketRows : undefined,
+        links: p.businessId ? { door: "https://app.example.com/door/biz-1.sig", chat: "https://wa.me/2348000000001" } : undefined,
+      };
+    },
+    tickets(p) {
+      if (!p.businessId) return null;
+      return {
+        rows: async () => ticketRows,
+        async save(t) {
+          savedTickets.push(t);
+          ticketRows.push({ productId: "prod-1", variantId: `var-${ticketRows.length + 1}`, event: t.event, type: t.type, priceKobo: t.priceKobo, left: t.onSale, ticket: true, photo: Boolean(t.photo), sold: 0, checkedIn: 0 });
+          return null;
+        },
+        async mark(productId, ticket) {
+          for (const r of ticketRows) if (r.productId === productId) r.ticket = ticket;
+        },
+        async remove(variantId) {
+          if (ticketRows.length === 1) return "That's the only thing on their price list, so it can't be removed.";
+          ticketRows.splice(ticketRows.findIndex((r) => r.variantId === variantId), 1);
+          return null;
+        },
       };
     },
     plans: async () => PLANS,
@@ -74,7 +98,7 @@ function stores() {
       Object.assign(shops.get(p.businessId!)!, s);
     },
   };
-  return { leads, codes, shops, partners, packages };
+  return { leads, codes, shops, partners, packages, ticketRows, savedTickets };
 }
 
 describe("partner package forms", () => {
@@ -101,13 +125,15 @@ describe("partner package forms", () => {
   });
 
   it("reads the shop settings, with no end date on Free", () => {
-    expect(parseShopForm({ plan_code: "starter", plan_until: "2026-12-31", about: " Venue: main auditorium \r\n", no_fee: "on" }, PLANS)).toEqual({
+    expect(parseShopForm({ plan_code: "starter", plan_until: "2026-12-31", about: " Venue: main auditorium \r\n", no_fee: "on", address: " University of Uyo " }, PLANS)).toEqual({
       planCode: "starter",
       planUntil: "2026-12-31",
       about: "Venue: main auditorium",
+      address: "University of Uyo",
       noFee: true,
     });
-    expect(parseShopForm({ plan_code: "free", plan_until: "2026-12-31", about: "" }, PLANS)).toEqual({ planCode: "free", planUntil: null, about: null, noFee: false });
+    expect(parseShopForm({ plan_code: "free", plan_until: "2026-12-31", about: "" }, PLANS)).toEqual({ planCode: "free", planUntil: null, about: null, address: null, noFee: false });
+    expect(parseShopForm({ plan_code: "free", address: "x".repeat(201) }, PLANS)).toHaveProperty("problem");
     expect(parseShopForm({ plan_code: "gold" }, PLANS)).toHaveProperty("problem");
     expect(parseShopForm({ plan_code: "starter", about: "x".repeat(1501) }, PLANS)).toHaveProperty("problem");
   });
@@ -117,7 +143,7 @@ describe("partner package forms", () => {
       partner({ name: "<b>Fest</b>" }),
       {
         code: { code: "TEDXUNIUYO", percentOff: 70, maxUses: 200, endsOn: "2027-01-31", product: null, active: true, used: 3, waiting: 1, signups: 5 },
-        shop: { id: "b", name: "Fest <shop>", ownerWaId: null, live: true, planCode: "starter", planUntil: null, noFee: true, about: "</textarea><script>" },
+        shop: { id: "b", name: "Fest <shop>", ownerWaId: null, live: true, planCode: "starter", planUntil: null, noFee: true, about: "</textarea><script>", address: null },
       },
       PLANS,
       "2026-11-15",
@@ -139,6 +165,44 @@ describe("partner package forms", () => {
     );
     expect(html).toContain("Ended");
     expect(html).toContain("flyer plans");
+  });
+});
+
+describe("partner tickets", () => {
+  const photo = (type: string, bytes = 10) => new File([new Uint8Array(bytes)], "ticket.jpg", { type });
+
+  it("reads a ticket type with its price in kobo and an optional picture", async () => {
+    expect(await parseTicketForm({ event: " TEDxUNIUYO  2026 ", type: "VIP", price: "₦10,000", on_sale: "150" })).toEqual({
+      event: "TEDxUNIUYO 2026",
+      type: "VIP",
+      priceKobo: 1_000_000,
+      onSale: 150,
+      photo: null,
+    });
+    const withPhoto = await parseTicketForm({ event: "TEDxUNIUYO 2026", price: "3000", photo: photo("image/jpeg") });
+    expect(withPhoto).toMatchObject({ type: "Regular", onSale: null, photo: { mimeType: "image/jpeg" } });
+  });
+
+  it("refuses a missing event, a colon, a bad price, count or picture", async () => {
+    expect(await parseTicketForm({ price: "3000" })).toHaveProperty("problem");
+    expect(await parseTicketForm({ event: "TEDx: 2026", price: "3000" })).toHaveProperty("problem");
+    expect(await parseTicketForm({ event: "TEDx", price: "three thousand" })).toHaveProperty("problem");
+    expect(await parseTicketForm({ event: "TEDx", price: "3000", on_sale: "-4" })).toHaveProperty("problem");
+    expect(await parseTicketForm({ event: "TEDx", price: "3000", photo: photo("application/pdf") })).toHaveProperty("problem");
+    expect(await parseTicketForm({ event: "TEDx", price: "3000", photo: photo("image/png", 6 * 1024 * 1024) })).toHaveProperty("problem");
+  });
+
+  it("lists the price list with sold and checked-in counts", () => {
+    const html = renderTickets(1, [
+      { productId: "p", variantId: "v", event: "TEDxUNIUYO 2026", type: "VIP", priceKobo: 1_000_000, left: 48, ticket: true, photo: true, sold: 2, checkedIn: 1 },
+      { productId: "q", variantId: "w", event: "Tote <bag>", type: "Standard", priceKobo: null, left: null, ticket: false, photo: false, sold: 0, checkedIn: 0 },
+    ]);
+    expect(html).toContain("₦10,000");
+    expect(html).toContain("2 / 1");
+    expect(html).toContain("Make it a ticket");
+    expect(html).toContain("No picture yet");
+    expect(html).not.toContain("Tote <bag>");
+    expect(html).toContain('enctype="multipart/form-data"');
   });
 });
 
@@ -175,6 +239,23 @@ describe("partner package pages", () => {
     const after = await (await app.request("/partners", { headers: auth })).text();
     expect(after).toContain("TEDXUNIUYO");
     expect(after).toContain("Venue: main auditorium");
+    expect(after).toContain("https://app.example.com/door/biz-1.sig");
+    expect(after).toContain("https://wa.me/2348000000001");
+
+    const form = new FormData();
+    form.set("event", "TEDxUNIUYO 2026");
+    form.set("type", "VIP");
+    form.set("price", "10000");
+    form.set("on_sale", "50");
+    form.set("photo", new File([new Uint8Array(20)], "vip.png", { type: "image/png" }));
+    const added = await app.request("/partners/1/tickets", { method: "POST", headers: { ...auth, Origin: "https://app.example.com" }, body: form });
+    expect(decodeURIComponent(added.headers.get("location")!)).toContain("saved=TEDxUNIUYO 2026: VIP saved as a ticket.");
+    expect(s.savedTickets[0]).toMatchObject({ event: "TEDxUNIUYO 2026", type: "VIP", priceKobo: 1_000_000, onSale: 50, photo: { mimeType: "image/png" } });
+
+    await app.request("/partners/1/tickets/prod-1/off", post({}));
+    expect(s.ticketRows[0]!.ticket).toBe(false);
+    const only = await app.request("/partners/1/tickets/row/var-1/remove", post({}));
+    expect(decodeURIComponent(only.headers.get("location")!)).toContain("only thing on their price list");
 
     await app.request("/partners/1/shop/unlink", post({}));
     expect(s.leads[0]!.businessId).toBeNull();

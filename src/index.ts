@@ -1540,7 +1540,10 @@ const app = createApp({
       money: createSupabaseMoneyStore(supabase),
       tally: createSupabaseTallyStore(supabase),
       partners: createSupabasePartnerStore(supabase),
-      partnerPackages: createSupabasePartnerPackageStore(supabase),
+      partnerPackages: createSupabasePartnerPackageStore(supabase, {
+        door: ticketLinks ? (id) => ticketLinks.door(id) : undefined,
+        shop: shopLinks ? (id, name) => shopLinks.link(id, name) : undefined,
+      }),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
       numberQueue: Boolean(numberQueue && config.quoteSetup),
       socials: createSocials({

@@ -3,15 +3,18 @@ import { formatNaira } from "../core/money.js";
 import { createSupabasePromoAdmin } from "../core/payments/promos.js";
 import { normaliseWaId } from "../owner/auth.js";
 import { esc } from "./page.js";
+import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
 import type { Partner } from "./partners.js";
 
 // The package for an agreed partnership, set up from /dashboard/partners by
 // anyone on the yarnOga team: the partner's discount code (a promo_codes row),
 // and the partner's own shop once they've signed up on the bot: what the bot
 // tells their customers (About us), a plan given free until a date, and
-// whether yarnOga takes its pay-link fee (migration 0089).
+// whether yarnOga takes its pay-link fee (migration 0089), the venue address
+// for directions, and its tickets (partner-tickets.ts).
 
 export const SHOP_ABOUT_MAX = 1500;
+export const SHOP_ADDRESS_MAX = 200;
 
 export interface CodeInput {
   code: string;
@@ -41,6 +44,8 @@ export interface ShopInput {
   /** Last day of the free plan time, "2026-12-31". Null = no end date. */
   planUntil: string | null;
   noFee: boolean;
+  /** Where the event is, for the Directions button and the bot, e.g. "University of Uyo main auditorium, Uyo". */
+  address: string | null;
 }
 
 export interface PartnerShop extends ShopInput {
@@ -51,9 +56,27 @@ export interface PartnerShop extends ShopInput {
   live: boolean;
 }
 
+export interface PartnerLinks {
+  /** Their customers' WhatsApp chat link (wa.me), once their number is connected. */
+  chat?: string;
+  /** Their shop page. */
+  shop?: string;
+  /** The door screen for checking tickets in. */
+  door?: string;
+}
+
 export interface PartnerPackage {
   code: PartnerCode | null;
   shop: PartnerShop | null;
+  /** Their price list, once a shop is linked. */
+  tickets?: TicketRow[] | "error";
+  links?: PartnerLinks;
+}
+
+/** Links the app can make for a shop, when those features are switched on. */
+export interface ShopLinkMaker {
+  door?(businessId: string): string;
+  shop?(businessId: string, name: string): Promise<string>;
 }
 
 export interface PlanChoice {
@@ -71,6 +94,8 @@ export interface PartnerPackageStore {
   linkShop(partner: Partner, ownerWaId: string): Promise<string | null>;
   unlinkShop(partner: Partner): Promise<void>;
   saveShop(partner: Partner, shop: ShopInput): Promise<void>;
+  /** Their tickets and price list, once a shop is linked. */
+  tickets(partner: Partner): TicketAdmin | null;
 }
 
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
@@ -109,7 +134,9 @@ export function parseShopForm(form: Record<string, unknown>, plans: PlanChoice[]
   const raw = form.about;
   const about = typeof raw === "string" ? raw.replace(/\r\n/g, "\n").trim() : "";
   if (about.length > SHOP_ABOUT_MAX) return { problem: `What the bot knows is ${about.length} characters; the most it takes is ${SHOP_ABOUT_MAX}.` };
-  return { about: about || null, planCode, planUntil: planCode === "free" ? null : planUntil || null, noFee: field(form, "no_fee") === "on" };
+  const address = field(form, "address", 400);
+  if (address.length > SHOP_ADDRESS_MAX) return { problem: `The venue address is over ${SHOP_ADDRESS_MAX} characters. Keep it to the address; directions go in the FAQs.` };
+  return { about: about || null, address: address || null, planCode, planUntil: planCode === "free" ? null : planUntil || null, noFee: field(form, "no_fee") === "on" };
 }
 
 /** "08012345678" -> "2348012345678", or null. */
@@ -145,6 +172,17 @@ function codeForm(p: Partner, c: PartnerCode | null): string {
 </form>`;
 }
 
+function linkList(l: PartnerLinks | undefined): string {
+  const rows = [
+    l?.chat && ["Chat link (for flyers and QR codes)", l.chat],
+    l?.shop && ["Shop page", l.shop],
+    l?.door && ["Door screen (for their door team only)", l.door],
+  ].filter(Boolean) as Array<[string, string]>;
+  return rows.length
+    ? `<ul class="links">${rows.map(([label, url]) => `<li><span class="small">${esc(label)}</span><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a></li>`).join("")}</ul>`
+    : "";
+}
+
 function shopForms(p: Partner, s: PartnerShop | null, plans: PlanChoice[]): string {
   if (!s) {
     return `<form class="entry" method="post" action="/dashboard/partners/${p.id}/shop">
@@ -160,10 +198,11 @@ function shopForms(p: Partner, s: PartnerShop | null, plans: PlanChoice[]): stri
   return `<form class="entry" method="post" action="/dashboard/partners/${p.id}/shop/settings">
 <h3>Their shop: ${esc(s.name)}</h3>
 <p class="small wide-all">${s.live ? "Live on WhatsApp." : "Not live yet: waiting for its WhatsApp number to be connected (Numbers to connect)."}${s.ownerWaId ? ` Owner +${esc(s.ownerWaId)}.` : ""}</p>
+<label class="wide-all">Venue address (for the Directions button and the bot) <input name="address" maxlength="${SHOP_ADDRESS_MAX}" value="${esc(s.address ?? "")}" placeholder="e.g. Main Auditorium, University of Uyo, Nwaniba Road, Uyo"></label>
 <label>Plan <select name="plan_code">${choices}</select></label>
 <label>Free until <input type="date" name="plan_until" value="${esc(s.planUntil ?? "")}"></label>
 <p class="small wide-all">With a day picked, the plan goes back to Free after it and the owner gets the usual renewal reminders. Empty keeps the plan with no end.</p>
-<label class="wide-all">What the bot knows (FAQs: programme, venue, directions, times, who to call). Also shown on their shop page. <textarea name="about" rows="9" maxlength="${SHOP_ABOUT_MAX}" placeholder="e.g. TEDxUNIUYO 2026 is on Saturday 28 November, 9am to 4pm, at the University of Uyo main auditorium...">${esc(s.about ?? "")}</textarea></label>
+<label class="wide-all">What the bot knows (FAQs: programme, landmarks and how to get in, times, who to call). Also shown on their shop page. <textarea name="about" rows="9" maxlength="${SHOP_ABOUT_MAX}" placeholder="e.g. TEDxUNIUYO 2026 is on Saturday 28 November, 9am to 4pm, at the University of Uyo main auditorium...">${esc(s.about ?? "")}</textarea></label>
 <div class="ticks"><label class="tick"><input type="checkbox" name="no_fee"${s.noFee ? " checked" : ""}> No yarnOga fee on their pay-link payments (tickets, invoices)</label></div>
 <div class="buttons"><button type="submit">Save shop</button></div>
 </form>
@@ -174,7 +213,9 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
   const body =
     pkg === "error"
       ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
-      : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}`;
+      : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
+          pkg.shop ? `${linkList(pkg.links)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}` : ""
+        }`;
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
 
@@ -189,9 +230,13 @@ export const PACKAGE_CSS = `.package { margin-top:18px; padding:4px 0 8px; borde
 .state { font-size:12px; font-weight:600; padding:3px 8px; border-radius:20px; border:1px solid var(--line2); }
 .st-on { color:var(--lime); }
 .st-off, .st-ended { color:var(--red); }
-.unlink { margin-top:8px; }`;
+.unlink { margin-top:8px; }
+.package h4 { margin:22px 0 8px; font:600 15px/1.3 var(--accent); }
+.links { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:8px; }
+.links a { word-break:break-all; }
+${TICKETS_CSS}`;
 
-export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPackageStore {
+export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks: ShopLinkMaker = {}): PartnerPackageStore {
   const promos = createSupabasePromoAdmin(db);
 
   async function readCode(code: string): Promise<PartnerCode | null> {
@@ -217,7 +262,7 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPa
     };
   }
 
-  async function readShop(id: string): Promise<PartnerShop | null> {
+  async function readShop(id: string): Promise<(PartnerShop & { whatsappNumber: string | null }) | null> {
     const { data, error } = await db.from("quote_businesses").select("*").eq("id", id).maybeSingle();
     if (error) throw new Error(`partner shop failed: ${error.message}`);
     if (!data) return null;
@@ -230,6 +275,17 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPa
       planUntil: data.plan_paid_until ? new Date(new Date(data.plan_paid_until).getTime() + 3_600_000).toISOString().slice(0, 10) : null,
       noFee: data.no_fee === true,
       about: data.about ?? null,
+      address: data.shop_address ?? null,
+      whatsappNumber: data.whatsapp_number ?? null,
+    };
+  }
+
+  async function linksFor(shop: PartnerShop & { whatsappNumber?: string | null }): Promise<PartnerLinks> {
+    const digits = shop.whatsappNumber?.replace(/\D/g, "");
+    return {
+      chat: shop.live && digits ? `https://wa.me/${digits}` : undefined,
+      shop: makeLinks.shop ? await makeLinks.shop(shop.id, shop.name).catch(() => undefined) : undefined,
+      door: makeLinks.door?.(shop.id),
     };
   }
 
@@ -240,10 +296,20 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPa
 
   return {
     async load(p) {
-      return {
-        code: p.promoCode ? await readCode(p.promoCode) : null,
-        shop: p.businessId ? await readShop(p.businessId) : null,
-      };
+      const shop = p.businessId ? await readShop(p.businessId) : null;
+      if (!shop) return { code: p.promoCode ? await readCode(p.promoCode) : null, shop: null };
+      const { whatsappNumber: _number, ...rest } = shop;
+      const [code, tickets, links] = await Promise.all([
+        p.promoCode ? readCode(p.promoCode) : null,
+        createSupabaseTicketAdmin(db, shop.id)
+          .rows()
+          .catch((err) => {
+            console.error("Partner's price list failed to load:", err);
+            return "error" as const;
+          }),
+        linksFor(shop),
+      ]);
+      return { code, shop: rest, tickets, links };
     },
     async plans() {
       const { data, error } = await db.from("quote_plans").select("code, name, monthly_price_kobo, active, sort_order").order("sort_order");
@@ -278,6 +344,7 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPa
       await setLead(p.id, { business_id: data[0]!.id });
       return null;
     },
+    tickets: (p) => (p.businessId ? createSupabaseTicketAdmin(db, p.businessId) : null),
     async unlinkShop(p) {
       await setLead(p.id, { business_id: null });
     },
@@ -291,6 +358,7 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient): PartnerPa
           // The end of that day in Lagos.
           plan_paid_until: s.planUntil ? new Date(`${s.planUntil}T23:59:59+01:00`).toISOString() : null,
           no_fee: s.noFee,
+          shop_address: s.address,
         })
         .eq("id", p.businessId);
       if (error) throw new Error(`partner shop save failed: ${error.message}`);
