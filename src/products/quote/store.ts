@@ -52,6 +52,8 @@ export interface QuoteBusiness {
   dailySummaryOn?: boolean;
   /** Ask customers to rate finished orders (migration 0054; on unless switched off). */
   ratingsOn?: boolean;
+  /** Its keyword on the yarnOga quotes line, for a shop with no number of its own (migration 0090). */
+  lineKeyword?: string | null;
   updatedAt: Date;
 }
 
@@ -170,6 +172,7 @@ type BusinessRow = {
   pay_reminders_on?: boolean | null;
   daily_summary_on?: boolean | null;
   ratings_on?: boolean | null;
+  line_keyword?: string | null;
   updated_at: string;
 };
 
@@ -198,6 +201,7 @@ function toBusiness(row: BusinessRow): QuoteBusiness {
     payRemindersOn: row.pay_reminders_on !== false,
     dailySummaryOn: row.daily_summary_on !== false,
     ratingsOn: row.ratings_on !== false,
+    lineKeyword: row.line_keyword ?? null,
     updatedAt: new Date(row.updated_at),
   };
 }
