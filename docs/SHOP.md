@@ -136,7 +136,9 @@ keep working.
 1. On Hostinger, open **Websites > yarnoga.com > File Manager**, go into
    `public_html` and turn on hidden files (Settings > Show hidden files).
 2. If there's a file called `.htaccess`, open it. If not, create a new file
-   with that name. Paste these lines at the bottom and save:
+   with that name. Paste these lines at the very top (above any WordPress or
+   LiteSpeed block, whose catch-all rule would otherwise answer first with a
+   404) and save:
 
    ```
    # Short shop links: yarnoga.com/s/mama-put opens that shop's page.
