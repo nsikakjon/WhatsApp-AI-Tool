@@ -32,7 +32,8 @@ function longDay(date: string): string {
   return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 }
 
-export function renderReport(p: Partner, r: PartnerReport | "error", today: string): string {
+/** `back`: where the back link goes, for the owner app's copy (default: the dashboard's Partnerships page). */
+export function renderReport(p: Partner, r: PartnerReport | "error", today: string, back?: { href: string; label: string }): string {
   let body: string;
   if (r === "error") {
     body = `<p class="problem">Couldn't put the report together just now. Please try again.</p>`;
@@ -72,7 +73,7 @@ ${tile("People who chatted", n(r.people), r.replies == null ? "sent its keyword 
     title: `${p.name} report`,
     crumb: "Event report",
     heading: "yarn<b>Oga</b> event report",
-    nav: `<a href="/dashboard/partners#package-${p.id}">Back to partnerships</a><a href="#" onclick="window.print();return false">Print or save as PDF</a>`,
+    nav: `<a href="${esc(back?.href ?? `/dashboard/partners#package-${p.id}`)}">${esc(back?.label ?? "Back to partnerships")}</a><a href="#" onclick="window.print();return false">Print or save as PDF</a>`,
     body,
     css: `@media print { header nav, .jump { display:none !important; } body { background:#fff; color:#000; } .tile, .plans { border-color:#ccc; background:#fff; } }`,
   });

@@ -237,6 +237,20 @@ the quotes line, the Inbox shows only people who sent its keyword, from when
 they sent it. The shop owner's own number gets their usual full login. The
 owner can remove an organiser under Settings > Team.
 
+#### When the event ends
+
+Set **Last day of the event** in the panel (it starts filled in with the
+event day). Until that day everything works as set up. Then:
+
+- **The day after**: the partner's keyword on the 0704 line switches off (its
+  visitors go back to the yarnOga demo), and organisers who log in see only
+  the **Event report**, for 30 days.
+- **30 days after the last day**: organiser logins stop working.
+
+The shop owner keeps their full app, and the shop's orders, tickets, chats
+and customers are kept. No last day set means nothing switches off. Needs
+`0092_partner_event_end.sql`.
+
 #### The reminder template
 
 WhatsApp only delivers an ordinary message to someone who messaged that number

@@ -12,6 +12,8 @@ import { clientIp, createGuard } from "../core/security/guard.js";
 import { checkPassword, cookieSecret, hashToken, normaliseWaId, readSession, SESSION_DAYS, sameText, sessionValue } from "./auth.js";
 import { ordersCsv } from "./exports.js";
 import { bare, esc, page } from "./layout.js";
+import { lagosDate } from "./summary.js";
+import { eventPhase, REPORT_DAYS } from "../dashboard/partner-access.js";
 import { registerDashboard } from "./sections/dashboard.js";
 import { registerInbox } from "./sections/inbox.js";
 import { registerOrders } from "./sections/orders.js";
@@ -281,8 +283,26 @@ export function createOwnerApp(deps: OwnerAppDeps) {
       const b = await deps.business(row.businessId);
       if (b) others.push({ userId: row.id, name: b.name });
     }
+    // An event partner's organisers: only the report once the event is over, and nothing a month after.
+    let event: { endsOn: string | null } | null = null;
+    if (deps.events) {
+      try {
+        event = await deps.events.find(biz.id);
+      } catch (err) {
+        log.error("Event lookup failed:", err);
+      }
+    }
+    if (event && user.role === "organiser") {
+      const phase = eventPhase(event.endsOn, lagosDate(now()));
+      if (phase === "closed") {
+        return c.html(bare("Access ended", `<h1>This event's access has ended</h1><p>Organiser logins for ${esc(biz.name)} closed ${REPORT_DAYS} days after the event. Thank you for running it with yarnOga.</p><p>Need anything from it? Email <a href="mailto:${esc(deps.support.email)}">${esc(deps.support.email)}</a>.</p>`), 403);
+      }
+      if (phase === "report" && !new URL(c.req.url).pathname.endsWith("/event-report")) {
+        return c.req.method === "GET" ? c.redirect("/home/event-report", 303) : c.text("The event is over: only the report is open.", 403);
+      }
+    }
     c.set("user", user);
-    c.set("biz", biz);
+    c.set("biz", event ? { ...biz, event } : biz);
     c.set("others", others);
     await next();
   });
@@ -317,6 +337,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             tax: Boolean(c.get("biz").tax),
             ads: Boolean(c.get("biz").ads),
             monthly: Boolean(c.get("biz").monthly),
+            event: Boolean(c.get("biz").event),
             others: c.get("others"),
             flash,
             tour: deps.tour && active === "/home" ? { userId: user.id, start: c.req.query("tour") === "1" } : undefined,
@@ -339,6 +360,14 @@ export function createOwnerApp(deps: OwnerAppDeps) {
       return ctx.render(c, "Not for your role", "", `<p>Your role (${ROLE_LABEL[c.get("user").role]}) doesn't include this page. Ask the owner if you need it.</p><p><a href="/home">Back to the dashboard</a></p>`);
     },
   };
+
+  app.get("/event-report", async (c) => {
+    const blocked = ctx.need(c, "money");
+    if (blocked) return blocked;
+    c.header("Cache-Control", "no-store");
+    const html = c.get("biz").event && deps.events ? await deps.events.reportPage(c.get("biz").id).catch((err) => (log.error("Event report failed:", err), null)) : null;
+    return html ? c.html(html) : ctx.render(c, "Event report", "/home/event-report", `<p>There's no event report for this business.</p><p><a href="/home">Back to the dashboard</a></p>`, 404);
+  });
 
   registerDashboard(app, ctx);
   registerInbox(app, ctx);
