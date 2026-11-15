@@ -5,6 +5,7 @@ import { normaliseWaId } from "../owner/auth.js";
 import { cleanKeyword } from "../products/quote/shared-line.js";
 import { esc } from "./page.js";
 import { endForm } from "./partner-access.js";
+import { orderPrefix } from "../products/quote/chat-signup.js";
 import { renderOrganisers, type Organiser, type OrganiserInput, type OrganiserLogin } from "./partner-organisers.js";
 import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
 import { reminderText } from "./partner-reminder.js";
@@ -119,7 +120,9 @@ export interface PartnerPackageStore {
   /** The event's last day (migration 0092), or null for none. */
   saveEnd(partner: Partner, endsOn: string | null): Promise<void>;
   /** A login link for one of their organisers, or null when the owner app is off or no shop is linked. */
-  organiserLogin(partner: Partner, who: OrganiserInput): Promise<OrganiserLogin | null>;
+  organiserLogin(partner: Partner, who: OrganiserInput): Promise<OrganiserLogin | { problem: string } | null>;
+  /** Makes a shop for the partner, named after it, with no owner yet, and links it. Returns a problem, or null. */
+  createShop(partner: Partner): Promise<string | null>;
   /** The door screen link, to send organisers with their login. */
   doorLink(partner: Partner): string | undefined;
 }
@@ -253,6 +256,11 @@ function shopForms(p: Partner, s: PartnerShop | null, plans: PlanChoice[]): stri
 <p class="small wide-all">Once they've signed up on the bot (send "sign up" to 0704 897 1600), type the WhatsApp number they signed up from to link their shop here.</p>
 <label class="wide">Number they signed up from <input name="owner_number" required inputmode="tel" maxlength="40" placeholder="e.g. 0803 123 4567" autocomplete="off"></label>
 <div class="buttons"><button type="submit">Link shop</button></div>
+</form>
+<form class="entry" method="post" action="/dashboard/partners/${p.id}/shop/create">
+<h3>Or create their shop now</h3>
+<p class="small wide-all">No sign-up needed: makes a shop called ${esc(p.name)} on the Free plan and links it. Then give it a keyword on the yarnOga quotes line, and make their logins below, ticking "account owner" for the person who adds the bank account.</p>
+<div class="buttons"><button type="submit">Create their shop</button></div>
 </form>`;
   }
   const choices = plans
@@ -289,7 +297,7 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
     pkg === "error"
       ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
       : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
-          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}${endForm(p, today)}` : ""
+          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers, !pkg.shop.ownerWaId)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}${endForm(p, today)}` : ""
         }`;
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
@@ -441,7 +449,35 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
     async organiserLogin(p, who) {
       if (!p.businessId || !makeLinks.login) return null;
       const shop = await readShop(p.businessId);
-      return shop ? makeLinks.login({ id: shop.id, ownerWaId: shop.ownerWaId }, who) : null;
+      if (!shop) return null;
+      let ownerWaId = shop.ownerWaId;
+      if (who.owner && ownerWaId !== who.waId) {
+        if (ownerWaId) return { problem: `This shop's account owner is already +${ownerWaId}. Untick "account owner" to give ${who.name} an organiser login.` };
+        // Order alerts go to the owner's number too.
+        const { error } = await db.from("quote_businesses").update({ owner_wa_id: who.waId, updated_at: new Date().toISOString() }).eq("id", shop.id);
+        if (error) throw new Error(`setting the shop owner failed: ${error.message}`);
+        ownerWaId = who.waId;
+      }
+      return makeLinks.login({ id: shop.id, ownerWaId }, who);
+    },
+    async createShop(p) {
+      if (p.businessId) return "This partner already has a shop linked.";
+      const { data, error } = await db
+        .from("quote_businesses")
+        .insert({
+          name: p.name,
+          description: "an event",
+          order_prefix: orderPrefix(p.name),
+          plan_code: "free",
+          // Switched off until it has a number of its own; a keyword on the quotes line works without.
+          active: false,
+          ...(p.promoCode ? { referral_code: p.promoCode } : {}),
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(`creating the partner's shop failed: ${error.message}`);
+      await setLead(p.id, { business_id: (data as { id: string }).id });
+      return null;
     },
     doorLink: (p) => (p.businessId ? makeLinks.door?.(p.businessId) : undefined),
     async saveEnd(p, endsOn) {
