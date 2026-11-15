@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { PACKAGE_CSS } from "./partner-package.js";
 import { esc, pageShell, tile } from "./page.js";
 
 // The partnerships list at /dashboard/partners: events, fairs and organisers
@@ -34,6 +35,16 @@ export interface NewPartner {
 
 export interface Partner extends NewPartner {
   id: number;
+  /** The partner's discount code (migration 0089). */
+  promoCode?: string | null;
+  /** The partner's own shop on yarnOga (migration 0089). */
+  businessId?: string | null;
+  /** When the event starts, "09:00" (migration 0089). */
+  eventTime?: string | null;
+  /** Ticket holders get a reminder the day before (partner-reminder.ts). */
+  reminderOn?: boolean;
+  reminderSentAt?: string | null;
+  reminderSentCount?: number | null;
 }
 
 export interface PartnerStore {
@@ -163,8 +174,12 @@ function row(p: Partner, today: string): string {
   )} from the list?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
 }
 
-export function renderPartners(summary: PartnerSummary | "error", today: string, opts: { editId?: number; problem?: string } = {}): string {
-  const notice = opts.problem ? `<p class="problem" role="alert">${esc(opts.problem)}</p>` : "";
+export function renderPartners(summary: PartnerSummary | "error", today: string, opts: { editId?: number; problem?: string; saved?: string; packages?: string } = {}): string {
+  const notice = opts.problem
+    ? `<p class="problem" role="alert">${esc(opts.problem)}</p>`
+    : opts.saved
+      ? `<p class="saved" role="status">${esc(opts.saved)}</p>`
+      : "";
   let body: string;
   if (summary === "error") {
     body = `<p class="problem">Couldn't read the partnerships list. If 0088_partner_leads.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`;
@@ -193,6 +208,9 @@ ${tile("Agreed", String(c.Agreed), c.Declined ? `${c.Declined} declined` : "", c
 <table class="plans wide"><thead><tr><th>Follow up on</th><th>Who</th><th>Status</th><th></th></tr></thead><tbody>${
       followRows || `<tr><td colspan="4">Nothing to follow up</td></tr>`
     }</tbody></table></section>
+<section id="packages"><h2>Partner packages</h2>
+<p class="intro">What we give each agreed partner: their discount code, and their shop once they've signed up on the bot (plan, FAQs the bot answers from, fee). Mark a lead Agreed to set up its package here.</p>
+${opts.packages || `<p class="small">No agreed partnerships yet.</p>`}</section>
 <section id="list"><h2>All leads</h2>
 ${editing ? partnerForm(editing, today) : partnerForm(undefined, today)}
 <div class="scroll"><table class="plans wide leads"><thead><tr><th>Event or organiser</th><th>Event day</th><th>Status</th><th>Follow up</th><th></th></tr></thead><tbody>${
@@ -204,7 +222,7 @@ ${editing ? partnerForm(editing, today) : partnerForm(undefined, today)}
     crumb: "Events and partners",
     heading: "yarn<b>Oga</b> partnerships",
     badge: "Saved as you go",
-    nav: `<a href="/dashboard">Back to analytics</a><a href="#follow-ups">Follow-ups</a><a href="#list">All leads</a>`,
+    nav: `<a href="/dashboard">Back to analytics</a><a href="#follow-ups">Follow-ups</a><a href="#packages">Packages</a><a href="#list">All leads</a>`,
     body,
     css: `.leads { min-width:720px; }
 .leads td { vertical-align:top; }
@@ -216,7 +234,8 @@ ${editing ? partnerForm(editing, today) : partnerForm(undefined, today)}
 tr.st-agreed td:first-child { box-shadow:inset 3px 0 0 var(--lime); }
 tr.st-declined td { opacity:.6; }
 .entry select, .entry input[type=date] { color-scheme:dark; }
-.entry + .scroll { margin-top:16px; }`,
+.entry + .scroll { margin-top:16px; }
+${PACKAGE_CSS}`,
   });
 }
 
@@ -233,6 +252,12 @@ interface PartnerRow {
   follow_up_on: string | null;
   link: string | null;
   notes: string | null;
+  promo_code?: string | null;
+  business_id?: string | null;
+  event_time?: string | null;
+  reminder_on?: boolean;
+  reminder_sent_at?: string | null;
+  reminder_sent_count?: number | null;
 }
 
 const columns = (p: NewPartner) => ({
@@ -254,7 +279,8 @@ export function createSupabasePartnerStore(db: SupabaseClient): PartnerStore {
     async list() {
       const { data, error } = await db
         .from("partner_leads")
-        .select("id, name, kind, event_date, place, contact, offer, status, sent_on, follow_up_on, link, notes");
+        // Every column, so the list still loads before migration 0089 adds the package columns.
+        .select("*");
       if (error) throw new Error(`Reading partner leads failed: ${error.message}`);
       return ((data ?? []) as PartnerRow[]).map((r) => ({
         id: Number(r.id),
@@ -269,6 +295,12 @@ export function createSupabasePartnerStore(db: SupabaseClient): PartnerStore {
         followUpOn: r.follow_up_on,
         link: r.link,
         notes: r.notes,
+        promoCode: r.promo_code ?? null,
+        businessId: r.business_id ?? null,
+        eventTime: r.event_time ? r.event_time.slice(0, 5) : null,
+        reminderOn: r.reminder_on === true,
+        reminderSentAt: r.reminder_sent_at ?? null,
+        reminderSentCount: r.reminder_sent_count ?? null,
       }));
     },
     async add(p) {

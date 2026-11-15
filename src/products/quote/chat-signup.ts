@@ -17,6 +17,7 @@ import { TEMPLATE_CSV_URL, TEMPLATE_SHEET_URL, priceListCsv, readPriceList, type
 import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescription.js";
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
 import { CONNECT_NUMBER_NOTE, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, type createNumberCollector } from "./numbers.js";
+import { lagosToday } from "./monthly.js";
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
@@ -949,15 +950,17 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
       return count ?? 0;
     },
     async codeExists(code) {
+      // Every column, so the end date (migration 0089) is checked once it's there.
       const { data, error } = await db
         .from("promo_codes")
-        .select("code")
+        .select("*")
         .eq("code", code)
         .eq("active", true)
         .or("product.is.null,product.eq.quote")
         .maybeSingle();
       if (error) throw new Error(`promo code lookup failed: ${error.message}`);
-      return Boolean(data);
+      const endsOn = (data as { ends_on?: string | null } | null)?.ends_on;
+      return Boolean(data) && (!endsOn || endsOn >= lagosToday(new Date()));
     },
     async createBusiness(b) {
       const { data, error } = await db

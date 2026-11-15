@@ -133,6 +133,9 @@ import { createNumberCollector, createSupabaseNumberQueue } from "./products/quo
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabasePartnerPackageStore } from "./dashboard/partner-package.js";
+import { createSupabaseReminderStore, sendDueReminders } from "./dashboard/partner-reminder.js";
+import { createSupabaseReportSource } from "./dashboard/partner-report.js";
 import { createSupabasePartnerStore } from "./dashboard/partners.js";
 import { createSupabaseTallyStore } from "./dashboard/tally.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
@@ -1539,6 +1542,11 @@ const app = createApp({
       money: createSupabaseMoneyStore(supabase),
       tally: createSupabaseTallyStore(supabase),
       partners: createSupabasePartnerStore(supabase),
+      partnerPackages: createSupabasePartnerPackageStore(supabase, {
+        door: ticketLinks ? (id) => ticketLinks.door(id) : undefined,
+        shop: shopLinks ? (id, name) => shopLinks.link(id, name) : undefined,
+      }),
+      partnerReports: createSupabaseReportSource(supabase, config.whatsapp.phoneNumberId),
       plans: config.planEditor ? createSupabasePlanEditor(supabase) : undefined,
       numberQueue: Boolean(numberQueue && config.quoteSetup),
       socials: createSocials({
@@ -2131,6 +2139,26 @@ if (ownerAppDeps) {
 // Every 15 minutes, send quote reminders that are due (one per unanswered
 // quote, daytime only). Business #1 uses QUOTE_FOLLOW_UP_HOURS; other
 // businesses can set their own hours in quote_businesses.follow_up_hours.
+// Every 15 minutes, the day-before reminder to agreed partners' ticket holders
+// (switched on per partnership on the dashboard's Partnerships page).
+if (config.dashboard && config.activeProduct === "quote") {
+  const deps = { store, whatsapp };
+  const template = config.eventReminderTemplate;
+  const reminders = createSupabaseReminderStore(supabase, config.whatsapp.phoneNumberId);
+  runEvery(15 * 60 * 1000, async () => {
+    try {
+      await sendDueReminders({
+        store: reminders,
+        canMessageFreely: (waId, from) => canMessageFreely(store, waId, from),
+        sendText: (to, text, from) => sendAndRecord(deps, to, text, from),
+        sendTemplate: template ? (to, params, from) => sendTemplateAndRecord(deps, to, { ...template, bodyParams: params }, from) : undefined,
+      });
+    } catch (err) {
+      console.error("Event reminders failed:", err);
+    }
+  });
+}
+
 if (followUps && followUpConfig) {
   const deps = { store, whatsapp };
   const template = followUpConfig.template;

@@ -78,6 +78,8 @@ export interface FeatureStore {
   businessPlanCode(): Promise<string | null>;
   /** The plan's row for this feature, or null when there isn't one. */
   feature(planCode: string, feature: PlanFeature): Promise<FeatureRow | null>;
+  /** True when yarnOga takes no fee from this shop whatever its plan (no_fee, migration 0089). */
+  feeWaived?(): Promise<boolean>;
 }
 
 export interface PlanFeatures {
@@ -97,6 +99,7 @@ export interface PlanFeaturesOptions {
 }
 
 const EVERYTHING: FeatureRow = { included: true, usageLimit: null };
+const NO_FEE: FeatureRow = { included: false, usageLimit: null };
 
 export function createPlanFeatures(opts: PlanFeaturesOptions): PlanFeatures {
   const log = opts.log ?? console;
@@ -114,6 +117,13 @@ export function createPlanFeatures(opts: PlanFeaturesOptions): PlanFeatures {
   }
 
   async function row(feature: PlanFeature): Promise<FeatureRow> {
+    if (feature === "transaction_fee" && opts.store.feeWaived) {
+      try {
+        if (await opts.store.feeWaived()) return NO_FEE;
+      } catch (err) {
+        log.error("Could not read whether the shop's fee is waived:", err);
+      }
+    }
     const code = await planCode();
     if (!code) return EVERYTHING;
     try {
@@ -147,6 +157,12 @@ export function createSupabaseFeatureStore(db: SupabaseClient, businessId: strin
         .maybeSingle();
       if (error) throw new Error(`feature failed: ${error.message}`);
       return data ? { included: data.included as boolean, usageLimit: (data.usage_limit as number | null) ?? null } : null;
+    },
+    async feeWaived() {
+      // Every column, so this still works before migration 0089 adds no_fee.
+      const { data, error } = await db.from("quote_businesses").select("*").eq("id", businessId).maybeSingle();
+      if (error) throw new Error(`fee waiver failed: ${error.message}`);
+      return (data as { no_fee?: boolean } | null)?.no_fee === true;
     },
   };
 }

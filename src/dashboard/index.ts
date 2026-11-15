@@ -5,7 +5,10 @@ import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
-import { parsePartnerForm, renderPartners, summarisePartners, type PartnerStore } from "./partners.js";
+import { ownerNumber, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { renderReport, type ReportSource } from "./partner-report.js";
+import { parseTicketForm } from "./partner-tickets.js";
+import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
@@ -33,6 +36,10 @@ export interface DashboardDeps {
   tally?: TallyStore;
   /** Events and organisers we pitch partnerships to, at /dashboard/partners. */
   partners?: PartnerStore;
+  /** Discount codes and shops for agreed partners, on the same page. */
+  partnerPackages?: PartnerPackageStore;
+  /** The event report for an agreed partnership. */
+  partnerReports?: ReportSource;
   /** The plan editor at /dashboard/plans (PLAN_EDITOR). */
   plans?: PlanEditorStore;
   /** Adds a link to the "Numbers to connect" queue on /quote-setup (QUOTE_NUMBER_QUEUE). */
@@ -239,8 +246,32 @@ export function createDashboard(deps: DashboardDeps) {
         log.error("Partnerships list failed to load:", err);
         return "error" as const;
       });
+    let packages = "";
+    const agreed = summary === "error" ? [] : summary.all.filter((p) => p.status === "Agreed");
+    if (deps.partnerPackages && agreed.length) {
+      const store = deps.partnerPackages;
+      const plans = await store.plans().catch((err) => {
+        log.error("Plans failed to load for partner packages:", err);
+        return [];
+      });
+      const rendered = await Promise.all(
+        agreed.map(async (p) => {
+          const pkg = await store.load(p).catch((err) => {
+            log.error(`Partner package for ${p.name} failed to load:`, err);
+            return "error" as const;
+          });
+          return renderPackage(p, pkg, plans, today());
+        }),
+      );
+      packages = rendered.join("");
+    }
     return c.html(
-      renderPartners(summary, today(), { editId: Number(c.req.query("edit")) || undefined, problem: c.req.query("problem")?.slice(0, 200) }),
+      renderPartners(summary, today(), {
+        editId: Number(c.req.query("edit")) || undefined,
+        problem: c.req.query("problem")?.slice(0, 200),
+        saved: c.req.query("saved")?.slice(0, 120),
+        packages,
+      }),
     );
   });
 
@@ -283,6 +314,102 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToPartners("Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToPartners(), 303);
+  });
+
+  // A partner's package: the discount code and their shop.
+  const backToPackage = (id: number, notice: { problem?: string; saved?: string }) => {
+    const [key, value] = notice.problem ? ["problem", notice.problem] : ["saved", notice.saved ?? "Saved."];
+    return `/dashboard/partners?${key}=${encodeURIComponent(value)}#package-${id}`;
+  };
+  const agreedPartner = async (c: Context): Promise<Partner | null> => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    const partner = (await deps.partners!.list()).find((p) => p.id === id);
+    return partner?.status === "Agreed" ? partner : null;
+  };
+  const packageRoute = (path: string, run: (p: Partner, form: Record<string, unknown>, c: Context) => Promise<{ problem?: string; saved?: string }>) =>
+    app.post(path, async (c) => {
+      if (!deps.partnerPackages || !partnersAllowed(c)) return c.text("Not allowed.", 403);
+      try {
+        const partner = await agreedPartner(c);
+        if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
+        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c)), 303);
+      } catch (err) {
+        log.error("Couldn't save a partner package:", err);
+        return c.redirect(backToPartners("Couldn't save that just now. If 0089_partner_packages.sql hasn't been run yet, run it, then try again."), 303);
+      }
+    });
+
+  packageRoute("/partners/:id/code", async (p, form) => {
+    const code = parseCodeForm(form);
+    if ("problem" in code) return code;
+    const problem = await deps.partnerPackages!.saveCode(p, code);
+    return problem ? { problem } : { saved: `Code ${code.code} saved.` };
+  });
+  packageRoute("/partners/:id/shop", async (p, form) => {
+    const waId = ownerNumber(form);
+    if (!waId) return { problem: "Type the WhatsApp number they signed up from, e.g. 0803 123 4567." };
+    const problem = await deps.partnerPackages!.linkShop(p, waId);
+    return problem ? { problem } : { saved: "Shop linked." };
+  });
+  packageRoute("/partners/:id/shop/settings", async (p, form) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const shop = parseShopForm(form, await deps.partnerPackages!.plans());
+    if ("problem" in shop) return shop;
+    await deps.partnerPackages!.saveShop(p, shop);
+    return { saved: "Shop saved. The bot picks it up within a minute." };
+  });
+  const ticketsOf = (p: Partner) => {
+    const admin = deps.partnerPackages!.tickets(p);
+    if (!admin) throw new Error("No shop linked to this partner.");
+    return admin;
+  };
+  packageRoute("/partners/:id/tickets", async (p, form) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const ticket = await parseTicketForm(form);
+    if ("problem" in ticket) return ticket;
+    const problem = await ticketsOf(p).save(ticket);
+    return problem ? { problem } : { saved: `${ticket.event}: ${ticket.type} saved as a ticket.` };
+  });
+  for (const [state, on] of [["on", true], ["off", false]] as const) {
+    packageRoute(`/partners/:id/tickets/:product/${state}`, async (p, _form, c) => {
+      if (!p.businessId) return { problem: "Link their shop first." };
+      await ticketsOf(p).mark(c.req.param("product")!, on);
+      return { saved: on ? "Now sold as a ticket with a QR code." : "No longer sold as a ticket." };
+    });
+  }
+  packageRoute("/partners/:id/tickets/row/:variant/remove", async (p, _form, c) => {
+    if (!p.businessId) return { problem: "Link their shop first." };
+    const problem = await ticketsOf(p).remove(c.req.param("variant")!);
+    return problem ? { problem } : { saved: "Taken off their price list." };
+  });
+  packageRoute("/partners/:id/reminder", async (p, form) => {
+    if (p.reminderSentAt) return { problem: "The reminder has already gone out." };
+    const reminder = parseReminderForm(form);
+    if ("problem" in reminder) return reminder;
+    if (reminder.on && !p.eventDate) return { problem: "Set the event day on the lead (Edit) first." };
+    await deps.partnerPackages!.saveReminder(p, reminder);
+    return { saved: reminder.on ? "Reminder on." : "Reminder saved, switched off." };
+  });
+
+  app.get("/partners/:id/report", async (c) => {
+    if (!deps.partners || !deps.partnerPackages || !deps.partnerReports) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const partner = await agreedPartner(c).catch(() => null);
+    if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a report."), 303);
+    const report = await deps.partnerPackages
+      .load(partner)
+      .then((pkg) => deps.partnerReports!.report(partner, pkg.code))
+      .catch((err) => {
+        log.error("Partner report failed:", err);
+        return "error" as const;
+      });
+    return c.html(renderReport(partner, report, today()));
+  });
+
+  packageRoute("/partners/:id/shop/unlink", async (p) => {
+    await deps.partnerPackages!.unlinkShop(p);
+    return { saved: "Shop unlinked." };
   });
 
   // The plan editor: one form per plan, each saved on its own.

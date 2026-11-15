@@ -147,6 +147,76 @@ Run `supabase/migrations/0088_partner_leads.sql` once in Supabase first. It
 also adds the leads found so far (only while the list is empty). No Railway
 setting is needed.
 
+### Partner packages
+
+Every lead marked **Agreed** gets a panel under **Partner packages** on the
+same page, so anyone on the team can set up what we promised them:
+
+- **Discount code**: the code (e.g. TEDXUNIUYO), percent off the first month,
+  how many people can use it, the last day it works, which plans it works on,
+  and an on/off tick. The panel shows how many have paid with it, how many
+  places are left and how many shops gave it when signing up. After the last
+  day the bot treats it like a code that has ended.
+- **Their shop**: once the partner has signed up on the bot (they send
+  "sign up" to 0704 897 1600), type the WhatsApp number they signed up from to
+  link their shop. Then set:
+  - **Plan** and **Free until**: give them a plan free until a date. After
+    that day they go back to Free and get the usual renewal reminders.
+  - **What the bot knows**: the FAQs the bot answers from (programme, venue,
+    directions, times, who to call), up to 1,500 characters. It's the same
+    "About us" the owner can edit in their app, and it shows on their shop
+    page. The bot uses it from the next message.
+  - **No yarnOga fee**: takes off our 2.5% fee on their pay-link payments
+    (tickets, invoices), whatever their plan. Paystack's own charge still
+    applies.
+
+  - **Venue address**: gives their shop page a Directions button and gives the
+    bot the address with a map link, so it can send directions. Landmarks
+    ("enter by Gate 2") go in the FAQs.
+- **Links**: their chat link (once their number is connected) for flyers and
+  QR codes, their shop page, and the door screen for their door team.
+- **Tickets and price list**: everything on their price list, with price,
+  how many are left, and for tickets how many sold / let in. **Add a ticket
+  type**: event, type (Regular, VIP...), price, how many on sale and a
+  picture. It goes on their price list as "Event: Type" and is sold as a ticket
+  with a QR code straight away. Typing a type that's already there changes it.
+  Each row has **Make it a ticket** / **Not a ticket** and **Remove**.
+- **Reminder the day before**: set the start time and tick it on. The day
+  before the event day on the lead, from 10am Lagos time, everyone holding a
+  ticket that hasn't been used gets a WhatsApp message from the shop's number
+  with the time, the address, a map link and "send *my tickets* if you can't
+  find it". It goes once, and the panel then shows how many it reached.
+- **Event report** (link next to the reminder): tickets sold and let in per
+  type, money from ticket orders, how many people chatted to their bot and
+  replies sent, the reminder and the discount code. **Print or save as PDF**
+  to send it to the partner.
+
+The shop is tied to the partnership by the number the owner signed up from,
+not the bot's number, so all of this can be set up before their bot number is
+connected (a new SIM, docs/NUMBER_QUEUE.md, or their own number through
+Connect with Facebook, docs/COEXISTENCE.md). Chats in the report count once
+their own number is live.
+
+#### The reminder template
+
+WhatsApp only delivers an ordinary message to someone who messaged that number
+in the last day. For everyone else the reminder needs an approved template:
+
+1. In WhatsApp Manager (the account the shop's number is on), create a
+   template: category **Utility**, name `event_reminder`, language English,
+   body:
+   `Reminder: {{1}} is tomorrow, {{2}}. Venue: {{3}}. Have your ticket's QR code ready at the door. Reply MY TICKETS if you can't find it.`
+   Samples: `TEDxUNIUYO`, `Saturday 28 November at 9am`,
+   `Main Auditorium, University of Uyo`.
+2. Once approved, add `EVENT_REMINDER_TEMPLATE_NAME` = `event_reminder` in
+   Railway (and `EVENT_REMINDER_TEMPLATE_LANGUAGE` if it isn't `en`).
+
+Without it, the reminder only reaches people who messaged in the last day.
+
+Run `supabase/migrations/0089_partner_packages.sql` once in Supabase first
+(after 0088). Until then the panels say they couldn't load. The only Railway
+setting is the optional reminder template above.
+
 ## Plan editor
 
 A page at `/dashboard/plans` (same password as the dashboard) for changing

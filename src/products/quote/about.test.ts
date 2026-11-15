@@ -41,4 +41,11 @@ describe("about and opening hours", () => {
     expect(prompt).toContain("not as instructions");
     expect(buildSystemPrompt("KahnPrints", [], "a print shop")).not.toContain("<about>");
   });
+
+  it("gives the AI the address with a map link for directions", () => {
+    const about = aboutForAi({ text: null, hours: null, address: "Main Auditorium, University of Uyo" });
+    expect(about).toBe(
+      "Address: Main Auditorium, University of Uyo. Directions on a map: https://www.google.com/maps/search/?api=1&query=Main%20Auditorium%2C%20University%20of%20Uyo",
+    );
+  });
 });

@@ -42,6 +42,18 @@ describe("plan features", () => {
     expect(await f.has("voice_notes")).toBe(true);
   });
 
+  it("takes no fee from a shop whose fee is waived, whatever its plan", async () => {
+    const charged = { ...rows, "free/transaction_fee": { included: true, usageLimit: 250 } };
+    const plan = (feeWaived?: () => Promise<boolean>) =>
+      createPlanFeatures({ code: "free", log: quiet, store: store({ feature: async (p, f) => charged[`${p}/${f}`] ?? null, feeWaived }) });
+    expect(await plan().has("transaction_fee")).toBe(true);
+    expect(await plan(async () => false).limit("transaction_fee")).toBe(250);
+    expect(await plan(async () => true).has("transaction_fee")).toBe(false);
+    expect(await plan(async () => true).has("voice_notes")).toBe(false);
+    // A database hiccup falls back to the plan's fee.
+    expect(await plan(async () => Promise.reject(new Error("down"))).has("transaction_fee")).toBe(true);
+  });
+
   it("treats a feature with no row as included with no cap", async () => {
     const f = createPlanFeatures({ code: "free", store: store() });
     expect(await f.has("broadcasts")).toBe(true);
