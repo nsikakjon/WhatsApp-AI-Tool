@@ -1,5 +1,6 @@
--- Partner packages on the dashboard (/dashboard/partners): the discount code
--- and the yarnOga shop that go with an agreed partnership.
+-- Partner packages on the dashboard (/dashboard/partners): the discount code,
+-- the yarnOga shop, the day-before reminder and the event report that go with
+-- an agreed partnership.
 -- Run this once in Supabase: SQL Editor > New query > paste > Run
 -- (after 0041_promo_codes.sql and 0088_partner_leads.sql). Running it again is safe.
 
@@ -7,10 +8,15 @@
 alter table public.promo_codes
   add column if not exists ends_on date;
 
--- The partner's discount code and its shop on yarnOga.
+-- The partner's discount code and its shop on yarnOga, when the event starts,
+-- and the reminder its ticket holders get the day before.
 alter table public.partner_leads
   add column if not exists promo_code text references public.promo_codes (code) on update cascade on delete set null,
-  add column if not exists business_id uuid references public.quote_businesses (id) on delete set null;
+  add column if not exists business_id uuid references public.quote_businesses (id) on delete set null,
+  add column if not exists event_time time,
+  add column if not exists reminder_on boolean not null default false,
+  add column if not exists reminder_sent_at timestamptz,
+  add column if not exists reminder_sent_count integer;
 
 -- A shop yarnOga takes no fee from on its pay-link payments, whatever its plan
 -- (e.g. a partner's event tickets).

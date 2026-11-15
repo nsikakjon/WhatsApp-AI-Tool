@@ -31,6 +31,13 @@ export interface Config {
    */
   ownerAlertTemplate?: { name: string; language: string };
   /**
+   * Approved WhatsApp Utility template for the day-before event reminder to a
+   * partner's ticket holders: {{1}} event, {{2}} when, {{3}} where.
+   * EVENT_REMINDER_TEMPLATE_NAME; without it only people who messaged in the
+   * last day get the reminder.
+   */
+  eventReminderTemplate?: { name: string; language: string };
+  /**
    * Who hears about problems (errors, a check failing, the server not
    * answering) and how. Each part is optional; with none set nobody is told.
    */
@@ -498,6 +505,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ownerReplyPauseMinutes: pauseMinutes,
     ownerAlertTemplate: env.OWNER_ALERT_TEMPLATE_NAME?.trim()
       ? { name: env.OWNER_ALERT_TEMPLATE_NAME.trim(), language: env.OWNER_ALERT_TEMPLATE_LANGUAGE?.trim() || "en" }
+      : undefined,
+    eventReminderTemplate: env.EVENT_REMINDER_TEMPLATE_NAME?.trim()
+      ? { name: env.EVENT_REMINDER_TEMPLATE_NAME.trim(), language: env.EVENT_REMINDER_TEMPLATE_LANGUAGE?.trim() || "en" }
       : undefined,
     alerts: alertSettings(env),
     signupAlertEmail: signupAlertEmailSettings(env),
