@@ -268,7 +268,7 @@ export const PACKAGE_CSS = `.package { margin-top:18px; padding:4px 0 8px; borde
 .package h4 { margin:22px 0 8px; font:600 15px/1.3 var(--accent); }
 .links { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:8px; }
 .links a { word-break:break-all; }
-.preview { white-space:pre-wrap; margin:0; padding:12px 14px; border-radius:10px; background:var(--bg); border:1px solid var(--line2); color:var(--muted); font:14px/1.5 inherit; }
+.preview { white-space:pre-wrap; margin:0; padding:12px 14px; border-radius:10px; background:var(--bg); border:1px solid var(--line2); color:var(--muted); font-family:inherit; font-size:14px; line-height:1.5; overflow-wrap:anywhere; }
 ${TICKETS_CSS}`;
 
 export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks: ShopLinkMaker = {}): PartnerPackageStore {
