@@ -107,7 +107,8 @@ export function withSharedLine(next: Product, opts: SharedLineOptions): Product 
             const back = business.lineKeyword ? ` Send *${business.lineKeyword.toUpperCase()}* to go back.` : "";
             return { text: `You've left the ${business.name} chat.${back}` };
           }
-          if (business && !SIGN_UP.test(text)) {
+          // A shop whose keyword was switched off (e.g. its event ended) lets its visitors go.
+          if (business?.lineKeyword && !SIGN_UP.test(text)) {
             await opts.store.set(msg.from, opts.numberId, business.id, at);
             return botFor(business).handle(msg, ctx);
           }
