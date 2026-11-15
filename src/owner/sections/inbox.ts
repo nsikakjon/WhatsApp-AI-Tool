@@ -38,7 +38,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
       return ctx.render(c, "Inbox", "/home/inbox", `<p>The inbox comes with Standard and above. Send <b>plan</b> to your bot on WhatsApp to upgrade.</p>`);
     }
     const q = (c.req.query("q") ?? "").trim().toLowerCase().slice(0, 60);
-    const chats = (await inbox.store.listChats(150, { numberId: biz.numberId, includeUnnumbered: biz.includeUnnumbered })).filter(
+    const chats = (await inbox.store.listChats(150, { numberId: biz.numberId, includeUnnumbered: biz.includeUnnumbered, guestsOf: biz.lineGuestsOf })).filter(
       (chat) => !q || (chat.name ?? "").toLowerCase().includes(q) || chat.waId.includes(q.replace(/\D/g, "") || "~"),
     );
     const rows = chats
@@ -67,7 +67,7 @@ export function registerInbox(app: Hono<Env>, ctx: SectionContext) {
     const biz = c.get("biz");
     const [contact, messages] = await Promise.all([
       inbox.store.contact(contactId),
-      inbox.store.chatMessages(contactId, biz.numberId, biz.includeUnnumbered, 200),
+      inbox.store.chatMessages(contactId, biz.numberId, biz.includeUnnumbered, 200, biz.lineGuestsOf),
     ]);
     // Only someone who has written to this business's number.
     if (!contact || !messages.some((m) => m.direction === "inbound")) return null;

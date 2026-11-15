@@ -17,8 +17,8 @@ export interface PartnerReport {
   ticketMoneyKobo: number;
   /** Different people who messaged the event's bot. */
   people: number;
-  /** Messages the bot (or staff) sent them. */
-  replies: number;
+  /** Messages the bot (or staff) sent them; null for a shop on the yarnOga line, whose replies share that number. */
+  replies: number | null;
   code: PartnerCode | null;
 }
 
@@ -54,7 +54,7 @@ export function renderReport(p: Partner, r: PartnerReport | "error", today: stri
 ${tile("Tickets sold", n(sold))}
 ${tile("Guests let in", n(inside), sold ? `${Math.round((inside / sold) * 100)}% of tickets` : "")}
 ${tile("Ticket money", formatNaira(r.ticketMoneyKobo), "paid orders with tickets", r.ticketMoneyKobo ? "glow" : "")}
-${tile("People who chatted", n(r.people), `${n(r.replies)} replies sent`)}
+${tile("People who chatted", n(r.people), r.replies == null ? "sent its keyword on the yarnOga line" : `${n(r.replies)} replies sent`)}
 </div></section>
 <section><h2>Tickets</h2>
 <table class="plans wide"><thead><tr><th>Ticket</th><th>Sold</th><th>Let in</th><th>Turned up</th></tr></thead><tbody>${
@@ -97,7 +97,7 @@ export function createSupabaseReportSource(db: SupabaseClient, mainPhoneNumberId
       }
 
       let people = 0;
-      let replies = 0;
+      let replies: number | null = 0;
       const numberId = (shop?.phone_number_id as string | null) ?? mainPhoneNumberId;
       // The main number's chats are everyone's, so they only count for a shop with its own number.
       if (numberId && shop?.phone_number_id) {
@@ -116,6 +116,11 @@ export function createSupabaseReportSource(db: SupabaseClient, mainPhoneNumberId
           .eq("direction", "outbound");
         if (outError) throw new Error(`report replies failed: ${outError.message}`);
         replies = count ?? 0;
+      } else if (shop?.line_keyword) {
+        const { count, error: guestError } = await db.from("quote_line_guests").select("wa_id", { count: "exact", head: true }).eq("business_id", p.businessId);
+        if (guestError) throw new Error(`report line chats failed: ${guestError.message}`);
+        people = count ?? 0;
+        replies = null;
       }
       return { shopName: (shop?.name as string | null) ?? null, tickets, ticketMoneyKobo, people, replies, code };
     },

@@ -7,6 +7,7 @@ import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
 import { ownerNumber, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
 import { renderReport, type ReportSource } from "./partner-report.js";
+import { parseOrganiserForm, renderOrganiserLink } from "./partner-organisers.js";
 import { parseTicketForm } from "./partner-tickets.js";
 import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
@@ -356,8 +357,8 @@ export function createDashboard(deps: DashboardDeps) {
     if (!p.businessId) return { problem: "Link their shop first." };
     const shop = parseShopForm(form, await deps.partnerPackages!.plans());
     if ("problem" in shop) return shop;
-    await deps.partnerPackages!.saveShop(p, shop);
-    return { saved: "Shop saved. The bot picks it up within a minute." };
+    const problem = await deps.partnerPackages!.saveShop(p, shop);
+    return problem ? { problem } : { saved: "Shop saved. The bot picks it up within a minute." };
   });
   const ticketsOf = (p: Partner) => {
     const admin = deps.partnerPackages!.tickets(p);
@@ -390,6 +391,23 @@ export function createDashboard(deps: DashboardDeps) {
     if (reminder.on && !p.eventDate) return { problem: "Set the event day on the lead (Edit) first." };
     await deps.partnerPackages!.saveReminder(p, reminder);
     return { saved: reminder.on ? "Reminder on." : "Reminder saved, switched off." };
+  });
+
+  app.post("/partners/:id/organisers", async (c) => {
+    if (!deps.partnerPackages || !partnersAllowed(c)) return c.text("Not allowed.", 403);
+    c.header("Cache-Control", "no-store");
+    try {
+      const partner = await agreedPartner(c);
+      if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
+      const who = parseOrganiserForm(await c.req.parseBody());
+      if ("problem" in who) return c.redirect(backToPackage(partner.id, who), 303);
+      const login = await deps.partnerPackages.organiserLogin(partner, who);
+      if (!login) return c.redirect(backToPackage(partner.id, { problem: "Link their shop first, and check the owner app is switched on." }), 303);
+      return c.html(renderOrganiserLink(partner, who, login, deps.partnerPackages.doorLink(partner)));
+    } catch (err) {
+      log.error("Couldn't make an organiser login:", err);
+      return c.redirect(backToPartners("Couldn't make that login just now. If 0091_organiser_role.sql hasn't been run yet, run it, then try again."), 303);
+    }
   });
 
   app.get("/partners/:id/report", async (c) => {

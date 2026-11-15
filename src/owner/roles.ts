@@ -9,13 +9,17 @@
 //            counter sales and the price list to read. No takings, totals,
 //            cost prices, profit or settings.
 //   rider    the order board and deliveries only, to see what's going out
+//   organiser an event partner's team (added from the yarnOga dashboard's
+//            Partnerships page): chats, orders, ticket buyers, ticket money
+//            and the ticket list to read. No settings, bank details, plan,
+//            paying people, flyers, ads or bot tests.
 //
 // Each order on the board keeps its price for everyone (it's what the
 // customer was quoted and has to pay). "Money" means the business's takings:
 // paid in this month, amounts owed, column totals and what each customer has
 // spent.
 
-export const ROLES = ["owner", "manager", "cashier", "rider"] as const;
+export const ROLES = ["owner", "manager", "cashier", "rider", "organiser"] as const;
 export type Role = (typeof ROLES)[number];
 
 /** The roles an owner can give someone they add. */
@@ -38,13 +42,14 @@ const GRANTS: Record<Role, ReadonlySet<Permission>> = {
   manager: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices", "counter", "edit_prices", "tools", "pay_out"]),
   cashier: new Set<Permission>(["inbox", "take_payment", "customers", "see_prices", "counter"]),
   rider: new Set<Permission>([]),
+  organiser: new Set<Permission>(["money", "inbox", "take_payment", "customers", "see_prices"]),
 };
 
 export function can(role: Role, permission: Permission): boolean {
   return GRANTS[role].has(permission);
 }
 
-export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", cashier: "Cashier", rider: "Rider" };
+export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", cashier: "Cashier", rider: "Rider", organiser: "Event organiser" };
 
 /** One line each, for the Team section. */
 export const ROLE_HELP: Record<StaffRole, string> = {

@@ -109,7 +109,7 @@ ${
     ].join("");
 
     const roleSelect = (current: Role, label: string) =>
-      `<select name="role" aria-label="${esc(label)}">${STAFF_ROLES.map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}</select>`;
+      `<select name="role" aria-label="${esc(label)}">${[...STAFF_ROLES, ...(isStaffRole(current) || current === "owner" ? [] : [current])].map((r) => `<option value="${r}"${r === current ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}</select>`;
     const teamRows = team
       .map(
         (m) => `<tr><td>${esc(m.name ?? "")}${m.id === user.id ? ' <span class="tag">you</span>' : ""}</td><td>${esc(showWaId(m.waId))}</td>

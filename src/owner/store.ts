@@ -31,7 +31,8 @@ export interface UserStore {
   /** The owner's row, made the first time (or switched back on, as owner). */
   ensureOwner(businessId: string, waId: string): Promise<AppUser>;
   team(businessId: string): Promise<AppUser[]>;
-  addStaff(businessId: string, waId: string, name: string, role: StaffRole): Promise<AppUser>;
+  /** Adds or updates a team member; "organiser" only comes from the yarnOga dashboard (an event partner's team). */
+  addStaff(businessId: string, waId: string, name: string, role: StaffRole | "organiser"): Promise<AppUser>;
   /** Gives a staff member another role (never the owner's row). It counts from their next page. */
   setRole(businessId: string, userId: string, role: StaffRole): Promise<void>;
   /** Switches a staff member off; their logins stop working at once. */
@@ -862,7 +863,7 @@ export function paymentDetailsText(a: Pick<BankAccount, "bankName" | "accountNum
  */
 export function createSupabaseBusinessData(
   db: SupabaseClient,
-  opts: { businessId: string; businessIds: string[]; numberIds: string[]; orderPrefix: string },
+  opts: { businessId: string; businessIds: string[]; numberIds: string[]; orderPrefix: string; lineGuestsOf?: string },
 ): BusinessData {
   const id = opts.businessId;
   const numbers = (q: any) => {
@@ -1049,7 +1050,22 @@ export function createSupabaseBusinessData(
       return { count: stars.length, average: stars.length ? Math.round((total / stars.length) * 10) / 10 : null, bad: stars.filter((x) => x <= 1).length };
     },
     async chatCounts(since) {
-      const base = () => numbers(db.from("messages").select("contact_id", { count: "exact" }).gte("created_at", since.toISOString()));
+      // A shop on the yarnOga quotes line counts only the people who sent its keyword.
+      let people: string[] | undefined;
+      if (opts.lineGuestsOf) {
+        const { data, error } = await db.from("quote_line_guests").select("wa_id").eq("business_id", opts.lineGuestsOf).limit(5000);
+        if (error) throw new Error(`chatCounts guests failed: ${error.message}`);
+        const { data: contacts, error: contactError } = (data ?? []).length
+          ? await db.from("contacts").select("id").in("wa_id", (data ?? []).map((r) => r.wa_id as string))
+          : { data: [], error: null };
+        if (contactError) throw new Error(`chatCounts contacts failed: ${contactError.message}`);
+        people = (contacts ?? []).map((r) => r.id as string);
+        if (!people.length) return { customers: 0, inbound: 0, outbound: 0 };
+      }
+      const base = () => {
+        const q = numbers(db.from("messages").select("contact_id", { count: "exact" }).gte("created_at", since.toISOString()));
+        return people ? q.in("contact_id", people) : q;
+      };
       const [inbound, outbound] = await Promise.all([base().eq("direction", "inbound").limit(5000), base().eq("direction", "outbound").limit(1)]);
       if (inbound.error) throw new Error(`chatCounts failed: ${inbound.error.message}`);
       if (outbound.error) throw new Error(`chatCounts failed: ${outbound.error.message}`);
