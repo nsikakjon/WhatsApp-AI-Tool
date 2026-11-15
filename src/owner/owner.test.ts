@@ -1472,3 +1472,36 @@ describe("adding many product photos", () => {
     expect(await (await get(off, "/prices/photos", owner)).text()).toContain("Send <b>plan</b>");
   });
 });
+
+describe("event organisers after the event", () => {
+  const day = (offset: number) => new Date(Date.now() + 3_600_000 + offset * 86_400_000).toISOString().slice(0, 10);
+  const withEvent = (endsOn: string | null) =>
+    setup({}, { events: { find: async () => ({ endsOn }), reportPage: async () => "<p>TEDx report</p>" } });
+
+  it("has the whole app until the last day", async () => {
+    const s = withEvent(day(3));
+    const cookie = await login(s, "2348031234567", "organiser");
+    expect((await get(s, "/orders", cookie)).status).toBe(200);
+    expect(await (await get(s, "/", cookie)).text()).toContain("Event report");
+  });
+
+  it("then only the report, for a month", async () => {
+    const s = withEvent(day(-2));
+    const cookie = await login(s, "2348031234567", "organiser");
+    const res = await get(s, "/orders", cookie);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/home/event-report");
+    expect(await (await get(s, "/event-report", cookie)).text()).toContain("TEDx report");
+    // The owner keeps everything.
+    const owner = await login(s, OWNER);
+    expect((await get(s, "/orders", owner)).status).toBe(200);
+  });
+
+  it("and nothing after that", async () => {
+    const s = withEvent(day(-40));
+    const cookie = await login(s, "2348031234567", "organiser");
+    const res = await get(s, "/event-report", cookie);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("access has ended");
+  });
+});

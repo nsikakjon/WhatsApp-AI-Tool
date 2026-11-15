@@ -86,7 +86,7 @@ import {
 import { createWalkIn } from "./products/quote/walkin/index.js";
 import { createWalkInLinks } from "./products/quote/walkin/links.js";
 import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
-import { createEventTickets } from "./products/quote/tickets/index.js";
+import { createEventTickets, type EventTickets } from "./products/quote/tickets/index.js";
 import { createTicketLinks } from "./products/quote/tickets/links.js";
 import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
 import { createSiteReporter } from "./products/site/index.js";
@@ -136,7 +136,7 @@ import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboar
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
 import { createSupabasePartnerPackageStore } from "./dashboard/partner-package.js";
 import { createSupabaseReminderStore, sendDueReminders } from "./dashboard/partner-reminder.js";
-import { createSupabaseReportSource } from "./dashboard/partner-report.js";
+import { createSupabaseReportSource, renderReport } from "./dashboard/partner-report.js";
 import { createSupabasePartnerStore } from "./dashboard/partners.js";
 import { createSupabaseTallyStore } from "./dashboard/tally.js";
 import { createSupabaseShopCosts } from "./dashboard/costs.js";
@@ -171,6 +171,7 @@ import {
 import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
 import { newLoginToken } from "./owner/auth.js";
 import { ORGANISER_LINK_HOURS } from "./dashboard/partner-organisers.js";
+import { endLineKeywords, findPartnerEvent } from "./dashboard/partner-access.js";
 import { createSupabaseVerifications } from "./compliance/store.js";
 import { liftsLimits, unusualPayments } from "./compliance/aml.js";
 import { createScreener, type ScreeningResult } from "./compliance/sanctions.js";
@@ -299,6 +300,7 @@ const payLinkFor = (
   features?: PlanFeatures,
   dispatch?: Dispatch,
   verifiedAs?: string,
+  tickets?: Pick<EventTickets, "ticketsOnly">,
 ) => {
   const currency = accounts.currency ?? "NGN";
   const check =
@@ -307,6 +309,7 @@ const payLinkFor = (
           currency,
           standing: () => amlStanding(businessId, verifiedAs),
           paidThisMonthKobo: () => paidSince("paylink_paid_since", businessId, lagosMonthStart(new Date())),
+          ticketsOnly: tickets ? (order) => tickets.ticketsOnly(order.lines) : undefined,
         })
       : undefined;
   const naira = currency === "NGN";
@@ -748,6 +751,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
       features.features,
       dispatch,
       planId,
+      ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features),
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
@@ -1312,6 +1316,17 @@ const ownerAppDeps: OwnerAppDeps | undefined =
         tour: ownerApp.tour,
         offline: ownerApp.offline && config.quoteCounterSales,
         inbox: { store: createSupabaseInboxStore(supabase), messages: store, whatsapp },
+        events: {
+          find: (businessId) => findPartnerEvent(supabase, businessId),
+          async reportPage(businessId) {
+            const found = await findPartnerEvent(supabase, businessId);
+            const partner = found && (await createSupabasePartnerStore(supabase).list()).find((p) => p.id === found.leadId);
+            if (!partner) return null;
+            const pkg = await createSupabasePartnerPackageStore(supabase).load(partner);
+            const report = await createSupabaseReportSource(supabase, config.whatsapp.phoneNumberId).report(partner, pkg.code);
+            return renderReport(partner, report, lagosDate(new Date()), { href: "/home", label: "Back to the app" });
+          },
+        },
         health: () => runChecks(health),
         healthLabels: health.labels,
         emails: emailSettings,
@@ -2205,6 +2220,14 @@ if (config.dashboard && config.activeProduct === "quote") {
       });
     } catch (err) {
       console.error("Event reminders failed:", err);
+    }
+    // Partners whose event has ended come off the quotes line.
+    try {
+      const ended = await endLineKeywords(supabase, lagosDate(new Date()));
+      if (ended) console.info(`Switched off ${ended} ended partner keyword(s) on the quotes line.`);
+    } catch (err) {
+      // Most likely migration 0092 hasn't been run yet.
+      console.error("Ending partner keywords failed:", err);
     }
   });
 }

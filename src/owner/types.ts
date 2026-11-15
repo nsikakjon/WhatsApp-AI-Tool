@@ -35,6 +35,8 @@ export interface AppBusiness {
    * everyone's chats, so the inbox shows only people who sent its keyword.
    */
   lineGuestsOf?: string;
+  /** Set when the business is an event partner (dashboard Partnerships): the event's last day, if set. */
+  event?: { endsOn: string | null };
   features?: PlanFeatures;
   board: BoardStore;
   prices: PriceStore;
@@ -123,6 +125,16 @@ export interface OwnerAppDeps {
   /** e.g. https://app.yarnoga.com, used in links. */
   publicUrl: string;
   users: import("./store.js").UserStore;
+  /**
+   * Event partners (src/dashboard/partner-access.ts). After the event's last
+   * day, organisers see only its report, for a month, and then can't log in.
+   */
+  events?: {
+    /** The event this business is the shop for, or null. */
+    find(businessId: string): Promise<{ endsOn: string | null } | null>;
+    /** The event report as a whole page, or null. */
+    reportPage(businessId: string): Promise<string | null>;
+  };
   business(id: string): Promise<AppBusiness | null>;
   inbox?: { store: InboxStore; messages: MessageStore; whatsapp: WhatsAppClient };
   health?: () => Promise<HealthReport>;

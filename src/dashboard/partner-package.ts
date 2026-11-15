@@ -4,6 +4,7 @@ import { createSupabasePromoAdmin } from "../core/payments/promos.js";
 import { normaliseWaId } from "../owner/auth.js";
 import { cleanKeyword } from "../products/quote/shared-line.js";
 import { esc } from "./page.js";
+import { endForm } from "./partner-access.js";
 import { renderOrganisers, type Organiser, type OrganiserInput, type OrganiserLogin } from "./partner-organisers.js";
 import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
 import { reminderText } from "./partner-reminder.js";
@@ -115,6 +116,8 @@ export interface PartnerPackageStore {
   /** Their tickets and price list, once a shop is linked. */
   tickets(partner: Partner): TicketAdmin | null;
   saveReminder(partner: Partner, reminder: ReminderInput): Promise<void>;
+  /** The event's last day (migration 0092), or null for none. */
+  saveEnd(partner: Partner, endsOn: string | null): Promise<void>;
   /** A login link for one of their organisers, or null when the owner app is off or no shop is linked. */
   organiserLogin(partner: Partner, who: OrganiserInput): Promise<OrganiserLogin | null>;
   /** The door screen link, to send organisers with their login. */
@@ -286,7 +289,7 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
     pkg === "error"
       ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
       : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
-          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}` : ""
+          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}${endForm(p, today)}` : ""
         }`;
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
@@ -441,6 +444,9 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       return shop ? makeLinks.login({ id: shop.id, ownerWaId: shop.ownerWaId }, who) : null;
     },
     doorLink: (p) => (p.businessId ? makeLinks.door?.(p.businessId) : undefined),
+    async saveEnd(p, endsOn) {
+      await setLead(p.id, { ends_on: endsOn });
+    },
     async saveReminder(p, r) {
       await setLead(p.id, { reminder_on: r.on, event_time: r.eventTime });
     },

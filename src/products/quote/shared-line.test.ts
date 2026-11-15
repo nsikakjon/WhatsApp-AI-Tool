@@ -92,6 +92,18 @@ describe("partners on the yarnOga line", () => {
     expect(await t.send("hi")).toEqual({ text: "line bot" });
   });
 
+  it("lets visitors go once a shop's keyword is switched off", async () => {
+    const t = setup();
+    await t.send("tedxuniuyo");
+    const tedx = SHOPS[0]!;
+    tedx.lineKeyword = null;
+    try {
+      expect(await t.send("hi")).toEqual({ text: "line bot" });
+    } finally {
+      tedx.lineKeyword = "tedxuniuyo";
+    }
+  });
+
   it("leaves people signing up, and other numbers, alone", async () => {
     const busy = setup({ busy: true });
     expect(await busy.send("TEDXUNIUYO")).toEqual({ text: "line bot" });

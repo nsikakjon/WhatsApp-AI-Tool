@@ -74,6 +74,8 @@ export interface NavItem {
   ads?: boolean;
   /** Only when monthly payments are on for this business (QUOTE_MONTHLY_PAYMENTS). */
   monthly?: boolean;
+  /** Only for an event partner's shop. */
+  event?: boolean;
 }
 
 const GROUPS = { sell: "Selling", money: "Money", grow: "Marketing", setup: "Setup" };
@@ -87,6 +89,7 @@ export const NAV: NavItem[] = [
   { href: "/home/counter", label: "Counter sale", icon: "till", need: "counter", counter: true, group: "sell" },
   { href: "/home/customers", label: "Customers", icon: "users", need: "customers", group: "sell" },
   { href: "/home/delivery", label: "Riders & delivery", icon: "delivery", group: "sell" },
+  { href: "/home/event-report", label: "Event report", icon: "receipt", need: "money", event: true, group: "money" },
   { href: "/home/pay", label: "Pay people", icon: "wallet", need: "pay_out", payouts: true, group: "money" },
   { href: "/home/monthly", label: "Monthly payments", icon: "repeat", need: "money", monthly: true, group: "money" },
   { href: "/home/tax", label: "Tax summary", icon: "receipt", ownerOnly: true, tax: true, group: "money" },
@@ -117,6 +120,8 @@ export interface Shell {
   ads?: boolean;
   /** Monthly payments are on for this business. */
   monthly?: boolean;
+  /** It's an event partner's shop, with an event report. */
+  event?: boolean;
   /** Other businesses this person can switch to. */
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
@@ -132,7 +137,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads) && (!n.event || s.event));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const tabs = items.filter((n) => n.tab);

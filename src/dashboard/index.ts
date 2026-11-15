@@ -8,6 +8,7 @@ import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEdit
 import { ownerNumber, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
 import { renderReport, type ReportSource } from "./partner-report.js";
 import { parseOrganiserForm, renderOrganiserLink } from "./partner-organisers.js";
+import { parseEndForm, reportUntil } from "./partner-access.js";
 import { parseTicketForm } from "./partner-tickets.js";
 import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
@@ -391,6 +392,13 @@ export function createDashboard(deps: DashboardDeps) {
     if (reminder.on && !p.eventDate) return { problem: "Set the event day on the lead (Edit) first." };
     await deps.partnerPackages!.saveReminder(p, reminder);
     return { saved: reminder.on ? "Reminder on." : "Reminder saved, switched off." };
+  });
+
+  packageRoute("/partners/:id/ends", async (p, form) => {
+    const end = parseEndForm(form);
+    if ("problem" in end) return end;
+    await deps.partnerPackages!.saveEnd(p, end.endsOn);
+    return { saved: end.endsOn ? `Last day saved. Organisers keep the event report until ${reportUntil(end.endsOn)}.` : "Last day cleared." };
   });
 
   app.post("/partners/:id/organisers", async (c) => {

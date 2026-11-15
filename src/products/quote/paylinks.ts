@@ -64,12 +64,15 @@ export function payLinkLimit(opts: {
   currency: Currency;
   standing: () => Promise<{ paused: boolean; verified: boolean }>;
   paidThisMonthKobo: () => Promise<number>;
-}): (amountKobo: number) => Promise<PayLinkCheck> {
+  /** True for an order that's all event tickets: no limits, only yarnOga's pause (jay, 15 Nov 2026). */
+  ticketsOnly?: (order: SavedOrder) => Promise<boolean>;
+}): (amountKobo: number, order?: SavedOrder) => Promise<PayLinkCheck> {
   const { perPaymentKobo, perMonthKobo } = unverifiedLimits(opts.currency);
-  return async (amountKobo) => {
+  return async (amountKobo, order) => {
     const { paused, verified } = await opts.standing();
     if (paused) return "paused";
     if (verified) return "ok";
+    if (order && opts.ticketsOnly && (await opts.ticketsOnly(order))) return "ok";
     if (amountKobo > perPaymentKobo) return "limit";
     return (await opts.paidThisMonthKobo()) + amountKobo <= perMonthKobo ? "ok" : "limit";
   };
@@ -109,12 +112,12 @@ export function orderPayLinks(opts: {
   feeCap?: () => Promise<number | null>;
   /** A Shipbubble courier's fee in this order, which goes to yarnOga (to pay the courier) rather than the business. */
   courierKobo?: (order: SavedOrder) => Promise<number>;
-  /** Whether the business can take this much by pay link now (payLinkLimit); left out = always. */
-  check?: (amountKobo: number) => Promise<PayLinkCheck>;
+  /** Whether the business can take this order's amount by pay link now (payLinkLimit); left out = always. */
+  check?: (amountKobo: number, order: SavedOrder) => Promise<PayLinkCheck>;
 }): (order: SavedOrder, waId: string) => Promise<string> {
   const currency = opts.currency ?? "NGN";
   return async (order, waId) => {
-    const held = opts.check ? await opts.check(order.totalKobo) : "ok";
+    const held = opts.check ? await opts.check(order.totalKobo, order) : "ok";
     if (held !== "ok") throw new PaymentsHeld(held);
     const cap = (opts.feeCap ? await opts.feeCap() : null) ?? DEFAULT_FEE_CAP[currency];
     const courierKobo = opts.courierKobo ? await opts.courierKobo(order) : 0;

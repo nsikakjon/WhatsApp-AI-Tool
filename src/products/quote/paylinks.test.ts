@@ -162,6 +162,17 @@ describe("pay-link limits until a business is verified", () => {
     expect(await payLinkLimit({ currency: "NGN", standing: async () => ({ paused: true, verified: true }), paidThisMonthKobo: paid })(100)).toBe("paused");
   });
 
+  it("lets ticket orders through with no limit, unless yarnOga paused the business", async () => {
+    const tickets = { id: "o1", orderNumber: 1, totalKobo: 900_000_000, lines: [] };
+    const other = { ...tickets, id: "o2" };
+    const ticketsOnly = async (o: { id: string }) => o.id === "o1";
+    const check = payLinkLimit({ currency: "NGN", standing: async () => ({ paused: false, verified: false }), paidThisMonthKobo: async () => 100_000_000, ticketsOnly });
+    expect(await check(900_000_000, tickets)).toBe("ok");
+    expect(await check(900_000_000, other)).toBe("limit");
+    const paused = payLinkLimit({ currency: "NGN", standing: async () => ({ paused: true, verified: false }), paidThisMonthKobo: async () => 0, ticketsOnly });
+    expect(await paused(100, tickets)).toBe("paused");
+  });
+
   it("makes no link for an order that's held", async () => {
     const createLink = vi.fn();
     const link = orderPayLinks({ links: { createLink }, businessId: "b2", businessName: "Demo Shop", orderPrefix: "DEMO", subaccount: "ACCT_abc", check: async () => "limit" });
