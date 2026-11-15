@@ -197,6 +197,46 @@ connected (a new SIM, docs/NUMBER_QUEUE.md, or their own number through
 Connect with Facebook, docs/COEXISTENCE.md). Chats in the report count once
 their own number is live.
 
+#### Partners on the yarnOga quotes line (no SIM needed)
+
+A partner that can't get a number of its own can run its bot on our quotes
+line (0704 897 1600). In their shop panel, type a **Keyword on the yarnOga
+quotes line**, e.g. TEDXUNIUYO, and save. Then:
+
+- Anyone who sends the keyword (alone or in a short message like "Hi
+  TEDxUNIUYO") chats with that partner's bot: its FAQs, tickets, prices and
+  pay links. The **Chat link** under Links opens WhatsApp to 0704 with the
+  keyword already typed, for flyers and QR codes.
+- They stay with that bot until they send **EXIT**, another partner's
+  keyword or "sign up", or go quiet for 14 days. Everyone else gets 0704 as
+  before: the Demo Shop and sign-up. Someone part way through signing up can
+  still type the same word as a promo code.
+- Any number of partners can be on the line at once, each with its own
+  keyword. Their replies, receipts and the day-before reminder all come from
+  0704, and the chat name people see is yarnOga's.
+- The event report counts the people who sent the keyword.
+- If they later connect their own number, clear the keyword.
+
+All partners share 0704's WhatsApp limits and quality rating, so a partner
+whose visitors block or report the number affects everyone on it.
+
+#### Organiser logins
+
+**Organiser logins** in the shop panel gives each person on the partner's
+team their own login to the yarnOga app. Type their name and WhatsApp number
+and press **Make login link**. The next page shows the link once, with
+**Send on WhatsApp** (opens your WhatsApp with the message ready, door screen
+link included) and **Copy message**. The link works once, within 24 hours.
+
+They open the app as an **Event organiser**: Dashboard, Inbox, Orders,
+Customers and the price list to read, with ticket money. No Settings, bank
+details, plan, Pay people, Export, flyers, ads or bot tests. Once in, they
+can set a password under Settings, or send "app" to their bot's number for a
+new link (for a partner on the quotes line, "app" to 0704). For a partner on
+the quotes line, the Inbox shows only people who sent its keyword, from when
+they sent it. The shop owner's own number gets their usual full login. The
+owner can remove an organiser under Settings > Team.
+
 #### The reminder template
 
 WhatsApp only delivers an ordinary message to someone who messaged that number
@@ -216,6 +256,11 @@ Without it, the reminder only reaches people who messaged in the last day.
 Run `supabase/migrations/0089_partner_packages.sql` once in Supabase first
 (after 0088). Until then the panels say they couldn't load. The only Railway
 setting is the optional reminder template above.
+
+The quotes-line keyword needs `0090_shared_line.sql` (the keyword field
+appears once it's run) and organiser logins need `0091_organiser_role.sql`.
+Both need nothing in Railway beyond the quotes line (QUOTE_SIGNUP_PHONE_NUMBER_ID)
+and the owner app already being on.
 
 ## Plan editor
 
