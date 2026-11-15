@@ -32,6 +32,15 @@ describe("organiser logins", () => {
     expect(page).toContain("as an event organiser");
   });
 
+  it("can make the first login the account owner, for a shop made from the dashboard", () => {
+    expect(parseOrganiserForm({ name: "Ime", number: "08031234567", account_owner: "on" })).toEqual({ name: "Ime", waId: "2348031234567", owner: true });
+    expect(renderOrganisers(TEDX, [], true)).toContain('name="account_owner" checked');
+    expect(renderOrganisers(TEDX, [], false)).not.toContain("account_owner");
+    const page = renderOrganiserLink(TEDX, { name: "Ime", waId: "2348031234567", owner: true }, { url: "https://app.example/home/l/abc", owner: true });
+    expect(page).toContain("is the account owner");
+    expect(page).toContain(encodeURIComponent("Settings > Bank accounts"));
+  });
+
   it("takes a keyword for the quotes line, or leaves it alone before the migration", () => {
     expect(parseShopForm({ plan_code: "free", keyword: "TEDx UNIUYO" }, PLANS)).toMatchObject({ keyword: "tedxuniuyo" });
     expect(parseShopForm({ plan_code: "free", keyword: "" }, PLANS)).toMatchObject({ keyword: null });

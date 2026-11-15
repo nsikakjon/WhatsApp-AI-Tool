@@ -191,6 +191,13 @@ same page, so anyone on the team can set up what we promised them:
   replies sent, the reminder and the discount code. **Print or save as PDF**
   to send it to the partner.
 
+**No sign-up needed:** instead of linking a signed-up shop, press **Create
+their shop**. It makes a shop named after the partner on the Free plan, with no
+owner yet, and links it. Give it a keyword on the quotes line, then make their
+logins under **Organiser logins**: tick **account owner** for the one person
+who gets the full app and adds the bank account for ticket money (Settings >
+Bank accounts). Everyone else gets an organiser login.
+
 The shop is tied to the partnership by the number the owner signed up from,
 not the bot's number, so all of this can be set up before their bot number is
 connected (a new SIM, docs/NUMBER_QUEUE.md, or their own number through
