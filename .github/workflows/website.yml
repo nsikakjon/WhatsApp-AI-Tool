@@ -1,0 +1,41 @@
+# Publishes yarnoga.com: whenever a change to site/ reaches main, GitHub
+# uploads the changed files to Hostinger's public_html over FTP. Files this
+# workflow uploaded and that were later removed from site/ are deleted there
+# too; anything else on the server (WordPress, .htaccess) is left alone.
+#
+# Set in GitHub > repository > Settings > Secrets and variables > Actions >
+# Secrets: FTP_SERVER, FTP_USERNAME, FTP_PASSWORD (a Hostinger FTP account
+# whose folder is public_html). Steps in site/README.md.
+name: Website
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload to Hostinger
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./site/
+          server-dir: ./
+          exclude: |
+            README.md
