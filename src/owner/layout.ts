@@ -451,6 +451,7 @@ details.card[open]>summary:before{content:"–"}
 .console{padding:16px 18px;border-radius:var(--r);background:var(--glass);border:1px solid var(--edge);box-shadow:var(--sheen)}
 .console h3{margin:20px 0 8px;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.console h3:first-child{margin-top:0}
 .studio:has(.console.busy) .stage img{opacity:.6;transition:opacity .2s}
+.stage img.touch{touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none}#ring{position:absolute;border:3px solid var(--lime,#c6ff1f);border-radius:10px;pointer-events:none;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
 .seg{display:flex;flex-wrap:wrap;gap:6px}
 .seg label,.seg a{margin:0;font-size:.86rem;font-weight:600}.seg input{position:absolute;opacity:0;pointer-events:none}
 .seg span,.seg a{display:block;padding:7px 12px;border-radius:99px;border:1px solid var(--line2);background:var(--bg2);color:var(--text);text-decoration:none;cursor:pointer}

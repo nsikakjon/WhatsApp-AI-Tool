@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUSINESS_DESIGNS, comingYear, designMax, inSeason, HEADLINE_FONTS, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem } from "./business.js";
+import { BUSINESS_DESIGNS, comingYear, designMax, inSeason, HEADLINE_FONTS, inkOn, previewOf, renderBusinessFlyer, shrinkPhoto, type BusinessItem, type Frame } from "./business.js";
 import { placeholderPortrait } from "./render.js";
 
 const isJpeg = (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8;
@@ -34,11 +34,11 @@ describe("business flyers", () => {
       for (const font of HEADLINE_FONTS) {
         const flyer = await renderBusinessFlyer(design.id, {
           headline: "Fresh bread every morning",
-          items: [{ photo, name: "Agege bread", price: "₦1,500" }],
+          items: [{ photo, name: "Agege bread", price: "₦1,500", pos: { zoom: 2, x: 0, y: 1 } }],
           businessName: "Mama Put",
           fromWord: "from",
           accent: "#e8541e",
-          look: { font: font.id, size: 1.15, zoom: 2, photoX: 0, photoY: 1 },
+          look: { font: font.id, size: 1.15 },
         });
         expect(isJpeg(flyer)).toBe(true);
       }
@@ -53,6 +53,22 @@ describe("business flyers", () => {
     expect(comingYear(new Date("2026-12-20T00:00:00Z"))).toBe(2027);
     expect(comingYear(new Date("2027-01-03T00:00:00Z"))).toBe(2027);
   });
+
+  it("notes where each photo is drawn, so a finger on the flyer finds it", async () => {
+    const photo = await placeholderPortrait();
+    const items: BusinessItem[] = [{ photo, name: "Cake" }, { name: "No photo" }, { photo, name: "Gift box" }];
+    for (const design of BUSINESS_DESIGNS) {
+      const frames: Frame[] = [];
+      await renderBusinessFlyer(design.id, { headline: "Hello", items, businessName: "Kemi", fromWord: "from", accent: "#e8541e", frames });
+      const shown = Math.min(design.max, items.length);
+      expect(frames.map((f) => f.item)).toEqual([0, 2].filter((i) => i < shown));
+      for (const f of frames) {
+        expect(f.box[0]).toBeLessThan(f.box[2]);
+        expect(f.box[2]).toBeLessThanOrEqual(1080 + 40);
+        expect(f.iw).toBeGreaterThan(0);
+      }
+    }
+  }, 60_000);
 
   it("has one-product designs and designs for a whole list", () => {
     expect(designMax("spotlight")).toBe(1);
