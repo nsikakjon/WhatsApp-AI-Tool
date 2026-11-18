@@ -13,6 +13,7 @@ export function memoryTickets() {
     { id: "p-tee", name: "T-shirt", ticket: false },
   ];
   const variantProduct: Record<string, string> = { "v-regular": "p-regular", "v-vip": "p-vip", "v-tee": "p-tee" };
+  const stock: Record<string, number | null> = {};
   const orders = new Map<string, { orderNumber: number; contactId: string; holderName: string | null; holderWaId: string }>();
   const tickets: Array<EventTicket & { createdAt: Date }> = [];
   let next = 1;
@@ -25,6 +26,16 @@ export function memoryTickets() {
     async ticketVariants(ids) {
       return new Set(ids.filter((id) => products.find((p) => p.id === variantProduct[id])?.ticket));
     },
+    onSale: async () =>
+      Object.entries(variantProduct)
+        .filter(([, productId]) => products.find((p) => p.id === productId)?.ticket)
+        .map(([variantId, productId]) => ({
+          variantId,
+          productName: products.find((p) => p.id === productId)!.name,
+          description: null,
+          photoPath: null,
+          stock: stock[variantId] ?? null,
+        })),
     async issue(orderId, list) {
       const o = orders.get(orderId)!;
       for (const t of list) {
@@ -61,5 +72,5 @@ export function memoryTickets() {
     orders.set(id, { orderNumber, contactId, holderName: "Ada", holderWaId: "2348012345678" });
   }
 
-  return { store, products, tickets, addOrder };
+  return { store, products, tickets, addOrder, stock };
 }

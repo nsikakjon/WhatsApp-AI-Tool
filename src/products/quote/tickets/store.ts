@@ -22,6 +22,17 @@ export interface TicketProduct {
   ticket: boolean;
 }
 
+/** A ticket type on sale, for the cards customers swipe through. */
+export interface TicketOption {
+  variantId: string;
+  /** The event, e.g. "TEDxUNIUYO 28 Nov". */
+  productName: string;
+  description: string | null;
+  photoPath: string | null;
+  /** Null when stock isn't counted. */
+  stock: number | null;
+}
+
 export interface TicketCount {
   name: string;
   sold: number;
@@ -34,6 +45,8 @@ export interface TicketStore {
   setTicket(productId: string, ticket: boolean): Promise<void>;
   /** Which of these price list rows (variant ids) are tickets. */
   ticketVariants(variantIds: string[]): Promise<Set<string>>;
+  /** Every active price list row of a ticket product, sorted by name. */
+  onSale(): Promise<TicketOption[]>;
   /** Saves an order's tickets and returns them all. Running it twice for one order makes nothing new. */
   issue(orderId: string, tickets: Array<{ seat: number; name: string; code: string }>): Promise<EventTicket[]>;
   forOrder(orderId: string): Promise<EventTicket[]>;
@@ -113,6 +126,28 @@ export function createSupabaseTicketStore(db: SupabaseClient, businessId: string
         .eq("quote_products.ticket", true);
       if (error) throw fail("ticketVariants", error);
       return new Set((data ?? []).map((v) => v.id as string));
+    },
+
+    async onSale() {
+      const { data, error } = await db
+        .from("quote_variants")
+        .select("id, name, stock, quote_products!inner(name, description, photo_path, ticket, active, business_id)")
+        .eq("active", true)
+        .eq("quote_products.active", true)
+        .eq("quote_products.ticket", true)
+        .eq("quote_products.business_id", businessId);
+      if (error) throw fail("tickets on sale", error);
+      type OptionRow = { id: string; name: string; stock: number | null; quote_products: { name: string; description: string | null; photo_path: string | null } };
+      const label = (r: OptionRow) => `${r.quote_products.name}: ${r.name}`;
+      return ((data ?? []) as unknown as OptionRow[])
+        .sort((a, b) => label(a).localeCompare(label(b)))
+        .map((r) => ({
+          variantId: r.id,
+          productName: r.quote_products.name,
+          description: r.quote_products.description,
+          photoPath: r.quote_products.photo_path,
+          stock: r.stock,
+        }));
     },
 
     async issue(orderId, list) {

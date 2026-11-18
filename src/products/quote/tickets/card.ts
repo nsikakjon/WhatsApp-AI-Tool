@@ -81,3 +81,79 @@ function fit(ctx: SKRSContext2D, text: string, maxWidth: number): string {
   while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1);
   return `${cut.trimEnd()}…`;
 }
+
+export interface TicketPosterInput {
+  businessName: string;
+  /** The event, e.g. "TEDxUNIUYO 28 Nov". */
+  event: string;
+  /** The ticket type, e.g. "VIP". */
+  ticket: string;
+  /** Already formatted from the price list, e.g. "₦5,000". */
+  price: string;
+}
+
+const POSTER_WIDTH = 1200;
+const POSTER_HEIGHT = 800;
+/** WhatsApp may trim the edges of a card's picture, so everything sits well inside them. */
+const POSTER_MARGIN = 110;
+
+/** The picture on a ticket type's swipe card when its product has no photo: a ticket stub with the event, type and price. */
+export function renderTicketPoster(input: TicketPosterInput): Buffer {
+  loadFonts();
+  const canvas = createCanvas(POSTER_WIDTH, POSTER_HEIGHT);
+  const ctx = canvas.getContext("2d");
+  const inner = POSTER_WIDTH - 2 * POSTER_MARGIN;
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT);
+
+  // The notches and dashed tear line that make it read as a ticket.
+  ctx.fillStyle = PAPER;
+  for (const x of [0, POSTER_WIDTH]) {
+    ctx.beginPath();
+    ctx.arc(x, POSTER_HEIGHT * 0.68, 42, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = MUTED;
+  ctx.lineWidth = 4;
+  ctx.setLineDash([18, 14]);
+  ctx.beginPath();
+  ctx.moveTo(70, POSTER_HEIGHT * 0.68);
+  ctx.lineTo(POSTER_WIDTH - 70, POSTER_HEIGHT * 0.68);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillStyle = ACCENT;
+  ctx.font = "34px Inter SemiBold";
+  ctx.fillText(fit(ctx, input.businessName.toUpperCase(), inner), POSTER_MARGIN, 90);
+
+  ctx.fillStyle = PAPER;
+  ctx.font = "120px Inter ExtraBold";
+  ctx.fillText(fit(ctx, input.ticket, inner), POSTER_MARGIN, 160);
+  ctx.font = "46px Inter SemiBold";
+  wrap(ctx, input.event, inner)
+    .slice(0, 2)
+    .forEach((line, i) => ctx.fillText(line, POSTER_MARGIN, 310 + i * 58));
+
+  ctx.font = "64px Inter ExtraBold";
+  const price = fit(ctx, input.price, inner - 80);
+  const pill = ctx.measureText(price).width + 80;
+  ctx.fillStyle = ACCENT;
+  roundRect(ctx, POSTER_MARGIN, 600, pill, 110, 55);
+  ctx.fillStyle = INK;
+  ctx.fillText(price, POSTER_MARGIN + 40, 620);
+
+  return canvas.toBuffer("image/jpeg", 90);
+}
+
+function roundRect(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fill();
+}

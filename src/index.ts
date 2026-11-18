@@ -509,9 +509,20 @@ const walkInFor = (businessId: string, orderPrefix: string, features?: PlanFeatu
 // Event tickets, their QR codes and the door screen (QUOTE_EVENT_TICKETS).
 const ticketsConfig = config.activeProduct === "quote" ? config.quoteEventTickets : undefined;
 const ticketLinks = ticketsConfig && createTicketLinks(config.whatsapp.appSecret, ticketsConfig.publicUrl);
-const ticketsFor = (businessId: string, businessName: string, orderPrefix: string, language: Lang, features?: PlanFeatures) =>
+const ticketsFor = (businessId: string, businessName: string, orderPrefix: string, language: Lang, features?: PlanFeatures, currency?: Currency) =>
   ticketLinks
-    ? createEventTickets({ businessId, businessName, orderPrefix, language, store: createSupabaseTicketStore(supabase, businessId), links: ticketLinks, features })
+    ? createEventTickets({
+        businessId,
+        businessName,
+        orderPrefix,
+        language,
+        currency,
+        store: createSupabaseTicketStore(supabase, businessId),
+        links: ticketLinks,
+        features,
+        // Ticket cards use the product's photo when it has one (the catalogue's photos).
+        photo: createSupabaseCatalogue(supabase, businessId).photo,
+      })
     : undefined;
 
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
@@ -657,7 +668,7 @@ if (config.activeProduct === "quote" && config.quote) {
     ),
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
-    tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features),
+    tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features, config.quote.currency),
     sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
@@ -759,7 +770,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     ),
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
-    tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features),
+    tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features, business.currency),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),

@@ -314,6 +314,21 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         if (cards) return cards;
       }
 
+      // "Get your ticket" on a ticket card quotes one of it, and "tickets" shows the cards: no need for the AI.
+      if (opts.tickets) {
+        const tap = opts.tickets.tapped(msg.text, variants, lang);
+        if (tap) {
+          if (walkIn.paused) return closedReply(t);
+          const quote = await makeQuote([{ variantId: tap.variant.id, quantity: tap.variant.minQuantity }], variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone);
+          if (tap.variant.minQuantity === 1) quote.text += `\n\n${tap.more}`;
+          return quote;
+        }
+        if (opts.tickets.asksForTickets(msg.text)) {
+          const tickets = await opts.tickets.showcase(variants, lang);
+          if (tickets) return tickets;
+        }
+      }
+
       // Out of AI credits: simple menu replies instead, and the owner hears about it.
       const credit = opts.credits ? await opts.credits.spend() : { useAi: true, ownerNotice: null };
       const input = {
@@ -364,6 +379,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         case "catalogue": {
           const message = simple ? understanding.message : safeMessage(understanding.message);
           // A tap on a card's Order button names the product without a number: ask how many, don't show the card again.
+          const ticketCards = opts.tickets && (await showsOnlyTickets(understanding.show, variants)) ? await opts.tickets.showcase(variants, lang, understanding.show, message) : null;
+          if (ticketCards) {
+            reply = ticketCards;
+            break;
+          }
           const cards = opts.catalogue && !isOrderTap(msg.text, variants) ? await opts.catalogue.cards(variants, 1, understanding.show, lang) : null;
           // Cards for the products they named come with the AI's question, e.g. "How many flyers do you need?".
           if (cards && message && understanding.show?.length) {
@@ -453,6 +473,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   };
   return product;
 
+  /** Whether the products the AI picked to show (or, with none picked, the whole price list) are all tickets. */
+  async function showsOnlyTickets(show: string[] | undefined, variants: Variant[]): Promise<boolean> {
+    if (!opts.tickets) return false;
+    const shown = show?.length ? variants.filter((v) => show.includes(v.id)) : variants;
+    return opts.tickets.allTickets(shown);
+  }
+
   async function welcomeReply(msg: IncomingMessage, variants: Variant[], walkIn: WalkInMode, lang: Lang, contactId: string): Promise<Reply | null> {
     const text = msg.text!.trim();
     const t = QUOTE_TEXTS[lang];
@@ -485,6 +512,13 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     }
     const ask = welcomeAsk(text);
     if (!ask) return null;
+    // An event's own shop (every product a ticket) greets with its tickets to swipe through.
+    if ((ask === "greeting" || ask === "catalogue") && opts.tickets && (await opts.tickets.allTickets(variants))) {
+      const firstName = msg.contactName?.trim().split(/\s+/)[0];
+      const hello = lang === "fr" ? `Bonjour${firstName ? ` ${firstName}` : ""} ! Bienvenue chez ${opts.businessName}.` : `Hi${firstName ? ` ${firstName}` : ""}! Welcome to ${opts.businessName}.`;
+      const tickets = await opts.tickets.showcase(variants, lang, undefined, ask === "greeting" ? hello : null);
+      if (tickets) return tickets;
+    }
     if (ask === "catalogue" && opts.catalogue) {
       const cards = await opts.catalogue.cards(variants, 1, undefined, lang);
       if (cards) return cards;

@@ -1185,7 +1185,7 @@ describe("quote product with walk-in orders", () => {
 });
 
 describe("quote product with event tickets", () => {
-  function ticketBot() {
+  function ticketBot(ticketsOnly = false) {
     const mem = memoryOrders();
     const tix = memoryTickets();
     const deliveryAsked: string[] = [];
@@ -1200,7 +1200,9 @@ describe("quote product with event tickets", () => {
     } as unknown as Dispatch;
     const catalog: Variant[] = [
       { id: "v-vip", name: "Element House: VIP", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 5_000_000 }] },
-      { id: "v-tee", name: "T-shirt", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_000_000 }] },
+      ticketsOnly
+        ? { id: "v-regular", name: "Element House: Regular", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_000_000 }] }
+        : { id: "v-tee", name: "T-shirt", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 1_000_000 }] },
     ];
     let wanted = [{ variantId: "v-vip", quantity: 2 }];
     const product = createQuoteProduct({
@@ -1221,11 +1223,28 @@ describe("quote product with event tickets", () => {
         store: tix.store,
         links: ticketLinks,
         draw: () => Buffer.from([0xff, 0xd8]),
+        drawPoster: () => Buffer.from([0xff, 0xd8]),
       }),
       log: { error() {} },
     });
     return { product, tix, deliveryAsked, want: (w: typeof wanted) => (wanted = w) };
   }
+
+  it("greets visitors to an event's own shop with its tickets to swipe through", async () => {
+    const { product } = ticketBot(true);
+    const reply = await product.handle({ ...text("hi"), contactName: "Ada Obi" }, ctx);
+    expect(reply?.carousel?.body).toContain("Hi Ada! Welcome to Element House.");
+    expect(reply?.carousel?.cards.map((c) => c.button.title)).toEqual(["Get your ticket", "Get your ticket"]);
+  });
+
+  it("shows the tickets when asked and quotes one when Get your ticket is tapped", async () => {
+    const { product } = ticketBot();
+    const shown = await product.handle(text("Buy tickets"), ctx);
+    expect(shown?.cards?.[0]?.body).toBe("*Element House: VIP*\n₦50,000");
+    const quote = await product.handle(text(shown!.cards![0]!.buttons[0]!.id), ctx);
+    expect(quote?.text).toContain("1 x Element House: VIP @ ₦50,000 = ₦50,000");
+    expect(quote?.text).toContain("Coming with friends? Tell me how many tickets");
+  });
 
   it("skips delivery for a tickets-only order and sends the tickets once paid", async () => {
     const { product, tix, deliveryAsked } = ticketBot();
