@@ -169,7 +169,10 @@ import {
   createSupabaseAdOrders,
   createSupabaseUsers,
 } from "./owner/store.js";
-import { copyOwnerNotices, withAlertCopies, withAppLogin } from "./owner/whatsapp.js";
+import { copyOwnerNotices, withAlertCopies, withAppLogin, type LoginBusiness } from "./owner/whatsapp.js";
+import { withAdvisor } from "./owner/advisor/whatsapp.js";
+import { createSupabaseAdvisorStore } from "./owner/advisor/store.js";
+import { createClaudeAdviceWriter } from "./owner/advisor/writer.js";
 import { newLoginToken } from "./owner/auth.js";
 import { ORGANISER_LINK_HOURS } from "./dashboard/partner-organisers.js";
 import { endLineKeywords, findPartnerEvent } from "./dashboard/partner-access.js";
@@ -882,25 +885,26 @@ if (chatSignup && quoteBusinesses) {
 const appUsers = ownerApp ? createSupabaseUsers(supabase) : undefined;
 if (ownerApp && appUsers) {
   const businesses = createSupabaseBusinesses(supabase);
-  product = withAppLogin(product, {
-    users: appUsers,
-    publicUrl: ownerApp.publicUrl,
-    async businessFor(numberId, from) {
-      if (!numberId || numberId === config.whatsapp.phoneNumberId) {
-        return config.quote ? { id: DEFAULT_BUSINESS_ID, ownerWaId: config.quote.ownerWaId ?? null } : null;
-      }
-      if (!quoteBusinesses) return null;
-      // On the quotes line, a partner's owner or organiser gets their own shop's app.
-      if (numberId === chatSignup?.phoneNumberId) {
-        const teams = new Set((await appUsers.byWaId(from)).map((u) => u.businessId));
-        const shop = (await businesses.list()).find((b) => b.lineKeyword && !b.phoneNumberId && (b.ownerWaId === from || teams.has(b.id)));
-        if (shop) return { id: shop.id, ownerWaId: shop.ownerWaId };
-      }
-      const b = await businesses.findByPhoneNumberId(numberId);
-      // A switched-off business can still log in, to set up before going live.
-      return b ? { id: b.id, ownerWaId: b.ownerWaId } : null;
-    },
-  });
+  const businessFor = async (numberId: string | undefined, from: string): Promise<LoginBusiness | null> => {
+    if (!numberId || numberId === config.whatsapp.phoneNumberId) {
+      return config.quote ? { id: DEFAULT_BUSINESS_ID, ownerWaId: config.quote.ownerWaId ?? null } : null;
+    }
+    if (!quoteBusinesses) return null;
+    // On the quotes line, a partner's owner or organiser gets their own shop's app.
+    if (numberId === chatSignup?.phoneNumberId) {
+      const teams = new Set((await appUsers.byWaId(from)).map((u) => u.businessId));
+      const shop = (await businesses.list()).find((b) => b.lineKeyword && !b.phoneNumberId && (b.ownerWaId === from || teams.has(b.id)));
+      if (shop) return { id: shop.id, ownerWaId: shop.ownerWaId };
+    }
+    const b = await businesses.findByPhoneNumberId(numberId);
+    // A switched-off business can still log in, to set up before going live.
+    return b ? { id: b.id, ownerWaId: b.ownerWaId } : null;
+  };
+  product = withAppLogin(product, { users: appUsers, publicUrl: ownerApp.publicUrl, businessFor });
+  // The owner's "advice" command: the business advisor's questions on WhatsApp.
+  if (config.quoteBusinessAdvisor) {
+    product = withAdvisor(product, { businessFor, business: async (id) => (ownerAppDeps ? ownerAppDeps.business(id) : null) });
+  }
 }
 
 // The site reporter answers its own WhatsApp number (SITE_PHONE_NUMBER_ID).
@@ -1395,6 +1399,19 @@ const ownerAppDeps: OwnerAppDeps | undefined =
             photos: config.quoteCatalogue ? createSupabaseCatalogue(supabase, id) : undefined,
             counter: config.quoteCounterSales ? createSupabaseCounter(supabase, id, ids, { offline: Boolean(ownerApp?.offline) }) : undefined,
             tax: config.quoteTaxSummary ? createSupabaseTaxSales(supabase, ids, { counter: config.quoteCounterSales }) : undefined,
+            advisor: config.quoteBusinessAdvisor
+              ? {
+                  store: createSupabaseAdvisorStore(supabase, id, ids),
+                  writer: (() => {
+                    const model = main ? config.quote!.model : quoteBusinesses!.model;
+                    return createClaudeAdviceWriter({
+                      apiKey: main ? config.quote!.anthropicApiKey : quoteBusinesses!.anthropicApiKey,
+                      model,
+                      onUsage: countAi(numberId, model) || undefined,
+                    });
+                  })(),
+                }
+              : undefined,
             // The quotes line's ad leads are yarnOga's, not a line shop's.
             ads: adLeadReader && !lineGuestsOf ? { leads: (now) => adLeadReader.leads(allNumberIds, now), orders: createSupabaseAdOrders(supabase, ids) } : undefined,
             barcodes: config.quoteBarcodes,

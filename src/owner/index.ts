@@ -24,6 +24,7 @@ import { registerPay } from "./sections/pay.js";
 import { registerSettings } from "./sections/settings.js";
 import { registerTax } from "./sections/tax.js";
 import { registerAds } from "./sections/ads.js";
+import { registerAdvisor } from "./sections/advisor.js";
 import { registerFlyers } from "./sections/flyers.js";
 import { registerTools } from "./sections/tools.js";
 import { registerVerify } from "./sections/verify.js";
@@ -340,6 +341,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
             ads: Boolean(c.get("biz").ads),
             monthly: Boolean(c.get("biz").monthly),
             event: Boolean(c.get("biz").event),
+            advisor: Boolean(c.get("biz").advisor),
             others: c.get("others"),
             flash,
             tour: deps.tour && active === "/home" ? { userId: user.id, start: c.req.query("tour") === "1" } : undefined,
@@ -385,6 +387,7 @@ export function createOwnerApp(deps: OwnerAppDeps) {
   registerFlyers(app, ctx);
   registerTax(app, ctx);
   registerAds(app, ctx);
+  registerAdvisor(app, ctx);
   registerVerify(app, ctx);
   registerSettings(app, ctx);
 

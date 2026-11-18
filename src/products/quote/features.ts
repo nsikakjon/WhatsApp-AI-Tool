@@ -65,7 +65,9 @@ export type PlanFeature =
   | "monthly_payments"
   | "ad_leads"
   /** Business flyers in the owner app: how many a month (migration 0082, flyer-packs.ts). */
-  | "business_flyers";
+  | "business_flyers"
+  /** The business advisor's written answers a month, Pro and up (migration 0093, owner/advisor/). */
+  | "business_advisor";
 
 export interface FeatureRow {
   included: boolean;

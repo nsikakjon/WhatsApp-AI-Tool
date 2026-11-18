@@ -104,6 +104,8 @@ export interface AppBusiness {
   };
   /** Monthly sales for VAT and the presumptive tax (QUOTE_TAX_SUMMARY); without it the page is hidden. */
   tax?: TaxSalesStore;
+  /** The business advisor (QUOTE_BUSINESS_ADVISOR, Pro and above): questions answered from the shop's own figures. */
+  advisor?: import("./advisor/index.js").Advisor;
   /** Monthly payments from regular customers (QUOTE_MONTHLY_PAYMENTS, naira, needs a Paystack subaccount). */
   monthly?: import("../products/quote/monthly.js").Monthly;
   /** Whether the owner can add staff and change their roles; false when the plan doesn't include it (plan-locks.ts). */

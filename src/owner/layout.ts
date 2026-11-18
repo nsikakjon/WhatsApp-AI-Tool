@@ -41,6 +41,7 @@ const ICONS: Record<string, string> = {
   megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1Z"/><path d="M17 8.5a5 5 0 0 1 0 7M7 15l1.5 5h2.5l-1-4.5"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z"/>',
   whatsapp: '<path d="M3 21l1.6-4.8A8.5 8.5 0 1 1 8 19.6Z"/><path d="M9 9.5c.3 2 2.5 4.2 4.5 4.5l1-1.3 2 .9c-.2 1.1-1.2 1.9-2.3 1.9-3.3 0-6.3-3-6.3-6.3 0-1.1.8-2.1 1.9-2.3l.9 2Z"/>',
 };
 
@@ -76,6 +77,8 @@ export interface NavItem {
   monthly?: boolean;
   /** Only for an event partner's shop. */
   event?: boolean;
+  /** Only when the business advisor is on and on the plan (QUOTE_BUSINESS_ADVISOR). */
+  advisor?: boolean;
 }
 
 const GROUPS = { sell: "Selling", money: "Money", grow: "Marketing", setup: "Setup" };
@@ -97,6 +100,7 @@ export const NAV: NavItem[] = [
   { href: "/home/posters", label: "QR posters", icon: "posters", need: "tools", group: "grow" },
   { href: "/home/flyers", label: "Flyers", icon: "flyer", need: "tools", group: "grow" },
   { href: "/home/ads", label: "Ads", icon: "megaphone", ownerOnly: true, ads: true, group: "grow" },
+  { href: "/home/advisor", label: "Business advisor", icon: "bulb", ownerOnly: true, advisor: true, group: "grow" },
   { href: "/home/test", label: "Test your bot", icon: "test", need: "tools", group: "setup" },
   { href: "/home/verify", label: "Verify business", icon: "shield", ownerOnly: true, group: "setup" },
   { href: "/home/settings", label: "Settings", icon: "settings", ownerOnly: true, group: "setup" },
@@ -122,6 +126,8 @@ export interface Shell {
   monthly?: boolean;
   /** It's an event partner's shop, with an event report. */
   event?: boolean;
+  /** The business advisor is on for this business. */
+  advisor?: boolean;
   /** Other businesses this person can switch to. */
   others?: Array<{ userId: string; name: string }>;
   /** A green or red note at the top, e.g. "Saved." */
@@ -137,7 +143,7 @@ export function initials(name: string): string {
 }
 
 export function page(s: Shell, body: string): string {
-  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads) && (!n.event || s.event));
+  const items = NAV.filter((n) => (!n.ownerOnly || s.role === "owner") && (!n.need || can(s.role, n.need)) && (!n.counter || s.counter) && (!n.payouts || s.payouts) && (!n.monthly || s.monthly) && (!n.tax || s.tax) && (!n.ads || s.ads) && (!n.event || s.event) && (!n.advisor || s.advisor));
   const link = (n: NavItem) =>
     `<a href="${n.href}"${n.href === s.active ? ' class="on" aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label}</span></a>`;
   const tabs = items.filter((n) => n.tab);
