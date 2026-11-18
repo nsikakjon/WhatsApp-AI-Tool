@@ -179,6 +179,8 @@ export interface Config {
   quotePayouts: boolean;
   /** Monthly sales totals for VAT and the presumptive tax in the owner app. Off unless QUOTE_TAX_SUMMARY is true. */
   quoteTaxSummary: boolean;
+  /** The business advisor in the owner app and the owner's "advice" command (migration 0093). Off unless QUOTE_BUSINESS_ADVISOR is true. */
+  quoteBusinessAdvisor: boolean;
   /**
    * Monthly payments from a business's regular customers (migration 0069).
    * Only set when QUOTE_MONTHLY_PAYMENTS is true. `template` is an approved
@@ -587,6 +589,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     quoteBarcodes: /^(true|yes|on|1)$/i.test(env.QUOTE_COUNTER_SALES ?? "") && /^(true|yes|on|1)$/i.test(env.QUOTE_BARCODES ?? ""),
     quotePayouts: /^(true|yes|on|1)$/i.test(env.QUOTE_PAYOUTS ?? ""),
     quoteTaxSummary: /^(true|yes|on|1)$/i.test(env.QUOTE_TAX_SUMMARY ?? ""),
+    quoteBusinessAdvisor: /^(true|yes|on|1)$/i.test(env.QUOTE_BUSINESS_ADVISOR ?? ""),
     quoteMonthly: /^(true|yes|on|1)$/i.test(env.QUOTE_MONTHLY_PAYMENTS ?? "")
       ? {
           template: env.QUOTE_MONTHLY_TEMPLATE_NAME
