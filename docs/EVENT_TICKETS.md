@@ -8,7 +8,13 @@ classes and anything with a guest list.
 ## What the customer sees
 
 1. They message the business ("2 VIP tickets for Saturday") and get a quote
-   from the price list, then reply YES.
+   from the price list, then reply YES. Or they send **tickets** (or "buy
+   tickets", "how much are your tickets?") and get one message they swipe
+   through sideways: a card for each ticket type with its picture, its price
+   from the price list and a **Get your ticket** button. A tap quotes one of
+   that ticket, and they can say how many they want instead. A shop that only
+   sells tickets (an event's own shop, like a partner's on the shared line)
+   shows these cards straight away when someone says hi.
 2. A tickets-only order doesn't ask about delivery. They pay with the pay
    link (or the business's bank details).
 3. Once paid, they get one picture per ticket: the event, the ticket type, a
@@ -22,6 +28,12 @@ classes and anything with a guest list.
    type, with the event in the name: `Element House 15 Nov: Regular` ₦10,000,
    `Element House 15 Nov: VIP` ₦50,000. Prices always come from the price
    list, never from the AI.
+   Write a line about the event in the product's description: it goes above
+   the cards. Send a photo captioned **photo Element House 15 Nov: VIP** (or
+   add it in the owner app) to put it on that ticket's card; a ticket type
+   without a photo gets a drawn ticket with its name and price. Sold-out
+   tickets are left off the cards, and a ticket with 20 or fewer left says
+   "Only 4 left!".
 2. Send **tickets** to the bot. It lists your products with numbers. Send
    **ticket 3 on** for each ticket type (**ticket 3 off** to stop selling it
    as a ticket; tickets already sold still get in).
