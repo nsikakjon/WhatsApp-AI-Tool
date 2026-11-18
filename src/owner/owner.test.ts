@@ -1535,3 +1535,30 @@ describe("event organisers after the event", () => {
     expect(await res.text()).toContain("access has ended");
   });
 });
+
+describe("business advisor page", () => {
+  const advisor = {
+    store: { orders: async () => [], recent: async () => null, written: async () => 0, save: async () => {} },
+    writer: { write: async () => "Add your first prices, then share your shop link." },
+  };
+
+  it("is for the owner only, and answers a question with figures and advice", async () => {
+    const s = setup({ advisor, language: "en", currency: "NGN" });
+    const owner = await login(s, OWNER);
+    const page = await (await get(s, "/advisor", owner)).text();
+    expect(page).toContain("Who stopped buying?");
+    const res = await s.app.request(`https://${HOST}/advisor`, post({ q: "shop" }, owner));
+    const html = await res.text();
+    expect(html).toContain("• Money in: ₦0 (₦0)");
+    expect(html).toContain("Add your first prices, then share your shop link.");
+    const staff = await login(s, STAFF, "manager");
+    expect(await (await get(s, "/advisor", staff)).text()).toContain("Only the business owner");
+  });
+
+  it("is hidden when the advisor is off", async () => {
+    const s = setup();
+    const owner = await login(s, OWNER);
+    expect((await get(s, "/advisor", owner)).headers.get("location")).toBe("/home");
+    expect(await (await get(s, "/", owner)).text()).not.toContain("Business advisor");
+  });
+});
