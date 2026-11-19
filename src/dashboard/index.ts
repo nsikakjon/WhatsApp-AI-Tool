@@ -13,6 +13,7 @@ import { parseEndForm, reportUntil } from "./partner-access.js";
 import { parseTicketForm } from "./partner-tickets.js";
 import { chasedAgain, PARTNER_VIEWS, parsePartnerForm, pickPackage, renderPartners, summarisePartners, type PackagePicker, type Partner, type PartnerStore, type PartnerView } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
+import { parseBalanceForm, summariseBalance, type BalanceStore } from "./balance.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
 import { parseProgress, parseVisitForm, pickDay, renderTally, summariseTally, TALLY_VIEWS, type TallyStore } from "./tally.js";
@@ -20,8 +21,8 @@ import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
 // The owner's analytics page at /dashboard. Sign in on /dashboard/login with
-// DASHBOARD_PASSWORD (login.ts). It only reads from the database,
-// except for the profit and loss entries the owner adds, edits or removes.
+// DASHBOARD_PASSWORD (login.ts). It only reads from the database, except for
+// the profit and loss entries and balance sheet lines the owner types in.
 
 export interface DashboardDeps {
   password: string;
@@ -33,6 +34,8 @@ export interface DashboardDeps {
   analytics?: AnalyticsSource;
   /** Money in and out, for the profit and loss section. */
   money?: MoneyStore;
+  /** What yarnOga owns and owes, for the balance sheet. */
+  balance?: BalanceStore;
   /** What each shop costs us against what it pays (SHOP_COSTS). */
   costs?: ShopCostSource;
   /** Leads from WhatsApp ads on every number (AD_LEADS). */
@@ -66,7 +69,7 @@ export function createDashboard(deps: DashboardDeps) {
     c.header("Cache-Control", "no-store");
     try {
       const now = deps.now?.() ?? new Date();
-      const [stats, socials, website, analytics, money, costs, ads] = await Promise.all([
+      const [stats, socials, website, analytics, money, costs, ads, balance] = await Promise.all([
         deps.stats.load(now),
         deps.socials?.load(now) ?? [],
         // A website problem (say, the table isn't created yet) mustn't hide everything else.
@@ -87,6 +90,19 @@ export function createDashboard(deps: DashboardDeps) {
           log.error("Ad leads failed to load:", err);
           return "error" as const;
         }),
+        deps.balance &&
+          Promise.all([
+            deps.balance.list(),
+            deps.balance.heldForShops().catch((err) => {
+              log.error("Shops' payout balances failed to load:", err);
+              return "error" as const;
+            }),
+          ])
+            .then(([items, held]) => summariseBalance(items, held))
+            .catch((err) => {
+              log.error("Balance sheet failed to load:", err);
+              return "error" as const;
+            }),
       ]);
       const problem = c.req.query("problem")?.slice(0, 200);
       const editId = Number(c.req.query("edit")) || undefined;
@@ -99,6 +115,7 @@ export function createDashboard(deps: DashboardDeps) {
           website,
           analytics,
           profit: money && { pnl: money, now, problem, editId },
+          balance: balance && { sheet: balance, now, problem, editId },
           costs,
           ads,
           planEditor: Boolean(deps.plans),
@@ -164,6 +181,53 @@ export function createDashboard(deps: DashboardDeps) {
       return c.redirect(backToMoney("Couldn't remove that just now. Please try again."), 303);
     }
     return c.redirect(backToMoney(), 303);
+  });
+
+  // Adding, editing and removing balance sheet lines, from the dashboard only.
+  const backToBalance = (problem?: string, editId?: number) =>
+    `/dashboard?tab=money&show=balance${editId ? `&edit=${editId}` : ""}${problem ? `&problem=${encodeURIComponent(problem)}` : ""}#${editId ? "edit" : "balance"}`;
+  const balanceAllowed = (c: Context) =>
+    Boolean(deps.balance) && fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"));
+
+  app.post("/balance", async (c) => {
+    if (!balanceAllowed(c)) return c.text("Not allowed.", 403);
+    const item = parseBalanceForm(await c.req.parseBody());
+    if ("problem" in item) return c.redirect(backToBalance(item.problem), 303);
+    try {
+      await deps.balance!.add(item);
+    } catch (err) {
+      log.error("Couldn't save a balance sheet line:", err);
+      return c.redirect(backToBalance("Couldn't save that just now. If 0095_balance_sheet.sql hasn't been run yet, run it, then try again."), 303);
+    }
+    return c.redirect(backToBalance(), 303);
+  });
+
+  app.post("/balance/:id", async (c) => {
+    if (!balanceAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToBalance(), 303);
+    const item = parseBalanceForm(await c.req.parseBody());
+    if ("problem" in item) return c.redirect(backToBalance(item.problem, id), 303);
+    try {
+      await deps.balance!.update(id, item);
+    } catch (err) {
+      log.error("Couldn't change a balance sheet line:", err);
+      return c.redirect(backToBalance("Couldn't save that change just now. Please try again.", id), 303);
+    }
+    return c.redirect(backToBalance(), 303);
+  });
+
+  app.post("/balance/:id/delete", async (c) => {
+    if (!balanceAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    if (!Number.isSafeInteger(id) || id <= 0) return c.redirect(backToBalance(), 303);
+    try {
+      await deps.balance!.remove(id);
+    } catch (err) {
+      log.error("Couldn't remove a balance sheet line:", err);
+      return c.redirect(backToBalance("Couldn't remove that just now. Please try again."), 303);
+    }
+    return c.redirect(backToBalance(), 303);
   });
 
   // The door-to-door tally sheet: add a shop, update its ticks, remove it.

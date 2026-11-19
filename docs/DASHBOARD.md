@@ -29,7 +29,7 @@ sheet, plan editor, numbers to connect) next to them:
 
 - **Overview**: the headline numbers (tap one to open its tab), a **Needs a
   look** list (shops losing money, sections that couldn't load) and the tools.
-- **Money**: profit and loss, spending against the plan, and the cost to serve each shop.
+- **Money**: profit and loss, spending against the plan, the balance sheet, and the cost to serve each shop.
 - **Marketing**: leads from ads, website visitors and socials.
 - **Products**: WhatsApp, flyers, sales assistant, site reporter and leads.
 
@@ -42,6 +42,7 @@ scroll. A link to one part looks like `/dashboard?tab=money&show=costs`.
 | --- | --- |
 | Profit and loss | income, costs and profit or loss per month and in total, costs and income by category, every entry |
 | Against the plan | each month's ads, running costs, income and profit or loss next to the Base case of the 28 Oct projection |
+| Balance sheet | what yarnOga owns, what it owes (including shops' payout balances) and what's left over, with what you've put in |
 | WhatsApp, all numbers | people who have messaged, messages in and out, voice notes, a 30-day chart, and messages each number sent this month with how many are past Meta's free 1,000 (needs migration 0043) |
 | yarnOga Flyers | groups, members, birthday flyers sent, groups per plan, what paid plans are worth per month at list price |
 | Sales assistant (KahnPrints) | paid sales (orders marked paid), confirmed orders awaiting payment, quotes |
@@ -55,8 +56,8 @@ scroll. A link to one part looks like `/dashboard?tab=money&show=costs`.
 not money received: flyer payments aren't recorded in the database yet.
 
 Nothing on the page is estimated, except the shop costs below. Every other number is a count or sum of real rows.
-The dashboard only reads, except for the profit and loss entries you add,
-edit or remove yourself.
+The dashboard only reads, except for the profit and loss entries and
+balance sheet lines you add, edit or remove yourself.
 
 ## Profit and loss
 
@@ -89,6 +90,35 @@ spent and received next to the Base case of the projection spreadsheet
 that spends more than the plan shows on the Overview under "Needs a look".
 The planned figures live in `src/dashboard/projection.ts`: when the
 spreadsheet is rebuilt, those rows are replaced to match.
+
+## Balance sheet
+
+Money > **Balance sheet** shows, on one page:
+
+- **What we own**: cash and bank (Moniepoint, the Paystack and Flutterwave
+  balances, the Shipbubble wallet), money someone owes us, and anything else
+  of value.
+- **What we owe**: bills not yet paid, loans, and the shops' payout balances.
+  Those are the money shops added to pay their riders and staff and haven't
+  sent yet. They come straight from the app and sit in yarnOga's Paystack
+  balance, so the Paystack line should be at least that much.
+- **Left over for you** (equity): what we own minus what we owe. It is split
+  into what you've put in, the profit or loss so far (from Profit and loss) and
+  lines that aren't in Profit and loss yet (bills, money owed to us). "Put in
+  by you" is worked out, not typed: the cash we hold for ourselves, less
+  loans, plus everything lost so far.
+
+The app can't see bank or payment balances, so you type them in with **Add a
+line**, choosing where it goes, and press **Edit** to change the amount
+whenever you check it. Each line shows the day it was checked; one older than
+30 days is marked "worth checking again". A bill goes here while it is unpaid;
+once it is paid, remove it here and add it under Profit and loss as a cost,
+so it is never counted twice.
+
+To switch it on, once: Supabase > **SQL Editor** > **New query** > paste all of
+`supabase/migrations/0095_balance_sheet.sql` > **Run**. Until it's run, the
+part says it couldn't read the balance sheet and the rest of the dashboard
+works as normal.
 
 ## Cost to serve each shop
 

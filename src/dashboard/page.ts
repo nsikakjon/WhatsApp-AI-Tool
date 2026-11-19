@@ -4,7 +4,8 @@ import { AD_REPORT_DAYS } from "../core/ads.js";
 import type { AdsReport } from "./ads.js";
 import type { AnalyticsResult } from "./analytics.js";
 import { META_FREE_MESSAGES, type ShopCost, type ShopCosts } from "./costs.js";
-import type { MoneyLine, ProfitAndLoss } from "./profit.js";
+import { DEFAULT_USD_RATE_KOBO, type MoneyLine, type ProfitAndLoss } from "./profit.js";
+import { BALANCE_GROUPS, type BalanceItem, type BalanceSheet } from "./balance.js";
 import { compareWithPlan, MARKETING_CATEGORY, PLAN_START, type Figures, type PlanComparison, type PlanMonth } from "./projection.js";
 import type { SocialAccount } from "./socials.js";
 import { lagosDays, type DashboardStats, type NumberUse } from "./stats.js";
@@ -413,6 +414,125 @@ ${form}`,
   );
 }
 
+export interface BalanceView {
+  sheet: BalanceSheet | "error";
+  now: Date;
+  problem?: string;
+  /** The line whose edit form is open. */
+  editId?: number;
+}
+
+/** Days after which a typed-in amount is flagged as worth checking again. */
+const BALANCE_STALE_DAYS = 30;
+
+const BALANCE_SUGGESTIONS = [
+  "Moniepoint account",
+  "Paystack balance",
+  "Flutterwave balance",
+  "Shipbubble wallet",
+  "Supabase bill",
+  "Railway bill",
+  "Hostinger bill",
+  "Claude bill",
+];
+
+function balanceFields(today: string, usdRateKobo: number, item?: BalanceItem): string {
+  const value = (text: string | null | undefined) => (text ? ` value="${esc(text)}"` : "");
+  const chosen = (yes: boolean) => (yes ? " selected" : "");
+  const kinds = (side: "owns" | "owes", label: string) =>
+    `<optgroup label="${label}">${BALANCE_GROUPS.filter((g) => g.side === side)
+      .map((g) => `<option value="${g.kind}"${chosen(item?.kind === g.kind)}>${esc(g.label)}</option>`)
+      .join("")}</optgroup>`;
+  return `<label>Goes under <select name="kind">${kinds("owns", "We own")}${kinds("owes", "We owe")}</select></label>
+<label class="wide">What <input name="item" list="balance-suggestions" required maxlength="200" placeholder="e.g. Moniepoint account"${value(item?.item)}></label>
+<label>Amount <input name="amount" inputmode="decimal" required placeholder="e.g. 45000 or 25"${value(item && typedAmount(item.amountMinor))}></label>
+<label>Currency <select name="currency"><option value="NGN">Naira (₦)</option><option value="USD"${chosen(item?.currency === "USD")}>Dollars ($)</option></select></label>
+<label>Naira per $1 <input name="rate" inputmode="decimal" value="${esc(typedAmount(item?.usdRateKobo ?? usdRateKobo))}"><span class="small">only used for dollar amounts</span></label>
+<label>Checked on <input type="date" name="as_of" value="${item?.asOf ?? today}" required></label>
+<label class="wide">Notes <input name="notes" maxlength="500"${value(item?.notes)}></label>`;
+}
+
+function balanceRow(i: BalanceItem, today: string): string {
+  const age = (Date.parse(today) - Date.parse(i.asOf)) / 86_400_000;
+  const checked = `checked ${shortDay(i.asOf)}${age > BALANCE_STALE_DAYS ? ", worth checking again" : ""}`;
+  const paid = i.currency === "USD" && i.usdRateKobo ? `${cents(i.amountMinor)} at ${formatNaira(i.usdRateKobo)}/$1` : "";
+  const details = [checked, paid, i.notes].filter(Boolean).join(" · ");
+  return `<tr><td>${esc(i.item)}<span class="small${age > BALANCE_STALE_DAYS ? " stale" : ""}">${esc(details)}</span><span class="row-actions"><a href="/dashboard?tab=money&amp;show=balance&amp;edit=${i.id}#edit">Edit</a><form method="post" action="/dashboard/balance/${i.id}/delete" onsubmit="return confirm('Remove this line?')"><button class="link" type="submit">Remove</button></form></span></td><td>${esc(formatNaira(i.amountKobo))}</td></tr>`;
+}
+
+function balanceSection(view: BalanceView | undefined, profit: ProfitView | undefined): string {
+  if (!view) return "";
+  const title = "Balance sheet";
+  const intro =
+    "What yarnOga owns, what it owes, and what's left over for you. Bank and payment balances, bills and loans are typed in by you, because the app can't see them: update a line whenever you check it. The shops' payout balances come straight from the app.";
+  if (view.sheet === "error") {
+    return section("balance", title, intro, `<p class="problem">Couldn't read the balance sheet. If 0095_balance_sheet.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`);
+  }
+  const b = view.sheet;
+  const today = lagosDays(view.now, 1)[0].date;
+  const usdRate = profit && profit.pnl !== "error" ? profit.pnl.lastUsdRateKobo : DEFAULT_USD_RATE_KOBO;
+  const problem = view.problem ? `<p class="problem" role="alert">${esc(view.problem)}</p>` : "";
+  const groupRows = (side: "owns" | "owes") =>
+    b.groups
+      .filter((g) => g.side === side && g.items.length)
+      .map((g) => `<tr class="group"><th colspan="2">${esc(g.label)}</th></tr>${g.items.map((i) => balanceRow(i, today)).join("")}`)
+      .join("");
+  const held = b.heldForShops;
+  const heldRows =
+    held === "error"
+      ? `<tr class="group"><th colspan="2">Owed to shops</th></tr><tr><td colspan="2" class="problem-cell">The shops' payout balances couldn't load, so they're left out of the total.</td></tr>`
+      : held.totalKobo
+        ? `<tr class="group"><th colspan="2">Owed to shops</th></tr><tr><td>Shops' payout balances<span class="small">${esc(
+            `${num(held.shops.length)} ${held.shops.length === 1 ? "shop" : "shops"}: money added to pay riders and staff, not sent yet. It sits in our Paystack balance, so that line should be at least this much.`,
+          )}</span>${held.shops.length > 1 ? `<details><summary>Each shop</summary><table>${held.shops.map((s) => `<tr><td>${esc(s.name)}</td><td>${esc(formatNaira(s.kobo))}</td></tr>`).join("")}</table></details>` : ""}</td><td>${esc(formatNaira(held.totalKobo))}</td></tr>`
+        : "";
+  const ownsRows = groupRows("owns");
+  const owesRows = groupRows("owes") + heldRows;
+  const sideTable = (heading: string, rows: string, totalKobo: number, empty: string) =>
+    `<table class="plans balance"><thead><tr><th>${heading}</th><th>Amount</th></tr></thead><tbody>${
+      rows || `<tr><td colspan="2">${esc(empty)}</td></tr>`
+    }<tr class="total"><td>Total</td><td>${esc(formatNaira(totalKobo))}</td></tr></tbody></table>`;
+  const pnl = profit && profit.pnl !== "error" ? profit.pnl.netKobo : null;
+  // Profit and loss counts money when it moves, so what you put in is the
+  // cash we hold for ourselves plus everything spent so far.
+  const total = (kind: string) => b.groups.find((g) => g.kind === kind)?.totalKobo ?? 0;
+  const otherKobo = total("owed_to_us") + total("owned") - total("bill") - total("owed");
+  const equityRows =
+    pnl === null
+      ? ""
+      : `<tr><td>Put in by you<span class="small">worked out: cash we hold for ourselves, less loans, plus what's been lost so far</span></td><td>${esc(signedNaira(b.equityKobo - pnl - otherKobo))}</td></tr>
+<tr><td>${pnl < 0 ? "Loss so far" : "Profit so far"}<span class="small">from Profit and loss, all time</span></td><td class="${pnl < 0 ? "expense" : "income"}">${esc(signedNaira(pnl))}</td></tr>${
+          otherKobo
+            ? `<tr><td>Not in Profit and loss yet<span class="small">money owed to us and things we own, less bills and other money we owe</span></td><td>${esc(signedNaira(otherKobo))}</td></tr>`
+            : ""
+        }`;
+  const editing = b.items.find((i) => i.id === view.editId);
+  const edit = editing
+    ? `<form id="edit" class="entry" method="post" action="/dashboard/balance/${editing.id}"><h3>Edit: ${esc(editing.item)}</h3>
+${balanceFields(today, usdRate, editing)}
+<div class="buttons"><button type="submit">Save changes</button><a href="/dashboard?tab=money&amp;show=balance">Cancel</a></div>
+</form>`
+    : "";
+  const form = `<details class="add"${(view.problem && !editing) || !b.items.length ? " open" : ""}><summary>+ Add a line</summary><form class="entry" method="post" action="/dashboard/balance">
+${balanceFields(today, usdRate)}
+<button type="submit">Save line</button>
+</form></details>`;
+  return section(
+    "balance",
+    title,
+    intro,
+    `${problem}<div class="tiles">
+${tile("We own", formatNaira(b.ownsKobo), "cash, money owed to us and other things")}
+${tile("We owe", formatNaira(b.owesKobo), "bills, loans and shops' money we hold")}
+${tile("Left over for you", signedNaira(b.equityKobo), "what we own minus what we owe (equity)", b.equityKobo < 0 ? "loss" : "glow")}
+</div>
+<div class="pair">${sideTable("What we own", ownsRows, b.ownsKobo, "Nothing added yet")}${sideTable("What we owe", owesRows, b.owesKobo, "Nothing owed")}</div>
+<table class="plans balance wide"><thead><tr><th>Left over for you (equity)</th><th>Amount</th></tr></thead><tbody>${equityRows}<tr class="total"><td>Total</td><td class="${b.equityKobo < 0 ? "expense" : "income"}">${esc(signedNaira(b.equityKobo))}</td></tr></tbody></table>
+<datalist id="balance-suggestions">${BALANCE_SUGGESTIONS.map((x) => `<option value="${esc(x)}">`).join("")}</datalist>${edit}
+${form}`,
+  );
+}
+
 function planComparison(view: ProfitView | undefined): PlanComparison | null {
   if (!view || view.pnl === "error") return null;
   return compareWithPlan(view.pnl.lines, lagosDays(view.now, 1)[0].date.slice(0, 7));
@@ -476,6 +596,7 @@ export interface DashboardView {
   website?: WebsiteStats | "error";
   analytics?: AnalyticsResult;
   profit?: ProfitView;
+  balance?: BalanceView;
   costs?: ShopCosts | "error";
   ads?: AdsReport | "error";
   planEditor?: boolean;
@@ -485,7 +606,7 @@ export interface DashboardView {
 }
 
 export function renderDashboard(s: DashboardStats, view: DashboardView = {}): string {
-  const { tab = "overview", show, socials: socialAccounts = [], website, analytics, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
+  const { tab = "overview", show, socials: socialAccounts = [], website, analytics, profit, balance, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -597,6 +718,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     ...[
       [profit?.pnl === "error", "Profit and loss couldn't load", "?tab=money&show=money"],
       [costs === "error", "Shop costs couldn't load", "?tab=money&show=costs"],
+      [balance?.sheet === "error", "Balance sheet couldn't load", "?tab=money&show=balance"],
       [ads === "error", "Leads from ads couldn't load", "?tab=marketing&show=ads"],
       [website === "error", "Website visits couldn't load", "?tab=marketing&show=website"],
       [analytics?.status === "error", "Google Analytics couldn't load", "?tab=marketing&show=analytics"],
@@ -634,6 +756,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
       [
         ["money", "Profit and loss", profitSection(profit)],
         ["plan", "Against the plan", planSection(plan)],
+        ["balance", "Balance sheet", balanceSection(balance, profit)],
         ["costs", "Cost per shop", costsSection(costs)],
       ],
     ],
@@ -713,6 +836,19 @@ details.add[open] > summary { margin-bottom:0; }
 td.actions { white-space:nowrap; }
 td.actions a { margin-right:12px; font-size:13px; }
 td.actions form { display:inline; }
+table.balance td:first-child { word-break:normal; }
+table.balance td:last-child { white-space:nowrap; text-align:right; }
+table.balance th:last-child { text-align:right; }
+table.balance tr.group th { text-align:left; padding-top:16px; color:var(--muted); background:var(--surface2); }
+table.balance tr.total td { font-weight:600; border-top:1px solid var(--line2); }
+table.balance .stale { color:var(--red); }
+table.balance .row-actions { display:block; margin-top:4px; font-size:13px; }
+table.balance .row-actions a { margin-right:12px; }
+table.balance .row-actions form { display:inline; }
+table.balance details table { max-width:none; }
+table.balance + table.balance { margin-top:12px; }
+.pair + table.balance { margin-top:12px; }
+.problem-cell { color:var(--red); }
 .entry .buttons { grid-column:1 / -1; display:flex; align-items:center; gap:18px; }`;
 
 export { pageShell };
