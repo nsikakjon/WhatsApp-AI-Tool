@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatMoney } from "../../core/money.js";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct } from "./index.js";
+import { backInStockAsk } from "./stock-alerts.js";
 import { cleanSocials, createShopLinks, createShopPage, popularProducts, shopTheme, slugify, socialLink, type ShopBusiness, type ShopProduct, type SlugStore } from "./shop.js";
 import type { OrderStore } from "./store.js";
 
@@ -38,10 +39,12 @@ const products: ShopProduct[] = [
     photoPath: `businesses/${BIZ}/products/${FLYER}`,
     morePhotos: [`businesses/${BIZ}/products/${FLYER}-1`],
     leadTimeDays: 2,
+    sale: null,
     options: [
       {
         label: "A5, double-sided",
         stock: null,
+        before: null,
         variant: {
           id: "v1",
           name: "Flyers: A5, double-sided",
@@ -52,7 +55,7 @@ const products: ShopProduct[] = [
           ],
         },
       },
-      { label: "A4", stock: 0, variant: { id: "v2", name: "Flyers: A4", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 30_000 }] } },
+      { label: "A4", stock: 0, before: null, variant: { id: "v2", name: "Flyers: A4", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 30_000 }] } },
     ],
   },
   {
@@ -63,7 +66,8 @@ const products: ShopProduct[] = [
     photoPath: null,
     morePhotos: [],
     leadTimeDays: null,
-    options: [{ label: "White", stock: 3, variant: { id: "v3", name: "Mugs <special>: White", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 450_000 }] } }],
+    sale: null,
+    options: [{ label: "White", stock: 3, before: null, variant: { id: "v3", name: "Mugs <special>: White", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 450_000 }] } }],
   },
   {
     id: "33333333-3333-3333-3333-333333333333",
@@ -73,7 +77,8 @@ const products: ShopProduct[] = [
     photoPath: null,
     morePhotos: [],
     leadTimeDays: null,
-    options: [{ label: "Roll-up", stock: 0, variant: { id: "v4", name: "Banners: Roll-up", minQuantity: 1, tiers: [] } }],
+    sale: null,
+    options: [{ label: "Roll-up", stock: 0, before: null, variant: { id: "v4", name: "Banners: Roll-up", minQuantity: 1, tiers: [] } }],
   },
 ];
 
@@ -91,6 +96,8 @@ function business(over: Partial<ShopBusiness> = {}): ShopBusiness {
     about: null,
     address: null,
     socials: {},
+    notice: null,
+    updates: false,
     ratings: async () => null,
     deliveryAreas: async () => [],
     recentOrders: async () => [],
@@ -329,7 +336,7 @@ describe("shop page", () => {
     expect(popularProducts(products, [["v1", "v2"], ["v1"], ["v2", "gone"], ["v3"]])).toEqual(new Set([FLYER]));
     const page = await (await pageApp(business({ recentOrders: async () => [["v3"], ["v3"], ["v3"]] })).request("/shop/adas-prints")).text();
     expect(page.split('<span class="badge">Popular</span>').length).toBe(2);
-    expect(page).toMatch(new RegExp(`id="p-${mugs}"[^]*?<span class="badge">Popular</span>\\s*<h3><a href="#p-${mugs}"`));
+    expect(page).toMatch(new RegExp(`id="p-${mugs}"[^]*?<span class="badge">Popular</span></div>\\s*<h3><a href="#p-${mugs}"`));
   });
 
   it("lets customers swipe a card's photos, and the best sellers as a row", async () => {
@@ -406,3 +413,55 @@ describe("shop page", () => {
     expect(page).toContain("Order on WhatsApp");
   });
 });
+
+describe("shop extras", () => {
+  const sale = { percent: 20, endsAt: new Date("2026-11-30T23:00:00Z") };
+  const onSale: ShopProduct = {
+    ...products[1]!,
+    sale,
+    options: [
+      {
+        label: "White",
+        stock: 3,
+        before: { id: "v3", name: "Mugs <special>: White", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 450_000 }] },
+        variant: { id: "v3", name: "Mugs <special>: White", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 360_000 }] },
+      },
+    ],
+  };
+
+  it("shows the owner's notice at the top, and nothing without one", async () => {
+    const page = await (await pageApp(business({ notice: "Free delivery in Lekki <this week>" })).request("/shop/adas-prints")).text();
+    expect(page).toContain('<p class="notice">Free delivery in Lekki &lt;this week&gt;</p>');
+    expect(await (await pageApp().request("/shop/adas-prints")).text()).not.toContain('class="notice"');
+  });
+
+  it("shows a sale price with the old one crossed out, and the sale's last day", async () => {
+    const page = await (await pageApp(business({ products: async () => [onSale] })).request("/shop/adas-prints")).text();
+    expect(page).toContain("20% off until 30 Nov");
+    expect(page).toContain(formatMoney(360_000));
+    expect(page).toMatch(/<s><span class="sr">Was <\/span>[^<]*₦4,500/);
+    // The running total adds up the sale price.
+    expect(page).toContain('data-tiers="[[1,360000]]"');
+  });
+
+  it("offers 'tell me when it's back' on sold-out options, with the option's ref", async () => {
+    const page = await (await pageApp().request("/shop/adas-prints")).text();
+    const ask = encodeURIComponent(backInStockAsk("en", "Flyers: A4", "v2"));
+    expect(page).toContain(`href="https://wa.me/2348011112222?text=${ask.replace(/'/g, "&#39;")}"`);
+    expect(page).toContain("Tell me when it&#39;s back");
+  });
+
+  it("lets customers share one product by its link", async () => {
+    const page = await (await pageApp().request("/shop/adas-prints")).text();
+    expect(page).toContain(encodeURIComponent(`https://yarnoga.com/s/adas-prints#p-${FLYER}`));
+    expect(page).toContain(`data-share="${FLYER}"`);
+  });
+
+  it("invites customers to join the offers list only when broadcasts are on", async () => {
+    const on = await (await pageApp(business({ updates: true })).request("/shop/adas-prints")).text();
+    expect(on).toContain("Get our offers on WhatsApp");
+    expect(on).toContain('href="https://wa.me/2348011112222?text=JOIN"');
+    expect(await (await pageApp().request("/shop/adas-prints")).text()).not.toContain("Get our offers");
+  });
+});
+

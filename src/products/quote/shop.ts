@@ -11,7 +11,9 @@ import { cleanHours, DAY_NAMES, lagosDay, nextOpenText, openState, type Day, typ
 import { priceFacts, priceText } from "./catalogue.js";
 import type { Variant } from "./pricing.js";
 import { STARS } from "./ratings.js";
+import { activeSale, saleTiers, type Sale } from "./sale.js";
 import { pickWidth, previewCard, resized } from "./shop-images.js";
+import { backInStockAsk } from "./stock-alerts.js";
 
 // Each business's public shop page (QUOTE_SHOP, migration 0059), for an
 // Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>, shared
@@ -43,6 +45,8 @@ export interface ShopOption {
   label: string;
   /** Null when stock isn't counted. */
   stock: number | null;
+  /** The price list's own prices while the product is on sale (shown crossed out); null otherwise. */
+  before: Variant | null;
 }
 
 export interface ShopProduct {
@@ -55,6 +59,8 @@ export interface ShopProduct {
   /** Up to four more photos' paths (migration 0061), for the full-screen view. */
   morePhotos: string[];
   leadTimeDays: number | null;
+  /** A running sale (migration 0094): the options' prices already have it taken off. */
+  sale: Sale | null;
   options: ShopOption[];
 }
 
@@ -115,6 +121,10 @@ export interface ShopBusiness {
   coverPath: string | null;
   /** Opening hours (migration 0054), for "Open now". */
   hours: OpeningHours | null;
+  /** The owner's one line for the top of the shop (migration 0094), e.g. "Free delivery in Lekki this week". */
+  notice: string | null;
+  /** Whether customers can sign up for the business's offers by sending JOIN (BROADCASTS_ENABLED). */
+  updates: boolean;
   /** How many customers tapped Great, OK and Not good after their orders (migration 0054). */
   ratings(): Promise<Ratings | null>;
   /** The delivery zones and their fees, when the business delivers (QUOTE_DELIVERY). */
@@ -288,6 +298,14 @@ const TEXT = {
     closedDay: "Closed",
     follow: "Follow us",
     nav: { about: "About", reviews: "Reviews", delivery: "Delivery", visit: "Visit" },
+    off: (pct: number, until: string) => `${pct}% off until ${until}`,
+    was: "Was",
+    tellMe: "Tell me when it's back",
+    shareProduct: "Share",
+    sharedProduct: (p: string, b: string) => `Have a look at ${p} from ${b}:`,
+    updates: "Get our offers on WhatsApp",
+    updatesNote: (b: string) => `New arrivals, sales and price updates from ${b}, now and then. Reply STOP any time to stop them.`,
+    join: "Send JOIN on WhatsApp",
   },
   fr: {
     notFound: "Ce lien de boutique n'est pas valide. Vérifiez que vous avez le lien en entier.",
@@ -342,6 +360,14 @@ const TEXT = {
     closedDay: "Fermé",
     follow: "Suivez-nous",
     nav: { about: "Infos", reviews: "Avis", delivery: "Livraison", visit: "Adresse" },
+    off: (pct: number, until: string) => `-${pct} % jusqu'au ${until}`,
+    was: "Avant",
+    tellMe: "Prévenez-moi quand il revient",
+    shareProduct: "Partager",
+    sharedProduct: (p: string, b: string) => `Découvrez ${p} chez ${b} :`,
+    updates: "Recevez nos offres sur WhatsApp",
+    updatesNote: (b: string) => `Nouveautés, promotions et changements de prix de ${b}, de temps en temps. Répondez STOP pour arrêter.`,
+    join: "Envoyer JOIN sur WhatsApp",
   },
 };
 
@@ -466,23 +492,27 @@ export function createShopPage(deps: ShopDeps) {
       )}</div>${urls.length > 1 ? html`<span class="count">1/${urls.length}</span>` : ""}</div>`
     : ""}
   <div class="body">
-    ${popular.has(p.id) ? html`<span class="badge">${t.popular}</span>` : ""}
+    ${popular.has(p.id) || p.sale
+      ? html`<div class="badges">${p.sale ? html`<span class="badge sale">${t.off(p.sale.percent, saleLastDay(p.sale, lang))}</span>` : ""}${popular.has(p.id) ? html`<span class="badge">${t.popular}</span>` : ""}</div>`
+      : ""}
     <h3><a href="#p-${p.id}" data-open="${p.id}">${p.name}</a></h3>
     ${p.description?.trim() ? html`<p class="desc">${p.description.trim()}</p>` : ""}
     ${p.leadTimeDays !== null ? html`<p class="muted">${t.ready(p.leadTimeDays)}</p>` : ""}
     <ul class="options">
       ${p.options.map((o) => {
         const facts = priceFacts(o.variant);
+        const was = o.before && priceFacts(o.before);
         const out = o.stock === 0;
         return html`<li${out ? raw(' class="out"') : ""}>
         <div><b>${capital(o.label) || p.name}</b><span>${facts ? priceText(facts, money, lang) : t.onRequest}</span>${
-          out ? html`<em>${t.soldOut}</em>` : o.stock !== null && o.stock <= FEW_LEFT ? html`<em>${t.left(o.stock)}</em>` : ""
-        }</div>
-        ${out ? "" : stepper(o, o.label || p.name)}
+          was && facts ? html`<s><span class="sr">${t.was} </span>${priceText(was, money, lang)}</s>` : ""
+        }${out ? html`<em>${t.soldOut}</em>` : o.stock !== null && o.stock <= FEW_LEFT ? html`<em>${t.left(o.stock)}</em>` : ""}</div>
+        ${out ? html`<a class="tell" href="${wa(backInStockAsk(lang, o.variant.name, o.variant.id))}">${t.tellMe}</a>` : stepper(o, o.label || p.name)}
       </li>`;
       })}
     </ul>
     ${open.length ? html`<a class="button" href="${wa(t.want(p.name))}">${t.order}</a>` : ""}
+    <a class="pill share" data-share="${p.id}" data-text="${t.sharedProduct(p.name, b.name)}" href="https://wa.me/?text=${encodeURIComponent(`${t.sharedProduct(p.name, b.name)} ${deps.linkBase}/${slug}#p-${p.id}`)}">${t.shareProduct}</a>
   </div>
 </article>`;
     };
@@ -527,7 +557,7 @@ export function createShopPage(deps: ShopDeps) {
       (b.hours || b.address) && (["visit", t.nav.visit] as const),
     ].filter((x) => x !== null && x !== false && x !== "");
 
-    const body = html`<header class="top${cover ? " has-cover" : ""}">
+    const body = html`${b.notice ? html`<p class="notice">${b.notice}</p>` : ""}<header class="top${cover ? " has-cover" : ""}">
   ${cover
     ? html`<img class="cover" src="/shop/${slug}/cover?w=720" srcset="/shop/${slug}/cover?w=720 720w, /shop/${slug}/cover?w=1080 1080w" sizes="100vw" alt="" fetchpriority="high" width="1080" height="400">`
     : ""}
@@ -606,6 +636,9 @@ ${products.length > 0
     : ""}
   ${socials.length
     ? html`<section id="follow"><h2>${t.follow}</h2><div class="actions">${socials.map((n) => html`<a class="pill" href="${b.socials[n]!}" target="_blank" rel="noopener">${SOCIALS[n].name}</a>`)}</div></section>`
+    : ""}
+  ${b.updates
+    ? html`<section id="updates"><div class="card updates"><h2>${t.updates}</h2><p class="muted">${t.updatesNote(b.name)}</p><a class="button" href="${wa("JOIN")}">${t.join}</a></div></section>`
     : ""}
 </main>
 <div class="view" id="view" role="dialog" aria-modal="true" aria-label="" hidden>
@@ -815,6 +848,15 @@ ${products.length > 0
       navigator.share({ title: document.title, text: T.shared, url: location.origin + location.pathname }).catch(() => {});
     });
   }
+  // Sharing one product: the phone's share sheet, else WhatsApp with the product's link typed.
+  if (navigator.share) {
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest("[data-share]");
+      if (!a) return;
+      e.preventDefault();
+      navigator.share({ title: document.title, text: a.dataset.text, url: location.origin + location.pathname + "#p-" + a.dataset.share }).catch(() => {});
+    });
+  }
   // The rating bars fill as they scroll into view.
   const reviews = document.querySelector(".reviews");
   if (reviews && "IntersectionObserver" in window) {
@@ -934,6 +976,10 @@ ${products.length > 0
   return app;
 }
 
+/** The sale's last day in Lagos: "30 Nov" or "30 nov.". */
+export const saleLastDay = (sale: Sale, lang: "en" | "fr") =>
+  new Date(sale.endsAt.getTime() - 1).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });
+
 const capital = (text: string) => (text ? `${text[0]!.toUpperCase()}${text.slice(1)}` : "");
 
 function imageType(data: Uint8Array): string {
@@ -1037,6 +1083,17 @@ ${meta
   h3 a { color: inherit; text-decoration: none; }
   .desc { margin: 0; font-size: 15px; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .muted { color: var(--muted); font-size: 14px; margin: 0; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge.sale { background: #ffc93c; color: #1a1200; }
+  .notice { margin: 0; padding: 10px 16px; text-align: center; font-weight: 600; font-size: 14px; background: var(--accent); color: var(--ink); }
+  .options s { color: var(--muted); font-size: 13px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tell { flex: none; font-size: 13px; font-weight: 600; text-align: right; max-width: 130px; }
+  .share { display: none; align-self: flex-start; }
+  .sheet .share { display: inline-flex; }
+  #updates { margin-top: 24px; }
+  .updates h2 { margin-top: 0; }
+  .updates .button { margin-top: 12px; }
   .badge { align-self: flex-start; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: var(--ink); font-size: 12px; font-weight: 700; }
   .about { margin: 0; white-space: pre-line; }
   .rows { list-style: none; margin: 0 0 10px; padding: 0; }
@@ -1061,7 +1118,7 @@ ${meta
   .options li div:first-child { display: grid; font-size: 14px; }
   .options li span { color: var(--muted); }
   .options li em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--hi); }
-  .options li.out { opacity: .55; }
+  .options li.out > div { opacity: .55; }
   .options li.out em { color: var(--red); }
   .step { display: none; flex: none; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); transition: border-color .2s; }
   .js .step { display: flex; }
@@ -1135,6 +1192,8 @@ type ProductRow = {
   photo_path?: string | null;
   more_photos?: string[] | null;
   lead_time_days?: number | null;
+  sale_percent?: number | null;
+  sale_ends_at?: string | null;
   quote_variants: Array<{
     id: string;
     name: string;
@@ -1154,29 +1213,33 @@ export function createSupabaseShopProducts(db: SupabaseClient, businessId: strin
       .eq("business_id", businessId)
       .eq("active", true);
     if (error) throw new Error(`shop products failed: ${error.message}`);
+    const now = new Date();
     return ((data ?? []) as unknown as ProductRow[])
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        category: p.category ?? null,
-        photoPath: p.photo_path ?? null,
-        morePhotos: p.photo_path ? (p.more_photos ?? []) : [],
-        leadTimeDays: p.lead_time_days ?? null,
-        options: p.quote_variants
-          .filter((v) => v.active)
-          .map((v) => ({
-            label: v.name,
-            stock: v.stock ?? null,
-            variant: {
-              id: v.id,
-              name: `${p.name}: ${v.name}`,
-              minQuantity: v.min_quantity,
-              tiers: v.quote_price_tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
-            },
-          }))
-          .sort((a, z) => a.label.localeCompare(z.label)),
-      }))
+      .map((p): ShopProduct => {
+        const sale = activeSale(p, now);
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          category: p.category ?? null,
+          photoPath: p.photo_path ?? null,
+          morePhotos: p.photo_path ? (p.more_photos ?? []) : [],
+          leadTimeDays: p.lead_time_days ?? null,
+          sale,
+          options: p.quote_variants
+            .filter((v) => v.active)
+            .map((v) => {
+              const variant: Variant = {
+                id: v.id,
+                name: `${p.name}: ${v.name}`,
+                minQuantity: v.min_quantity,
+                tiers: v.quote_price_tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
+              };
+              return { label: v.name, stock: v.stock ?? null, variant: { ...variant, tiers: saleTiers(variant.tiers, sale) }, before: sale ? variant : null };
+            })
+            .sort((a, z) => a.label.localeCompare(z.label)),
+        };
+      })
       .filter((p) => p.options.length > 0)
       .sort((a, z) => a.name.localeCompare(z.name));
   };
@@ -1219,6 +1282,9 @@ export async function supabaseShopLook(db: SupabaseClient, businessId: string) {
     about: text(data?.about),
     address: text(data?.shop_address) ? { text: text(data?.shop_address)!, directions: true } : text(data?.business_details) ? { text: text(data?.business_details)!, directions: false } : null,
     socials: cleanSocials(data?.shop_socials),
+    notice: text(data?.shop_notice),
+    /** Whether the notice can be saved yet (migration 0094). */
+    noticeSaved: data ? "shop_notice" in data : false,
     /** Owners who switch ratings off in the app don't show them on the shop either. */
     ratingsOn: data?.ratings_on !== false,
   };
@@ -1262,7 +1328,9 @@ export function createSupabaseShopOrders(db: SupabaseClient, businessId: string)
 
 /** The owner app's side of the shop: its colour and cover photo (migration 0061), its address and social pages (0081). */
 export interface ShopLookStore {
-  get(businessId: string): Promise<{ accent: string | null; cover: boolean; address: string | null; socials: ShopSocials }>;
+  /** `notice` is undefined until migration 0094 is run. */
+  get(businessId: string): Promise<{ accent: string | null; cover: boolean; address: string | null; socials: ShopSocials; notice?: string | null }>;
+  saveNotice(businessId: string, notice: string | null): Promise<void>;
   saveContact(businessId: string, address: string | null, socials: ShopSocials): Promise<void>;
   /** Null goes back to yarnOga's colours. */
   setAccent(businessId: string, accent: string | null): Promise<void>;
@@ -1278,8 +1346,9 @@ export function createSupabaseShopLookStore(db: SupabaseClient): ShopLookStore {
   return {
     async get(businessId) {
       const look = await supabaseShopLook(db, businessId);
-      return { accent: look.accent, cover: Boolean(look.coverPath), address: look.address?.directions ? look.address.text : null, socials: look.socials };
+      return { accent: look.accent, cover: Boolean(look.coverPath), address: look.address?.directions ? look.address.text : null, socials: look.socials, ...(look.noticeSaved ? { notice: look.notice } : {}) };
     },
+    saveNotice: (businessId, notice) => update(businessId, { shop_notice: notice }),
     saveContact: (businessId, address, socials) => update(businessId, { shop_address: address, shop_socials: socials }),
     setAccent: (businessId, accent) => update(businessId, { shop_accent: accent }),
     async saveCover(businessId, data, mimeType) {
