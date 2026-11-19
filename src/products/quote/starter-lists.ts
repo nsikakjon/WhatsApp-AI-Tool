@@ -96,7 +96,7 @@ const STARTERS: Starter[] = [
   },
   {
     trade: "a cake and pastry business",
-    match: /cake|bak(e|ing|ery)|pastr|cupcake|bread/,
+    match: /cake|bak(e|ing|ery)|pastr|cupcake/,
     rows: [
       { product: "Birthday cake", option: "8 inch, 2 layers", price: 35000 },
       { product: "Birthday cake", option: "10 inch, 2 layers", price: 50000 },
