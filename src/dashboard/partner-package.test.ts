@@ -86,6 +86,9 @@ function stores() {
       leads.find((l) => l.id === p.id)!.promoCode = c.code;
       return null;
     },
+    async saveCommission(p, c) {
+      Object.assign(leads.find((l) => l.id === p.id)!, { commissionPercent: c.percent, commissionPaidKobo: c.paidOutKobo });
+    },
     async linkShop(p, waId) {
       const shop = [...shops.values()].find((s) => s.ownerWaId === waId);
       if (!shop) return `No shop has signed up from +${waId} yet.`;
@@ -231,6 +234,10 @@ describe("partner package pages", () => {
 
     const clash = await app.request("/partners/1/code", post({ code: "DAYONES", percent_off: "50" }));
     expect(decodeURIComponent(clash.headers.get("location")!)).toContain("problem=DAYONES is already");
+
+    const commission = await app.request("/partners/1/commission", post({ commission_percent: "25", paid_out: "5,750" }));
+    expect(commission.headers.get("location")).toContain("open=commission&saved=");
+    expect(s.leads[0]).toMatchObject({ commissionPercent: 25, commissionPaidKobo: 575_000 });
 
     const missing = await app.request("/partners/1/shop", post({ owner_number: "0809 999 9999" }));
     expect(decodeURIComponent(missing.headers.get("location")!)).toContain("No shop has signed up from +2348099999999");
