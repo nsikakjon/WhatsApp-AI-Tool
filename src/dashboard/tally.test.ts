@@ -103,6 +103,17 @@ describe("tally sheet pages", () => {
     expect(store.visits).toHaveLength(0);
   });
 
+  it("shows one part at a time: the day, the follow-ups or every day", () => {
+    const tally = summariseTally([visit(1, "2026-10-10", { shop: "Ada Styles", interested: true, followUpOn: "2026-10-15" })], "2026-10-16");
+    const day = renderTally(tally, "2026-10-16", "2026-10-16");
+    expect(day).toContain('id="day"');
+    expect(day).not.toContain('id="follow-ups"');
+    expect(day).toContain('<span class="dot">1</span>');
+    const follow = renderTally(tally, "2026-10-16", "2026-10-16", undefined, "follow-ups");
+    expect(follow).toContain("Ada Styles");
+    expect(follow).not.toContain('id="day"');
+  });
+
   it("links the tally sheet from the dashboard", async () => {
     const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, tally: memoryStore(), now: () => NOW });
     expect(await (await app.request("/", { headers: auth })).text()).toContain('href="/dashboard/tally"');

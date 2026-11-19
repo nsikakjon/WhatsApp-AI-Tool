@@ -118,9 +118,12 @@ How the figures are worked out:
 ## Tally sheet
 
 A page at `/dashboard/tally` (same password; **Tally sheet** link in the top
-bar) for door-to-door sales days, filled in on the phone between shops:
+bar) for door-to-door sales days, filled in on the phone between shops. Its
+tabs are **Day** (the day's tiles and shops), **Follow-ups** (with a red
+count when some are due) and **Every day**. On a phone each shop is a card
+with its ticks labelled, so nothing scrolls sideways.
 
-- **Add a shop**: name, type, where it is, and four ticks: owner in,
+- **+ Add a shop** opens the form: name, type, where it is, and four ticks: owner in,
   interested, signed up, live today. Ticking a later step ticks the earlier
   ones. Add a follow-up day for an owner who said "not now".
 - The day's tiles show shops visited, interested and live against the day's

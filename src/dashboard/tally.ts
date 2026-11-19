@@ -140,14 +140,18 @@ const dayLink = (date: string) => `/dashboard/tally?day=${date}`;
 function visitRow(v: Visit, n: number, day: string): string {
   const f = `visit-${v.id}`;
   const box = (name: string, checked: boolean, label: string) =>
-    `<td class="box"><input type="checkbox" name="${name}" aria-label="${label}"${checked ? " checked" : ""} form="${f}"></td>`;
+    `<td class="box"><label><input type="checkbox" name="${name}" aria-label="${label}"${checked ? " checked" : ""} form="${f}"><span>${label}</span></label></td>`;
   const about = [v.type, v.place].filter(Boolean).map((s) => esc(s!)).join(" · ");
   return `<tr${v.live ? ' class="is-live"' : ""}><td>${n}</td><td>${esc(v.shop)}${about ? `<span class="small">${about}</span>` : ""}${
     v.notes ? `<span class="small">${esc(v.notes)}</span>` : ""
-  }</td>${box("owner_in", v.ownerIn, "Owner in")}${box("interested", v.interested, "Interested")}${box("signed_up", v.signedUp, "Signed up")}${box("live", v.live, "Live today")}<td><input type="date" name="follow_up_on" value="${v.followUpOn ?? ""}" aria-label="Follow up on" form="${f}"></td><td class="acts"><form id="${f}" method="post" action="/dashboard/tally/${v.id}"><input type="hidden" name="day" value="${day}"><button type="submit">Save</button></form><form method="post" action="/dashboard/tally/${v.id}/delete" onsubmit="return confirm('Remove this shop from the sheet?')"><input type="hidden" name="day" value="${day}"><button class="link" type="submit">Remove</button></form></td></tr>`;
+  }</td>${box("owner_in", v.ownerIn, "Owner in")}${box("interested", v.interested, "Interested")}${box("signed_up", v.signedUp, "Signed up")}${box("live", v.live, "Live today")}<td class="fu"><label><span>Follow up</span><input type="date" name="follow_up_on" value="${v.followUpOn ?? ""}" aria-label="Follow up on" form="${f}"></label></td><td class="acts"><form id="${f}" method="post" action="/dashboard/tally/${v.id}"><input type="hidden" name="day" value="${day}"><button type="submit">Save</button></form><form method="post" action="/dashboard/tally/${v.id}/delete" onsubmit="return confirm('Remove this shop from the sheet?')"><input type="hidden" name="day" value="${day}"><button class="link" type="submit">Remove</button></form></td></tr>`;
 }
 
-export function renderTally(tally: Tally | "error", today: string, day: string, problem?: string): string {
+/** The three views of the page, picked from the top bar. */
+export const TALLY_VIEWS = ["day", "follow-ups", "days"] as const;
+export type TallyView = (typeof TALLY_VIEWS)[number];
+
+export function renderTally(tally: Tally | "error", today: string, day: string, problem?: string, view: TallyView = "day"): string {
   const notice = problem ? `<p class="problem" role="alert">${esc(problem)}</p>` : "";
   let body: string;
   if (tally === "error") {
@@ -155,7 +159,7 @@ export function renderTally(tally: Tally | "error", today: string, day: string, 
   } else {
     const d = tally.day;
     const isToday = day === today;
-    const form = `<form class="entry" method="post" action="/dashboard/tally">
+    const form = `<details class="add"${tally.visits.length && !problem ? "" : " open"}><summary>+ Add a shop</summary><form class="entry" method="post" action="/dashboard/tally">
 <h3>Add a shop</h3>
 <input type="hidden" name="date" value="${day}">
 <label class="wide">Shop <input name="shop" required maxlength="120" placeholder="e.g. Tolu's Closet" autocomplete="off"></label>
@@ -167,7 +171,7 @@ export function renderTally(tally: Tally | "error", today: string, day: string, 
 <label>Follow up on <input type="date" name="follow_up_on" min="${day}"></label>
 <label class="wide">Notes <input name="notes" maxlength="500" placeholder="e.g. owner back at 2pm, uses a new SIM"></label>
 <button type="submit">Add shop</button>
-</form>`;
+</form></details>`;
     const rows = tally.visits.map((v, i) => visitRow(v, i + 1, day)).join("");
     const sheet = `<div class="scroll"><table class="plans wide sheet"><thead><tr><th>#</th><th>Shop</th><th>Owner in?</th><th>Interested?</th><th>Signed up?</th><th>Live today?</th><th>Follow up on</th><th></th></tr></thead><tbody>${
       rows || `<tr><td colspan="8">No shops yet for ${esc(shortDay(day))}. Add the first one above.</td></tr>`
@@ -186,12 +190,12 @@ export function renderTally(tally: Tally | "error", today: string, day: string, 
           `<tr><td><a href="${dayLink(t.date)}">${esc(shortDay(t.date))}</a></td><td>${t.visited}</td><td>${t.ownerIn}</td><td>${t.interested}</td><td>${t.signedUp}</td><td>${t.live}</td></tr>`,
       )
       .join("");
-    body = `${notice}
-<section id="day"><h2>${isToday ? "Today" : esc(shortDay(day))}</h2>
-<form class="pick" method="get" action="/dashboard/tally"><label>Day <input type="date" name="day" value="${day}"></label><button type="submit">Show</button>${
-      isToday ? "" : ` <a href="/dashboard/tally">Back to today</a>`
-    }</form>
-<div class="tiles">
+    const sections: Record<TallyView, string> = {
+      day: `<section id="day"><h2>${isToday ? "Today" : esc(shortDay(day))}</h2>
+<form class="pick" method="get" action="/dashboard/tally"><input type="date" name="day" value="${day}" aria-label="Day"><button type="submit">Show day</button>${
+        isToday ? "" : ` <a href="/dashboard/tally">Back to today</a>`
+      }</form>
+<div class="tiles glance">
 ${tile("Shops visited", `${d.visited} / ${DAY_GOAL.visited}`, `owner in at ${d.ownerIn}`)}
 ${tile("Interested", `${d.interested} / ${DAY_GOAL.interested}`)}
 ${tile("Signed up", String(d.signedUp))}
@@ -199,27 +203,62 @@ ${tile("Live", `${d.live} / ${DAY_GOAL.live}`, "only shops live before you left"
 </div>
 ${form}
 ${sheet}
-<p class="intro">Change a tick or the follow-up day, then press Save on that row. Ticking Live also ticks Signed up and Interested.</p>
-</section>
-<section id="follow-ups"><h2>Follow-ups</h2>
+<p class="intro">Change a tick or the follow-up day, then press Save on that shop. Ticking Live also ticks Signed up and Interested.</p>
+</section>`,
+      "follow-ups": `<section id="follow-ups"><h2>Follow-ups</h2>
 <p class="intro">Shops to go back to that aren't live yet, from every day. Clear the date or tick Live once it's done.</p>
-<table class="plans wide"><thead><tr><th>Go back on</th><th>Shop</th><th>Got to</th><th>Visited</th></tr></thead><tbody>${
-      followRows || `<tr><td colspan="4">Nothing to follow up</td></tr>`
-    }</tbody></table></section>
-<section id="days"><h2>Every day out</h2>
+<div class="scroll"><table class="plans wide follow"><thead><tr><th>Go back on</th><th>Shop</th><th>Got to</th><th>Visited</th></tr></thead><tbody>${
+        followRows || `<tr><td colspan="4">Nothing to follow up</td></tr>`
+      }</tbody></table></div></section>`,
+      days: `<section id="days"><h2>Every day out</h2>
 <div class="scroll"><table class="plans wide days"><thead><tr><th>Day</th><th>Visited</th><th>Owner in</th><th>Interested</th><th>Signed up</th><th>Live</th></tr></thead><tbody>${
-      dayRows || `<tr><td colspan="6">No days yet</td></tr>`
-    }</tbody></table></div></section>
+        dayRows || `<tr><td colspan="6">No days yet</td></tr>`
+      }</tbody></table></div></section>`,
+    };
+    body = `${notice}
+${sections[view]}
 <footer>Goal for a day out: about ${DAY_GOAL.visited} shops visited, ${DAY_GOAL.interested} interested and ${DAY_GOAL.live} live.</footer>`;
   }
+  const due = tally === "error" ? 0 : tally.followUps.filter((v) => v.followUpOn! <= today).length;
+  const tab = (id: TallyView, label: string, extra = "") =>
+    `<a href="/dashboard/tally${id === "day" ? (day === today ? "" : `?day=${day}`) : `?view=${id}`}"${id === view ? ' aria-current="page"' : ""}>${label}${extra}</a>`;
   return pageShell({
     title: "yarnOga tally sheet",
     crumb: "Door to door",
     heading: "yarn<b>Oga</b> tally sheet",
     badge: "Saved as you go",
-    nav: `<a href="/dashboard">Back to analytics</a><a href="#day">Day</a><a href="#follow-ups">Follow-ups</a><a href="#days">Every day</a>`,
+    nav: `<a class="back" href="/dashboard">‹ Analytics</a><span class="sep" aria-hidden="true"></span>${tab("day", "Day")}${tab("follow-ups", "Follow-ups", due ? ` <span class="dot">${due}</span>` : "")}${tab("days", "Every day")}`,
     body,
-    css: `.sheet { min-width:760px; }
+    css: `.jump a[aria-current] { background:var(--lime); color:var(--limeink); border-color:transparent; }
+.jump .sep { flex:none; width:1px; margin:4px 6px; background:var(--line2); }
+.jump a.back { border-color:transparent; }
+.jump .dot { display:inline-block; min-width:18px; margin-left:4px; padding:2px 6px; border-radius:99px; background:var(--red); color:#1a0703; font-size:11px; text-align:center; }
+section { margin-top:28px; }
+.glance { grid-template-columns:repeat(2,1fr); }
+@media (min-width:760px) { .glance { grid-template-columns:repeat(4,1fr); } }
+details.add { margin-top:16px; }
+details.add > summary { display:inline-block; padding:11px 18px; border-radius:10px; background:var(--limesoft); color:var(--lime); font:600 14px/1 var(--accent); border:1px solid rgba(198,255,31,.25); list-style:none; cursor:pointer; }
+details.add > summary::-webkit-details-marker { display:none; }
+.sheet td.box label, .sheet td.fu label { display:inline-flex; align-items:center; gap:8px; }
+.sheet td.box span, .sheet td.fu span { display:none; }
+.follow { min-width:480px; }
+.sheet { min-width:760px; }
+@media (max-width:700px) {
+  .scroll:has(.sheet) { overflow:visible; }
+  .sheet, .sheet tbody { display:block; min-width:0; }
+  .sheet thead { display:none; }
+  .sheet tr { display:flex; flex-wrap:wrap; gap:10px 16px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .sheet tr:last-child { border-bottom:0; }
+  .sheet td { display:block; padding:0; border:0; }
+  .sheet td:first-child { display:none; }
+  .sheet td:nth-child(2) { flex-basis:100%; min-width:0; font-weight:600; }
+  .sheet td.box { flex:1 1 40%; text-align:left !important; }
+  .sheet td.box span, .sheet td.fu span { display:inline; color:var(--muted); font-size:14px; }
+  .sheet td.fu { flex-basis:100%; }
+  .sheet td.acts { flex-basis:100%; }
+  tr.is-live td:first-child { box-shadow:none; }
+  tr.is-live { box-shadow:inset 3px 0 0 var(--lime); }
+}
 .sheet td { vertical-align:middle; }
 .sheet td:nth-child(2) { min-width:170px; }
 .days { min-width:520px; }
@@ -232,8 +271,7 @@ ${sheet}
 .sheet .acts form + form { margin-left:10px; }
 .sheet .acts button[type=submit]:not(.link), .pick button { font:600 13px/1 var(--accent); background:var(--limesoft); color:var(--lime); border:1px solid rgba(198,255,31,.25); border-radius:8px; padding:8px 12px; cursor:pointer; }
 tr.is-live td:first-child { box-shadow:inset 3px 0 0 var(--lime); }
-.pick { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin:12px 0 16px; font-size:13px; color:var(--muted); }
-.pick label { display:flex; flex-direction:column; gap:6px; }
+.pick { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:8px 0 16px; font-size:13px; }
 .entry input[type=date] { color-scheme:dark; }
 .entry + .scroll { margin-top:16px; }`,
   });

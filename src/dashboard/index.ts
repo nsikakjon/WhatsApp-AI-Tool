@@ -15,7 +15,7 @@ import { chasedAgain, PARTNER_VIEWS, parsePartnerForm, pickPackage, renderPartne
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
-import { parseProgress, parseVisitForm, pickDay, renderTally, summariseTally, type TallyStore } from "./tally.js";
+import { parseProgress, parseVisitForm, pickDay, renderTally, summariseTally, TALLY_VIEWS, type TallyStore } from "./tally.js";
 import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
@@ -185,7 +185,8 @@ export function createDashboard(deps: DashboardDeps) {
         log.error("Tally sheet failed to load:", err);
         return "error" as const;
       });
-    return c.html(renderTally(tally, now, day, c.req.query("problem")?.slice(0, 200)));
+    const view = TALLY_VIEWS.find((v) => v === c.req.query("view"));
+    return c.html(renderTally(tally, now, day, c.req.query("problem")?.slice(0, 200), view));
   });
 
   app.post("/tally", async (c) => {
