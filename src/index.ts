@@ -34,6 +34,7 @@ import { createQuoteRouter } from "./products/quote/businesses.js";
 import { createSupabaseBroadcasts } from "./products/quote/broadcast-store.js";
 import { createMessagePackPaidHandler, createMessagePacks, createSupabaseMessagePackLedger, createSupabaseMessagePackStore } from "./products/quote/broadcast-packs.js";
 import { createPictureBroadcasts, finishedText, monthlyBroadcasts, sendDueBroadcasts, withBroadcasts } from "./products/quote/broadcasts.js";
+import { createSupabaseStockAlerts, sendDueStockAlerts, withStockAlerts } from "./products/quote/stock-alerts.js";
 import type { OutgoingImage, OutgoingTemplate } from "./core/whatsapp/client.js";
 import { createSupabaseDemoFollowUps, sendDemoFollowUps } from "./products/quote/demo-followup.js";
 import { createSupabaseFollowUps, lagosHour, sendDueFollowUps, type FollowUpTarget } from "./products/quote/followups.js";
@@ -369,6 +370,9 @@ const referrals = config.quoteReferrals && quoteBusinesses && config.paystack ? 
 // Discount codes each business gives its own customers (QUOTE_DISCOUNT_CODES).
 const discountsFor = (businessId: string) => (config.quoteDiscountCodes ? createSupabaseDiscounts(supabase, businessId) : undefined);
 
+// Waits for sold-out options to come back (migration 0094), asked for on the shop page.
+const stockAlerts = config.activeProduct === "quote" && config.quoteShop ? createSupabaseStockAlerts(supabase) : undefined;
+
 // Broadcasts to opted-in customers (BROADCASTS_ENABLED). Off: the quote bot
 // is exactly as before.
 const broadcastConfig = config.broadcasts;
@@ -390,7 +394,9 @@ async function broadcastLimit(businessId: string, branch: boolean): Promise<numb
   const { features } = branch ? {} : businessId === DEFAULT_BUSINESS_ID ? (config.quote?.plan ? planFeatures(businessId, config.quote.plan) : {}) : planFeatures(businessId);
   return monthlyBroadcasts(await broadcastStore!.monthlyLimit(businessId), features);
 }
-function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined, branch = false): Product {
+function addBroadcasts(bot: Product, businessId: string, businessName: string, ownerWaId: string | undefined, branch = false, lang: Lang = "en"): Product {
+  // "Tell me when it's back" from the shop page's sold-out options.
+  if (stockAlerts) bot = withStockAlerts(bot, { businessId, businessName, lang, store: stockAlerts });
   if (!broadcastConfig || !broadcastStore) return bot;
   return withBroadcasts(bot, {
     businessId,
@@ -489,6 +495,8 @@ async function shopBusiness(id: string): Promise<ShopBusiness | null> {
     ratings: ratingsOn ? createSupabaseShopRatings(supabase, id) : async () => null,
     deliveryAreas: delivery ? createSupabaseShopAreas(supabase, id) : async () => [],
     recentOrders: createSupabaseShopOrders(supabase, id),
+    // Customers join the business's offers by sending JOIN, which the bot only understands with broadcasts on.
+    updates: Boolean(broadcastStore),
     currency: (main ? main.currency : business!.currency) ?? "NGN",
     lang: (main ? main.language : business!.language) ?? "en",
     photos: async () => config.quoteCatalogue && (await onPlan({ id, branchOf: business?.branchOf }, "catalogue")),
@@ -704,6 +712,8 @@ if (config.activeProduct === "quote" && config.quote) {
     DEFAULT_BUSINESS_ID,
     config.quote.businessName,
     config.quote.ownerWaId,
+    false,
+    config.quote.language,
   );
 }
 
@@ -797,6 +807,7 @@ function customerBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     business.name,
     business.ownerWaId ?? undefined,
     Boolean(business.branchOf),
+    business.language,
   );
 }
 if (quoteBusinesses) {
@@ -1992,6 +2003,32 @@ if (flyerBot && flyerConfig) {
 }
 
 if (broadcastTemplates) runEvery(60 * 60 * 1000, () => broadcastTemplates.sweep());
+
+// Every 5 minutes, tell customers waiting on a sold-out option that it's back.
+if (stockAlerts) {
+  const deps = { store, whatsapp };
+  const template = config.backInStockTemplate;
+  runEvery(5 * 60 * 1000, async () => {
+    try {
+      await sendDueStockAlerts({
+        store: stockAlerts,
+        send: async (alert, text) => {
+          const from = alert.fromNumberId ?? undefined;
+          if (await canMessageFreely(store, alert.waId, from)) {
+            await sendAndRecord(deps, alert.waId, text, from);
+            return true;
+          }
+          if (!template) return false;
+          await sendTemplateAndRecord(deps, alert.waId, { ...template, bodyParams: [alert.businessName, alert.option] }, from);
+          return true;
+        },
+      });
+    } catch (err) {
+      // Most likely migration 0094 hasn't been run yet.
+      console.error("Stock alerts failed:", err);
+    }
+  });
+}
 
 // Every minute, send the next few messages of any confirmed broadcasts.
 if (broadcastConfig && broadcastStore) {
