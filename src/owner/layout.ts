@@ -180,11 +180,27 @@ export function page(s: Shell, body: string): string {
 </div>
 <nav class="tabs" aria-label="Main">${tabs.map(link).join("")}
   <details class="moretab${moreActive ? " on" : ""}"><summary>${icon("more")}<span>More</span></summary>
-  <div class="sheet">${grouped("sheethead", (links) => `<div class="menugrid">${links}</div>`)}<p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${switcher}${logout}</div></details>
-</nav>
+  <div class="sheet"><span class="grab" aria-hidden="true"></span><div class="sheetbody">${grouped("sheethead", (links) => `<div class="menugrid">${links}</div>`)}<p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${switcher}${logout}</div></div></details>
+</nav>${MORE_SCRIPT}
 </div>${s.tour ? tour(items, s.tour.userId, s.tour.start) : ""}`,
   );
 }
+
+// The phone's "More" sheet: tap outside or press Esc to close, and drag it down (by the handle, or from the top of the list) to close.
+const MORE_SCRIPT = `<script>(function(){
+var more=document.querySelector(".moretab");if(!more)return;
+var sheet=more.querySelector(".sheet"),body=more.querySelector(".sheetbody"),y0=null,dy=0;
+function reset(){sheet.classList.remove("drag");sheet.style.transform="";}
+function close(){more.open=false;reset();}
+more.addEventListener("toggle",function(){if(more.open)body.scrollTop=0;else reset();});
+document.addEventListener("click",function(e){if(more.open&&!more.contains(e.target)){e.preventDefault();e.stopPropagation();close();}},true);
+document.addEventListener("keydown",function(e){if(e.key==="Escape"&&more.open)close();});
+sheet.addEventListener("touchstart",function(e){y0=e.target.closest(".grab")||body.scrollTop<=0?e.touches[0].clientY:null;dy=0;},{passive:true});
+sheet.addEventListener("touchmove",function(e){if(y0===null)return;dy=e.touches[0].clientY-y0;
+if(dy<=0){if(!e.target.closest(".grab")){y0=null;reset();}return;}
+if(e.cancelable)e.preventDefault();sheet.classList.add("drag");sheet.style.transform="translateY("+dy+"px)";},{passive:false});
+sheet.addEventListener("touchend",function(){if(y0===null)return;y0=null;if(dy>90)close();else reset();});
+})();</script>`;
 
 /** yarnOga's own admin pages (e.g. compliance): the logo, a title, and the content, in the app's look. */
 export function adminPage(title: string, crumb: string, body: string): string {
@@ -319,7 +335,11 @@ main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240p
 .tabs>a,.moretab>summary{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border-radius:16px;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:600;cursor:pointer;list-style:none}
 .moretab{flex:1;display:flex}.moretab>summary::-webkit-details-marker{display:none}
 .tabs>a.on,.moretab.on>summary{color:var(--limeink);background:var(--lime)}
-.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);padding:10px;border-radius:20px;background:#111713;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 20px 60px rgba(0,0,0,.6)}
+.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);display:flex;flex-direction:column;max-height:calc(100vh - 110px - env(safe-area-inset-bottom));max-height:calc(100dvh - 110px - env(safe-area-inset-bottom));border-radius:20px;background:#111713;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 20px 60px rgba(0,0,0,.6);transition:transform .2s ease-out}
+.sheet.drag{transition:none}
+.grab{flex:none;display:grid;place-items:center;height:22px;touch-action:none;cursor:grab}.grab:before{content:"";width:40px;height:4px;border-radius:99px;background:var(--dim)}
+.sheetbody{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 10px 10px}
+html:has(.moretab[open]),html:has(.moretab[open]) body{overflow:hidden}
 .sheethead{margin:10px 8px 6px;color:var(--dim);font:600 11px/1.4 var(--body);text-transform:uppercase;letter-spacing:.12em}
 .menugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .sheet .menugrid a{flex-direction:column;gap:6px;padding:10px 4px;text-align:center;font-size:.78rem;line-height:1.2;background:rgba(255,255,255,.05);border:1px solid var(--line)}
