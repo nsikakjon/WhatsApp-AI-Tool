@@ -18,6 +18,7 @@ import { PHARMACY_WARNING, looksLikePharmacy, prescriptionNote } from "./prescri
 import { SHEET_LINK, type SheetSync } from "./sheet-sync.js";
 import { CONNECT_NUMBER_NOTE, FRESH_NUMBER_NOTE, NEW_SIM_STEPS, connectSteps, type createNumberCollector } from "./numbers.js";
 import { lagosToday } from "./monthly.js";
+import { CODE_WORDS, codeKept, findCode, mentionsCode, type SignupCode } from "./signup-codes.js";
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
 import type { SetupStore } from "./store.js";
@@ -87,8 +88,10 @@ export interface SignupStore {
   remove(waId: string): Promise<void>;
   /** How many businesses have signed up by chat since this time. */
   signedUpSince(since: Date): Promise<number>;
-  /** True when this promo or referral code is switched on and can be used on a quote plan. */
-  codeExists(code: string): Promise<boolean>;
+  /** The promo and referral codes switched on for quote plans and not past their end date. */
+  activeCodes(): Promise<SignupCode[]>;
+  /** Puts a code on a signed-up business that has none yet, for its first upgrade. */
+  saveBusinessCode(businessId: string, code: string): Promise<void>;
   /** Adds the business on the Free plan, switched off, with this number for order alerts. Returns its id. */
   createBusiness(b: { name: string; description: string | null; orderPrefix: string; ownerWaId: string; referralCode: string | null }): Promise<string>;
 }
@@ -195,10 +198,24 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           if (numberReply) return numberReply;
           if (asksToConnect(text)) return connectHelp(msg, ctx, signup);
           if (SIGN_UP.test(text)) return { text: `You've already signed up as *${signup.businessName}*.\n\n${AFTER}` };
-          if (TRY.test(text)) return startTrying(signup, msg);
-          if (PRICES.test(text)) {
+          const code = await lateCode(signup, msg.from, text);
+          if (code) return { text: `${codeKept(code)}\n\n${AFTER}` };
+          if (wantsToTry(text)) return startTrying(signup, msg);
+          const which = opts.connectLink ? whichWhatsApp(text) : null;
+          if (which) {
+            const link = opts.connectLink!(signup.businessId);
+            return { text: which === "regular" ? regularWhatsApp(link) : connectAnswer(link) };
+          }
+          if (TALK_TO_SOMEONE.test(plainWords(text))) {
+            const handOff = await toTeam(msg, ctx, signup, "They asked to talk to someone");
+            if (handOff) return handOff;
+          }
+          if (PRICES.test(text) || looksLikePrices(msg, text)) {
             const current = await opts.setup.priceList(signup.businessId);
-            await opts.store.save(msg.from, { step: "prices", draftCsv: current.length ? priceListCsv(current) : null });
+            const draftCsv = current.length ? priceListCsv(current) : null;
+            await opts.store.save(msg.from, { step: "prices", draftCsv });
+            // "Shirts 20k vintage 16k": the new prices go straight into the list, shown back for YES.
+            if (!PRICES.test(text)) return pricesStep({ ...signup, step: "prices", draftCsv }, msg, ctx, text);
             return { text: current.length ? `Tell me what to change, or send your whole new list.\n\n${preview(current)}` : ASK_PRICES };
           }
         }
@@ -238,10 +255,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         }
         if (signup?.businessId && reply) {
           if (reply.stage !== "unclear") visitor(msg.from).unclear = 0;
-          else if (++visitor(msg.from).unclear >= 2) {
-            visitor(msg.from).unclear = 0;
-            const handOff = await toTeam(msg, ctx, signup, "The bot couldn't answer their last two messages");
-            if (handOff) return handOff;
+          else {
+            // Two in a row: what they can do here. Two more: a person.
+            const v = visitor(msg.from);
+            if (++v.unclear === 2) return { text: OWNER_HELP };
+            if (v.unclear >= 4) {
+              const handOff = await toTeam(msg, ctx, signup, "The bot couldn't answer four messages in a row");
+              if (handOff) return handOff;
+            }
           }
         }
         if (guest && reply) {
@@ -316,7 +337,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
           return withChangeName(`${nameIs(name)}\n\n${askAbout(name)}`);
         }
         case "about": {
-          const about = text.replace(/\s+/g, " ");
+          // "I don't know what you're doing... what we do is that we sell turkey and bread" is "turkey and bread".
+          const about = (tradeFrom(text) ?? text).replace(/\s+/g, " ");
           if (!about) return { text: "In a few words, what do you sell?" };
           if (!isTrade(about)) return { text: askAbout(signup.businessName) };
           if (about.length > 120) return { text: "Please keep that short, a few words is enough (120 letters at most)." };
@@ -325,14 +347,11 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         }
         case "referral": {
           if (NO_CODE.test(text)) return askPrices(signup, msg.from, "");
-          const code = text.replace(/\s+/g, "").toUpperCase();
-          const found = /^[A-Z0-9]{4,20}$/.test(code) && (await opts.store.codeExists(code));
-          // Codes are one word; "I cut hair" or "low cut" is an answer to something else.
-          if (!found && /\s/.test(text)) return askPrices(signup, msg.from, "That doesn't look like a referral code, so let's carry on without one.");
-          if (!found) {
-            return { text: `I can't find the code *${text}*. Check the spelling and send it again, or send *no* to carry on without one.` };
-          }
-          return askPrices(signup, msg.from, `Thanks, I've kept *${code}*. Its discount comes off your first month when you upgrade.`, code);
+          const found = findCode(text, await opts.store.activeCodes());
+          if (found) return askPrices(signup, msg.from, codeKept(found), found.code);
+          // "I cut hair" or "low cut" is an answer to something else; "my code is X" isn't.
+          if (/\s/.test(text) && !CODE_WORDS.test(text)) return askPrices(signup, msg.from, "That doesn't look like a referral code, so let's carry on without one.");
+          return { text: `I can't find the code *${text}*. Check the spelling and send it again, or send *no* to carry on without one.` };
         }
         default:
           return pricesStep(signup, msg, ctx, text);
@@ -342,6 +361,18 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
 
   async function pricesStep(signup: Signup, msg: IncomingMessage, ctx: ProductContext, text: string): Promise<Reply> {
     if (YES.test(text) && signup.draftCsv) return confirm(signup, msg.from, msg, ctx);
+
+    const code = await lateCode(signup, msg.from, text);
+    if (code) {
+      return { text: `${codeKept(code)}\n\n${signup.draftCsv ? "Back to your price list: reply *YES* to save it, or tell me what to change." : ASK_PRICES}` };
+    }
+
+    // Put right what they sell while the starter list we guessed is still untouched.
+    const said = tradeFrom(text);
+    if (said && !/\d/.test(text) && !signup.businessId && signup.draftCsv === starterList(signup.businessName, signup.description)?.csv) {
+      await opts.store.save(msg.from, { description: said });
+      return askPrices({ ...signup, description: said }, msg.from, `Thanks, I've changed what you sell to *${said}*.`, signup.referralCode);
+    }
 
     const sheetLink = text.match(SHEET_LINK)?.[0];
     if (sheetLink && sheetCsvUrl(sheetLink)) {
@@ -575,6 +606,19 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     };
   }
 
+  /**
+   * A code sent after the referral question: "TEDXUNIUYO is the referral code"
+   * with the prices, or after signing up. Kept for the first upgrade.
+   */
+  async function lateCode(signup: Signup, waId: string, text: string): Promise<SignupCode | null> {
+    if (signup.referralCode || text.length > 200 || !mentionsCode(text)) return null;
+    const found = findCode(text, await opts.store.activeCodes());
+    if (!found) return null;
+    await opts.store.save(waId, { referralCode: found.code });
+    if (signup.businessId) await opts.store.saveBusinessCode(signup.businessId, found.code);
+    return found;
+  }
+
   /** Counts one AI call against the person's daily allowance (and, for drafts, everyone's). */
   async function useAi(signup: Signup, waId: string, isDraft: boolean): Promise<boolean> {
     const today = now().toISOString().slice(0, 10);
@@ -692,7 +736,7 @@ const CONNECT_VERB = /\b(connect\w*|link|linking|mov(e|ing)|transfer\w*|switch\w
 const CONNECT_WHAT = /\b(whats ?app|wa business|business (account|app)|(my|this|our|the) (number|line))\b/i;
 
 function asksToConnect(text: string): boolean {
-  return text.length <= 300 && CONNECT_VERB.test(text) && CONNECT_WHAT.test(text);
+  return /^connect( (my|the) number)?[.!]*$/i.test(text) || (text.length <= 300 && CONNECT_VERB.test(text) && CONNECT_WHAT.test(text));
 }
 
 function connectAnswer(link: string): string {
@@ -846,6 +890,53 @@ function addNote(reply: Reply, note: string, first = false): Reply {
 }
 
 const AFTER = "Send *try* to chat with your bot as a customer would, or *prices* to change your price list.";
+const OWNER_HELP =
+  "Here's what you can send me:\n" +
+  "• *try* to chat with your bot as a customer would\n" +
+  "• *prices* to change your price list, or just type new prices, for example _Shirts 20k_\n" +
+  "• *connect* to get your link for connecting your WhatsApp number\n" +
+  "• *talk to someone* for the yarnOga team";
+
+/** "Try", "Send *try* to chat with your bot as a customer would", "can I test it". */
+function wantsToTry(text: string): boolean {
+  return TRY.test(text) || (text.length <= 100 && /\btry\b|\btest (it|my bot|the bot)\b/i.test(text));
+}
+
+/** The answer to "WhatsApp Business or regular WhatsApp?". */
+function whichWhatsApp(text: string): "regular" | "business" | null {
+  if (text.length > 80) return null;
+  const plain = plainWords(text).replace(/^(i('m| am)?|we('re| are)?|it'?s|its|my number is|am)\s+(using\s+|on\s+|use\s+)?(the\s+)?/, "");
+  if (/^(regular|ordinary|normal|personal|plain|green|standard|just|the normal|only)\s+whats\s?app\b|^whats\s?app$|\bnot (on )?(the )?whats\s?app business\b/.test(plain)) return "regular";
+  if (/^whats\s?app business( app)?$/.test(plain)) return "business";
+  return null;
+}
+
+function regularWhatsApp(link: string): string {
+  return [
+    "Thanks. A number on regular WhatsApp needs one quick step before it can be connected, and you won't lose anything:",
+    "",
+    "1. Install the free *WhatsApp Business* app from the Play Store or App Store. It's made by WhatsApp.",
+    "2. Open it and use the same phone number. It offers to move your chats across, so your chats and contacts stay.",
+    `3. Open your link and log in with the Facebook account that runs your business: ${link}`,
+    "4. Choose to connect your existing WhatsApp Business app, then scan the QR code with the app on your phone.",
+    "",
+    "No website? When Meta asks, paste your Instagram or Facebook page link. Your bot goes live as soon as you finish.",
+  ].join("\n");
+}
+
+/** New prices typed after signing up: "Shirts 20k vintage 16k", "Agbada ₦65,000". */
+function looksLikePrices(msg: IncomingMessage, text: string): boolean {
+  if (msg.type !== "text" || text.length > MAX_DRAFT_TEXT || text.includes("?")) return false;
+  if ((text.match(/\p{L}/gu) ?? []).length < 3) return false;
+  return /₦\s*\d|\d\s*(k|naira|thousand)\b|\b\d{1,3}(,\d{3})+\b|(^|\s)\d{3,7}(\s|$|[.,])/i.test(text);
+}
+
+/** What they sell, from a sentence: "...what we do is that we sell turkey and bread." */
+function tradeFrom(text: string): string | null {
+  const said = text.match(/^[\s\S]*\b(?:we|i)\s+(?:also\s+|only\s+|just\s+|mainly\s+)?(?:sell|make|bake|print|offer|produce|deal in)\s+([^.!?\n]+)/i)?.[1];
+  const trade = said?.trim().replace(/[,;:]+$/, "");
+  return trade && trade.length <= 120 && isTrade(trade) ? trade : null;
+}
 
 /** A CSV file the owner sent, as text, or the reply explaining why it can't be read. */
 async function csvFrom(file: { data: Blob; mimeType: string }): Promise<string | Reply> {
@@ -949,18 +1040,24 @@ export function createSupabaseSignups(db: SupabaseClient): SignupStore {
       if (error) throw new Error(`count quote sign-ups failed: ${error.message}`);
       return count ?? 0;
     },
-    async codeExists(code) {
+    async activeCodes() {
       // Every column, so the end date (migration 0089) is checked once it's there.
-      const { data, error } = await db
-        .from("promo_codes")
-        .select("*")
-        .eq("code", code)
-        .eq("active", true)
-        .or("product.is.null,product.eq.quote")
-        .maybeSingle();
+      const { data, error } = await db.from("promo_codes").select("*").eq("active", true).or("product.is.null,product.eq.quote");
       if (error) throw new Error(`promo code lookup failed: ${error.message}`);
-      const endsOn = (data as { ends_on?: string | null } | null)?.ends_on;
-      return Boolean(data) && (!endsOn || endsOn >= lagosToday(new Date()));
+      const today = lagosToday(new Date());
+      return (data ?? [])
+        .filter((r) => !r.ends_on || r.ends_on >= today)
+        .map((r) => ({
+          code: r.code as string,
+          percentOff: Number(r.percent_off),
+          maxUses: r.max_uses == null ? null : Number(r.max_uses),
+          endsOn: (r.ends_on as string | null | undefined) ?? null,
+          personal: r.referrer_business_id != null,
+        }));
+    },
+    async saveBusinessCode(businessId, code) {
+      const { error } = await db.from("quote_businesses").update({ referral_code: code }).eq("id", businessId).is("referral_code", null);
+      if (error) throw new Error(`save sign-up code failed: ${error.message}`);
     },
     async createBusiness(b) {
       const { data, error } = await db

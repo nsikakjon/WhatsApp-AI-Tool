@@ -14,6 +14,7 @@ function memoryStore() {
   const rows = new Map<string, Signup & { signedUpAt?: Date }>();
   const created: Array<{ name: string; orderPrefix: string; ownerWaId: string; referralCode: string | null }> = [];
   let signedUpToday = 0;
+  const businessCodes = new Map<string, string>();
   const store: SignupStore = {
     async get(waId) {
       const row = rows.get(waId);
@@ -40,15 +41,21 @@ function memoryStore() {
     async signedUpSince() {
       return signedUpToday + [...rows.values()].filter((r) => r.signedUpAt).length;
     },
-    async codeExists(code) {
-      return code === "KAHNP4821";
+    async activeCodes() {
+      return [
+        { code: "KAHNP4821", percentOff: 10, maxUses: null, endsOn: null, personal: true },
+        { code: "TEDXUNIUYO", percentOff: 70, maxUses: 200, endsOn: "2027-01-31", personal: false },
+      ];
+    },
+    async saveBusinessCode(businessId, code) {
+      businessCodes.set(businessId, code);
     },
     async createBusiness(b) {
       created.push(b);
       return `biz-${created.length}`;
     },
   };
-  return { store, rows, created, fillToday: (n: number) => (signedUpToday = n) };
+  return { store, rows, created, businessCodes, fillToday: (n: number) => (signedUpToday = n) };
 }
 
 function memorySetup() {
@@ -238,7 +245,7 @@ describe("chat sign-up on the quotes number", () => {
       expect((await say("Send the price to my whatsapp")).text).toBe("Demo shop here.");
     });
 
-    it("gets the team after two replies in a row the bot couldn't answer, instead of going quiet", async () => {
+    it("lists what an owner can send after two replies the bot couldn't answer, and gets the team after four", async () => {
       const mem = memoryStore();
       await mem.store.save(OWNER, { step: "done", businessId: "biz-9", businessName: "NaNa's Home Essentials" });
       const bot = withChatSignup(unsure, {
@@ -253,9 +260,13 @@ describe("chat sign-up on the quotes number", () => {
       const first = await bot.handle(msg("Answer me"), ctx());
       expect(first).toEqual({ text: "Which item do you want?", stage: "unclear" });
       const second = await bot.handle(msg("Hey im waiting"), ctx());
-      expect(second?.text).toMatch(/^Let me get someone from the yarnOga team/);
-      expect(second?.stage).toBeUndefined();
-      expect(second?.notify?.[0]?.text).toContain("The bot couldn't answer their last two messages");
+      expect(second?.text).toMatch(/^Here's what you can send me:/);
+      expect(second?.notify).toBeUndefined();
+      await bot.handle(msg("Hello?"), ctx());
+      const fourth = await bot.handle(msg("Still waiting"), ctx());
+      expect(fourth?.text).toMatch(/^Let me get someone from the yarnOga team/);
+      expect(fourth?.stage).toBeUndefined();
+      expect(fourth?.notify?.[0]?.text).toContain("The bot couldn't answer four messages in a row");
     });
   });
 
@@ -623,7 +634,7 @@ describe("chat sign-up on the quotes number", () => {
     await say("Mama Cakes");
     await say("cakes and pastries");
     expect((await say("KAHNP482")).text).toMatch(/can't find the code \*KAHNP482\*/);
-    expect((await say("kahnp 4821")).text).toMatch(/^Thanks, I've kept \*KAHNP4821\*.*\n\nNow your prices/s);
+    expect((await say("kahnp 4821")).text).toMatch(/^Thanks, I've added your code \*KAHNP4821\*. It gives you 10% off your first month on any paid plan\..*\n\nNow your prices/s);
     await say("Cupcakes 600 each, box of 6 3500 min 2, birthday cakes on request");
     const done = await say("yes");
     expect(mem.created[0]?.referralCode).toBe("KAHNP4821");
@@ -780,6 +791,99 @@ describe("chat sign-up on the quotes number", () => {
     await say("Cupcakes 600 and box of 6 for 3500 min 2");
     expect((await say("yes")).text).toMatch(/Saved/);
     expect(setup.lists.get("biz-1")).toHaveLength(3);
+  });
+
+  describe("not getting people stuck", () => {
+    it("finds a partner code in a sentence, even cut short, and says what it gives", async () => {
+      const { say, mem } = setUp();
+      await say("sign up");
+      await say("NOLingo");
+      await say("turkey and bread");
+      const kept = await say("The referral code TEDxUNIU");
+      expect(kept.text).toMatch(/^Thanks, I've added your code \*TEDXUNIUYO\*\. It gives you 70% off your first month on any paid plan, for the first 200 businesses, if you upgrade by 31 Jan 2027\./);
+      expect(mem.rows.get(OWNER)).toMatchObject({ step: "prices", referralCode: "TEDXUNIUYO" });
+    });
+
+    it("keeps a code sent with the prices, and one sent after signing up", async () => {
+      const { say, mem } = setUp();
+      await signUpToPrices(say);
+      expect((await say("TEDXUNIUYO is the referral code")).text).toMatch(/^Thanks, I've added your code \*TEDXUNIUYO\*.*Back to your price list/s);
+      await say("Cupcakes 600 each");
+      await say("yes");
+      expect(mem.created[0]?.referralCode).toBe("TEDXUNIUYO");
+
+      const late = setUp();
+      await signUpToPrices(late.say);
+      await late.say("Cupcakes 600 each");
+      await late.say("yes");
+      expect((await late.say("I forgot my code, tedxuniuyo")).text).toMatch(/added your code \*TEDXUNIUYO\*/);
+      expect(late.mem.businessCodes.get("biz-1")).toBe("TEDXUNIUYO");
+    });
+
+    it("takes what they sell from a confused answer", async () => {
+      const { say, mem } = setUp();
+      await say("sign up");
+      await say("NOLingo");
+      const asked = await say("Alpha, I don't know what you're doing. The name of... What we do is that we sell turkey and bread.");
+      expect(asked.text).toMatch(/referral code/);
+      expect(mem.rows.get(OWNER)?.description).toBe("turkey and bread");
+      expect((await say("no")).text).not.toMatch(/starter price list/);
+    });
+
+    it("puts right what they sell while the starter list is untouched", async () => {
+      const { say, mem } = setUp();
+      await say("sign up");
+      await say("Ada Stores");
+      await say("cakes and pastries");
+      expect((await say("no")).text).toMatch(/starter price list for a cake and pastry business/);
+      const fixed = await say("No, we sell turkey and chicken");
+      expect(fixed.text).toMatch(/^Thanks, I've changed what you sell to \*turkey and chicken\*\./);
+      expect(mem.rows.get(OWNER)).toMatchObject({ description: "turkey and chicken", draftCsv: null });
+    });
+
+    it("starts the test chat when an owner copies the instruction", async () => {
+      const own: Product = { name: "quote", handle: async () => ({ text: "Your bot here." }) };
+      const { say } = setUp(CUPCAKES, { tryBot: async () => own });
+      await signUpToPrices(say);
+      await say("Cupcakes 600 each");
+      await say("yes");
+      expect((await say("Send *try* to chat with your bot as a customer would")).text).toMatch(/chatting with \*Mama Cakes\*'s bot/);
+      await say("done");
+      expect((await say("Try to chat with your bot as a customer would")).text).toMatch(/chatting with/);
+    });
+
+    it("explains moving regular WhatsApp to the Business app and resends the link", async () => {
+      const { say } = setUp(CUPCAKES, { connectLink: (id) => `https://yarnoga.com/connect/${id}` });
+      await signUpToPrices(say);
+      await say("Cupcakes 600 each");
+      await say("yes");
+      const regular = await say("Regular WhatsApp");
+      expect(regular.text).toMatch(/Install the free \*WhatsApp Business\* app/);
+      expect(regular.text).toContain("https://yarnoga.com/connect/biz-1");
+      expect(regular.notify).toBeUndefined();
+      expect((await say("WhatsApp Business")).text).toMatch(/keep using your WhatsApp Business app.*yarnoga\.com\/connect\/biz-1/is);
+    });
+
+    it("adds prices an owner types after signing up, for YES", async () => {
+      const SHIRTS: PriceListDraft = {
+        rows: [
+          { product: "Cupcakes", option: "Standard", minQuantity: null, fromQuantity: null, price: "600" },
+          { product: "Shirts", option: "Standard", minQuantity: null, fromQuantity: null, price: "20000" },
+          { product: "Vintage shirts", option: "Standard", minQuantity: null, fromQuantity: null, price: "16000" },
+        ],
+        notes: null,
+      };
+      const { say, setup, ai } = setUp(SHIRTS);
+      await signUpToPrices(say);
+      await say("Cupcakes 600 each");
+      setup.lists.set("biz-1", []);
+      await say("yes");
+      const shown = await say("Shirts 20k vintage 16k");
+      expect(ai.calls.at(-1)?.text).toContain("The owner's changes: Shirts 20k vintage 16k");
+      expect(shown.text).toMatch(/Reply \*YES\* to save it/);
+      expect((await say("yes")).text).toMatch(/^Saved\./);
+      expect(setup.lists.get("biz-1")?.map((i) => i.product)).toContain("Vintage shirts");
+    });
   });
 });
 
