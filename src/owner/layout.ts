@@ -180,7 +180,7 @@ export function page(s: Shell, body: string): string {
 </div>
 <nav class="tabs" aria-label="Main">${tabs.map(link).join("")}
   <details class="moretab${moreActive ? " on" : ""}"><summary>${icon("more")}<span>More</span></summary>
-  <div class="sheet">${grouped("sheethead", (links) => `<div class="menugrid">${links}</div>`)}<p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${switcher}${logout}</div></details>
+  <div class="sheet"><span class="grab" aria-hidden="true"></span><div class="sheetbody">${grouped("sheethead", (links) => `<div class="menugrid">${links}</div>`)}<p class="sheethead">${esc(s.businessName)} · ${esc(s.userName)}</p>${switcher}${logout}</div></div></details>
 </nav>
 </div>${s.tour ? tour(items, s.tour.userId, s.tour.start) : ""}`,
   );
@@ -319,7 +319,10 @@ main{padding:24px 16px calc(150px + env(safe-area-inset-bottom));max-width:1240p
 .tabs>a,.moretab>summary{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border-radius:16px;color:var(--muted);text-decoration:none;font-size:.68rem;font-weight:600;cursor:pointer;list-style:none}
 .moretab{flex:1;display:flex}.moretab>summary::-webkit-details-marker{display:none}
 .tabs>a.on,.moretab.on>summary{color:var(--limeink);background:var(--lime)}
-.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);padding:10px;border-radius:20px;background:#111713;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 20px 60px rgba(0,0,0,.6)}
+.sheet{position:absolute;left:0;right:0;bottom:calc(100% + 10px);display:flex;flex-direction:column;max-height:calc(100vh - 110px - env(safe-area-inset-bottom));max-height:calc(100dvh - 110px - env(safe-area-inset-bottom));border-radius:20px;background:#111713;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 20px 60px rgba(0,0,0,.6)}
+.grab{flex:none;display:grid;place-items:center;height:22px;touch-action:none;cursor:grab}.grab:before{content:"";width:40px;height:4px;border-radius:99px;background:var(--dim)}
+.sheetbody{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 10px 10px}
+html:has(.moretab[open]),html:has(.moretab[open]) body{overflow:hidden}
 .sheethead{margin:10px 8px 6px;color:var(--dim);font:600 11px/1.4 var(--body);text-transform:uppercase;letter-spacing:.12em}
 .menugrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .sheet .menugrid a{flex-direction:column;gap:6px;padding:10px 4px;text-align:center;font-size:.78rem;line-height:1.2;background:rgba(255,255,255,.05);border:1px solid var(--line)}
