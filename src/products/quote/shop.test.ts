@@ -208,7 +208,8 @@ describe("shop page", () => {
     // The page escapes ' as &#39;, which the browser turns back.
     expect(page).toContain("https://wa.me/2348011112222?text=I&#39;d%20like%20Flyers");
     expect(page).toContain('data-name="Flyers: A5, double-sided" data-min="50"');
-    expect(page).toContain(JSON.stringify("Hello Ada's Prints, I'd like to order:"));
+    expect(page).toContain(JSON.stringify("Hello Ada's Prints, I'd like to buy now:"));
+    expect(page).toContain('data-v="v1" data-ref="v1"');
   });
 
   it("shows sold-out options without a quantity box, and no order button when everything is sold out", async () => {

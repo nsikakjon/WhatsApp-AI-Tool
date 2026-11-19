@@ -14,6 +14,7 @@ import { STARS } from "./ratings.js";
 import { activeSale, saleTiers, type Sale } from "./sale.js";
 import { pickWidth, previewCard, resized } from "./shop-images.js";
 import { backInStockAsk } from "./stock-alerts.js";
+import { buyRef } from "./buy-now.js";
 
 // Each business's public shop page (QUOTE_SHOP, migration 0059), for an
 // Instagram bio, a WhatsApp status or a flyer: <PUBLIC_URL>/shop/<name>, shared
@@ -30,9 +31,10 @@ import { backInStockAsk } from "./stock-alerts.js";
 // can share the shop or save its number to their contacts.
 // Customers search or jump between categories, open a product full screen to
 // swipe through its photos, and pick quantities with + and -, watching a
-// running total. One button opens WhatsApp on the business's number with the
-// order already typed ("I'd like to order: 100 x Flyers: A5 ..."), and the
-// bot answers with a proper quote. Nothing is paid or saved on the page.
+// running total. "Buy now" opens WhatsApp on the business's number with the
+// order already typed and an order code (buy-now.ts), and the bot confirms it
+// straight away with the total, delivery and a pay link. Nothing is paid or
+// saved on the page.
 //
 // It's built to load fast on 3G: no libraries, one small script, and photos
 // resized on the server to the width the phone shows them at.
@@ -259,11 +261,12 @@ const TEXT = {
     more1: "One more",
     more: "More",
     picked: { one: "1 item", many: "{n} items" },
-    send: "Send order on WhatsApp",
+    send: "Buy now on WhatsApp",
     beforeDelivery: "before delivery",
     priced: "some prices confirmed on WhatsApp",
-    note: "Pick how many you want, then send. Your exact total comes back on WhatsApp, with delivery and any discount.",
-    intro: (b: string) => `Hello ${b}, I'd like to order:`,
+    note: "Pick how many you want, then tap Buy now and send the message WhatsApp opens with. Your total, delivery and a link to pay come straight back.",
+    intro: (b: string) => `Hello ${b}, I'd like to buy now:`,
+    code: "Order code",
     want: (p: string) => `I'd like ${p}`,
     chat: "Chat on WhatsApp",
     hello: (b: string) => `Hello ${b}`,
@@ -321,11 +324,12 @@ const TEXT = {
     more1: "Un de plus",
     more: "Autres",
     picked: { one: "1 article", many: "{n} articles" },
-    send: "Envoyer la commande sur WhatsApp",
+    send: "Acheter sur WhatsApp",
     beforeDelivery: "hors livraison",
     priced: "certains prix confirmés sur WhatsApp",
-    note: "Choisissez les quantités, puis envoyez. Le total exact vous revient sur WhatsApp, avec la livraison et les réductions.",
-    intro: (b: string) => `Bonjour ${b}, je voudrais commander :`,
+    note: "Choisissez les quantités, touchez Acheter et envoyez le message que WhatsApp ouvre. Le total, la livraison et un lien pour payer vous reviennent tout de suite.",
+    intro: (b: string) => `Bonjour ${b}, je voudrais acheter :`,
+    code: "Code commande",
     want: (p: string) => `Je voudrais ${p}`,
     chat: "Discuter sur WhatsApp",
     hello: (b: string) => `Bonjour ${b}`,
@@ -476,7 +480,7 @@ export function createShopPage(deps: ShopDeps) {
       !photos || !p.photoPath ? [] : [`/shop/${slug}/photo/${p.id}`, ...p.morePhotos.map((_, i) => `/shop/${slug}/photo/${p.id}/${i + 1}`)];
 
     const stepper = (o: ShopOption, label: string) =>
-      html`<div class="step" data-v="${o.variant.id}" data-name="${o.variant.name}" data-min="${o.variant.minQuantity}"${o.stock !== null ? html` data-max="${o.stock}"` : ""} data-tiers="${JSON.stringify(o.variant.tiers.map((x) => [x.minQuantity, x.unitPriceKobo]))}">
+      html`<div class="step" data-v="${o.variant.id}" data-ref="${buyRef(o.variant.id)}" data-name="${o.variant.name}" data-min="${o.variant.minQuantity}"${o.stock !== null ? html` data-max="${o.stock}"` : ""} data-tiers="${JSON.stringify(o.variant.tiers.map((x) => [x.minQuantity, x.unitPriceKobo]))}">
           <button type="button" class="minus" aria-label="${t.fewer}" disabled>−</button><input class="qty" type="number" inputmode="numeric" min="0" step="1" placeholder="0" aria-label="${t.quantity(label)}"><button type="button" class="plus" aria-label="${t.more1}">+</button>
         </div>`;
 
@@ -652,12 +656,12 @@ ${products.length > 0
   // The running total uses the price list's tiers exactly as pricing.ts does:
   // the best tier the quantity reaches, times the quantity. It's a guide for
   // the customer; the bot works out the real quote from the database.
-  const T = ${json({ intro: t.intro(b.name), picked: t.picked, before: t.beforeDelivery, priced: t.priced, shared: t.shared(b.name), money: moneyStyle(b.currency), wa: b.whatsappNumber })};
+  const T = ${json({ intro: t.intro(b.name), code: t.code, picked: t.picked, before: t.beforeDelivery, priced: t.priced, shared: t.shared(b.name), money: moneyStyle(b.currency), wa: b.whatsappNumber })};
   const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   const info = new Map();
   for (const s of $$(".step")) {
-    info.set(s.dataset.v, { name: s.dataset.name, min: Number(s.dataset.min) || 1, max: s.dataset.max === undefined ? Infinity : Number(s.dataset.max), tiers: JSON.parse(s.dataset.tiers) });
+    info.set(s.dataset.v, { ref: s.dataset.ref, name: s.dataset.name, min: Number(s.dataset.min) || 1, max: s.dataset.max === undefined ? Infinity : Number(s.dataset.max), tiers: JSON.parse(s.dataset.tiers) });
   }
   const qty = new Map();
   const bar = document.getElementById("bar");
@@ -673,12 +677,13 @@ ${products.length > 0
     return best && best[1];
   };
   const totals = () => {
-    const lines = [];
+    const lines = [], code = [];
     let sum = 0, unpriced = false;
     for (const [v, n] of qty) {
       if (!(n > 0)) continue;
       const i = info.get(v), price = unit(i, n);
       lines.push("• " + n + " x " + i.name);
+      code.push(i.ref + "*" + n);
       if (price === null || n < i.min) unpriced = true;
       else sum += price * n;
     }
@@ -687,7 +692,7 @@ ${products.length > 0
     count.textContent = lines.length === 1 ? T.picked.one : T.picked.many.replace("{n}", String(lines.length));
     total.textContent = money(sum);
     document.getElementById("sub").textContent = T.before + (unpriced ? " · " + T.priced : "");
-    document.getElementById("send").href = "https://wa.me/" + T.wa + "?text=" + encodeURIComponent([T.intro, ...lines].join("\\n"));
+    document.getElementById("send").href = "https://wa.me/" + T.wa + "?text=" + encodeURIComponent([T.intro, ...lines, "", T.code + ": SHOP " + code.join(" ")].join("\\n"));
   };
   const show = (v) => {
     const n = qty.get(v) || 0, i = info.get(v);
