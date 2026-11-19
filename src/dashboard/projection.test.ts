@@ -51,7 +51,7 @@ describe("the plan on the dashboard", () => {
   const app = (now: Date) => createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, money, now: () => now });
 
   it("shows spending against the plan on the Money tab", async () => {
-    const html = await (await app(new Date("2026-11-11T09:00:00Z")).request("/?tab=money", { headers: auth })).text();
+    const html = await (await app(new Date("2026-11-11T09:00:00Z")).request("/?tab=money&show=plan", { headers: auth })).text();
     expect(html).toContain('id="plan"');
     expect(html).toContain("₦44,810");
     expect(html).toContain("of ₦264,100 planned for Nov 2026");

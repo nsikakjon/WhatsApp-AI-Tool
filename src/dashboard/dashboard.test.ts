@@ -113,8 +113,13 @@ describe("dashboard page", () => {
     const html = await res.text();
     expect(html).toContain("yarn<b>Oga</b> analytics");
     expect(html).toContain('href="/dashboard?tab=products" aria-current="page"');
-    expect(html).toContain("₦12,500");
-    expect(html).toContain("₦4,500/mo");
+    expect(html).toContain('id="whatsapp"');
+    expect(html).not.toContain('id="flyers"');
+    const quotes = await (await app.request("/?tab=products&show=quotes", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } })).text();
+    expect(quotes).toContain("₦12,500");
+    expect(quotes).toContain('aria-current="page">Sales assistant');
+    const flyers = await (await app.request("/?tab=products&show=flyers", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } })).text();
+    expect(flyers).toContain("₦4,500/mo");
   });
 
   it("sends the owner to TikTok to connect, and rejects a callback it didn't start", async () => {

@@ -33,6 +33,10 @@ sheet, plan editor, numbers to connect) next to them:
 - **Marketing**: leads from ads, website visitors and socials.
 - **Products**: WhatsApp, flyers, sales assistant, site reporter and leads.
 
+Inside Money, Marketing and Products a second row of buttons picks one part
+at a time (for example Money > Cost per shop), so a tab is never one long
+scroll. A link to one part looks like `/dashboard?tab=money&show=costs`.
+
 
 | Section | Numbers |
 | --- | --- |

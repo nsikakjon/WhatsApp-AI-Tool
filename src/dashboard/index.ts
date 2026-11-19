@@ -94,6 +94,7 @@ export function createDashboard(deps: DashboardDeps) {
       return c.html(
         renderDashboard(stats, {
           tab: asked && DASHBOARD_TABS.includes(asked) ? asked : "overview",
+          show: c.req.query("show"),
           socials,
           website,
           analytics,

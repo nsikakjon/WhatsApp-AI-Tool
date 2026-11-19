@@ -1,4 +1,4 @@
-import { pageShell } from "../core/admin-page.js";
+import { pageShell, views } from "../core/admin-page.js";
 import { formatNaira } from "../core/money.js";
 import { AD_REPORT_DAYS } from "../core/ads.js";
 import type { AdsReport } from "./ads.js";
@@ -382,7 +382,7 @@ function profitSection(view: ProfitView | undefined): string {
   const edit = editing
     ? `<form id="edit" class="entry" method="post" action="/dashboard/money/${editing.id}"><h3>Edit: ${esc(editing.item)}</h3>
 ${entryFields(today, p.lastUsdRateKobo, editing)}
-<div class="buttons"><button type="submit">Save changes</button><a href="/dashboard?tab=money#money">Cancel</a></div>
+<div class="buttons"><button type="submit">Save changes</button><a href="/dashboard?tab=money&show=money">Cancel</a></div>
 </form>`
     : "";
   const form = `<details class="add"${view.problem && !editing ? " open" : ""}><summary>+ Add an entry</summary><form class="entry" method="post" action="/dashboard/money">
@@ -437,7 +437,7 @@ function planRow(m: PlanMonth): string {
 
 function planSection(plan: PlanComparison | null): string {
   if (!plan) return "";
-  const intro = `Money in and out each month next to the Base case of the 28 Oct projection (accounts/yarnoga-projection-2026-10-28.xlsx), which starts in ${monthName(PLAN_START)}. Costs with the category ${MARKETING_CATEGORY} count as ads; every other cost counts as running costs (tools, servers, AI, Meta fees and so on). It updates as soon as an entry is added or edited above.`;
+  const intro = `Money in and out each month next to the Base case of the 28 Oct projection (accounts/yarnoga-projection-2026-10-28.xlsx), which starts in ${monthName(PLAN_START)}. Costs with the category ${MARKETING_CATEGORY} count as ads; every other cost counts as running costs (tools, servers, AI, Meta fees and so on). It updates as soon as an entry is added or edited under Profit and loss.`;
   if (!plan.months.length) {
     return section("plan", "Against the plan", intro, `<p class="intro">The plan starts in ${esc(monthName(PLAN_START))}.</p>`);
   }
@@ -470,6 +470,8 @@ export const DASHBOARD_TABS: DashboardTab[] = ["overview", "money", "marketing",
 
 export interface DashboardView {
   tab?: DashboardTab;
+  /** Which part of the tab to show, e.g. "costs" on Money. The first one when not given. */
+  show?: string;
   socials?: SocialAccount[];
   website?: WebsiteStats | "error";
   analytics?: AnalyticsResult;
@@ -483,7 +485,7 @@ export interface DashboardView {
 }
 
 export function renderDashboard(s: DashboardStats, view: DashboardView = {}): string {
-  const { tab = "overview", socials: socialAccounts = [], website, analytics, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
+  const { tab = "overview", show, socials: socialAccounts = [], website, analytics, profit, costs, ads, planEditor, numberQueue, tallySheet, partners } = view;
   const w = s.whatsapp;
   const f = s.flyers;
   const q = s.quotes;
@@ -574,34 +576,34 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     profit && profit.pnl !== "error"
       ? tile(profit.pnl.netKobo < 0 ? "Loss so far" : "Profit so far", signedNaira(profit.pnl.netKobo), "income minus costs, all time", profit.pnl.netKobo < 0 ? "loss" : "glow", "?tab=money")
       : "",
-    tile("People on WhatsApp", num(w.contacts), `${num(w.newContacts7)} new this week`, profit ? "" : "glow", "?tab=products#whatsapp"),
+    tile("People on WhatsApp", num(w.contacts), `${num(w.newContacts7)} new this week`, profit ? "" : "glow", "?tab=products&show=whatsapp"),
     ads && ads !== "error"
-      ? tile("Leads from ads", num(ads.ads.reduce((sum, a) => sum + a.leads7, 0)), "this week", "", "?tab=marketing#ads")
+      ? tile("Leads from ads", num(ads.ads.reduce((sum, a) => sum + a.leads7, 0)), "this week", "", "?tab=marketing&show=ads")
       : "",
     website && website !== "error"
-      ? tile("Website visitors today", num(website.visitorsToday), `${num(website.views30)} page views in 30 days`, "", "?tab=marketing#website")
+      ? tile("Website visitors today", num(website.visitorsToday), `${num(website.views30)} page views in 30 days`, "", "?tab=marketing&show=website")
       : "",
-    tile("Flyer groups", num(f.groups), `${num(f.paidGroups)} on a paid plan`, "", "?tab=products#flyers"),
-    tile("Messages received", num(w.inbound30), "last 30 days", "", "?tab=products#whatsapp"),
+    tile("Flyer groups", num(f.groups), `${num(f.paidGroups)} on a paid plan`, "", "?tab=products&show=flyers"),
+    tile("Messages received", num(w.inbound30), "last 30 days", "", "?tab=products&show=whatsapp"),
   ].join("");
 
   const plan = planComparison(profit);
   const overPlan = plan?.current && costsOf(plan.current.actual!) > costsOf(plan.current.planned);
   const checks = [
-    ...(overPlan ? [["Spending this month is over the plan", "?tab=money#plan"]] : []),
+    ...(overPlan ? [["Spending this month is over the plan", "?tab=money&show=plan"]] : []),
     ...(costs && costs !== "error"
-      ? costs.shops.filter((x) => x.losing).map((x) => [`${x.name} will cost more than it pays this month`, "?tab=money#costs"])
+      ? costs.shops.filter((x) => x.losing).map((x) => [`${x.name} will cost more than it pays this month`, "?tab=money&show=costs"])
       : []),
     ...[
-      [profit?.pnl === "error", "Profit and loss couldn't load", "?tab=money#money"],
-      [costs === "error", "Shop costs couldn't load", "?tab=money#costs"],
-      [ads === "error", "Leads from ads couldn't load", "?tab=marketing#ads"],
-      [website === "error", "Website visits couldn't load", "?tab=marketing#website"],
-      [analytics?.status === "error", "Google Analytics couldn't load", "?tab=marketing#analytics"],
+      [profit?.pnl === "error", "Profit and loss couldn't load", "?tab=money&show=money"],
+      [costs === "error", "Shop costs couldn't load", "?tab=money&show=costs"],
+      [ads === "error", "Leads from ads couldn't load", "?tab=marketing&show=ads"],
+      [website === "error", "Website visits couldn't load", "?tab=marketing&show=website"],
+      [analytics?.status === "error", "Google Analytics couldn't load", "?tab=marketing&show=analytics"],
     ]
       .filter(([bad]) => bad)
       .map(([, text, href]) => [text, href]),
-    ...socialAccounts.filter((a) => a.status === "error").map((a) => [`${a.name} numbers couldn't load`, "?tab=marketing#socials"]),
+    ...socialAccounts.filter((a) => a.status === "error").map((a) => [`${a.name} numbers couldn't load`, "?tab=marketing&show=socials"]),
   ] as [string, string][];
   const needsLook = `<section id="checks"><h2>Needs a look</h2>${
     checks.length
@@ -622,18 +624,57 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
         .join("")}</div></section>`
     : "";
 
-  const tabs: [DashboardTab, string, string][] = [
-    ["overview", "Overview", `${needsLook}${toolCards}`],
-    ["money", "Money", `${profitSection(profit)}${planSection(plan)}${costsSection(costs)}`],
-    ["marketing", "Marketing", `${adsSection(ads)}${websiteSection(website)}${analyticsSection(analytics)}${socials}`],
-    ["products", "Products", `${whatsapp}${flyers}${quotes}${reporter}${leads}`],
+  // Each tab shows one of its parts at a time, picked from the row under the
+  // tabs, so no tab is one long scroll.
+  const tabs: [DashboardTab, string, [string, string, string][]][] = [
+    ["overview", "Overview", [["overview", "Overview", `${needsLook}${toolCards}`]]],
+    [
+      "money",
+      "Money",
+      [
+        ["money", "Profit and loss", profitSection(profit)],
+        ["plan", "Against the plan", planSection(plan)],
+        ["costs", "Cost per shop", costsSection(costs)],
+      ],
+    ],
+    [
+      "marketing",
+      "Marketing",
+      [
+        ["ads", "Ads", adsSection(ads)],
+        ["website", "Website", websiteSection(website)],
+        ["analytics", "Google Analytics", analyticsSection(analytics)],
+        ["socials", "Socials", socials],
+      ],
+    ],
+    [
+      "products",
+      "Products",
+      [
+        ["whatsapp", "WhatsApp", whatsapp],
+        ["flyers", "Flyers", flyers],
+        ["quotes", "Sales assistant", quotes],
+        ["reporter", "Site reporter", reporter],
+        ["leads", "Lead qualifier", leads],
+      ],
+    ],
   ];
+  const parts = tabs.find(([id]) => id === tab)![2].filter(([, , html]) => html);
+  const part = parts.find(([id]) => id === show) ?? parts[0];
+  const partsNav =
+    parts.length > 1
+      ? views(
+          parts.map(([id, label]) => [`/dashboard?tab=${tab}&show=${id}`, label]),
+          `/dashboard?tab=${tab}&show=${part?.[0]}`,
+        )
+      : "";
   const nav =
     tabs
       .map(([id, label]) => `<a href="/dashboard${id === "overview" ? "" : `?tab=${id}`}"${id === tab ? ' aria-current="page"' : ""}>${label}</a>`)
       .join("") +
     (shownTools.length ? `<span class="sep" aria-hidden="true"></span>` : "") +
-    shownTools.map(([href, name]) => `<a class="tool-link" href="${href}">${esc(name)}</a>`).join("");
+    shownTools.map(([href, name]) => `<a class="tool-link" href="${href}">${esc(name)}</a>`).join("") +
+    `<a class="signout" href="/dashboard/logout">Sign out</a>`;
 
   return pageShell({
     title: "yarnOga analytics",
@@ -642,7 +683,7 @@ ${tile("Handed to an agent", num(l.handedOff), "all time")}
     badge: "Live from the database",
     nav,
     body: `${tab === "overview" ? `<div class="tiles glance" aria-label="At a glance">${glanceTiles}</div>` : ""}
-${tabs.find(([id]) => id === tab)![2]}
+${partsNav}${part?.[2] ?? ""}
 <footer>Refresh the page for the latest numbers. "Last 30 days" and "this week" count back from the moment the page loaded.</footer>`,
     css: DASHBOARD_CSS,
   });
@@ -652,6 +693,7 @@ const DASHBOARD_CSS = `@media (min-width:900px) { .glance { grid-template-column
 .jump a[aria-current] { background:var(--lime); color:var(--limeink); border-color:transparent; }
 .jump .sep { flex:none; width:1px; margin:4px 6px; background:var(--line2); }
 .jump a.tool-link { border-style:dashed; }
+.jump a.signout { margin-left:auto; border-color:transparent; color:var(--dim); }
 a.tile { display:block; color:inherit; text-decoration:none; transition:border-color .15s, transform .15s; }
 a.tile:hover { border-color:var(--line2); transform:translateY(-1px); }
 a.tile .label:after { content:" ›"; color:var(--dim); }
