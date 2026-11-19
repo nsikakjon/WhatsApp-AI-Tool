@@ -182,6 +182,7 @@ const Sync = (()=>{
     if(mode==="gate") return `<div class="card"><b>Not logged in</b><p class="muted small">Open the invite link you were sent to sync your fields.</p></div>`;
     return `<div class="card"><div class="row"><div class="grow"><b>${esc(me.name)}</b><div class="muted small">${me.role==="admin"?"Admin · sees every farm in the trial":"Tester"}${lastAt?" · last synced "+new Date(lastAt).toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}</div></div>${chip()}</div>
       <div class="grid2" style="margin-top:10px"><button class="btn soft sm" data-act="syncnow">Sync now</button><button class="btn soft sm" data-act="logout">Log out</button></div></div>
+      <div id="waAlerts"></div>
       ${me.role==="admin"?`<div class="card"><h2>Trial testers</h2><div class="row"><input id="invName" placeholder="Tester's name (optional)"><button class="btn sm" data-act="invitetester" style="flex:0 0 auto">Invite</button></div><div id="adminUsers" class="small muted" style="margin-top:10px">Loading…</div></div>`:""}`;
   }
   async function loadAdmin(){
@@ -190,6 +191,39 @@ const Sync = (()=>{
       el.innerHTML=r.j.users.filter(u=>u.role!=="admin").map(u=>`<div class="li"><div class="bul ${u.disabled?"":"dark"}">${esc(u.name[0]||"?")}</div><div class="b"><div class="t">${esc(u.name)}</div><div class="s">${u.fields} field${u.fields===1?"":"s"} · ${u.lastSeen?"last seen "+new Date(u.lastSeen).toLocaleDateString("en-GB",{day:"numeric",month:"short"}):"not opened yet"}${u.disabled?" · switched off":""}</div></div>
         <button class="btn soft sm" data-act="toggleuser" data-id="${u.id}" data-off="${u.disabled?"":"1"}">${u.disabled?"Switch on":"Switch off"}</button></div>`).join("") || "No testers yet. Invite one above.";
     }catch(e){ el.textContent="Couldn't load: no connection."; }
+  }
+
+  /* ---------- WhatsApp alerts ---------- */
+  let alertState=null;   // {available, phone, fields:[{id,name,on}]}
+  async function loadAlerts(){
+    const el=$("#waAlerts"); if(!el||mode!=="on") return;
+    paintAlerts();   // the last answer straight away, then the fresh one
+    try{ const r=await call("alerts"); if(!r.ok) throw 0; alertState=r.j; }catch(e){ if(!alertState){ el.innerHTML=""; return; } }
+    paintAlerts();
+  }
+  function paintAlerts(){
+    const el=$("#waAlerts"); if(!el||!alertState) return;
+    if(!alertState.available){ el.innerHTML=""; return; }
+    const a=alertState, shown=a.phone?("+"+a.phone):"";
+    el.innerHTML=`<div class="card"><h2>WhatsApp alerts</h2><p class="muted small">Get a WhatsApp message in the morning when one of your fields needs urgent attention, like black pod risk, heavy rain coming or the satellite showing the field less green. The same alert isn't sent twice in a week.</p>
+      <label class="f">Your WhatsApp number</label><div class="row"><input id="waPhone" inputmode="tel" autocomplete="tel" value="${esc(shown)}" placeholder="0803 123 4567"><button class="btn sm" data-act="savephone" style="flex:0 0 auto">Save</button></div>
+      ${a.fields.length?a.fields.map(f=>`<div class="li"><div class="b"><div class="t">${esc(f.name||"Untitled field")}</div><div class="s">${f.on?"Alerts on":"Off"}</div></div><button class="sw" role="switch" aria-checked="${f.on}" aria-label="WhatsApp alerts for ${esc(f.name||"this field")}" data-act="alerttoggle" data-id="${esc(f.id)}" ${a.phone?"":"disabled"}></button></div>`).join("")
+        :`<p class="tiny muted" style="margin-top:10px">Fields you own show here once they've synced. Helpers on a farm don't get its alerts; the owner does.</p>`}
+      ${a.phone||!a.fields.length?"":`<p class="tiny muted" style="margin-top:8px">Save your number first, then switch alerts on for each field.</p>`}</div>`;
+  }
+  async function savePhone(){
+    const v=$("#waPhone")?.value.trim()||"";
+    try{ const r=await call("alerts/phone",{method:"PUT",json:{phone:v}}); if(!r.ok) return toast(r.j.error||"Couldn't save");
+      alertState={...alertState,phone:r.j.phone};
+      if(!r.j.phone) alertState.fields=alertState.fields.map(f=>({...f,on:false}));
+      paintAlerts(); toast(r.j.phone?"Number saved":"Number removed: alerts are off");
+    }catch(e){ toast("No connection. Try again when you have signal."); }
+  }
+  async function toggleAlert(id){
+    const f=alertState?.fields.find(x=>x.id===id); if(!f) return;
+    try{ const r=await call("alerts/fields/"+encodeURIComponent(id),{method:"PUT",json:{on:!f.on}}); if(!r.ok) return toast(r.j.error||"Couldn't change it");
+      f.on=r.j.on; paintAlerts(); toast(f.on?"Alerts on for "+(f.name||"this field"):"Alerts off");
+    }catch(e){ toast("No connection. Try again when you have signal."); }
   }
 
   function gateView(){
@@ -202,7 +236,7 @@ const Sync = (()=>{
   }
 
   return {
-    init, run, schedule, chip, gateView, settingsCards, loadAdmin, helpersBlock, loadHelpers, joinSheet,
+    init, run, schedule, chip, gateView, settingsCards, loadAdmin, loadAlerts, savePhone, toggleAlert, helpersBlock, loadHelpers, joinSheet,
     get me(){ return me; }, get mode(){ return mode; }, set mode(v){ mode=v; },
     async deleteField(p){ if(mode==="on" && p._synced){ setPendingDeletes([...new Set([...pendingDeletes(),p.id])]); run(); } },
     invite(kind,name){ return makeInvite(kind==="field"?{kind,fieldId:P.id}:{kind,nameHint:name},kind==="field"?"Invite a helper":"Invite a tester"); },

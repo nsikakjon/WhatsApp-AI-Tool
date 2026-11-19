@@ -165,7 +165,7 @@ function render(){
   if(route.name==="home") el.innerHTML=homeView();
   else if(route.name==="map") { el.innerHTML=mapView(); afterMap(); }
   else if(route.name==="tasks") el.innerHTML=tasksView();
-  else if(route.name==="settings") { el.innerHTML=settingsView(); Sync.loadAdmin(); }
+  else if(route.name==="settings") { el.innerHTML=settingsView(); Sync.loadAdmin(); Sync.loadAlerts(); }
   else if(route.name==="field"){ if(!P){ route={name:"home"}; return render(); } el.innerHTML=fieldView(); afterField(); }
   bindForms();
 }
@@ -926,6 +926,8 @@ const ACT={
   logout:async()=>{ if(!await confirmBox("Log out?","Synced fields are removed from this phone; they come back when you log in again. Changes not yet synced will be lost.","Log out")) return; Sync.logout(); },
   invitetester:()=>Sync.invite("app",$("#invName")?.value.trim()),
   toggleuser:d=>Sync.toggleUser(d.id,!!d.off),
+  savephone:()=>Sync.savePhone(),
+  alerttoggle:d=>Sync.toggleAlert(d.id),
   invitehelper:()=>{ closeSheet(); Sync.invite("field"); },
   rmhelper:d=>Sync.removeHelper(d.id),
   gatelink:()=>{ const v=$("#gateLink").value; const t=(v.match(/invite=([A-Za-z0-9_-]{30,60})/)||[])[1]; if(!t) return toast("That doesn't look like an invite link"); Sync.joinSheet(t); },

@@ -134,6 +134,12 @@ h1,h2,h3{letter-spacing:-.02em}
 
 /* lists */
 .li{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}
+/* on/off switch (WhatsApp alerts) */
+.sw{flex:0 0 46px;width:46px;height:28px;border:0;border-radius:999px;background:#d5d9d2;position:relative;cursor:pointer;padding:0;align-self:center}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s}
+.sw[aria-checked="true"]{background:var(--forest)}
+.sw[aria-checked="true"]::after{left:21px}
+.sw:disabled{opacity:.45}
 .li:first-child{border-top:0}
 .li .bul{flex:0 0 36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--soft);font-weight:700;font-size:12.5px;color:var(--forest)}
 .li .bul.dark{background:var(--forest);color:#fff}
