@@ -102,8 +102,15 @@ ${result}
 <div class="actions"><button class="ghost small">Save</button></div></form>`
         : "";
       const look = owner && ctx.deps.shop.look ? await ctx.deps.shop.look.get(biz.id).catch(() => null) : null;
+      const noticeForm =
+        look && look.notice !== undefined
+          ? `<form method="post" action="/home/posters/shop-notice" style="margin-top:16px">
+<h3 style="margin:0 0 4px">Notice at the top</h3><p class="muted small" style="margin:0">One line across the top of your shop, for a sale, a discount code or a holiday. Leave it empty to take it off.</p>
+<input name="notice" maxlength="120" value="${esc(look.notice ?? "")}" placeholder="Free delivery in Lekki this week · Use XMAS for 20% off">
+<div class="actions"><button class="ghost small">Save the notice</button></div></form>`
+          : "";
       const lookForm = look
-        ? `<form method="post" action="/home/posters/shop-look" enctype="multipart/form-data" style="margin-top:16px">
+        ? `${noticeForm}<form method="post" action="/home/posters/shop-look" enctype="multipart/form-data" style="margin-top:16px">
 <h3 style="margin:0 0 4px">How your shop looks</h3><p class="muted small" style="margin:0">Your logo comes from Settings.</p>
 <div class="row"><label>Your colour <span class="muted">(buttons and highlights)</span><input type="color" name="accent" value="${esc(look.accent ?? "#c6ff1f")}" style="height:44px"></label>
 <label style="align-self:end"><input type="checkbox" name="plain"${look.accent ? "" : " checked"}> Use yarnOga's colours</label></div>
@@ -158,6 +165,20 @@ ${look.cover ? `<label><input type="checkbox" name="nocover"> Take the cover pho
       return c.redirect("/home/posters?msg=shop_look_failed", 303);
     }
     return c.redirect("/home/posters?msg=shop_look", 303);
+  });
+
+  app.post("/posters/shop-notice", async (c) => {
+    const denied = await ctx.ownerOnly(c);
+    if (denied) return denied;
+    const look = ctx.deps.shop?.look;
+    if (!look) return c.notFound();
+    try {
+      await look.saveNotice(c.get("biz").id, field(await c.req.parseBody(), "notice", 120) || null);
+    } catch (err) {
+      ctx.log.error("Owner app: saving the shop's notice failed:", err);
+      return c.redirect("/home/posters?msg=shop_look_failed", 303);
+    }
+    return c.redirect("/home/posters?msg=shop_notice", 303);
   });
 
   app.post("/posters/shop-contact", async (c) => {

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertKobo, isCurrency, type Currency } from "../../core/money.js";
 import { productSlug, type PriceListItem } from "./pricelist.js";
 import type { QuoteLine, Variant } from "./pricing.js";
+import { activeSale, saleTiers } from "./sale.js";
 import { cleanSocials, SOCIALS, type Social } from "./shop.js";
 
 // Reading the price list and saving quotes/orders. Kept behind interfaces so
@@ -267,13 +268,17 @@ export function createSupabaseCatalog(db: SupabaseClient, businessId?: string): 
       if (error) throw new Error(`activeVariants failed: ${error.message}`);
 
       return (data ?? []).map((row) => {
-        const product = row.quote_products as unknown as { name: string; ask_for?: string | null };
+        const product = row.quote_products as unknown as { name: string; ask_for?: string | null; sale_percent?: number | null; sale_ends_at?: string | null };
         const tiers = (row.quote_price_tiers ?? []) as Array<{ min_quantity: number; unit_price_kobo: number | string }>;
         return {
           id: row.id as string,
           name: `${product.name}: ${row.name as string}`,
           minQuantity: row.min_quantity as number,
-          tiers: tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
+          // A running sale (migration 0094) lowers every price, so quotes match the shop page.
+          tiers: saleTiers(
+            tiers.map((t) => ({ minQuantity: t.min_quantity, unitPriceKobo: Number(t.unit_price_kobo) })),
+            activeSale(product, new Date()),
+          ),
           ...(row.details ? { details: row.details as string } : {}),
           ...(product.ask_for?.trim() ? { askFor: product.ask_for.trim() } : {}),
         };

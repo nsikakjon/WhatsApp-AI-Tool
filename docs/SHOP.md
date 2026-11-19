@@ -9,6 +9,8 @@ know before ordering.
 
 What customers see:
 
+- **A notice across the top**, when the owner writes one: "Free delivery in
+  Lekki this week" or "Use XMAS for 20% off".
 - **The shop's own look**: its logo, a cover photo and its own colour on
   buttons and highlights (set by the owner, see below), and "Open now · closes
   18:00" or "Closed · opens tomorrow at 08:00" from the opening hours in the
@@ -41,6 +43,16 @@ What customers see:
   "2/3" keeping count.
 - "Ready in N working days", "N left" when stock is low, and "Sold out" when
   it's gone.
+- **Sales**: a product on sale shows "20% off until 30 Nov", its sale price,
+  and the old price crossed out. The bot's quotes use the same sale price,
+  so the page and the quote always agree.
+- **Tell me when it's back** on a sold-out option. It opens WhatsApp with
+  "Please tell me when Flyers: A4 is back in stock (ref 1a2b3c4d)" typed. The
+  bot notes it, and when the option has stock again (or stops being counted)
+  it messages that customer once, within five minutes. Waits over 60 days old
+  are dropped.
+- **Share** on each product's full-screen view: the phone's share sheet, or
+  WhatsApp with that product's own link typed (`.../s/mama-put#p-...`).
 - **+ and - buttons** beside each option. The first + jumps to the option's
   minimum, and + stops at the stock that's left. A bar at the bottom shows a
   running total "before delivery", worked out from the price list's prices
@@ -69,6 +81,9 @@ What customers see:
   - **Visit us**: the week's opening hours with today marked, and the address
     with a Directions button.
   - **Follow us**: the shop's Instagram, TikTok, Facebook, X and YouTube pages.
+  - **Get our offers on WhatsApp**: a button that sends JOIN, which puts the
+    customer on the business's broadcast list (they can send STOP any time).
+    Shown only when broadcasts are on.
 - Small movements: a dot flies into the bar when something is added, the
   product view slides up, and the rating bars fill as they come into view. Phones set to "reduce motion" get none of it.
 
@@ -104,6 +119,12 @@ It's on every plan, Free included: it's how customers find the bot.
   and opening hours come from **Settings**, delivery areas from **Delivery**.
 - On the **Price list** page, each product can have up to 4 **more photos**
   besides its main one; customers swipe through them on the shop page.
+- Also on a product's page in **Price list**, under **Sale**: a discount (1 to
+  90%) and the sale's last day. Every option's price drops by that much until
+  the end of that day (Lagos time), then goes back by itself. Leave both empty
+  to stop a sale early. A new product gets the Sale boxes once it's saved.
+- On the **QR posters** page, under **Notice at the top**: one line (up to
+  120 letters) for the top of the shop. Empty takes it off.
 - The shop stays closed until the business's WhatsApp number (the one
   customers message) is saved in the app's **Settings**. The "shop" reply
   says so when it's missing.
@@ -120,7 +141,18 @@ It's on every plan, Free included: it's how customers find the bot.
 4. For the address, Directions and social media pages, run
    `supabase/migrations/0081_quote_shop_page.sql` too. The other new sections
    need nothing run.
-5. Make sure each business has its WhatsApp number in Settings. For the Demo
+5. For the notice, sales and "Tell me when it's back", run
+   `supabase/migrations/0094_shop_extras.sql` too (after 0081). Before or
+   after this version goes live is fine: until it's run, the owner app hides
+   the new boxes and the shop works as before.
+6. Optional: to tell customers who haven't messaged in the last day that an
+   item is back, make a **Utility** template in WhatsApp Manager and put its
+   name in `BACK_IN_STOCK_TEMPLATE_NAME` on Railway (language in
+   `BACK_IN_STOCK_TEMPLATE_LANGUAGE`, default `en`). Suggested words:
+   "Good news from {{1}}: {{2}} is back in stock. Reply with how many you'd
+   like and we'll send your quote." Without it, those customers are told the
+   next time they message, if the item still has stock.
+7. Make sure each business has its WhatsApp number in Settings. For the Demo
    Shop that's `2347048971600`.
 
 The page is cached for a minute, so price list changes show within a minute.

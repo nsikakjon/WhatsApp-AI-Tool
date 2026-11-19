@@ -72,6 +72,8 @@ export interface ProductInput {
   options: ProductOption[];
   /** What the bot asks the customer for before confirming an order of it (migration 0085). Left out, the saved one stays. */
   askFor?: string | null;
+  /** A sale on every option (migration 0094): null for none. Left out, the saved one stays (and before 0094, it's never read). */
+  sale?: { percent: number; endsAt: Date } | null;
 }
 
 export interface ProductRecord extends ProductInput {
@@ -417,6 +419,8 @@ type ProductRow = {
   unit?: string | null;
   lead_time_days?: number | null;
   ask_for?: string | null;
+  sale_percent?: number | null;
+  sale_ends_at?: string | null;
   photo_path?: string | null;
   more_photos?: string[] | null;
   active: boolean;
@@ -443,6 +447,7 @@ function toProduct(p: ProductRow): ProductRecord {
     unit: p.unit ?? null,
     leadTimeDays: p.lead_time_days ?? null,
     ...(p.ask_for !== undefined ? { askFor: p.ask_for } : {}),
+    ...(p.sale_percent !== undefined ? { sale: p.sale_percent && p.sale_ends_at ? { percent: p.sale_percent, endsAt: new Date(p.sale_ends_at) } : null } : {}),
     photoPath: p.photo_path ?? null,
     morePhotos: p.more_photos ?? [],
     active: p.active,
@@ -506,6 +511,7 @@ export function createSupabasePrices(db: SupabaseClient, businessId: string, opt
         unit: input.unit,
         lead_time_days: input.leadTimeDays,
         ...(opts.askFor && input.askFor !== undefined ? { ask_for: input.askFor } : {}),
+        ...(input.sale !== undefined ? { sale_percent: input.sale?.percent ?? null, sale_ends_at: input.sale?.endsAt.toISOString() ?? null } : {}),
         active: input.active,
         updated_at: now,
       };

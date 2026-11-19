@@ -38,6 +38,13 @@ export interface Config {
    */
   eventReminderTemplate?: { name: string; language: string };
   /**
+   * Approved WhatsApp Utility template for "it's back in stock" to customers
+   * who asked on the shop page: {{1}} business, {{2}} product and option.
+   * BACK_IN_STOCK_TEMPLATE_NAME; without it only customers who messaged in
+   * the last day are told, and the rest wait until they message again.
+   */
+  backInStockTemplate?: { name: string; language: string };
+  /**
    * Who hears about problems (errors, a check failing, the server not
    * answering) and how. Each part is optional; with none set nobody is told.
    */
@@ -515,6 +522,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     eventReminderTemplate: env.EVENT_REMINDER_TEMPLATE_NAME?.trim()
       ? { name: env.EVENT_REMINDER_TEMPLATE_NAME.trim(), language: env.EVENT_REMINDER_TEMPLATE_LANGUAGE?.trim() || "en" }
+      : undefined,
+    backInStockTemplate: env.BACK_IN_STOCK_TEMPLATE_NAME?.trim()
+      ? { name: env.BACK_IN_STOCK_TEMPLATE_NAME.trim(), language: env.BACK_IN_STOCK_TEMPLATE_LANGUAGE?.trim() || "en" }
       : undefined,
     alerts: alertSettings(env),
     signupAlertEmail: signupAlertEmailSettings(env),
