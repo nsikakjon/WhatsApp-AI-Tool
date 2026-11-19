@@ -265,6 +265,18 @@ describe("partner package pages", () => {
     expect(s.leads[0]!.businessId).toBeNull();
   });
 
+  it("names the database change that's missing when saving the last day fails", async () => {
+    const s = stores();
+    s.packages.saveEnd = async () => {
+      throw new Error("column ends_on does not exist");
+    };
+    const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, partners: s.partners, partnerPackages: s.packages, now: () => NOW, log: { error: () => {} } });
+    const res = await app.request("/partners/1/ends", post({ ends_on: "2026-11-28" }));
+    const where = decodeURIComponent(res.headers.get("location")!);
+    expect(where).toContain("view=packages&p=1&open=ends");
+    expect(where).toContain("0092_partner_event_end.sql");
+  });
+
   it("only gives a package to an agreed partnership", async () => {
     const s = stores();
     const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, partners: s.partners, partnerPackages: s.packages, now: () => NOW });

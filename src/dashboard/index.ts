@@ -364,7 +364,10 @@ export function createDashboard(deps: DashboardDeps) {
         return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c), PACKAGE_PARTS.find((part) => part === path.split("/")[3])), 303);
       } catch (err) {
         log.error("Couldn't save a partner package:", err);
-        return c.redirect(backToPartners("Couldn't save that just now. If 0089_partner_packages.sql hasn't been run yet, run it, then try again."), 303);
+        const migration = path.endsWith("/ends") ? "0092_partner_event_end.sql" : "0089_partner_packages.sql";
+        const problem = `Couldn't save that just now. If ${migration} hasn't been run yet, run it, then try again.`;
+        const id = Number(c.req.param("id"));
+        return c.redirect(Number.isSafeInteger(id) && id > 0 ? backToPackage(id, { problem }, PACKAGE_PARTS.find((part) => part === path.split("/")[3])) : backToPartners(problem), 303);
       }
     });
 
