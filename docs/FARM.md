@@ -68,6 +68,32 @@ every field in Nigeria about every 5 days at 10 m detail.
 The free account comes with a monthly allowance of processing units, which
 is plenty for a trial. Check usage on the Copernicus dashboard as testers join.
 
+## Ask Oko (the AI farm assistant)
+
+Every crop field has an **Ask Oko** button (the speech bubble at the top, and
+a dark green card on the Overview). Type a question, or tap one of the
+suggestions, and Oko answers using what the app knows about that field:
+the crop and growth stage, the last 30 days of weather and the forecast, the
+"What needs attention" alerts, upcoming tasks, the last few scouting walks,
+this year's records and the satellite greenness.
+
+- It's a **planning guide**, like the rest of Oko. It never gives chemical or
+  fertiliser rates: it says what kind of product is usually used and points
+  to the label and the ADP / extension officer. If the AI ever writes a rate
+  anyway, the server removes that sentence before it reaches the phone.
+- It needs signal and a login to the trial. Demo-only visitors see a note
+  instead.
+- Chats stay on the phone while the app is open; they aren't saved or synced.
+- Each person can ask **30 questions a day** (Lagos time). A question that
+  fails doesn't count.
+
+**Switching it on:** it uses the same Anthropic key as the WhatsApp bots, so
+it's on as soon as `ANTHROPIC_API_KEY` is set on Railway (with
+`FARM_PASSWORD`). It uses `ANTHROPIC_MODEL` (Claude Haiku by default). To
+change the daily limit, set `FARM_ASSISTANT_DAILY_LIMIT`; to switch it off,
+set `FARM_ASSISTANT=off`. No database change is needed. Each question costs
+a fraction of a US cent on Haiku.
+
 ## Where the data lives
 
 Each phone keeps its own working copy, so the app works with no signal on
@@ -147,5 +173,7 @@ the database.
   the same site.
 - Satellite: `src/farm/satellite.ts` calls the Copernicus Statistical and
   Process APIs (keys stay on the server); the phone side is `farm-app/js/satellite.js`.
-- Ideas for the public version: an AI farm assistant using the existing
-  Claude setup, and WhatsApp alerts through the shared core.
+- Farm assistant: `src/farm/assistant.ts` (prompt, trimming, the no-rates
+  check) and the route `POST /farm/api/fields/:id/ask` in `src/farm/index.ts`;
+  the phone side is `farm-app/js/assistant.js`, which builds the field summary.
+- Ideas for the public version: WhatsApp alerts through the shared core.

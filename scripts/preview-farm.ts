@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { createFarm } from "../src/farm/index.js";
 import { memoryFarmStore } from "../src/farm/store.js";
 import { createSatellite } from "../src/farm/satellite.js";
+import { createFarmAssistant, type FarmAssistant } from "../src/farm/assistant.js";
 
 const PORT = 4646;
 
@@ -39,6 +40,24 @@ const fakeCopernicus: typeof fetch = async (url, init) => {
   return new Response(PNG, { headers: { "content-type": "image/png" } });
 };
 
+// The farm assistant: real Claude when ANTHROPIC_API_KEY is set, otherwise a
+// pretend one that shows what the phone sent, so the chat can be tried for free.
+const pretendAssistant: FarmAssistant = {
+  async ask({ question, context }) {
+    const c = context as { field?: { crop?: string; stage?: string }; weather?: { rainLast7DaysMm?: number } | null; alerts?: string[] };
+    await new Promise((r) => setTimeout(r, 600));
+    return [
+      `(Preview answer, no AI.) You asked: "${question}"`,
+      `- Crop: ${c.field?.crop ?? "?"}, ${c.field?.stage ?? "no stage"}`,
+      `- Rain last 7 days: ${c.weather?.rainLast7DaysMm ?? "?"} mm`,
+      `- Alerts: ${c.alerts?.length ?? 0}`,
+    ].join("\n");
+  },
+};
+const assistant = process.env.ANTHROPIC_API_KEY
+  ? createFarmAssistant({ apiKey: process.env.ANTHROPIC_API_KEY, model: process.env.ANTHROPIC_MODEL || "claude-haiku-5-5" })
+  : pretendAssistant;
+
 const app = new Hono();
 app.get("/", (c) => c.redirect("/farm/"));
 app.get("/farm", (c) => c.redirect("/farm/"));
@@ -48,6 +67,7 @@ app.route(
     password: "preview-password",
     store: memoryFarmStore(),
     satellite: createSatellite({ clientId: "preview", clientSecret: "preview" }, fakeCopernicus),
+    assistant,
   }),
 );
 serve({ fetch: app.fetch, port: PORT });

@@ -14,6 +14,7 @@ const IC = {
   tasks:'<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   back:'<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  chat:'<path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/>',
   expand:'<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
   edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
   drop:'<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
@@ -393,7 +394,7 @@ function fieldView(){
       <div style="font-size:12px;color:#3c6248;margin-top:3px;text-shadow:0 0 6px #eef2ea,0 0 2px #eef2ea">${esc(fieldCode(p))}${sub?" • "+esc(sub):""}</div>
     </div>
     <div class="tl"><button class="ibtn glass" data-act="back" aria-label="Back">${ic("back")}</button></div>
-    <div class="tr"><button class="ibtn glass" data-act="editfield" aria-label="Edit">${ic("edit")}</button><button class="ibtn glass" data-act="mapfield" aria-label="Show on map">${ic("expand")}</button></div>
+    <div class="tr">${p.kind==="crop"?`<button class="ibtn glass" data-act="ask" aria-label="Ask ${APP_NAME} about this field">${ic("chat")}</button>`:""}<button class="ibtn glass" data-act="editfield" aria-label="Edit">${ic("edit")}</button><button class="ibtn glass" data-act="mapfield" aria-label="Show on map">${ic("expand")}</button></div>
   </div>
   <div class="tabs">${tabs.map(([k,l])=>`<button class="${k===tab?"on":""}" data-act="tab" data-tab="${k}">${l}</button>`).join("")}</div>
   <div id="tabBody">${tab==="overview"?overviewTab(p):tab==="scout"?scoutTab(p):tab==="tasks"?fieldTasksTab(p):tab==="records"?recordsTab(p):landTab(p)}</div>
@@ -442,6 +443,7 @@ function overviewTab(p){
     </div>
     <button class="ibtn dark" data-act="tab" data-tab="records" aria-label="Records">${ic("arrow")}</button></div></div>
   ${stageCard}
+  <button class="card ask-card" data-act="ask"><div class="dot">${ic("chat")}</div><div class="grow"><b>Ask ${APP_NAME} about this field</b><span>Uses its stage, weather, scouting and records</span></div>${ic("arrow")}</button>
   <div class="card"><h2>What needs attention</h2>${ins.length?ins.map(i=>`<div class="ins ${i.level}"><div class="dot">${ic(i.level==="high"?"alert":i.level==="med"?"bug":"info")}</div><div><b>${esc(i.title)}</b><span>${esc(i.text)}</span></div></div>`).join(""):`<p class="muted small">All clear for now.</p>`}</div>
   ${Sat.card(p)}
   ${rainCard(p,S)}
@@ -933,6 +935,7 @@ const ACT={
   mapfield:()=>{ mapFocus=P.id; go({name:"map"}); },
   rain:d=>{ rainMode=d.m; const y=scrollY; render(); scrollTo(0,y); },
   scout:d=>scoutSheet(d.id),
+  ask:()=>Ask.open(P),
   scsave:()=>{ const s=window._scout; s.date=$("#scDate").value||todayYmd(); s.notes=$("#scNotes").value.trim();
     $$("#sheetBody [data-m]").forEach(i=>s.m[i.dataset.m]=i.value.trim());
     const isNew=s.isNew; delete s.isNew; if(isNew) P.scouts.push(s); else P.scouts[P.scouts.findIndex(x=>x.id===s.id)]=s;

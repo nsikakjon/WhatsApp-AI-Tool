@@ -8,6 +8,7 @@ import { clientIp, createLoginThrottle, guardedBasicAuth } from "../core/securit
 import { cleanField, mergeField } from "./merge.js";
 import type { FarmStore, FarmUser, FieldRow } from "./store.js";
 import { ringHectares, type Satellite } from "./satellite.js";
+import { cleanAsk, cleanContext, type FarmAssistant } from "./assistant.js";
 
 // Oko: the farm and land app at /farm/.
 //
@@ -33,6 +34,10 @@ export interface FarmDeps {
   now?: () => Date;
   /** Satellite crop health (COPERNICUS_CLIENT_ID / _SECRET). */
   satellite?: Satellite;
+  /** The AI farm assistant (ANTHROPIC_API_KEY). Off when missing. */
+  assistant?: FarmAssistant;
+  /** Questions each person can ask the assistant a day (Lagos time). */
+  assistantDailyLimit?: number;
 }
 
 export const FARM_DIR = fileURLToPath(new URL("../../farm-app/", import.meta.url));
@@ -78,6 +83,9 @@ export function createFarm(deps: FarmDeps) {
   const store = deps.store;
   const badTokens = createLoginThrottle(20, 15 * 60 * 1000);
   const satBusy = new Map<string, Promise<unknown>>();
+  const askLimit = deps.assistantDailyLimit ?? 30;
+  let askDay = "";
+  const asked = new Map<string, number>();
 
   app.onError((err, c) => {
     log.error("Farm app request failed:", err);
@@ -316,6 +324,46 @@ export function createFarm(deps: FarmDeps) {
     const img = await store!.satelliteImage(field.id);
     if (!img) return c.json({ error: "Not found." }, 404);
     return new Response(new Uint8Array(img), { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400" } });
+  });
+
+  /* ---------- AI farm assistant ---------- */
+  // The phone sends the question and a summary of the field (it has the weather
+  // and satellite caches, and fields that haven't synced yet). If the field is
+  // on the server, only its owner, helpers and Jay may ask about it.
+  api.post("/fields/:id/ask", async (c) => {
+    const user = c.get("user");
+    const id = c.req.param("id");
+    if (!FIELD_ID.test(id)) return c.json({ error: "Bad field id." }, 400);
+    if (!deps.assistant) return c.json({ configured: false, error: "The farm assistant isn't switched on yet." }, 503);
+    const field = await store!.field(id);
+    if (field && !(await access(user, field))) return c.json({ error: "You don't have access to this field." }, 403);
+    if (field?.deletedAt) return c.json({ error: "This field was deleted." }, 410);
+    const raw = await c.req.text();
+    if (raw.length > 40_000) return c.json({ error: "That question is too long." }, 413);
+    let body: unknown = null;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      /* handled below */
+    }
+    const ask = cleanAsk(body);
+    if (!ask) return c.json({ error: "Type a question (up to 600 letters)." }, 400);
+    const today = new Date(now().getTime() + 3600_000).toISOString().slice(0, 10); // Lagos is UTC+1
+    if (today !== askDay) {
+      askDay = today;
+      asked.clear();
+    }
+    const used = asked.get(user.id) ?? 0;
+    if (used >= askLimit) return c.json({ error: `That's today's ${askLimit} questions. The assistant is back tomorrow.` }, 429);
+    asked.set(user.id, used + 1);
+    try {
+      const answer = await deps.assistant.ask({ ...ask, context: cleanContext((body as { context?: unknown }).context) });
+      return c.json({ answer, left: askLimit - used - 1 });
+    } catch (err) {
+      log.error("Farm assistant failed:", err);
+      asked.set(user.id, Math.max(0, (asked.get(user.id) ?? 1) - 1)); // a failed answer doesn't use up a question
+      return c.json({ error: "The assistant didn't answer. Try again in a minute." }, 502);
+    }
   });
 
   /* ---------- admin ---------- */
