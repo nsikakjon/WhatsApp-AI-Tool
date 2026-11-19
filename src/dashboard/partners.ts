@@ -48,6 +48,10 @@ export interface Partner extends NewPartner {
   reminderSentCount?: number | null;
   /** Last day of the event (migration 0092); organisers get the report only for a month after it. */
   endsOn?: string | null;
+  /** Their share of plan payments from shops that signed up with their code (migration 0096); null = none. */
+  commissionPercent?: number | null;
+  /** Commission paid out to them so far, in kobo (migration 0096). */
+  commissionPaidKobo?: number;
 }
 
 export interface PartnerStore {
@@ -447,6 +451,8 @@ interface PartnerRow {
   reminder_sent_at?: string | null;
   reminder_sent_count?: number | null;
   ends_on?: string | null;
+  commission_percent?: number | null;
+  commission_paid_kobo?: number | string | null;
 }
 
 const columns = (p: NewPartner) => ({
@@ -491,6 +497,8 @@ export function createSupabasePartnerStore(db: SupabaseClient): PartnerStore {
         reminderSentAt: r.reminder_sent_at ?? null,
         reminderSentCount: r.reminder_sent_count ?? null,
         endsOn: r.ends_on ?? null,
+        commissionPercent: r.commission_percent ?? null,
+        commissionPaidKobo: Number(r.commission_paid_kobo ?? 0),
       }));
     },
     async add(p) {

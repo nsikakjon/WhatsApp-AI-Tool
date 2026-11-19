@@ -9,6 +9,7 @@ import { orderPrefix } from "../products/quote/chat-signup.js";
 import { renderOrganisers, type Organiser, type OrganiserInput, type OrganiserLogin } from "./partner-organisers.js";
 import { createSupabaseTicketAdmin, renderTickets, TICKETS_CSS, type TicketAdmin, type TicketRow } from "./partner-tickets.js";
 import { reminderText } from "./partner-reminder.js";
+import { commissionState, loadCommission, renderCommission, type Commission, type CommissionInput } from "./partner-commission.js";
 import type { Partner } from "./partners.js";
 
 // The package for an agreed partnership, set up from /dashboard/partners by
@@ -86,6 +87,8 @@ export interface PartnerPackage {
   links?: PartnerLinks;
   /** Their team's owner app logins; undefined when the owner app is off. */
   organisers?: Organiser[] | "error";
+  /** What they've earned selling yarnOga with their code, when it's set up. */
+  commission?: Commission | "error";
 }
 
 /** Links the app can make for a shop, when those features are switched on. */
@@ -109,6 +112,7 @@ export interface PartnerPackageStore {
   plans(): Promise<PlanChoice[]>;
   /** Creates or changes the code and links it to the partner. Returns a problem to show, or null. */
   saveCode(partner: Partner, code: CodeInput): Promise<string | null>;
+  saveCommission(partner: Partner, commission: CommissionInput): Promise<void>;
   /** Finds the shop that signed up from this owner number and links it. Returns a problem, or null. */
   linkShop(partner: Partner, ownerWaId: string): Promise<string | null>;
   unlinkShop(partner: Partner): Promise<void>;
@@ -293,7 +297,7 @@ ${
 }
 
 /** The parts of a package, each folded away until opened. */
-export const PACKAGE_PARTS = ["code", "shop", "organisers", "tickets", "reminder", "ends"] as const;
+export const PACKAGE_PARTS = ["code", "commission", "shop", "organisers", "tickets", "reminder", "ends"] as const;
 export type PackagePart = (typeof PACKAGE_PARTS)[number];
 
 function part(id: PackagePart, title: string, state: string, body: string, open: boolean): string {
@@ -320,6 +324,7 @@ export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: 
     const team = pkg.organisers;
     body = `<div class="pk-now">${code ? codeSummary(code, today) : `<p class="small">No discount code yet.</p>`}${shop ? linkList(pkg.links) : ""}</div>
 ${part("code", "Discount code", code ? code.code : "not set up", codeForm(p, code), open === "code")}
+${code ? part("commission", "Commission", commissionState(pkg.commission), renderCommission(p, pkg.commission), open === "commission") : ""}
 ${part("shop", "Their shop", shop ? [shop.live || shop.keyword ? "Live" : "Not live yet", plan].filter(Boolean).join(" · ") : "not linked yet", shopForms(p, shop, plans), open === "shop" || !shop)}
 ${
   shop
@@ -438,8 +443,11 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
 
   return {
     async load(p) {
+      const commission = p.promoCode
+        ? loadCommission(db, p).catch((err) => (console.error("Partner's commission failed to load:", err), "error" as const))
+        : undefined;
       const shop = p.businessId ? await readShop(p.businessId) : null;
-      if (!shop) return { code: p.promoCode ? await readCode(p.promoCode) : null, shop: null };
+      if (!shop) return { code: p.promoCode ? await readCode(p.promoCode) : null, shop: null, commission: await commission };
       const { whatsappNumber: _number, ...rest } = shop;
       const [code, tickets, links, organisers] = await Promise.all([
         p.promoCode ? readCode(p.promoCode) : null,
@@ -452,7 +460,7 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
         linksFor(shop),
         makeLinks.login ? readTeam(shop.id).catch((err) => (console.error("Partner's logins failed to load:", err), "error" as const)) : undefined,
       ]);
-      return { code, shop: rest, tickets, links, organisers };
+      return { code, shop: rest, tickets, links, organisers, commission: await commission };
     },
     async plans() {
       const { data, error } = await db.from("quote_plans").select("code, name, monthly_price_kobo, active, sort_order").order("sort_order");
@@ -473,6 +481,9 @@ export function createSupabasePartnerPackageStore(db: SupabaseClient, makeLinks:
       if (saveError) throw new Error(`partner code save failed: ${saveError.message}`);
       await setLead(p.id, { promo_code: c.code });
       return null;
+    },
+    async saveCommission(p, c) {
+      await setLead(p.id, { commission_percent: c.percent, commission_paid_kobo: c.paidOutKobo });
     },
     async linkShop(p, waId) {
       const { data, error } = await db

@@ -310,6 +310,17 @@ The shop owner keeps their full app, and the shop's orders, tickets, chats
 and customers are kept. No last day set means nothing switches off. Needs
 `0092_partner_event_end.sql`.
 
+#### Commission for people who sell yarnOga
+
+For someone who brings shops in (e.g. Prosper, our Uyo lead, code PROSPER):
+add them as a lead marked **Agreed**, give them a discount code, then open
+**Commission** in their package and set their share (Prosper: 25%). The panel
+lists every shop that signed up with their code, what each has paid for its
+plan in its first 12 months (from its first payment), and the commission on
+it. Only money that has come in counts, in naira. Each time you pay them, add
+it to **Paid to them so far** so the amount still owed stays right. Needs
+`0096_partner_commission.sql`.
+
 #### The reminder template
 
 WhatsApp only delivers an ordinary message to someone who messaged that number

@@ -6,6 +6,7 @@ import type { AdsSource } from "./ads.js";
 import type { AnalyticsSource } from "./analytics.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
+import { parseCommissionForm } from "./partner-commission.js";
 import { ownerNumber, PACKAGE_PARTS, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PackagePart, type PartnerPackageStore } from "./partner-package.js";
 import { renderReport, type ReportSource } from "./partner-report.js";
 import { parseOrganiserForm, renderOrganiserLink } from "./partner-organisers.js";
@@ -428,7 +429,7 @@ export function createDashboard(deps: DashboardDeps) {
         return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c), PACKAGE_PARTS.find((part) => part === path.split("/")[3])), 303);
       } catch (err) {
         log.error("Couldn't save a partner package:", err);
-        const migration = path.endsWith("/ends") ? "0092_partner_event_end.sql" : "0089_partner_packages.sql";
+        const migration = path.endsWith("/ends") ? "0092_partner_event_end.sql" : path.endsWith("/commission") ? "0096_partner_commission.sql" : "0089_partner_packages.sql";
         const problem = `Couldn't save that just now. If ${migration} hasn't been run yet, run it, then try again.`;
         const id = Number(c.req.param("id"));
         return c.redirect(Number.isSafeInteger(id) && id > 0 ? backToPackage(id, { problem }, PACKAGE_PARTS.find((part) => part === path.split("/")[3])) : backToPartners(problem), 303);
@@ -440,6 +441,12 @@ export function createDashboard(deps: DashboardDeps) {
     if ("problem" in code) return code;
     const problem = await deps.partnerPackages!.saveCode(p, code);
     return problem ? { problem } : { saved: `Code ${code.code} saved.` };
+  });
+  packageRoute("/partners/:id/commission", async (p, form) => {
+    const commission = parseCommissionForm(form);
+    if ("problem" in commission) return commission;
+    await deps.partnerPackages!.saveCommission(p, commission);
+    return { saved: "Commission saved." };
   });
   packageRoute("/partners/:id/shop", async (p, form) => {
     const waId = ownerNumber(form);
