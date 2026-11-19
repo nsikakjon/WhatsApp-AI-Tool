@@ -9,13 +9,15 @@ database each time you open or refresh it.
    long password you make up. Save; Railway redeploys.
 2. Open `https://<your-railway-url>/dashboard` (the same address Meta's webhook
    uses, with `/dashboard` on the end instead of `/webhooks/whatsapp`).
-3. The browser asks for a username and password. Type anything as the
-   username and your `DASHBOARD_PASSWORD` as the password.
+3. A yarnOga sign-in page asks for your `DASHBOARD_PASSWORD`. The browser
+   then stays signed in for 30 days (a cookie that only goes to `/dashboard`
+   pages), so signing in to the quote setup pages or the owner app on the
+   same site no longer signs you out here. **Sign out** is at the end of the
+   top bar. Changing `DASHBOARD_PASSWORD` signs every browser out.
 
 Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 
-If the password is refused: the username doesn't matter (leave it empty or
-type anything), so it's the password. Copy it again from Railway, in case it
+If the password is refused, copy it again from Railway, in case it
 was changed when the secrets were rotated. After 5 wrong tries from one
 connection the page refuses every password for 15 minutes, so wait before
 trying again.

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { guardedBasicAuth } from "../core/security/guard.js";
 import { Hono, type Context } from "hono";
+import { dashboardLogin } from "./login.js";
 import { DASHBOARD_TABS, renderDashboard, type DashboardTab } from "./page.js";
 import type { AdsSource } from "./ads.js";
 import type { AnalyticsSource } from "./analytics.js";
@@ -19,8 +19,8 @@ import { parseProgress, parseVisitForm, pickDay, renderTally, summariseTally, ty
 import type { WebsiteStatsSource } from "./visits.js";
 import { exchangeTikTokCode, tiktokAuthorizeUrl, type TikTokApp } from "./tiktok.js";
 
-// The owner's analytics page at /dashboard. The browser asks for a password
-// (DASHBOARD_PASSWORD); any username works. It only reads from the database,
+// The owner's analytics page at /dashboard. Sign in on /dashboard/login with
+// DASHBOARD_PASSWORD (login.ts). It only reads from the database,
 // except for the profit and loss entries the owner adds, edits or removes.
 
 export interface DashboardDeps {
@@ -60,10 +60,7 @@ export function createDashboard(deps: DashboardDeps) {
   const app = new Hono();
   const log = deps.log ?? console;
 
-  app.use(
-    "*",
-    guardedBasicAuth({ password: deps.password, realm: "yarnOga dashboard" }),
-  );
+  app.use("*", dashboardLogin(app, { password: deps.password, now: deps.now }));
 
   app.get("/", async (c) => {
     c.header("Cache-Control", "no-store");

@@ -5,7 +5,7 @@ import { mark } from "./brand.js";
  * setup): header with the mark, jump links and styles. `heading`, `nav` and
  * `css` (extra styles for the page) are HTML/CSS; the rest is text.
  */
-export function pageShell(o: { title: string; crumb: string; heading: string; badge?: string; nav: string; body: string; css?: string }): string {
+export function pageShell(o: { title: string; crumb: string; heading: string; badge?: string; nav?: string; body: string; css?: string }): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -152,7 +152,7 @@ ${mark("m", 48)}
 </div>
 ${o.badge ? `<span class="fresh">${esc(o.badge)}</span>` : ""}
 </header>
-<nav class="jump" aria-label="Sections"><div>${o.nav}</div></nav>
+${o.nav ? `<nav class="jump" aria-label="Sections"><div>${o.nav}</div></nav>` : ""}
 <main>
 ${o.body}
 </main></body></html>`;

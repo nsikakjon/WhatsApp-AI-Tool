@@ -82,10 +82,29 @@ describe("messages sent per number", () => {
 describe("dashboard page", () => {
   const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, now: () => NOW });
 
-  it("asks for a password", async () => {
-    expect((await app.request("/")).status).toBe(401);
+  it("sends you to the sign-in page without the password", async () => {
+    const res = await app.request("/?tab=money");
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`/dashboard/login?next=${encodeURIComponent("/dashboard?tab=money")}`);
     const wrong = await app.request("/", { headers: { Authorization: `Basic ${btoa("jay:nope")}` } });
-    expect(wrong.status).toBe(401);
+    expect(wrong.status).toBe(303);
+  });
+
+  it("signs in on its own page and keeps you signed in with a cookie", async () => {
+    const form = (password: string, next = "/dashboard?tab=money") =>
+      ({ method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ password, next }) }) as RequestInit;
+    expect((await app.request("/login", form("nope"))).status).toBe(401);
+    const ok = await app.request("/login", form("secret"));
+    expect(ok.status).toBe(303);
+    expect(ok.headers.get("location")).toBe("/dashboard?tab=money");
+    const cookie = ok.headers.get("set-cookie")!;
+    expect(cookie).toContain("Path=/dashboard");
+    expect(cookie).toContain("HttpOnly");
+    const page = await app.request("/?tab=money", { headers: { Cookie: cookie.split(";")[0]! } });
+    expect(page.status).toBe(200);
+    const other = createDashboard({ password: "changed", stats: { load: async () => sampleStats() }, now: () => NOW });
+    expect((await other.request("/", { headers: { Cookie: cookie.split(";")[0]! } })).status).toBe(303);
+    expect((await app.request("/login", form("secret", "https://evil.example"))).headers.get("location")).toBe("/dashboard");
   });
 
   it("shows live numbers with the right password", async () => {

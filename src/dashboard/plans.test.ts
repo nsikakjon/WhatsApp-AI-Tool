@@ -134,7 +134,7 @@ describe("plan editor routes", () => {
   it("only takes forms sent from the dashboard, and needs the password", async () => {
     const { app, saved } = setup();
     expect((await app.request("/plans/flyer/standard", post({ monthly: "1" }, "https://evil.example"))).status).toBe(403);
-    expect((await app.request("/plans", { headers: { Host: host } })).status).toBe(401);
+    expect((await app.request("/plans", { headers: { Host: host } })).status).toBe(303);
     expect(saved.flyer).toEqual([]);
   });
 
