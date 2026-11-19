@@ -570,6 +570,16 @@ describe("helpers", () => {
     expect(gap.problems.join(" ")).toContain("must start at the minimum order");
   });
 
+  it("reads a product's sale: a whole percentage and a last day still to come, or no sale", () => {
+    const base = { name: "Mugs", o0_name: "White", o0_min: "1", o0_f0: "1", o0_p0: "4500" };
+    const now = new Date("2026-11-20T12:00:00Z");
+    expect(readProductForm({ ...base, salePercent: "20", saleUntil: "2026-11-30" }, "NGN", now).input.sale).toEqual({ percent: 20, endsAt: new Date("2026-11-30T23:00:00Z") });
+    expect(readProductForm({ ...base, salePercent: "", saleUntil: "" }, "NGN", now).input.sale).toBeNull();
+    expect(readProductForm(base, "NGN", now).input).not.toHaveProperty("sale");
+    expect(readProductForm({ ...base, salePercent: "95", saleUntil: "2026-11-30" }, "NGN", now).problems.join(" ")).toContain("1 to 90");
+    expect(readProductForm({ ...base, salePercent: "20", saleUntil: "2026-11-01" }, "NGN", now).problems.join(" ")).toContain("already passed");
+  });
+
   it("keeps spreadsheet cells from running as formulas", () => {
     expect(csvCell("=HYPERLINK(\"x\")")).toBe("\"'=HYPERLINK(\"\"x\"\")\"");
     expect(koboToPlainNaira(1250050)).toBe("12500.50");

@@ -5,6 +5,7 @@ import type { SectionContext } from "../index.js";
 import { esc, field, icon } from "../layout.js";
 import { BARCODE, barcodeKey, scannerBox } from "../scanner.js";
 import { registerPhotos } from "./photos.js";
+import { saleEndsAt, saleLastDate } from "../../products/quote/sale.js";
 import { DuplicateProductError, type ProductInput, type ProductOption, type ProductRecord } from "../store.js";
 import type { AppContext, Env } from "../types.js";
 
@@ -29,7 +30,21 @@ export interface PriceForm {
  * Reads the product form. Prices go through parseMoney, so "₦1,500" and
  * "1500.50" work in naira, "5 000" in CFA francs, "KSh 1,500" in shillings, and "15k" never does.
  */
-export function readProductForm(form: Record<string, unknown>, currency: Currency = "NGN"): PriceForm {
+/** The sale boxes: both empty is no sale. */
+function readSale(form: Record<string, unknown>, problems: string[], now: Date): ProductInput["sale"] {
+  const percentText = field(form, "salePercent", 3).replace(/%$/, "");
+  const day = field(form, "saleUntil", 10);
+  if (!percentText && !day) return null;
+  const percent = Number(percentText);
+  const endsAt = saleEndsAt(day);
+  if (!Number.isInteger(percent) || percent < 1 || percent > 90) problems.push("Sale: the discount must be a whole number from 1 to 90 (per cent).");
+  else if (!endsAt) problems.push("Sale: pick the sale's last day.");
+  else if (endsAt <= now) problems.push("Sale: the last day has already passed. Pick a later day, or empty both sale boxes.");
+  else return { percent, endsAt };
+  return null;
+}
+
+export function readProductForm(form: Record<string, unknown>, currency: Currency = "NGN", now = new Date()): PriceForm {
   const problems: string[] = [];
   const name = field(form, "name", 80);
   if (!name) problems.push("Give the product a name.");
@@ -99,6 +114,8 @@ export function readProductForm(form: Record<string, unknown>, currency: Currenc
       leadTimeDays: lead !== null && Number.isInteger(lead) ? lead : null,
       // Only on the form with customer files on; left out, the saved one stays.
       ...("askFor" in form ? { askFor: field(form, "askFor", 200) || null } : {}),
+      // Only on the form once migration 0094 is run.
+      ...("salePercent" in form ? { sale: readSale(form, problems, now) } : {}),
       active: true,
       options,
     },
@@ -193,6 +210,15 @@ ${costs ? `<label>Cost each <span class="muted">(what one costs you, for profit)
 <table class="tiers"><tr><th>From quantity</th><th>Price each (${currencySign(biz.currency)})</th></tr>${tiers}</table></fieldset>`;
     }).join("");
     const action = product ? `/home/prices/${product.id}` : "/home/prices/new";
+    // Only once migration 0094 is run (the product then has a sale, or null); a new product gets it after saving.
+    const sale = p?.sale !== undefined ? (p.sale ?? null) : undefined;
+    const saleBoxes =
+      sale !== undefined
+        ? `<fieldset class="card" style="margin:10px 0"><legend class="muted small">Sale</legend>
+<p class="muted small" style="margin:0 0 8px">Every option's price drops by this much on your shop page and in the bot's quotes, until the end of the last day. The old price shows crossed out. Leave both empty for no sale.</p>
+<div class="row"><label>Discount <span class="muted">(%)</span><input name="salePercent" inputmode="numeric" maxlength="3" value="${v(sale?.percent)}" placeholder="e.g. 20"></label>
+<label>Last day<input type="date" name="saleUntil" value="${sale ? saleLastDate(sale.endsAt) : ""}"></label></div></fieldset>`
+        : "";
     const photo =
       biz.photos
         ? `<label>Photo <span class="muted">(JPEG or PNG, up to 5 MB; customers see it on product cards)</span>
@@ -217,6 +243,7 @@ ${product?.morePhotos.length ? `<label><input type="checkbox" name="nomore"> Tak
 <label>Sold per <span class="muted">(optional)</span><input name="unit" maxlength="30" value="${v(p?.unit)}" placeholder="e.g. piece, pack of 100"></label>
 <label>Production time <span class="muted">(days)</span><input name="lead" inputmode="numeric" value="${v(p?.leadTimeDays)}" placeholder="e.g. 2"></label></div>
 ${biz.customerFiles ? `<label for="ask">Ask the customer for <span class="muted">(optional; the bot asks for it before confirming an order)</span></label><input id="ask" name="askFor" maxlength="200" value="${v(p?.askFor)}" placeholder="e.g. Your artwork or logo / Measurements: chest, waist, length">` : ""}
+${saleBoxes}
 ${photo}
 <h2>Options and prices</h2>${biz.barcodes && !readOnly ? scannerBox() : ""}${optionRows}
 ${readOnly ? `<div class="actions"><a class="button ghost" href="/home/prices">Back to the price list</a></div>` : `<div class="actions"><button>Save</button>${slots < MAX_OPTIONS ? `<a class="button ghost" href="${product ? `/home/prices/${product.id}` : "/home/prices/new"}?more=${Math.min(MAX_OPTIONS, extra + 3)}">More option boxes</a>` : ""}<a class="button ghost" href="/home/prices">Cancel</a></div>
