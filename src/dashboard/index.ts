@@ -6,12 +6,12 @@ import type { AdsSource } from "./ads.js";
 import type { AnalyticsSource } from "./analytics.js";
 import type { ShopCostSource } from "./costs.js";
 import { parseFlyerPlanForm, parseQuotePlanForm, renderPlanEditor, type PlanEditorStore } from "./plans.js";
-import { ownerNumber, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PartnerPackageStore } from "./partner-package.js";
+import { ownerNumber, PACKAGE_PARTS, parseCodeForm, parseReminderForm, parseShopForm, renderPackage, type PackagePart, type PartnerPackageStore } from "./partner-package.js";
 import { renderReport, type ReportSource } from "./partner-report.js";
 import { parseOrganiserForm, renderOrganiserLink } from "./partner-organisers.js";
 import { parseEndForm, reportUntil } from "./partner-access.js";
 import { parseTicketForm } from "./partner-tickets.js";
-import { parsePartnerForm, renderPartners, summarisePartners, type Partner, type PartnerStore } from "./partners.js";
+import { chasedAgain, PARTNER_VIEWS, parsePartnerForm, pickPackage, renderPartners, summarisePartners, type PackagePicker, type Partner, type PartnerStore, type PartnerView } from "./partners.js";
 import { parseMoneyForm, summariseMoney, type MoneyStore } from "./profit.js";
 import type { SocialsSource } from "./socials.js";
 import { lagosDays, type StatsSource } from "./stats.js";
@@ -236,8 +236,8 @@ export function createDashboard(deps: DashboardDeps) {
   });
 
   // The partnerships list: add a lead, change it, remove it.
-  const backToPartners = (problem?: string, editId?: number) =>
-    `/dashboard/partners${editId ? `?edit=${editId}` : ""}${problem ? `${editId ? "&" : "?"}problem=${encodeURIComponent(problem)}` : ""}#${editId ? "edit" : "list"}`;
+  const backToPartners = (problem?: string, editId?: number, saved?: string) =>
+    `/dashboard/partners?view=leads${editId ? `&edit=${editId}` : ""}${problem ? `&problem=${encodeURIComponent(problem)}` : saved ? `&saved=${encodeURIComponent(saved)}` : ""}${editId ? "#edit" : ""}`;
   const partnersAllowed = (c: Context) =>
     Boolean(deps.partners) && fromDashboard(c.req.header("origin"), c.req.header("referer"), c.req.header("host"));
 
@@ -251,27 +251,32 @@ export function createDashboard(deps: DashboardDeps) {
         log.error("Partnerships list failed to load:", err);
         return "error" as const;
       });
-    let packages = "";
+    const view = c.req.query("view") as PartnerView | undefined;
+    const asked = Number(c.req.query("p")) || undefined;
+    let packages: PackagePicker | undefined;
     const agreed = summary === "error" ? [] : summary.all.filter((p) => p.status === "Agreed");
-    if (deps.partnerPackages && agreed.length) {
+    const current = pickPackage(agreed, asked, today());
+    // Only the one package on show is loaded.
+    if (view === "packages" && deps.partnerPackages && current) {
       const store = deps.partnerPackages;
-      const plans = await store.plans().catch((err) => {
-        log.error("Plans failed to load for partner packages:", err);
-        return [];
-      });
-      const rendered = await Promise.all(
-        agreed.map(async (p) => {
-          const pkg = await store.load(p).catch((err) => {
-            log.error(`Partner package for ${p.name} failed to load:`, err);
-            return "error" as const;
-          });
-          return renderPackage(p, pkg, plans, today());
+      const [plans, pkg] = await Promise.all([
+        store.plans().catch((err) => {
+          log.error("Plans failed to load for partner packages:", err);
+          return [];
         }),
-      );
-      packages = rendered.join("");
+        store.load(current).catch((err) => {
+          log.error(`Partner package for ${current.name} failed to load:`, err);
+          return "error" as const;
+        }),
+      ]);
+      const open = PACKAGE_PARTS.find((part) => part === c.req.query("open"));
+      packages = { agreed, current: current.id, html: renderPackage(current, pkg, plans, today(), open) };
     }
     return c.html(
       renderPartners(summary, today(), {
+        view: view && PARTNER_VIEWS.includes(view) ? view : undefined,
+        filter: c.req.query("filter"),
+        showAll: c.req.query("all") === "1",
         editId: Number(c.req.query("edit")) || undefined,
         problem: c.req.query("problem")?.slice(0, 200),
         saved: c.req.query("saved")?.slice(0, 120),
@@ -290,7 +295,7 @@ export function createDashboard(deps: DashboardDeps) {
       log.error("Couldn't save a partner lead:", err);
       return c.redirect(backToPartners("Couldn't save that just now. Please try again."), 303);
     }
-    return c.redirect(backToPartners(), 303);
+    return c.redirect(backToPartners(undefined, undefined, `${lead.name} added.`), 303);
   });
 
   app.post("/partners/:id", async (c) => {
@@ -305,7 +310,24 @@ export function createDashboard(deps: DashboardDeps) {
       log.error("Couldn't change a partner lead:", err);
       return c.redirect(backToPartners("Couldn't save that change just now. Please try again.", id), 303);
     }
-    return c.redirect(backToPartners(), 303);
+    return c.redirect(backToPartners(undefined, undefined, `${lead.name} saved.`), 303);
+  });
+
+  // "Chased": keeps the lead as it is and sets the next follow-up a few days from today.
+  app.post("/partners/:id/chased", async (c) => {
+    if (!partnersAllowed(c)) return c.text("Not allowed.", 403);
+    const id = Number(c.req.param("id"));
+    const back = (notice: string, key = "saved") => `/dashboard/partners?${key}=${encodeURIComponent(notice)}`;
+    try {
+      const lead = (await deps.partners!.list()).find((p) => p.id === id);
+      if (!lead) return c.redirect(back("That lead isn't on the list any more.", "problem"), 303);
+      const next = chasedAgain(lead, today());
+      await deps.partners!.update(id, next);
+      return c.redirect(back(`${lead.name}: next follow-up ${next.followUpOn}.`), 303);
+    } catch (err) {
+      log.error("Couldn't mark a partner lead chased:", err);
+      return c.redirect(back("Couldn't save that just now. Please try again.", "problem"), 303);
+    }
   });
 
   app.post("/partners/:id/delete", async (c) => {
@@ -322,9 +344,9 @@ export function createDashboard(deps: DashboardDeps) {
   });
 
   // A partner's package: the discount code and their shop.
-  const backToPackage = (id: number, notice: { problem?: string; saved?: string }) => {
+  const backToPackage = (id: number, notice: { problem?: string; saved?: string }, part?: PackagePart) => {
     const [key, value] = notice.problem ? ["problem", notice.problem] : ["saved", notice.saved ?? "Saved."];
-    return `/dashboard/partners?${key}=${encodeURIComponent(value)}#package-${id}`;
+    return `/dashboard/partners?view=packages&p=${id}${part ? `&open=${part}` : ""}&${key}=${encodeURIComponent(value)}#package-${id}`;
   };
   const agreedPartner = async (c: Context): Promise<Partner | null> => {
     const id = Number(c.req.param("id"));
@@ -338,7 +360,7 @@ export function createDashboard(deps: DashboardDeps) {
       try {
         const partner = await agreedPartner(c);
         if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
-        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c)), 303);
+        return c.redirect(backToPackage(partner.id, await run(partner, await c.req.parseBody(), c), PACKAGE_PARTS.find((part) => part === path.split("/")[3])), 303);
       } catch (err) {
         log.error("Couldn't save a partner package:", err);
         return c.redirect(backToPartners("Couldn't save that just now. If 0089_partner_packages.sql hasn't been run yet, run it, then try again."), 303);
@@ -415,10 +437,10 @@ export function createDashboard(deps: DashboardDeps) {
       const partner = await agreedPartner(c);
       if (!partner) return c.redirect(backToPartners("Only an agreed partnership has a package."), 303);
       const who = parseOrganiserForm(await c.req.parseBody());
-      if ("problem" in who) return c.redirect(backToPackage(partner.id, who), 303);
+      if ("problem" in who) return c.redirect(backToPackage(partner.id, who, "organisers"), 303);
       const login = await deps.partnerPackages.organiserLogin(partner, who);
-      if (login && "problem" in login) return c.redirect(backToPackage(partner.id, login), 303);
-      if (!login) return c.redirect(backToPackage(partner.id, { problem: "Link their shop first, and check the owner app is switched on." }), 303);
+      if (login && "problem" in login) return c.redirect(backToPackage(partner.id, login, "organisers"), 303);
+      if (!login) return c.redirect(backToPackage(partner.id, { problem: "Link their shop first, and check the owner app is switched on." }, "organisers"), 303);
       return c.html(renderOrganiserLink(partner, who, login, deps.partnerPackages.doorLink(partner)));
     } catch (err) {
       log.error("Couldn't make an organiser login:", err);

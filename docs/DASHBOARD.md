@@ -138,7 +138,19 @@ Railway setting is needed.
 
 A page at `/dashboard/partners` (same password; **Partnerships** link in the
 top bar) for the events, fairs and organisers we pitch in-kind partnerships
-to:
+to. It has three tabs:
+
+- **Today** (opens first): four cards (To contact, Sent and waiting, Talking,
+  Agreed; tap one to see those leads), **Chase today** (follow-ups that are
+  due or late, with how many days late), **Coming up this week**, and agreed
+  events coming up. After chasing someone, **Chased · again in 5 days** keeps
+  the lead as it is and moves its follow-up to 5 days from today.
+- **Leads**: the list, narrowed with the buttons along the top (Open, To
+  contact, Sent and waiting, Talking, Agreed, Declined, All), 15 at a time
+  with **Show all** below. Contact, offer and notes sit under **Details** on
+  each lead. **+ Add an event or organiser** opens the form.
+- **Packages**: one agreed partner at a time (buttons along the top when
+  there are several), see Partner packages below.
 
 - **Add an event or organiser**: name, kind, event day, where, contact (who
   and how to reach them), what we offered, status, day sent, follow-up day, a
@@ -146,8 +158,6 @@ to:
 - Statuses: To contact, Sent, Replied, Meeting, Agreed, Declined, No reply.
   Marking a lead **Sent** fills in today as the day sent and a follow-up 5
   days later, unless you pick the days yourself.
-- **Follow-ups** lists every lead with a follow-up day that isn't Agreed or
-  Declined, soonest first, marked **Due** from that day on.
 - **Edit** on a row opens it in the form; **Remove** deletes it.
 
 Run `supabase/migrations/0088_partner_leads.sql` once in Supabase first. It
@@ -156,8 +166,10 @@ setting is needed.
 
 ### Partner packages
 
-Every lead marked **Agreed** gets a panel under **Partner packages** on the
-same page, so anyone on the team can set up what we promised them:
+Every lead marked **Agreed** gets a package on the **Packages** tab, so
+anyone on the team can set up what we promised them. The code, links and
+ticket sales show at the top; each part below opens with a tap and stays
+open after you save it:
 
 - **Discount code**: the code (e.g. TEDXUNIUYO), percent off the first month,
   how many people can use it, the last day it works, which plans it works on,

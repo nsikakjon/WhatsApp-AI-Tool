@@ -72,9 +72,37 @@ describe("partnerships list", () => {
   });
 
   it("escapes what was typed", () => {
-    const html = renderPartners(summarisePartners([lead(1, { name: "<b>Fest</b>" })]), "2026-11-14");
+    const html = renderPartners(summarisePartners([lead(1, { name: "<b>Fest</b>" })]), "2026-11-14", { view: "leads" });
     expect(html).not.toContain("<b>Fest</b>");
     expect(html).toContain("&#60;b&#62;Fest");
+  });
+
+  it("opens on what to chase today, with the stat cards linking to the list", () => {
+    const html = renderPartners(
+      summarisePartners([
+        lead(1, { name: "Late Fest", status: "Sent", followUpOn: "2026-11-10" }),
+        lead(2, { name: "Soon Fair", status: "Sent", followUpOn: "2026-11-17" }),
+        lead(3, { name: "Later Expo", status: "Sent", followUpOn: "2026-12-30" }),
+      ]),
+      "2026-11-14",
+    );
+    expect(html).toContain("Late Fest");
+    expect(html).toContain("4 days late");
+    expect(html).toContain('action="/dashboard/partners/1/chased"');
+    expect(html).toContain("Soon Fair");
+    expect(html).not.toContain("Later Expo");
+    expect(html).toContain('href="/dashboard/partners?view=leads&filter=waiting"');
+  });
+
+  it("narrows the list of leads and shows a few at a time", () => {
+    const many = Array.from({ length: 20 }, (_, i) => lead(i + 1, { name: `Fair ${i + 1}` }));
+    const all = summarisePartners([...many, lead(99, { name: "Done Deal", status: "Agreed" })]);
+    const open = renderPartners(all, "2026-11-14", { view: "leads" });
+    expect(open).not.toContain("Done Deal");
+    expect(open).toContain("Show all 20");
+    expect(open).not.toContain("Fair 20<");
+    expect(renderPartners(all, "2026-11-14", { view: "leads", showAll: true })).toContain("Fair 20<");
+    expect(renderPartners(all, "2026-11-14", { view: "leads", filter: "agreed" })).toContain("Done Deal");
   });
 });
 
@@ -91,18 +119,21 @@ describe("partnerships pages", () => {
 
     const added = await app.request("/partners", post({ name: "Food Fest", status: "To contact", contact: "info@fest.example" }));
     expect(added.status).toBe(303);
-    expect(added.headers.get("location")).toBe("/dashboard/partners#list");
+    expect(added.headers.get("location")).toBe(`/dashboard/partners?view=leads&saved=${encodeURIComponent("Food Fest added.")}`);
     expect(store.leads[0]).toMatchObject({ name: "Food Fest", status: "To contact" });
 
     await app.request("/partners/1", post({ name: "Food Fest", status: "Sent", sent_on: "2026-10-16", contact: "info@fest.example" }));
     expect(store.leads[0]).toMatchObject({ status: "Sent", sentOn: "2026-10-16", followUpOn: "2026-10-21" });
 
-    const page = await (await app.request("/partners", { headers: auth })).text();
+    const page = await (await app.request("/partners?view=leads", { headers: auth })).text();
     expect(page).toContain("Food Fest");
     expect(page).toContain("info@fest.example");
 
     const edit = await (await app.request("/partners?edit=1", { headers: auth })).text();
     expect(edit).toContain('action="/dashboard/partners/1"');
+
+    expect((await app.request("/partners/1/chased", post({}))).status).toBe(303);
+    expect(store.leads[0]).toMatchObject({ status: "Sent", sentOn: "2026-10-16", followUpOn: "2026-10-21" });
 
     await app.request("/partners/1/delete", post({}));
     expect(store.leads).toHaveLength(0);
