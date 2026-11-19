@@ -56,17 +56,25 @@ What customers see:
 - **+ and - buttons** beside each option. The first + jumps to the option's
   minimum, and + stops at the stock that's left. A bar at the bottom shows a
   running total "before delivery", worked out from the price list's prices
-  (bulk prices included). **Send order on WhatsApp** opens a chat with the
-  business's number and the order already typed, e.g.
+  (bulk and sale prices included). **Buy now on WhatsApp** opens a chat with
+  the business's number and the order already typed, ending in an order code:
 
   ```
-  Hello Ada's Prints, I'd like to order:
+  Hello Ada's Prints, I'd like to buy now:
   • 20 x Branded T-shirts: white, one-colour print
   • 6 x Branded mugs: white ceramic, 11oz
+
+  Order code: SHOP 1a2b3c4d*20 5e6f7a8b*6
   ```
 
-  The bot then replies with a normal quote (exact total, delivery, discounts).
-  Nothing is paid or saved on the page itself.
+  The code names each option and quantity, so the bot reads it in code (no
+  AI, no AI reply used up) and confirms the order straight away, without
+  waiting for YES: the customer gets the invoice with the total, delivery
+  (asked for first, as usual) and the pay link. Prices are looked up from the
+  price list at that moment, never taken from the message. If something
+  can't be taken as asked (below a minimum, not enough stock, priced by the
+  team), the bot sends a normal quote and waits for YES instead. Nothing is
+  paid or saved on the page itself.
 - Each product also has its own **Order on WhatsApp** button, for customers
   who'd rather just ask.
 - Below the products, each section showing only when the shop has something

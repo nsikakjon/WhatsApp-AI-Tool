@@ -1,3 +1,4 @@
+import { buyNowItems, buyRef } from "./buy-now.js";
 import { describe, expect, it, vi } from "vitest";
 import type { IncomingMessage } from "../../core/whatsapp/types.js";
 import { createQuoteProduct, safeMessage } from "./index.js";
@@ -1523,5 +1524,43 @@ describe("order again", () => {
     expect(hi?.buttons?.buttons.some((x) => x.id === "order again")).toBe(false);
     await product.handle(text("order again"), ctx);
     expect(mem.orders).toEqual([]);
+  });
+});
+
+describe("Buy now from the shop page", () => {
+  const A5 = "1a2b3c4d-0000-4000-8000-000000000001";
+  const CARDS = "5e6f7a8b-0000-4000-8000-000000000002";
+  const shopList: Variant[] = [
+    { id: A5, name: "Flyers: A5", minQuantity: 50, tiers: [{ minQuantity: 50, unitPriceKobo: 15_000 }] },
+    { id: CARDS, name: "Business cards: 350gsm", minQuantity: 100, tiers: [{ minQuantity: 100, unitPriceKobo: 5_000 }] },
+  ];
+  const buy = (code: string) => text(`Hello KahnPrints, I'd like to buy now:\n• 100 x Flyers: A5\n\nOrder code: SHOP ${code}`);
+
+  it("reads each option and quantity from the order code, never from the typed lines", () => {
+    expect(buyNowItems(`Order code: SHOP ${buyRef(A5)}*100 ${buyRef(CARDS)}*200 ffffffff*3`, shopList)).toEqual([
+      { variantId: A5, quantity: 100 },
+      { variantId: CARDS, quantity: 200 },
+    ]);
+    expect(buyNowItems("I'd like 100 flyers", shopList)).toBeNull();
+  });
+
+  it("prices and confirms straight away, with no AI and no YES", async () => {
+    const s = setup(new Error("the AI isn't asked"), shopList);
+    const reply = await s.product.handle(buy(`1a2b3c4d*100 5e6f7a8b*200`), ctx);
+    expect(s.seen).toHaveLength(0);
+    expect(reply?.text).toContain("Order KP-1001 is confirmed. Here's your invoice for ₦25,000.");
+    expect(s.orders[0]?.status).toBe("confirmed");
+    expect(s.orders[0]?.lines.map((l) => [l.variantId, l.quantity, l.totalKobo])).toEqual([
+      [A5, 100, 1_500_000],
+      [CARDS, 200, 1_000_000],
+    ]);
+    expect(reply?.notify?.[0]?.text).toContain("New order KP-1001 from Ada");
+  });
+
+  it("leaves the quote waiting for YES when something can't be taken as asked", async () => {
+    const s = setup(new Error("the AI isn't asked"), shopList);
+    const reply = await s.product.handle(buy(`1a2b3c4d*100 5e6f7a8b*20`), ctx);
+    expect(reply?.text).toContain("Reply YES");
+    expect(s.orders[0]?.status).toBe("quoted");
   });
 });
