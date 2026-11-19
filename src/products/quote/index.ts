@@ -29,6 +29,7 @@ import type { EventTickets } from "./tickets/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
 import { describeFile, fileKind, MAX_FILE_BYTES, RECENT_ORDER_DAYS, type CustomerFile, type CustomerFileStore, type FileKind } from "./customer-files.js";
 import { PaymentsHeld } from "./paylinks.js";
+import { buyNowItems } from "./buy-now.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -327,6 +328,18 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           const tickets = await opts.tickets.showcase(variants, lang);
           if (tickets) return tickets;
         }
+      }
+
+      // "Buy now" on the shop page names each option and quantity in a code: priced and confirmed in code, no AI.
+      const bought = buyNowItems(msg.text, variants);
+      if (bought) {
+        if (walkIn.paused) return closedReply(t);
+        const quote = await makeQuote(bought, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone, null, true);
+        // Anything not taken as asked (below a minimum, short of stock, priced by the team) waits for the customer's YES as usual.
+        if (!quote.ready) return quote;
+        const reply = await confirm(ctx.contactId, msg.contactName, msg.from, walkIn, t, lang, variants, ctx.sharedPhone);
+        if (!walkIn.on) await addClosedNote(reply, lang);
+        return reply;
       }
 
       // Out of AI credits: simple menu replies instead, and the owner hears about it.
@@ -816,7 +829,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     t: QuoteTexts,
     phone?: string,
     notes?: string | null,
-  ): Promise<Reply> {
+    /** From "Buy now": when every item is taken as asked, `ready` says to confirm straight away. */
+    buyNow = false,
+  ): Promise<Reply & { ready?: boolean }> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
     const problems: string[] = [];
@@ -860,6 +875,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     const previous = opts.customerFiles ? await opts.orders.latestOpenQuote(contactId) : null;
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
     const orderNotes = opts.customerFiles ? await carryDetails(opts.customerFiles, order, previous, notes ?? null, contactId) : null;
+    if (buyNow && problems.length === 0 && manual.length === 0) return { text: "", ready: true };
     const notesLine = orderNotes && shown(orderNotes);
     const creditLine = await credit(t);
     const text = [
