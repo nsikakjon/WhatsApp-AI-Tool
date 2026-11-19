@@ -136,6 +136,7 @@ import { createNumberCollector, createSupabaseNumberQueue } from "./products/quo
 import { createSupabaseProcessedTotal } from "./core/payments/processed.js";
 import { createSupabaseVisitStore, createSupabaseWebsiteStats } from "./dashboard/visits.js";
 import { createSupabaseMoneyStore } from "./dashboard/profit.js";
+import { createSupabaseBalanceStore } from "./dashboard/balance.js";
 import { createSupabasePartnerPackageStore } from "./dashboard/partner-package.js";
 import { createSupabaseReminderStore, sendDueReminders } from "./dashboard/partner-reminder.js";
 import { createSupabaseReportSource, renderReport } from "./dashboard/partner-report.js";
@@ -1633,6 +1634,7 @@ const app = createApp({
       website: createSupabaseWebsiteStats(supabase),
       analytics: createAnalytics(config.dashboard.googleAnalytics),
       money: createSupabaseMoneyStore(supabase),
+      balance: createSupabaseBalanceStore(supabase),
       tally: createSupabaseTallyStore(supabase),
       partners: createSupabasePartnerStore(supabase),
       partnerPackages: createSupabasePartnerPackageStore(supabase, {
