@@ -1,11 +1,24 @@
 import { mark } from "./brand.js";
 
 /**
+ * A row of buttons that shows one part of a page at a time, so a long page
+ * doesn't have to be scrolled. Each item is [link, label, count?, "due"?].
+ */
+export function views(items: Array<[href: string, label: string, count?: number, due?: boolean]>, current: string, label = "Show"): string {
+  return `<nav class="views" aria-label="${esc(label)}">${items
+    .map(
+      ([href, text, count, due]) =>
+        `<a href="${esc(href)}"${href === current ? ' aria-current="page"' : ""}${due ? ' class="due"' : ""}>${esc(text)}${count === undefined ? "" : `<span class="count">${count}</span>`}</a>`,
+    )
+    .join("")}</nav>`;
+}
+
+/**
  * The look of yarnOga's own pages (analytics dashboard, plan editor, quote bot
  * setup): header with the mark, jump links and styles. `heading`, `nav` and
  * `css` (extra styles for the page) are HTML/CSS; the rest is text.
  */
-export function pageShell(o: { title: string; crumb: string; heading: string; badge?: string; nav: string; body: string; css?: string }): string {
+export function pageShell(o: { title: string; crumb: string; heading: string; badge?: string; nav?: string; body: string; css?: string }): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -132,6 +145,14 @@ main > .problem:first-child { margin-top:24px; }
 .entry input:focus, .entry select:focus { outline:2px solid var(--lime); outline-offset:1px; border-color:transparent; }
 .entry button[type=submit] { grid-column:1 / -1; justify-self:start; font:600 15px/1 var(--accent); background:var(--lime); color:var(--limeink); border:0; border-radius:10px; padding:13px 22px; cursor:pointer; }
 .problem { padding:16px 18px; margin:0; border-color:rgba(255,138,122,.3); color:var(--text); }
+.views { display:flex; gap:6px; margin:24px 0 0; padding:4px; overflow-x:auto; scrollbar-width:none; border-radius:12px; background:var(--surface); border:1px solid var(--line); width:max-content; max-width:100%; }
+.views::-webkit-scrollbar { display:none; }
+.views a { flex:none; padding:8px 14px; border-radius:9px; color:var(--muted); text-decoration:none; font:600 13.5px/1 var(--accent); white-space:nowrap; }
+.views a:hover { color:var(--text); background:var(--surface2); }
+.views a[aria-current] { background:var(--surface3); color:var(--lime); box-shadow:inset 0 0 0 1px rgba(198,255,31,.25); }
+.views a .count { margin-left:6px; color:var(--dim); font-weight:500; }
+.views a.due .count { color:var(--red); }
+.views + section, .views + .problem, .views + .saved { margin-top:20px; }
 footer { margin-top:48px; padding-top:20px; border-top:1px solid var(--line); color:var(--dim); font-size:12.5px; }
 @media (min-width:960px) {
   main, header { padding-left:32px; padding-right:32px; }
@@ -152,7 +173,7 @@ ${mark("m", 48)}
 </div>
 ${o.badge ? `<span class="fresh">${esc(o.badge)}</span>` : ""}
 </header>
-<nav class="jump" aria-label="Sections"><div>${o.nav}</div></nav>
+${o.nav ? `<nav class="jump" aria-label="Sections"><div>${o.nav}</div></nav>` : ""}
 <main>
 ${o.body}
 </main></body></html>`;

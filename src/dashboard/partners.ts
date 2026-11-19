@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PACKAGE_CSS } from "./partner-package.js";
+import { views } from "../core/admin-page.js";
 import { esc, pageShell, tile } from "./page.js";
 
 // The partnerships list at /dashboard/partners: events, fairs and organisers
@@ -109,6 +110,12 @@ export function parsePartnerForm(form: Record<string, unknown>, today: string): 
   };
 }
 
+/** The same lead after chasing it again: everything kept, next follow-up a few days from today. */
+export function chasedAgain(p: Partner, today: string): NewPartner {
+  const { name, kind, eventDate, place, contact, offer, status, sentOn, link, notes } = p;
+  return { name, kind, eventDate, place, contact, offer, status, sentOn, followUpOn: addDays(today, FOLLOW_UP_AFTER_DAYS), link, notes };
+}
+
 export interface PartnerSummary {
   counts: Record<Status, number>;
   /** Open leads with a follow-up day, soonest first. */
@@ -159,84 +166,263 @@ function partnerForm(p: Partner | undefined, today: string): string {
 <label>Follow up on <input type="date" name="follow_up_on" value="${v(p?.followUpOn)}"></label>
 <label class="wide">Link <input name="link" type="url" maxlength="500" value="${v(p?.link)}" placeholder="https://… event page or letter"></label>
 <label class="wide">Notes <input name="notes" maxlength="1000" value="${v(p?.notes)}" placeholder="e.g. sent from useyarnoga@gmail.com, asked for a call"></label>
-<div class="buttons"><button type="submit">${p ? "Save changes" : "Add"}</button>${p ? `<a href="/dashboard/partners">Cancel</a>` : ""}</div>
+<div class="buttons"><button type="submit">${p ? "Save changes" : "Add"}</button>${p ? `<a href="/dashboard/partners?view=leads">Cancel</a>` : ""}</div>
 </form>`;
 }
 
-function row(p: Partner, today: string): string {
-  const due = p.followUpOn && p.followUpOn <= today && !CLOSED.includes(p.status);
-  const about = [p.kind, p.place].filter(Boolean).map((s) => esc(s!)).join(" · ");
-  const link = p.link ? ` <a href="${esc(p.link)}" rel="noopener noreferrer" target="_blank">open</a>` : "";
-  return `<tr class="st-${p.status.toLowerCase().replace(/ /g, "-")}"><td>${esc(p.name)}${link}${about ? `<span class="small">${about}</span>` : ""}${
-    p.contact ? `<span class="small">${esc(p.contact)}</span>` : ""
-  }${p.offer ? `<span class="small">Offered: ${esc(p.offer)}</span>` : ""}${p.notes ? `<span class="small">${esc(p.notes)}</span>` : ""}</td><td>${p.eventDate ? esc(shortDay(p.eventDate)) : "?"}</td><td><span class="status">${esc(p.status)}</span>${
-    p.sentOn ? `<span class="small">sent ${esc(shortDay(p.sentOn))}</span>` : ""
-  }</td><td>${p.followUpOn ? `${esc(shortDay(p.followUpOn))}${due ? ' <span class="flag">Due</span>' : ""}` : ""}</td><td class="acts"><a href="/dashboard/partners?edit=${p.id}#edit">Edit</a><form method="post" action="/dashboard/partners/${p.id}/delete" onsubmit="return confirm('Remove ${esc(
-    p.name.replace(/['\\]/g, ""),
-  )} from the list?')"><button class="link" type="submit">Remove</button></form></td></tr>`;
+/** The three views of the page, picked from the top bar. */
+export const PARTNER_VIEWS = ["today", "leads", "packages"] as const;
+export type PartnerView = (typeof PARTNER_VIEWS)[number];
+
+/** Ways to narrow the list of leads; the stat cards link to them too. */
+export const LEAD_FILTERS: Array<[id: string, label: string, statuses: Status[] | null]> = [
+  ["open", "Open", ["To contact", "Sent", "No reply", "Replied", "Meeting"]],
+  ["to-contact", "To contact", ["To contact"]],
+  ["waiting", "Sent, waiting", ["Sent", "No reply"]],
+  ["talking", "Talking", ["Replied", "Meeting"]],
+  ["agreed", "Agreed", ["Agreed"]],
+  ["declined", "Declined", ["Declined"]],
+  ["all", "All", null],
+];
+
+/** Leads shown before "Show all". */
+export const LEADS_PER_PAGE = 15;
+
+const isDue = (p: Partner, today: string) => Boolean(p.followUpOn && p.followUpOn <= today && !CLOSED.includes(p.status));
+const statusClass = (s: Status) => `st-${s.toLowerCase().replace(/ /g, "-")}`;
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-export function renderPartners(summary: PartnerSummary | "error", today: string, opts: { editId?: number; problem?: string; saved?: string; packages?: string } = {}): string {
+function lateBy(p: Partner, today: string): string {
+  const late = daysBetween(p.followUpOn!, today);
+  return late <= 0 ? "Due today" : late === 1 ? "1 day late" : `${late} days late`;
+}
+
+/** A lead as one line: name, event day, status, follow-up and buttons, with the rest folded away. */
+function leadItem(p: Partner, today: string): string {
+  const about = [p.kind, p.place].filter(Boolean).map((s) => esc(s!)).join(" · ");
+  const link = p.link ? `<a href="${esc(p.link)}" rel="noopener noreferrer" target="_blank">Open link</a>` : "";
+  const more = [
+    p.contact && `<span><b>Contact</b> ${esc(p.contact)}</span>`,
+    p.offer && `<span><b>Offered</b> ${esc(p.offer)}</span>`,
+    p.sentOn && `<span><b>Sent</b> ${esc(shortDay(p.sentOn))}</span>`,
+    p.notes && `<span><b>Notes</b> ${esc(p.notes)}</span>`,
+    link,
+  ].filter(Boolean);
+  return `<li class="lead ${statusClass(p.status)}">
+<div class="who"><b>${esc(p.name)}</b>${about ? `<span class="small">${about}</span>` : ""}</div>
+<div class="when"><span class="small">Event</span>${p.eventDate ? esc(shortDay(p.eventDate)) : "?"}</div>
+<div class="st"><span class="badge">${esc(p.status)}</span></div>
+<div class="when"><span class="small">Follow up</span>${p.followUpOn ? `${esc(shortDay(p.followUpOn))}${isDue(p, today) ? ' <span class="flag">Due</span>' : ""}` : "–"}</div>
+<div class="acts"><a href="/dashboard/partners?view=leads&amp;edit=${p.id}#edit">Edit</a><form method="post" action="/dashboard/partners/${p.id}/delete" onsubmit="return confirm('Remove ${esc(
+    p.name.replace(/['\\]/g, ""),
+  )} from the list?')"><button class="link" type="submit">Remove</button></form></div>
+${more.length ? `<details class="more"><summary>Details</summary><div>${more.join("")}</div></details>` : ""}
+</li>`;
+}
+
+/** A follow-up to do: who, how to reach them, and buttons to update or mark it done. */
+function chaseItem(p: Partner, today: string): string {
+  const due = isDue(p, today);
+  return `<li class="chase${due ? " due" : ""}">
+<div class="who"><b>${esc(p.name)}</b>${p.contact ? `<span class="small">${esc(p.contact)}</span>` : ""}</div>
+<div class="when">${due ? `<span class="flag">${esc(lateBy(p, today))}</span>` : esc(shortDay(p.followUpOn!))}<span class="small">${esc(p.status)}${p.eventDate ? ` · event ${esc(shortDay(p.eventDate))}` : ""}</span></div>
+<div class="acts">${
+    due
+      ? `<form method="post" action="/dashboard/partners/${p.id}/chased"><button class="small-btn" type="submit" title="Sets the next follow-up ${FOLLOW_UP_AFTER_DAYS} days from today">Chased · again in ${FOLLOW_UP_AFTER_DAYS} days</button></form>`
+      : ""
+  }<a href="/dashboard/partners?view=leads&amp;edit=${p.id}#edit">Update</a></div>
+</li>`;
+}
+
+export interface PackagePicker {
+  /** Agreed partners, each with a package. */
+  agreed: Partner[];
+  /** The one shown. */
+  current?: number;
+  /** Its rendered package. */
+  html: string;
+}
+
+export interface PartnersPageOptions {
+  view?: PartnerView;
+  /** One of LEAD_FILTERS, for the Leads view. */
+  filter?: string;
+  /** Show every lead, not just the first LEADS_PER_PAGE. */
+  showAll?: boolean;
+  editId?: number;
+  problem?: string;
+  saved?: string;
+  packages?: PackagePicker;
+}
+
+/** Which agreed partner's package to show: the one asked for, else the next event to come. */
+export function pickPackage(agreed: Partner[], asked: number | undefined, today: string): Partner | undefined {
+  return (
+    agreed.find((p) => p.id === asked) ??
+    [...agreed].sort((a, b) => {
+      const key = (p: Partner) => (p.eventDate && p.eventDate >= today ? `0${p.eventDate}` : `1${p.eventDate ?? ""}`);
+      return key(a).localeCompare(key(b));
+    })[0]
+  );
+}
+
+export function renderPartners(summary: PartnerSummary | "error", today: string, opts: PartnersPageOptions = {}): string {
+  const view: PartnerView = opts.editId ? "leads" : (opts.view ?? "today");
   const notice = opts.problem
     ? `<p class="problem" role="alert">${esc(opts.problem)}</p>`
     : opts.saved
       ? `<p class="saved" role="status">${esc(opts.saved)}</p>`
       : "";
+  const due = summary === "error" ? [] : summary.followUps.filter((p) => isDue(p, today));
   let body: string;
   if (summary === "error") {
     body = `<p class="problem">Couldn't read the partnerships list. If 0088_partner_leads.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`;
-  } else {
+  } else if (view === "today") {
     const c = summary.counts;
-    const editing = opts.editId ? summary.all.find((p) => p.id === opts.editId) : undefined;
-    const dueCount = summary.followUps.filter((p) => p.followUpOn! <= today && (p.status === "Sent" || p.status === "No reply")).length;
-    const followRows = summary.followUps
-      .map((p) => {
-        const due = p.followUpOn! <= today;
-        return `<tr${due ? ' class="losing"' : ""}><td>${esc(shortDay(p.followUpOn!))}${due ? ' <span class="flag">Due</span>' : ""}</td><td>${esc(p.name)}${
-          p.contact ? `<span class="small">${esc(p.contact)}</span>` : ""
-        }</td><td>${esc(p.status)}</td><td><a href="/dashboard/partners?edit=${p.id}#edit">Update</a></td></tr>`;
-      })
-      .join("");
+    const weekAhead = addDays(today, 7);
+    const soon = summary.followUps.filter((p) => !isDue(p, today) && p.followUpOn! <= weekAhead);
+    const events = summary.all.filter((p) => p.status === "Agreed" && p.eventDate && p.eventDate >= today).slice(0, 3);
     body = `${notice}
-<section id="summary"><h2>Where things stand</h2>
-<div class="tiles">
-${tile("To contact", String(c["To contact"]))}
-${tile("Sent, waiting", String(c.Sent + c["No reply"]), dueCount ? `${dueCount} to chase today` : "")}
-${tile("Talking", String(c.Replied + c.Meeting), "replied or meeting")}
-${tile("Agreed", String(c.Agreed), c.Declined ? `${c.Declined} declined` : "", c.Agreed ? "glow" : "")}
-</div></section>
-<section id="follow-ups"><h2>Follow-ups</h2>
-<p class="intro">Open leads with a follow-up day, soonest first. Marking a lead Sent sets a follow-up ${FOLLOW_UP_AFTER_DAYS} days later unless you pick a day.</p>
-<table class="plans wide"><thead><tr><th>Follow up on</th><th>Who</th><th>Status</th><th></th></tr></thead><tbody>${
-      followRows || `<tr><td colspan="4">Nothing to follow up</td></tr>`
-    }</tbody></table></section>
-<section id="packages"><h2>Partner packages</h2>
-<p class="intro">What we give each agreed partner: their discount code, and their shop once they've signed up on the bot (plan, FAQs the bot answers from, fee). Mark a lead Agreed to set up its package here.</p>
-${opts.packages || `<p class="small">No agreed partnerships yet.</p>`}</section>
-<section id="list"><h2>All leads</h2>
-${editing ? partnerForm(editing, today) : partnerForm(undefined, today)}
-<div class="scroll"><table class="plans wide leads"><thead><tr><th>Event or organiser</th><th>Event day</th><th>Status</th><th>Follow up</th><th></th></tr></thead><tbody>${
-      summary.all.map((p) => row(p, today)).join("") || `<tr><td colspan="5">No leads yet. Add the first one above.</td></tr>`
-    }</tbody></table></div></section>`;
+<div class="tiles glance">
+${tile("To contact", String(c["To contact"]), "not pitched yet", "", "/partners?view=leads&filter=to-contact")}
+${tile("Sent, waiting", String(c.Sent + c["No reply"]), "waiting for a reply", "", "/partners?view=leads&filter=waiting")}
+${tile("Talking", String(c.Replied + c.Meeting), "replied or meeting", "", "/partners?view=leads&filter=talking")}
+${tile("Agreed", String(c.Agreed), c.Declined ? `${c.Declined} declined` : "", c.Agreed ? "glow" : "", "/partners?view=leads&filter=agreed")}
+</div>
+<section id="due"><h2>Chase today${due.length ? ` <span class="count-pill">${due.length}</span>` : ""}</h2>
+${
+  due.length
+    ? `<p class="intro">Follow-ups that are due or late. After you chase one, tap the button and it comes back in ${FOLLOW_UP_AFTER_DAYS} days.</p><ul class="chases">${due.map((p) => chaseItem(p, today)).join("")}</ul>`
+    : `<p class="intro all-clear">Nothing to chase today.</p>`
+}</section>
+<section id="soon"><h2>Coming up this week</h2>
+${soon.length ? `<ul class="chases">${soon.map((p) => chaseItem(p, today)).join("")}</ul>` : `<p class="intro">No follow-ups in the next 7 days.</p>`}
+</section>
+${
+  events.length
+    ? `<section id="events"><h2>Agreed events coming up</h2><ul class="chases">${events
+        .map(
+          (p) =>
+            `<li class="chase"><div class="who"><b>${esc(p.name)}</b>${p.place ? `<span class="small">${esc(p.place)}</span>` : ""}</div><div class="when">${esc(shortDay(p.eventDate!))}<span class="small">in ${daysBetween(today, p.eventDate!)} days</span></div><div class="acts"><a href="/dashboard/partners?view=packages&amp;p=${p.id}">Package</a></div></li>`,
+        )
+        .join("")}</ul></section>`
+    : ""
+}`;
+  } else if (view === "leads") {
+    const editing = opts.editId ? summary.all.find((p) => p.id === opts.editId) : undefined;
+    const [filterId, , statuses] = LEAD_FILTERS.find(([id]) => id === opts.filter) ?? LEAD_FILTERS[0]!;
+    const matching = summary.all.filter((p) => !statuses || statuses.includes(p.status));
+    const shown = opts.showAll ? matching : matching.slice(0, LEADS_PER_PAGE);
+    const filters = views(
+      LEAD_FILTERS.map(([id, label, st]) => [
+        `/dashboard/partners?view=leads&filter=${id}`,
+        label,
+        st ? summary.all.filter((p) => st.includes(p.status)).length : summary.all.length,
+      ]),
+      `/dashboard/partners?view=leads&filter=${filterId}`,
+      "Which leads",
+    );
+    body = `${notice}${filters}
+${
+  editing
+    ? partnerForm(editing, today)
+    : `<details class="add"${opts.problem || !summary.all.length ? " open" : ""}><summary>+ Add an event or organiser</summary>${partnerForm(undefined, today)}</details>`
+}
+<section id="list">${
+      shown.length
+        ? `<ul class="leads"><li class="head" aria-hidden="true"><span>Event or organiser</span><span>Event day</span><span>Status</span><span>Follow up</span><span></span></li>${shown.map((p) => leadItem(p, today)).join("")}</ul>${
+            matching.length > shown.length
+              ? `<p class="more-link"><a href="/dashboard/partners?view=leads&amp;filter=${filterId}&amp;all=1#list">Show all ${matching.length}</a></p>`
+              : ""
+          }`
+        : `<p class="intro">${summary.all.length ? "No leads here." : "No leads yet. Add the first one above."}</p>`
+    }</section>`;
+  } else {
+    const pk = opts.packages;
+    const picker =
+      pk && pk.agreed.length > 1
+        ? views(
+            pk.agreed.map((p) => [`/dashboard/partners?view=packages&p=${p.id}`, p.name]),
+            `/dashboard/partners?view=packages&p=${pk.current}`,
+            "Which partner",
+          )
+        : "";
+    body = `${notice}${picker}
+<section id="packages"><p class="intro">What we give each agreed partner: their discount code, and their shop once they've signed up on the bot. Mark a lead Agreed to set up its package here.</p>
+${pk?.html || `<p class="intro">No agreed partnerships yet.</p>`}</section>`;
   }
+  const tab = (id: PartnerView, label: string, extra = "") =>
+    `<a href="/dashboard/partners${id === "today" ? "" : `?view=${id}`}"${id === view ? ' aria-current="page"' : ""}>${label}${extra}</a>`;
   return pageShell({
     title: "yarnOga partnerships",
     crumb: "Events and partners",
     heading: "yarn<b>Oga</b> partnerships",
     badge: "Saved as you go",
-    nav: `<a href="/dashboard">Back to analytics</a><a href="#follow-ups">Follow-ups</a><a href="#packages">Packages</a><a href="#list">All leads</a>`,
+    nav: `<a class="back" href="/dashboard">‹ Analytics</a><span class="sep" aria-hidden="true"></span>${tab("today", "Today", due.length ? ` <span class="dot">${due.length}</span>` : "")}${tab("leads", "Leads")}${tab("packages", "Packages")}`,
     body,
-    css: `.leads { min-width:720px; }
-.leads td { vertical-align:top; }
-.leads td:first-child { min-width:240px; }
-.leads td:nth-child(2), .leads td:nth-child(4) { white-space:nowrap; }
-.leads .status { font-weight:600; }
-.leads .acts { white-space:nowrap; }
-.leads .acts form { display:inline; margin-left:10px; }
-tr.st-agreed td:first-child { box-shadow:inset 3px 0 0 var(--lime); }
-tr.st-declined td { opacity:.6; }
+    css: `.jump a[aria-current] { background:var(--lime); color:var(--limeink); border-color:transparent; }
+.jump .sep { flex:none; width:1px; margin:4px 6px; background:var(--line2); }
+.jump a.back { border-color:transparent; }
+.jump .dot { display:inline-block; min-width:18px; margin-left:4px; padding:2px 6px; border-radius:99px; background:var(--red); color:#1a0703; font-size:11px; text-align:center; }
+.glance { margin-top:24px; grid-template-columns:repeat(2,1fr); }
+@media (min-width:760px) { .glance { grid-template-columns:repeat(4,1fr); } }
+a.tile { display:block; color:inherit; text-decoration:none; transition:border-color .15s; }
+a.tile:hover { border-color:rgba(198,255,31,.35); }
+a.tile .label:after { content:" ›"; color:var(--dim); }
+section { margin-top:32px; }
+.count-pill { display:inline-block; margin-left:6px; padding:2px 10px; border-radius:99px; background:var(--redsoft); color:var(--red); font:600 14px/1.4 var(--body); vertical-align:middle; }
+.chases, .leads { list-style:none; margin:12px 0 0; padding:0; border:1px solid var(--line); border-radius:14px; background:var(--glass),var(--surface); overflow:hidden; }
+.chases > li, .leads > li { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:12px 16px; border-top:1px solid var(--line); }
+.chases > li:first-child, .leads > li:first-child { border-top:0; }
+.who, .acts, .more { flex-basis:100%; min-width:0; }
+.chase.due { box-shadow:inset 3px 0 0 var(--red); }
+.who b { font-weight:600; }
+.who .small, .when .small { overflow-wrap:anywhere; }
+.when { white-space:nowrap; font-variant-numeric:tabular-nums; font-size:14px; }
+.when .small { display:inline; margin-left:8px; }
+.when .flag { margin-left:0; }
+.acts { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; font-size:14px; }
+.acts form { display:inline; }
+.small-btn { font:600 13px/1 var(--accent); padding:9px 12px; border-radius:9px; background:var(--limesoft); color:var(--lime); border:1px solid rgba(198,255,31,.25); cursor:pointer; }
+.small-btn:hover { border-color:var(--lime); }
+.leads .st { order:-1; }
+.leads .head { display:none; }
+.leads .acts, .leads .more { flex-basis:auto; }
+.leads .more[open] { flex-basis:100%; }
+.leads .who { order:-2; }
+.leads .when .small { margin:0 6px 0 0; }
+.badge { display:inline-block; padding:3px 10px; border-radius:99px; border:1px solid var(--line2); font-size:12.5px; font-weight:600; white-space:nowrap; }
+.st-agreed .badge { background:var(--limesoft); color:var(--lime); border-color:transparent; }
+.st-replied .badge, .st-meeting .badge { color:var(--mint); border-color:rgba(46,229,160,.3); }
+.st-declined { opacity:.6; }
+.lead.st-agreed { box-shadow:inset 3px 0 0 var(--lime); }
+.more { margin-top:2px; }
+.more > div { display:grid; gap:4px; margin-top:6px; color:var(--muted); overflow-wrap:anywhere; }
+.more b { color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.06em; margin-right:6px; }
+@media (min-width:760px) {
+  .chases > li, .leads > li { display:grid; gap:4px 16px; }
+  .chases > li { grid-template-columns:minmax(0,1fr) 190px 300px; }
+  .chases .when { text-align:right; }
+  .chases .when .small { display:block; margin:0; }
+  .chases .acts { justify-content:flex-end; }
+  .leads > li { grid-template-columns:minmax(0,1fr) 120px 110px 160px 120px; }
+  .leads .st, .leads .who { order:0; }
+  .leads .head { display:grid; padding-block:10px; color:var(--dim); font:600 11px/1.4 var(--body); letter-spacing:.08em; text-transform:uppercase; }
+  .leads .when .small { display:none; }
+  .leads .acts { justify-content:flex-end; }
+  .leads .more { grid-column:1 / -1; }
+}
+.more-link { margin:12px 0 0; }
+details.add { margin-top:16px; }
+details.add > summary { display:inline-block; padding:11px 18px; border-radius:10px; background:var(--limesoft); color:var(--lime); font:600 14px/1 var(--accent); border:1px solid rgba(198,255,31,.25); list-style:none; }
+details.add > summary::-webkit-details-marker { display:none; }
 .entry select, .entry input[type=date] { color-scheme:dark; }
-.entry + .scroll { margin-top:16px; }
+.entry .buttons { grid-column:1 / -1; display:flex; align-items:center; gap:18px; }
+.views + details.add, .views + .entry { margin-top:16px; }
+#list { margin-top:16px; }
 ${PACKAGE_CSS}`,
   });
 }

@@ -9,13 +9,15 @@ database each time you open or refresh it.
    long password you make up. Save; Railway redeploys.
 2. Open `https://<your-railway-url>/dashboard` (the same address Meta's webhook
    uses, with `/dashboard` on the end instead of `/webhooks/whatsapp`).
-3. The browser asks for a username and password. Type anything as the
-   username and your `DASHBOARD_PASSWORD` as the password.
+3. A yarnOga sign-in page asks for your `DASHBOARD_PASSWORD`. The browser
+   then stays signed in for 30 days (a cookie that only goes to `/dashboard`
+   pages), so signing in to the quote setup pages or the owner app on the
+   same site no longer signs you out here. **Sign out** is at the end of the
+   top bar. Changing `DASHBOARD_PASSWORD` signs every browser out.
 
 Leave `DASHBOARD_PASSWORD` empty and the page is switched off.
 
-If the password is refused: the username doesn't matter (leave it empty or
-type anything), so it's the password. Copy it again from Railway, in case it
+If the password is refused, copy it again from Railway, in case it
 was changed when the secrets were rotated. After 5 wrong tries from one
 connection the page refuses every password for 15 minutes, so wait before
 trying again.
@@ -30,6 +32,10 @@ sheet, plan editor, numbers to connect) next to them:
 - **Money**: profit and loss, spending against the plan, and the cost to serve each shop.
 - **Marketing**: leads from ads, website visitors and socials.
 - **Products**: WhatsApp, flyers, sales assistant, site reporter and leads.
+
+Inside Money, Marketing and Products a second row of buttons picks one part
+at a time (for example Money > Cost per shop), so a tab is never one long
+scroll. A link to one part looks like `/dashboard?tab=money&show=costs`.
 
 
 | Section | Numbers |
@@ -112,9 +118,12 @@ How the figures are worked out:
 ## Tally sheet
 
 A page at `/dashboard/tally` (same password; **Tally sheet** link in the top
-bar) for door-to-door sales days, filled in on the phone between shops:
+bar) for door-to-door sales days, filled in on the phone between shops. Its
+tabs are **Day** (the day's tiles and shops), **Follow-ups** (with a red
+count when some are due) and **Every day**. On a phone each shop is a card
+with its ticks labelled, so nothing scrolls sideways.
 
-- **Add a shop**: name, type, where it is, and four ticks: owner in,
+- **+ Add a shop** opens the form: name, type, where it is, and four ticks: owner in,
   interested, signed up, live today. Ticking a later step ticks the earlier
   ones. Add a follow-up day for an owner who said "not now".
 - The day's tiles show shops visited, interested and live against the day's
@@ -132,7 +141,19 @@ Railway setting is needed.
 
 A page at `/dashboard/partners` (same password; **Partnerships** link in the
 top bar) for the events, fairs and organisers we pitch in-kind partnerships
-to:
+to. It has three tabs:
+
+- **Today** (opens first): four cards (To contact, Sent and waiting, Talking,
+  Agreed; tap one to see those leads), **Chase today** (follow-ups that are
+  due or late, with how many days late), **Coming up this week**, and agreed
+  events coming up. After chasing someone, **Chased · again in 5 days** keeps
+  the lead as it is and moves its follow-up to 5 days from today.
+- **Leads**: the list, narrowed with the buttons along the top (Open, To
+  contact, Sent and waiting, Talking, Agreed, Declined, All), 15 at a time
+  with **Show all** below. Contact, offer and notes sit under **Details** on
+  each lead. **+ Add an event or organiser** opens the form.
+- **Packages**: one agreed partner at a time (buttons along the top when
+  there are several), see Partner packages below.
 
 - **Add an event or organiser**: name, kind, event day, where, contact (who
   and how to reach them), what we offered, status, day sent, follow-up day, a
@@ -140,8 +161,6 @@ to:
 - Statuses: To contact, Sent, Replied, Meeting, Agreed, Declined, No reply.
   Marking a lead **Sent** fills in today as the day sent and a follow-up 5
   days later, unless you pick the days yourself.
-- **Follow-ups** lists every lead with a follow-up day that isn't Agreed or
-  Declined, soonest first, marked **Due** from that day on.
 - **Edit** on a row opens it in the form; **Remove** deletes it.
 
 Run `supabase/migrations/0088_partner_leads.sql` once in Supabase first. It
@@ -150,8 +169,10 @@ setting is needed.
 
 ### Partner packages
 
-Every lead marked **Agreed** gets a panel under **Partner packages** on the
-same page, so anyone on the team can set up what we promised them:
+Every lead marked **Agreed** gets a package on the **Packages** tab, so
+anyone on the team can set up what we promised them. The code, links and
+ticket sales show at the top; each part below opens with a tap and stays
+open after you save it:
 
 - **Discount code**: the code (e.g. TEDXUNIUYO), percent off the first month,
   how many people can use it, the last day it works, which plans it works on,

@@ -219,14 +219,14 @@ describe("partner package pages", () => {
     const s = stores();
     const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, partners: s.partners, partnerPackages: s.packages, now: () => NOW });
 
-    const page = await (await app.request("/partners", { headers: auth })).text();
+    const page = await (await app.request("/partners?view=packages", { headers: auth })).text();
     expect(page).toContain('id="package-1"');
     expect(page).not.toContain('id="package-2"');
 
     expect((await app.request("/partners/1/code", post({ code: "TEDXUNIUYO", percent_off: "70" }, "https://evil.example"))).status).toBe(403);
 
     const saved = await app.request("/partners/1/code", post({ code: "tedxuniuyo", percent_off: "70", max_uses: "200", ends_on: "2027-01-31", active: "on" }));
-    expect(saved.headers.get("location")).toBe(`/dashboard/partners?saved=${encodeURIComponent("Code TEDXUNIUYO saved.")}#package-1`);
+    expect(saved.headers.get("location")).toBe(`/dashboard/partners?view=packages&p=1&open=code&saved=${encodeURIComponent("Code TEDXUNIUYO saved.")}#package-1`);
     expect(s.codes.get("TEDXUNIUYO")).toMatchObject({ percentOff: 70, maxUses: 200, endsOn: "2027-01-31" });
 
     const clash = await app.request("/partners/1/code", post({ code: "DAYONES", percent_off: "50" }));
@@ -240,7 +240,7 @@ describe("partner package pages", () => {
     await app.request("/partners/1/shop/settings", post({ plan_code: "starter", plan_until: "2026-12-31", about: "Venue: main auditorium", no_fee: "on" }));
     expect(s.shops.get("biz-1")).toMatchObject({ planCode: "starter", planUntil: "2026-12-31", about: "Venue: main auditorium", noFee: true });
 
-    const after = await (await app.request("/partners", { headers: auth })).text();
+    const after = await (await app.request("/partners?view=packages&p=1", { headers: auth })).text();
     expect(after).toContain("TEDXUNIUYO");
     expect(after).toContain("Venue: main auditorium");
     expect(after).toContain("https://app.example.com/door/biz-1.sig");
@@ -288,7 +288,8 @@ describe("partner reminder and report", () => {
     expect(decodeURIComponent((await app.request("/partners/1/reminder", post({ event_time: "9am" }))).headers.get("location")!)).toContain("problem=");
     await app.request("/partners/1/reminder", post({ event_time: "09:00", reminder_on: "on" }));
     expect(s.leads[0]).toMatchObject({ reminderOn: true, eventTime: "09:00" });
-    const page = await (await app.request("/partners", { headers: auth })).text();
+    const page = await (await app.request("/partners?view=packages&open=reminder", { headers: auth })).text();
+    expect(page).toContain('id="part-reminder" open');
     expect(page).toContain("is tomorrow, Saturday 28 November at 9am.");
     expect(page).toContain('href="/dashboard/partners/1/report"');
 

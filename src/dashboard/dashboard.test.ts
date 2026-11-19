@@ -82,10 +82,29 @@ describe("messages sent per number", () => {
 describe("dashboard page", () => {
   const app = createDashboard({ password: "secret", stats: { load: async () => sampleStats() }, now: () => NOW });
 
-  it("asks for a password", async () => {
-    expect((await app.request("/")).status).toBe(401);
+  it("sends you to the sign-in page without the password", async () => {
+    const res = await app.request("/?tab=money");
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`/dashboard/login?next=${encodeURIComponent("/dashboard?tab=money")}`);
     const wrong = await app.request("/", { headers: { Authorization: `Basic ${btoa("jay:nope")}` } });
-    expect(wrong.status).toBe(401);
+    expect(wrong.status).toBe(303);
+  });
+
+  it("signs in on its own page and keeps you signed in with a cookie", async () => {
+    const form = (password: string, next = "/dashboard?tab=money") =>
+      ({ method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ password, next }) }) as RequestInit;
+    expect((await app.request("/login", form("nope"))).status).toBe(401);
+    const ok = await app.request("/login", form("secret"));
+    expect(ok.status).toBe(303);
+    expect(ok.headers.get("location")).toBe("/dashboard?tab=money");
+    const cookie = ok.headers.get("set-cookie")!;
+    expect(cookie).toContain("Path=/dashboard");
+    expect(cookie).toContain("HttpOnly");
+    const page = await app.request("/?tab=money", { headers: { Cookie: cookie.split(";")[0]! } });
+    expect(page.status).toBe(200);
+    const other = createDashboard({ password: "changed", stats: { load: async () => sampleStats() }, now: () => NOW });
+    expect((await other.request("/", { headers: { Cookie: cookie.split(";")[0]! } })).status).toBe(303);
+    expect((await app.request("/login", form("secret", "https://evil.example"))).headers.get("location")).toBe("/dashboard");
   });
 
   it("shows live numbers with the right password", async () => {
@@ -94,8 +113,13 @@ describe("dashboard page", () => {
     const html = await res.text();
     expect(html).toContain("yarn<b>Oga</b> analytics");
     expect(html).toContain('href="/dashboard?tab=products" aria-current="page"');
-    expect(html).toContain("₦12,500");
-    expect(html).toContain("₦4,500/mo");
+    expect(html).toContain('id="whatsapp"');
+    expect(html).not.toContain('id="flyers"');
+    const quotes = await (await app.request("/?tab=products&show=quotes", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } })).text();
+    expect(quotes).toContain("₦12,500");
+    expect(quotes).toContain('aria-current="page">Sales assistant');
+    const flyers = await (await app.request("/?tab=products&show=flyers", { headers: { Authorization: `Basic ${btoa("jay:secret")}` } })).text();
+    expect(flyers).toContain("₦4,500/mo");
   });
 
   it("sends the owner to TikTok to connect, and rejects a callback it didn't start", async () => {

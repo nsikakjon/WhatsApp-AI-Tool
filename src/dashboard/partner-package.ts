@@ -292,17 +292,59 @@ ${
 <form class="unlink" method="post" action="/dashboard/partners/${p.id}/shop/unlink" onsubmit="return confirm('Unlink this shop from the partnership? The shop itself stays as it is.')"><button class="link" type="submit">Unlink this shop</button></form>`;
 }
 
-export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: PlanChoice[], today: string): string {
-  const body =
-    pkg === "error"
-      ? `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`
-      : `${pkg.code ? `<div class="pk-now">${codeSummary(pkg.code, today)}</div>` : ""}${codeForm(p, pkg.code)}${shopForms(p, pkg.shop, plans)}${
-          pkg.shop ? `${linkList(pkg.links)}${renderOrganisers(p, pkg.organisers, !pkg.shop.ownerWaId)}<h4>Tickets and price list</h4>${renderTickets(p.id, pkg.tickets ?? [])}${reminderForm(p, pkg.shop)}${endForm(p, today)}` : ""
-        }`;
+/** The parts of a package, each folded away until opened. */
+export const PACKAGE_PARTS = ["code", "shop", "organisers", "tickets", "reminder", "ends"] as const;
+export type PackagePart = (typeof PACKAGE_PARTS)[number];
+
+function part(id: PackagePart, title: string, state: string, body: string, open: boolean): string {
+  return body
+    ? `<details class="part" id="part-${id}"${open ? " open" : ""}><summary><b>${esc(title)}</b>${state ? `<span class="small">${esc(state)}</span>` : ""}</summary>${body}</details>`
+    : "";
+}
+
+/**
+ * One agreed partner's package: what's set up at a glance, then each part
+ * (code, shop, logins, tickets, reminder, last day) folded away. `open` is the
+ * part just saved, so it stays open; with no shop yet, the shop part opens.
+ */
+export function renderPackage(p: Partner, pkg: PartnerPackage | "error", plans: PlanChoice[], today: string, open?: PackagePart): string {
+  let body: string;
+  if (pkg === "error") {
+    body = `<p class="problem">Couldn't load this package. If 0089_partner_packages.sql hasn't been run in Supabase yet, run it (see docs/DASHBOARD.md).</p>`;
+  } else {
+    const { code, shop } = pkg;
+    const tickets = pkg.tickets ?? [];
+    const sold = tickets === "error" ? null : tickets.reduce((n, t) => n + (t.ticket ? t.sold : 0), 0);
+    const plan = shop && plans.find((pl) => pl.code === shop.planCode)?.name;
+    const reminder = p.reminderSentAt ? "Sent" : p.reminderOn ? "On" : "Off";
+    const team = pkg.organisers;
+    body = `<div class="pk-now">${code ? codeSummary(code, today) : `<p class="small">No discount code yet.</p>`}${shop ? linkList(pkg.links) : ""}</div>
+${part("code", "Discount code", code ? code.code : "not set up", codeForm(p, code), open === "code")}
+${part("shop", "Their shop", shop ? [shop.live || shop.keyword ? "Live" : "Not live yet", plan].filter(Boolean).join(" · ") : "not linked yet", shopForms(p, shop, plans), open === "shop" || !shop)}
+${
+  shop
+    ? `${part("organisers", "Organiser logins", Array.isArray(team) ? `${team.length} made` : "", renderOrganisers(p, team, !shop.ownerWaId), open === "organisers")}
+${part("tickets", "Tickets and price list", sold === null ? "" : `${sold} sold`, renderTickets(p.id, tickets), open === "tickets")}
+${part("reminder", "Reminder the day before", reminder, reminderForm(p, shop), open === "reminder")}
+${part("ends", "When the event ends", p.endsOn ? `last day ${shortDay(p.endsOn)}` : "no last day set", endForm(p, today), open === "ends")}`
+    : ""
+}`;
+  }
   return `<article class="package" id="package-${p.id}"><h3>${esc(p.name)}${p.eventDate ? ` <span class="small inline">${esc(shortDay(p.eventDate))}</span>` : ""}</h3>${body}</article>`;
 }
 
-export const PACKAGE_CSS = `.package { margin-top:18px; padding:4px 0 8px; border-top:1px solid var(--line); }
+export const PACKAGE_CSS = `.package { margin-top:8px; }
+.part { margin-top:10px; border:1px solid var(--line); border-radius:14px; background:var(--glass),var(--surface); color:var(--text); font-size:15px; }
+.part > summary { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; padding:14px 16px; list-style:none; }
+.part > summary::-webkit-details-marker { display:none; }
+.part > summary:before { content:"+"; width:14px; color:var(--lime); font-weight:700; }
+.part[open] > summary:before { content:"–"; }
+.part > summary b { font:600 15px/1.3 var(--accent); }
+.part > summary .small { display:inline; }
+.part > .entry, .part > .scroll { margin:0 12px 12px; }
+.part > .entry { background:var(--bg); }
+.part > summary + .entry > h3:first-child { display:none; }
+.part > .unlink { margin:0 16px 14px; }
 .package > h3 { margin:16px 0 0; font:600 18px/1.3 var(--accent); }
 .package .inline { display:inline; margin-left:8px; }
 .package .entry h3 { margin:0; }
