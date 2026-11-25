@@ -1,42 +1,42 @@
 // Plan prices in other currencies. These are fixed prices jay approved for each
-// currency (30 Oct 2026; Rwanda, Uganda, Tanzania and Malawi 7 Nov 2026; Zambia 13 Nov 2026), not live exchange rates: change a number here and it changes on the page.
+// currency (30 Oct 2026; Rwanda, Uganda, Tanzania and Malawi 7 Nov 2026; Zambia 13 Nov 2026; quote plans raised 25 Nov 2026), not live exchange rates: change a number here and it changes on the page.
 // Each plan is [monthly, monthly when paid yearly]. Without JavaScript the page shows naira.
 (function () {
   var PRICES = {
     GHS: {
-      quote: { free: [0], starter: [70, 62], pro: [230, 190], growth: [730, 620], enterprise: [2980, 2530] },
+      quote: { free: [0], starter: [150, 125], pro: [430, 365], growth: [930, 790], enterprise: [3180, 2700] },
       flyers: { free: [0], standard: [45, 25], premium: [80, 65], deluxe: [100, 85], organisation: [730] }
     },
     XOF: {
-      quote: { free: [0], starter: [3500, 3100], pro: [12000, 10000], growth: [37000, 31500], enterprise: [150000, 127000] },
+      quote: { free: [0], starter: [7500, 6400], pro: [22500, 19000], growth: [47000, 40000], enterprise: [160000, 135000] },
       flyers: { free: [0], standard: [2500, 1400], premium: [4000, 3250], deluxe: [5000, 4250], organisation: [37000] }
     },
     ZMW: {
-      quote: { free: [0], starter: [170, 150], pro: [530, 440], growth: [1700, 1450], enterprise: [7000, 5900] },
+      quote: { free: [0], starter: [360, 310], pro: [990, 840], growth: [2150, 1850], enterprise: [7450, 6350] },
       flyers: { free: [0], standard: [110, 60], premium: [190, 150], deluxe: [240, 200], organisation: [1700] }
     },
     KES: {
-      quote: { free: [0], starter: [850, 750], pro: [2650, 2200], growth: [8500, 7200], enterprise: [35000, 29500] },
+      quote: { free: [0], starter: [1800, 1550], pro: [4950, 4200], growth: [11000, 9350], enterprise: [37500, 32000] },
       flyers: { free: [0], standard: [550, 300], premium: [950, 750], deluxe: [1200, 1000], organisation: [8500] }
     },
     RWF: {
-      quote: { free: [0], starter: [9500, 8500], pro: [30000, 25000], growth: [95000, 80000], enterprise: [390000, 330000] },
+      quote: { free: [0], starter: [20500, 17500], pro: [56000, 47500], growth: [120000, 100000], enterprise: [415000, 355000] },
       flyers: { free: [0], standard: [6000, 3500], premium: [11000, 8500], deluxe: [13000, 11000], organisation: [95000] }
     },
     UGX: {
-      quote: { free: [0], starter: [24000, 21000], pro: [75000, 62000], growth: [240000, 200000], enterprise: [990000, 830000] },
+      quote: { free: [0], starter: [51500, 44000], pro: [140000, 120000], growth: [305000, 260000], enterprise: [1050000, 890000] },
       flyers: { free: [0], standard: [16000, 8500], premium: [27000, 21000], deluxe: [34000, 28000], organisation: [240000] }
     },
     TZS: {
-      quote: { free: [0], starter: [17000, 15000], pro: [52000, 43000], growth: [170000, 140000], enterprise: [690000, 580000] },
+      quote: { free: [0], starter: [36500, 31000], pro: [97000, 82500], growth: [215000, 185000], enterprise: [735000, 625000] },
       flyers: { free: [0], standard: [11000, 6000], premium: [19000, 15000], deluxe: [24000, 20000], organisation: [170000] }
     },
     MWK: {
-      quote: { free: [0], starter: [12000, 10000], pro: [36000, 30000], growth: [120000, 100000], enterprise: [470000, 400000] },
+      quote: { free: [0], starter: [25500, 21500], pro: [67500, 57500], growth: [155000, 130000], enterprise: [500000, 425000] },
       flyers: { free: [0], standard: [7500, 4000], premium: [13000, 10000], deluxe: [16000, 14000], organisation: [120000] }
     },
     USD: {
-      quote: { free: [0], starter: [6, 5.5], pro: [20, 17], growth: [65, 55], enterprise: [270, 230] },
+      quote: { free: [0], starter: [13, 11], pro: [37, 31], growth: [85, 72], enterprise: [290, 250] },
       flyers: { free: [0], standard: [3.5, 2.5], premium: [7, 6], deluxe: [9, 8], organisation: [65] }
     }
   };
