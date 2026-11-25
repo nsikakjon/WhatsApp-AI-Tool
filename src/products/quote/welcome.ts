@@ -193,6 +193,8 @@ export interface OwnerMenu {
   delivery: boolean;
   walkIn?: boolean;
   tickets?: boolean;
+  /** Appointment booking (appointments/). */
+  appointments?: boolean;
   shop?: boolean;
 }
 
@@ -211,6 +213,7 @@ export function ownerMenu(m: OwnerMenu): string {
       ...(m.delivery ? ["• *delivery* : livreurs et livraison"] : []),
       ...(m.walkIn ? ["• *walk-in* : commandes sur place, écrans de retrait et fermeture des commandes"] : []),
       ...(m.tickets ? ["• *tickets* : vendre des billets avec code QR, et *door* pour l'écran d'entrée"] : []),
+      ...(m.appointments ? ["• *booking* : rendez-vous et cours (services, calendriers, horaires), et *bookings* pour la journée"] : []),
       ...(m.plan ? ["• *plan* : votre formule, l'utilisation du mois et les changements de formule"] : []),
       ...(m.referral ? ["• *referral* : votre code de parrainage"] : []),
       "• *app* : un lien pour ouvrir votre appli yarnOga",
@@ -229,6 +232,7 @@ export function ownerMenu(m: OwnerMenu): string {
     ...(m.delivery ? ["• *delivery*: riders and delivery commands"] : []),
     ...(m.walkIn ? ["• *walk-in*: walk-in orders, pickup screens and closing orders"] : []),
     ...(m.tickets ? ["• *tickets*: sell event tickets with QR codes, and *door* for the check-in screen"] : []),
+    ...(m.appointments ? ["• *booking*: appointments and classes (services, calendars, hours), and *bookings* for the day"] : []),
     ...(m.plan ? ["• *plan*: your plan, this month's use and upgrades"] : []),
     ...(m.referral ? ["• *referral*: your referral code"] : []),
     "• *app*: a link to open your yarnOga app",
