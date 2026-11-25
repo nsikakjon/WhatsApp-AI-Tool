@@ -90,6 +90,9 @@ import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
 import { createEventTickets, type EventTickets } from "./products/quote/tickets/index.js";
 import { createTicketLinks } from "./products/quote/tickets/links.js";
 import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
+import { createHireBookings, type HireBookings } from "./products/quote/rentals/index.js";
+import { createHirePaperLinks, type HirePaperDeps } from "./products/quote/rentals/papers.js";
+import { createSupabaseRentalStore } from "./products/quote/rentals/store.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -534,6 +537,35 @@ const ticketsFor = (businessId: string, businessName: string, orderPrefix: strin
       })
     : undefined;
 
+// Hire bookings: dates, deposits, returns, reminders and printable papers (QUOTE_RENTALS).
+// Each business's is kept here too, for the reminders and the morning hire summary.
+const rentalsConfig = config.activeProduct === "quote" ? config.quoteRentals : undefined;
+const hireBookings = new Map<string, HireBookings>();
+const rentalsFor = (
+  businessId: string,
+  businessName: string,
+  orderPrefix: string,
+  orders: Parameters<typeof createHireBookings>[0]["orders"],
+  catalog: Parameters<typeof createHireBookings>[0]["catalog"],
+  features?: PlanFeatures,
+  currency?: Currency,
+) => {
+  if (!rentalsConfig) return undefined;
+  const hire = createHireBookings({
+    businessName,
+    orderPrefix,
+    store: createSupabaseRentalStore(supabase, businessId),
+    catalog,
+    orders,
+    features,
+    currency,
+    papers: createHirePaperLinks(config.whatsapp.appSecret, rentalsConfig.publicUrl, businessId),
+    template: rentalsConfig.template,
+  });
+  hireBookings.set(businessId, hire);
+  return hire;
+};
+
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
 async function numbersAllowed(mainId: string): Promise<number | null> {
   const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
@@ -678,6 +710,15 @@ if (config.activeProduct === "quote" && config.quote) {
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
     tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features, config.quote.currency),
+    rentals: rentalsFor(
+      DEFAULT_BUSINESS_ID,
+      config.quote.businessName,
+      config.quote.orderPrefix,
+      orders,
+      createSupabaseCatalog(supabase, mainBusinessId),
+      mainFeatures.features,
+      config.quote.currency,
+    ),
     sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
@@ -782,6 +823,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
     tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features, business.currency),
+    rentals: rentalsFor(business.id, business.name, business.orderPrefix, orders, createSupabaseCatalog(supabase, business.id), features.features, business.currency),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),
@@ -1871,6 +1913,7 @@ const app = createApp({
         },
       }
     : undefined,
+  hirePapers: rentalsConfig ? hirePaperDeps() : undefined,
   shop: shopConfig && shopSlugs ? { slugs: shopSlugs, business: shopBusiness, publicUrl: shopConfig.publicUrl, linkBase: shopConfig.linkBase } : undefined,
   screenShield: config.screenShield,
   processed: config.processedCounterMinKobo
@@ -2145,6 +2188,69 @@ if (payReminders) {
   });
 }
 
+/** What the hire paper links (agreement, checklist, stickers) need to draw a business's papers. */
+function hirePaperDeps(): HirePaperDeps {
+  return {
+    secret: config.whatsapp.appSecret,
+    async business(id) {
+      const found = await quoteBotFor(id);
+      if (!found) return null;
+      const row = id === DEFAULT_BUSINESS_ID ? null : await createSupabaseBusinesses(supabase).get(id);
+      const rentals = createSupabaseRentalStore(supabase, id);
+      const catalog = createSupabaseCatalog(supabase, id === DEFAULT_BUSINESS_ID ? mainBusinessId : id);
+      const numberId = row ? numberOf(row) : config.whatsapp.phoneNumberId;
+      return {
+        paper: {
+          name: found.name,
+          details: (row ? row.businessDetails : config.quote?.businessDetails) ?? null,
+          orderPrefix: found.orderPrefix,
+          currency: (row ? row.currency : config.quote?.currency) ?? "NGN",
+        },
+        bookings: (orderId) => rentals.forOrder(orderId),
+        async itemNames() {
+          const [variants, items] = await Promise.all([catalog.activeVariants(), rentals.items()]);
+          return variants.filter((v) => items.has(v.id)).map((v) => v.name).sort();
+        },
+        async whatsappNumber() {
+          if (!numberId) return null;
+          const shown = await phoneDetails(fetch, config.whatsapp, numberId, config.whatsapp.accessToken).catch(() => ({ displayNumber: undefined }));
+          return shown.displayNumber?.replace(/\D/g, "") || null;
+        },
+      };
+    },
+  };
+}
+
+// Hire bookings (QUOTE_RENTALS): every 15 minutes, customer reminders that are
+// due (day before it goes out, day before it's due back, once when late; daytime
+// only, as a template outside WhatsApp's 24-hour window when one is set), and at
+// 7am Lagos time the owner's hire summary (owner alert template outside the window).
+if (rentalsConfig) {
+  runEvery(15 * 60 * 1000, async () => {
+    const at = new Date();
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !numberOf(b))) continue;
+      try {
+        if (!(await onPlan(b, "hire_bookings"))) continue;
+        const found = await quoteBotFor(b.id);
+        const hire = found && hireBookings.get(b.id);
+        if (!found || !hire) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        for (const note of await hire.dueReminders(at)) {
+          if (!note.template && !(await canMessageFreely(store, note.to, numberId))) continue;
+          await sendNotice(outbox, note, found.fromNumberId ?? undefined).catch((err) => console.error(`Hire reminder to ...${note.to.slice(-4)} failed:`, err));
+        }
+        if (lagosHour(at) === 7 && found.ownerWaId) {
+          const summary = await hire.summary(at);
+          if (summary && (await hire.claimSummary(at))) await sendNotice(outbox, { to: found.ownerWaId, text: summary }, found.fromNumberId ?? undefined);
+        }
+      } catch (err) {
+        console.error(`Hire bookings run failed for ${b.name}:`, err);
+      }
+    }
+  });
+}
+
 // Monthly payments (QUOTE_MONTHLY_PAYMENTS): every 15 minutes, months that
 // have come due are charged to the saved card or sent as a link, and unpaid
 // ones are reminded, in the daytime only.
@@ -2376,6 +2482,6 @@ if (chatSignup?.followUp && quoteBusinesses) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? (chatSignup.followUp ? "on, with follow-ups" : "on") : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, hire bookings: ${rentalsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? (chatSignup.followUp ? "on, with follow-ups" : "on") : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

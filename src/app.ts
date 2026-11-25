@@ -11,6 +11,7 @@ import { createTracking, type TrackingDeps } from "./products/quote/delivery/tra
 import { createOrderBoard, type BoardDeps } from "./products/quote/board.js";
 import { createWalkInScreens, type ScreenDeps } from "./products/quote/walkin/screens.js";
 import { createDoorScreens, type DoorDeps } from "./products/quote/tickets/door.js";
+import { createHirePapers, type HirePaperDeps } from "./products/quote/rentals/papers.js";
 import { createHealthRoutes, type HealthDeps } from "./core/health.js";
 import { createOwnerApp, type OwnerAppDeps } from "./owner/index.js";
 import { createCompliance, type ComplianceDeps } from "./compliance/index.js";
@@ -46,6 +47,8 @@ export function createApp(
     shop?: ShopDeps;
     /** The door screen and ticket pages for event tickets (QUOTE_EVENT_TICKETS). */
     door?: DoorDeps;
+    /** Printable hire papers (agreement, checklist, QR stickers) behind signed links (QUOTE_RENTALS). */
+    hirePapers?: HirePaperDeps;
     /** Hidden numbers behind an eye button, watermark and no saved copies on private pages (SCREEN_SHIELD). */
     screenShield?: boolean;
     /** The money processed figure for yarnoga.com at /processed (PROCESSED_COUNTER_MIN_NAIRA). */
@@ -109,6 +112,9 @@ export function createApp(
 
   // The door screen and ticket QR codes for event tickets; only when QUOTE_EVENT_TICKETS is on.
   if (more.door) app.route("/", createDoorScreens(more.door));
+
+  // Hire agreements, checklists and QR stickers as PDFs; only when QUOTE_RENTALS is on.
+  if (more.hirePapers) app.route("/", createHirePapers(more.hirePapers));
 
   // The owners' and staff web app (app.yarnoga.com), only when OWNER_APP is on.
   if (more.ownerApp) {

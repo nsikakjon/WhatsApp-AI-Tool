@@ -168,6 +168,13 @@ export interface Config {
   /** Event tickets with a QR code each and a door screen (migration 0068). Only set when QUOTE_EVENT_TICKETS is true. */
   quoteEventTickets?: { publicUrl: string };
   /**
+   * Hire bookings: dates, deposits, returns, reminders and the morning hire
+   * summary (migration 0097). Only set when QUOTE_RENTALS is true. `template`
+   * (RENTAL_UPDATE_TEMPLATE_NAME) reaches customers outside the 24-hour
+   * window: {{1}} business, {{2}} booking, {{3}} items, {{4}} the update.
+   */
+  quoteRentals?: { publicUrl: string; template?: { name: string; language: string } };
+  /**
    * Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true.
    * `linkBase` is what links shown to people start with: SHOP_LINK_BASE (e.g. https://yarnoga.com/s), else <PUBLIC_URL>/shop.
    */
@@ -636,6 +643,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteEventTickets: /^(true|yes|on|1)$/i.test(env.QUOTE_EVENT_TICKETS ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
+    quoteRentals: /^(true|yes|on|1)$/i.test(env.QUOTE_RENTALS ?? "")
+      ? {
+          publicUrl: publicUrl(required(env, "PUBLIC_URL")),
+          template: env.RENTAL_UPDATE_TEMPLATE_NAME?.trim()
+            ? { name: env.RENTAL_UPDATE_TEMPLATE_NAME.trim(), language: env.RENTAL_UPDATE_TEMPLATE_LANGUAGE?.trim() || "en" }
+            : undefined,
+        }
       : undefined,
     quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "") ? shopSettings(env) : undefined,
     broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")
