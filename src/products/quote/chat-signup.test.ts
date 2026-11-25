@@ -6,6 +6,7 @@ import type { PriceListDraft, PriceListDrafter } from "./drafter.js";
 import { createNumberCollector } from "./numbers.js";
 import { memoryQueue } from "./numbers-testing.js";
 import type { PriceListItem } from "./pricelist.js";
+import type { SupportReply, SupportRequest } from "./support.js";
 
 const NUMBER = "num-quotes";
 const OWNER = "2348011111111";
@@ -893,5 +894,122 @@ describe("order prefix", () => {
     expect(orderPrefix("Ade's Print & Design Hub")).toBe("APD");
     expect(orderPrefix("Bakery")).toBe("BAK");
     expect(orderPrefix("123")).toBe("Q");
+  });
+});
+
+describe("yarnOga support on the quotes number", () => {
+  const shop: Product = {
+    name: "quote",
+    handle: async (m) => (m.text === "hi" ? { text: "Welcome to the demo shop." } : { text: `Shop: ${m.text}` }),
+  };
+  const PLANS = {
+    async plan(code: string) {
+      return code === "free"
+        ? { code, name: "Free", monthlyPriceKobo: 0, monthlyPricePaidYearlyKobo: null, setupFeeKobo: 0, monthlyOrderLimit: 50, showCredit: true, description: "50 orders a month" }
+        : null;
+    },
+    async paidPlans() {
+      return [{ code: "pro", name: "Pro", monthlyPriceKobo: 4_300_000, monthlyPricePaidYearlyKobo: 3_650_000, setupFeeKobo: 0, monthlyOrderLimit: null, showCredit: false, description: "delivery and riders" }];
+    },
+    async addons() {
+      return [];
+    },
+  };
+  const helped = (answers: Record<string, SupportReply>) => {
+    const asked: SupportRequest[] = [];
+    const mem = memoryStore();
+    const bot = withChatSignup(shop, {
+      numberId: NUMBER,
+      store: mem.store,
+      setup: memorySetup().setup,
+      drafter: drafter(CUPCAKES).d,
+      alertWaId: "2348099999999",
+      chatLink: async () => "https://app.example/chat/c1",
+      support: {
+        writer: {
+          async answer(req) {
+            asked.push(req);
+            return answers[req.question] ?? { kind: "unclear" };
+          },
+        },
+        plans: PLANS,
+      },
+      now: () => new Date("2026-11-25T12:00:00Z"),
+      log: { error: () => {} },
+    });
+    const say = async (text: string) => (await bot.handle(msg(text, { contactName: "Ada Obi" }), ctx(3)))!;
+    return { say, asked, mem };
+  };
+
+  it("meets hi as yarnOga support", async () => {
+    const { say } = helped({});
+    const reply = await say("Hi");
+    expect(reply.buttons?.body).toMatch(/^Hi Ada! This is yarnOga support\..*Ask me anything about what yarnOga can do/s);
+  });
+
+  it("answers a question about features with the AI, and gives it the plans without prices", async () => {
+    const { say, asked } = helped({ "Can it book appointments for my gym?": { kind: "answer", text: "Yes, on Pro and up." } });
+    expect((await say("Can it book appointments for my gym?")).text).toBe("Yes, on Pro and up.");
+    expect(asked[0]!.plans).toBe("- Free: 50 orders a month\n- Pro: delivery and riders");
+    expect(asked[0]!.businessName).toBeNull();
+  });
+
+  it("answers plan prices from the database, never the AI", async () => {
+    const { say, asked } = helped({ "which one should I pick for my salon": { kind: "plans" } });
+    expect((await say("What are your plans?")).text).toMatch(/^yarnOga plans:\n• Free: free\. 50 orders a month\n• Pro: ₦43,000\/month/);
+    expect(asked).toHaveLength(0);
+    expect((await say("which one should I pick for my salon")).text).toMatch(/^yarnOga plans:/);
+  });
+
+  it("opens the Demo Shop on request, keeps them there, and brings them back", async () => {
+    const { say, asked } = helped({});
+    const demo = await say("demo");
+    expect(demo.text).toMatch(/^You're now a customer of the yarnOga Demo Shop\..*Send \*exit demo\* any time.*\n\nWelcome to the demo shop\.$/s);
+    expect((await say("How much for 20 mugs?")).text).toBe("Shop: How much for 20 mugs?");
+    expect((await say("hi")).text).toMatch(/^Welcome to the demo shop\./);
+    const back = await say("exit demo");
+    expect(back.buttons?.body).toMatch(/^You've left the Demo Shop and you're back with yarnOga support/);
+    expect(asked).toHaveLength(0);
+  });
+
+  it("takes someone ordering straight to the Demo Shop with their message", async () => {
+    const { say } = helped({ "I want 2 boxes of cupcakes": { kind: "demo" } });
+    expect((await say("I want 2 boxes of cupcakes")).text).toMatch(/Demo Shop.*\n\nShop: I want 2 boxes of cupcakes$/s);
+    expect((await say("Delivery to Lekki")).text).toBe("Shop: Delivery to Lekki");
+  });
+
+  it("books a walkthrough: asks for a time and tells the team twice, never sharing a number with the visitor", async () => {
+    const { say } = helped({});
+    const ask = await say("Hi yarnOga, I'd like to book a 20-minute walkthrough for my business.");
+    expect(ask.text).toMatch(/What day and time suit you \(Lagos time\)/);
+    expect(ask.text).not.toContain("2348099999999");
+    expect(ask.notify).toEqual([
+      { to: "2348099999999", text: expect.stringMatching(/^Walkthrough request on the quotes line: Ada Obi, \+\d+\. They said: "Hi yarnOga/), link: { label: "Open chat", url: "https://app.example/chat/c1" } },
+    ]);
+    const time = await say("Friday 3pm, Mama Cakes");
+    expect(time.text).toMatch(/^Thanks\. I've passed that to the yarnOga team/);
+    expect(time.notify?.[0]?.text).toMatch(/^Walkthrough time from Ada Obi, \+\d+: "Friday 3pm, Mama Cakes"/);
+    expect((await say("book a walkthrough")).notify).toBeUndefined();
+  });
+
+  it("gets the team for talk to someone, and nudges after two messages it can't use", async () => {
+    const { say } = helped({});
+    expect((await say("talk to someone")).notify?.[0]?.text).toMatch(/^Help needed on the quotes line/);
+    expect((await say("xyz")).text).toMatch(/^Sorry, I didn't catch that/);
+    expect((await say("abc")).buttons?.body).toMatch(/^It looks like you may be here for your own business/);
+  });
+
+  it("keeps sign-up working", async () => {
+    const { say, mem } = helped({});
+    expect((await say("sign up")).text).toMatch(/what's your business called\?$/);
+    await say("Mama Cakes");
+    expect(mem.rows.get(OWNER)).toMatchObject({ step: "about", businessName: "Mama Cakes" });
+  });
+
+  it("answers a signed-up owner's question, naming their business", async () => {
+    const { say, asked, mem } = helped({ "Can my staff reply too?": { kind: "answer", text: "Yes, add staff in the owner app." } });
+    await mem.store.save(OWNER, { step: "done", businessName: "Mama Cakes", businessId: "biz-1" });
+    expect((await say("Can my staff reply too?")).text).toBe("Yes, add staff in the owner app.");
+    expect(asked[0]!.businessName).toBe("Mama Cakes");
   });
 });

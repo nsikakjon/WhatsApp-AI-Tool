@@ -21,6 +21,8 @@ import { lagosToday } from "./monthly.js";
 import { CODE_WORDS, codeKept, findCode, mentionsCode, type SignupCode } from "./signup-codes.js";
 import { starterList } from "./starter-lists.js";
 import { yarnOgaAnswer } from "./yarnoga-faq.js";
+import type { PlanStore } from "./plan.js";
+import { asksAboutPlans, asksForWalkthrough, leavesDemo, planFacts, planList, readPlans, type SupportWriter } from "./support.js";
 import type { SetupStore } from "./store.js";
 import { QUOTE_CHOICE, welcomeAsk } from "./welcome.js";
 
@@ -57,6 +59,14 @@ import { QUOTE_CHOICE, welcomeAsk } from "./welcome.js";
 // you?", "is this a bot?", "is it free?") get a fixed answer (yarnoga-faq.ts)
 // instead of the demo shop's guess. All kept in memory: a restart only means
 // a visitor may see the intro again.
+//
+// With support on, the number is yarnOga customer support first (support.ts):
+// questions about features get an AI answer from facts written in code,
+// questions about plans get the prices from the database, and "book a
+// walkthrough" asks for a day and time and tells the yarnOga team. A visitor
+// only meets the Demo Shop when they ask to try it (or start ordering), and
+// "exit demo" brings them back. Whether someone is in the demo is kept in
+// memory, like the rest of a visitor's state.
 //
 // With signUpToContinue on, a visitor trying the demo shop is asked to sign up
 // right after choosing delivery or pickup, before the order is placed. Once
@@ -118,6 +128,8 @@ export interface ChatSignupOptions {
   chatLink?: (contactId: string) => Promise<string | undefined>;
   /** QUOTE_DEMO_SIGNUP_GATE: demo visitors sign up after the delivery question to finish their order. */
   signUpToContinue?: boolean;
+  /** yarnOga customer support (support.ts). Off when not given: visitors' questions go to the demo shop. */
+  support?: { writer: SupportWriter; plans: Pick<PlanStore, "plan" | "paidPlans" | "addons"> };
   now?: () => Date;
   fetchSheet?: (link: string) => Promise<string>;
   log?: Pick<Console, "error">;
@@ -165,7 +177,7 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
   const started = new Map<string, number>();
   const visitor = (waId: string): Visitor => {
     let v = visitors.get(waId);
-    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null, connectHelpOn: null, stuckOn: null }));
+    if (!v) visitors.set(waId, (v = { askedSells: false, sells: null, unclear: 0, nudgedOn: null, setUpAskedOn: null, connectHelpOn: null, stuckOn: null, demo: false, walkthroughOn: null, awaitingTime: false }));
     return v;
   };
   // "Set it up for me" only shows when there's someone to tell.
@@ -188,6 +200,14 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
 
       if (signup?.trying) return tryReply(signup, msg, ctx, text);
       if (opts.alertWaId && !signup?.businessId && SET_UP_FOR_ME.test(text)) return setUpForMe(msg, signup);
+      if (opts.support && opts.alertWaId) {
+        if (asksForWalkthrough(text)) return bookWalkthrough(msg, ctx, signup);
+        const v = visitors.get(msg.from);
+        if (v?.awaitingTime) {
+          v.awaitingTime = false;
+          if (looksLikeTime(msg, text)) return walkthroughTime(msg, ctx, signup);
+        }
+      }
 
       if (!signup || signup.step === "done") {
         if (signup?.businessId) {
@@ -221,7 +241,18 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         }
         if (!signup?.businessId && asksToConnect(text)) return connectHelp(msg, ctx, signup);
         if (SIGN_UP.test(text)) return startSignup(msg.from);
-        const answer = yarnOgaAnswer(text);
+        const guest = !signup?.businessId;
+        const inDemo = Boolean(opts.support) && guest && visitor(msg.from).demo;
+        if (inDemo && leavesDemo(text)) {
+          Object.assign(visitor(msg.from), { demo: false, unclear: 0 });
+          waiting.delete(msg.from);
+          return { text: "", buttons: { body: BACK_FROM_DEMO, buttons: guestButtons } };
+        }
+        if (!inDemo && opts.support && asksAboutPlans(text)) {
+          const plans = await plansMessage();
+          if (plans) return { text: plans };
+        }
+        const answer = inDemo ? null : yarnOgaAnswer(text);
         if (answer) {
           if (signup?.businessId) return { text: answer };
           const v = visitor(msg.from);
@@ -231,21 +262,26 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
         const gate = opts.signUpToContinue && !signup?.businessId;
         if (gate && waiting.has(msg.from) && YES.test(text)) return { text: "", buttons: { body: SIGN_UP_FIRST, buttons: [SIGN_UP_BUTTON] } };
         const ask = welcomeAsk(text);
-        const guest = !signup?.businessId;
-        if (guest && AS_CUSTOMER.test(text)) return showDemo(msg, ctx);
-        if (guest && (ask === "greeting" || wantsToKnowMore(text))) {
-          visitor(msg.from).askedSells = true;
-          return intro(msg.contactName, guestButtons);
-        }
-        if (guest && visitor(msg.from).askedSells) {
-          if (GO_AHEAD.test(text.toLowerCase().replace(/[.!]+$/, ""))) return startSignup(msg.from);
-          const answer = whatTheySell(msg, text);
-          if (answer) {
-            Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
-            return pitch(answer, guestButtons);
+        if (!inDemo) {
+          if (guest && AS_CUSTOMER.test(text)) return showDemo(msg, ctx);
+          if (guest && (ask === "greeting" || wantsToKnowMore(text))) {
+            visitor(msg.from).askedSells = true;
+            return intro(msg.contactName, guestButtons, Boolean(opts.support));
           }
-          if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN, stage: "unclear" };
-          visitor(msg.from).askedSells = false;
+          if (guest && visitor(msg.from).askedSells) {
+            if (GO_AHEAD.test(text.toLowerCase().replace(/[.!]+$/, ""))) return startSignup(msg.from);
+            const answer = whatTheySell(msg, text);
+            if (answer) {
+              Object.assign(visitor(msg.from), { askedSells: false, sells: answer, unclear: 0 });
+              return pitch(answer, guestButtons);
+            }
+            if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN, stage: "unclear" };
+            visitor(msg.from).askedSells = false;
+          }
+          if (opts.support && !(signup?.businessId && (ask === "greeting" || ask === "help"))) {
+            const helped = await supportReply(msg, ctx, signup, text);
+            if (helped) return helped;
+          }
         }
 
         const reply = await next.handle(msg, ctx);
@@ -581,10 +617,98 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     };
   }
 
-  async function showDemo(msg: IncomingMessage, ctx: ProductContext): Promise<Reply> {
-    visitor(msg.from).askedSells = false;
-    const shop = await next.handle({ ...msg, text: "hi" }, ctx);
-    return shop ? withoutStage(addNote(shop, DEMO_NOTE, true)) : { text: DEMO_NOTE };
+  async function showDemo(msg: IncomingMessage, ctx: ProductContext, first: IncomingMessage = { ...msg, text: "hi" }): Promise<Reply> {
+    Object.assign(visitor(msg.from), { askedSells: false, unclear: 0, demo: Boolean(opts.support) });
+    const note = opts.support ? `${DEMO_NOTE} ${DEMO_EXIT}` : DEMO_NOTE;
+    const shop = await next.handle(first, ctx);
+    return shop ? withoutStage(addNote(shop, note, true)) : { text: note };
+  }
+
+  /** The plans with prices from the quote_plans table, or null when they can't be read. */
+  async function plansMessage(): Promise<string | null> {
+    const plans = await readPlans(opts.support!.plans, log);
+    return plans && (plans.free || plans.paid.length) ? planList(plans.free, plans.paid, plans.addons) : null;
+  }
+
+  /**
+   * yarnOga support's answer to a question the code above didn't catch. Null
+   * hands the message on as before: to the demo shop, and for an owner to the
+   * help on what they can send.
+   */
+  async function supportReply(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null, text: string): Promise<Reply | null> {
+    if (!text || (msg.type !== "text" && msg.type !== "audio" && msg.type !== "interactive")) return null;
+    const guest = !signup?.businessId;
+    if (guest && TALK_TO_SOMEONE.test(plainWords(text))) {
+      const handOff = await toTeam(msg, ctx, signup, "They asked to talk to someone");
+      if (handOff) return handOff;
+    }
+    if (!signup && !(await guestAi(msg.from))) return null;
+    if (signup && !(await useAi(signup, msg.from, false))) return null;
+    const plans = await readPlans(opts.support!.plans, log);
+    const reply = await opts.support!.writer.answer({
+      question: text,
+      history: ctx.history,
+      plans: plans ? planFacts(plans.free, plans.paid) : "Free, Starter, Pro, Growth and Enterprise",
+      businessName: signup?.businessId ? signup.businessName : null,
+    });
+    if (!reply) return null;
+    const v = visitor(msg.from);
+    switch (reply.kind) {
+      case "answer":
+        v.unclear = 0;
+        return { text: reply.text };
+      case "plans": {
+        v.unclear = 0;
+        const list = plans && (plans.free || plans.paid.length) ? planList(plans.free, plans.paid, plans.addons) : null;
+        return list ? { text: list } : null;
+      }
+      case "demo":
+        return guest ? showDemo(msg, ctx, msg) : null;
+      default:
+        return guest ? (unclear(msg.from) ?? { text: SUPPORT_UNCLEAR, stage: "unclear" }) : null;
+    }
+  }
+
+  /** A visitor who hasn't started signing up gets the same AI allowance a day, counted in memory. */
+  async function guestAi(waId: string): Promise<boolean> {
+    const v = visitor(waId);
+    const today = now().toISOString().slice(0, 10);
+    if (v.aiDay !== today) Object.assign(v, { aiDay: today, aiUsed: 0 });
+    if ((v.aiUsed ?? 0) >= AI_PER_PERSON_PER_DAY) return false;
+    v.aiUsed = (v.aiUsed ?? 0) + 1;
+    return true;
+  }
+
+  /** "Book a 20-minute walkthrough": asks for a day and time, and tells the yarnOga team. Once a day per person. */
+  async function bookWalkthrough(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null): Promise<Reply> {
+    const v = visitor(msg.from);
+    const today = now().toISOString().slice(0, 10);
+    v.awaitingTime = true;
+    v.askedSells = false;
+    if (v.walkthroughOn === today) return { text: WALKTHROUGH_AGAIN };
+    v.walkthroughOn = today;
+    return {
+      text: WALKTHROUGH_ASK,
+      notify: [await teamNotice(msg, ctx, signup, `Walkthrough request on the quotes line: ${who(msg, signup, v)}. They said: "${lastWords(msg)}"\n\nI've asked them for a day and time and will send it when they reply.`)],
+    };
+  }
+
+  async function walkthroughTime(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null): Promise<Reply> {
+    const v = visitor(msg.from);
+    return {
+      text: "Thanks. I've passed that to the yarnOga team, and they'll confirm the time with you here.\n\nIn the meantime, ask me anything about yarnOga, or tap *See it as a customer* to try the Demo Shop.",
+      notify: [await teamNotice(msg, ctx, signup, `Walkthrough time from ${who(msg, signup, v)}: "${lastWords(msg)}"\n\nPlease confirm it with them from the inbox.`)],
+    };
+  }
+
+  async function teamNotice(msg: IncomingMessage, ctx: ProductContext, signup: Signup | null, body: string) {
+    let url: string | undefined;
+    try {
+      url = await opts.chatLink?.(ctx.contactId);
+    } catch (err) {
+      log.error("Could not make the inbox link for the team alert:", err);
+    }
+    return { to: opts.alertWaId!, text: body, ...(url ? { link: { label: "Open chat", url } } : {}) };
   }
 
   /** Moves on to prices, offering a starter list when one fits the business. */
@@ -770,11 +894,45 @@ interface Visitor {
   stuckOn: string | null;
   /** The day the yarnOga team was last told to message them (set it up, or help). */
   setUpAskedOn: string | null;
+  /** Chatting with the Demo Shop as a customer, with support on. */
+  demo: boolean;
+  /** The day they last asked for a walkthrough. */
+  walkthroughOn: string | null;
+  /** Asked for a walkthrough and the day and time they'd like hasn't come yet. */
+  awaitingTime: boolean;
+  /** Support answers used today by a visitor who hasn't started signing up. */
+  aiDay?: string;
+  aiUsed?: number;
+}
+
+const WALKTHROUGH_ASK =
+  "Happy to show you around. In a 20-minute walkthrough, someone from the yarnOga team takes you through yarnOga with your own products and answers your questions.\n\n" +
+  "What day and time suit you (Lagos time), and what's your business called?";
+const WALKTHROUGH_AGAIN = "The yarnOga team already has your walkthrough request. What day and time suit you (Lagos time)?";
+const SUPPORT_UNCLEAR =
+  "Sorry, I didn't catch that. Ask me anything about what yarnOga can do or what it costs, send *demo* to try the Demo Shop, or *book a walkthrough* for a 20-minute call with the yarnOga team.";
+const BACK_FROM_DEMO = "You've left the Demo Shop and you're back with yarnOga support. Ask me anything about yarnOga, or sign up free when you're ready.";
+const DEMO_EXIT = "Send *exit demo* any time to come back to yarnOga support.";
+
+/** An answer to "what day and time suit you?", not a new question or command. */
+function looksLikeTime(msg: IncomingMessage, text: string): boolean {
+  return (msg.type === "text" || msg.type === "audio") && text.length > 0 && text.length <= 200 && !text.includes("?") && !SIGN_UP.test(text) && !AS_CUSTOMER.test(text) && !leavesDemo(text);
+}
+
+function who(msg: IncomingMessage, signup: Signup | null, v: Visitor): string {
+  const name = msg.contactName?.trim();
+  const business = signup?.businessName;
+  const sells = signup?.description ?? v.sells;
+  return `${name ? `${name}, ` : ""}+${msg.from}${business ? `, ${business}` : ""}${sells ? `, sells ${sells}` : ""}`;
+}
+
+function lastWords(msg: IncomingMessage): string {
+  return (msg.text ?? "").trim().slice(0, 300);
 }
 
 const SEE_DEMO = "see it as a customer";
 /** Wanting the customer's side: the button, or typed ("show me as a customer", "demo shop"). */
-const AS_CUSTOMER = /\b(as an? (customer|buyer)|customer('s)? (view|side)|demo shop|(see|try|show me) (the |your )?demo|i('m| am) (just )?(a )?customer)\b/i;
+const AS_CUSTOMER = /\b(as an? (customer|buyer)|customer('s)? (view|side)|demo shop|(see|try|show me|open|start) (the |your |a )?demo|i('m| am) (just )?(a )?customer)\b|^demo$/i;
 /** "Okay" to the intro, which offers to sign up. */
 const GO_AHEAD = /^(ok+a*y*|okay|yes|yeah|yea|yep|sure|alright|go ahead|let'?s go|let'?s start|yes please|ok let'?s go)$/;
 /** How long a repeated "sign up" counts as sent with the first. */
@@ -843,8 +1001,19 @@ function changeExample(items: PriceListItem[]): string {
   return `${first.product.toLowerCase()} ${formatNaira(kobo + step).replace("₦", "")}`;
 }
 
-function intro(contactName: string | undefined, buttons = GUEST_BUTTONS): Reply {
+function intro(contactName: string | undefined, buttons = GUEST_BUTTONS, support = false): Reply {
   const first = contactName?.trim().split(/\s+/)[0];
+  if (support) {
+    return {
+      text: "",
+      buttons: {
+        body:
+          `Hi${first ? ` ${first}` : ""}! This is yarnOga support. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\n` +
+          "Ask me anything about what yarnOga can do or what it costs, or tell me what you sell and I'll show you how it works for you.",
+        buttons,
+      },
+    };
+  }
   return { text: "", buttons: { body: `Hi${first ? ` ${first}` : ""}! This is yarnOga. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\nWhat do you sell?`, buttons } };
 }
 
@@ -866,7 +1035,7 @@ function pitch(sells: string, buttons = GUEST_BUTTONS): Reply {
  */
 function whatTheySell(msg: IncomingMessage, text: string): string | null | undefined {
   if (msg.type !== "text" && msg.type !== "audio") return null;
-  if (text.includes("?") || text.length > 60) return undefined;
+  if (text.includes("?") || text.length > 60 || QUESTION_START.test(text)) return undefined;
   const sells = text
     .replace(/^(i|we)\s+(sell|make|do|deal in|bake|print)\s+/i, "")
     .replace(/^(selling|into)\s+/i, "")
@@ -874,6 +1043,8 @@ function whatTheySell(msg: IncomingMessage, text: string): string | null | undef
     .trim();
   return isTrade(sells) ? sells : null;
 }
+
+const QUESTION_START = /^(what|how|can|could|do|does|is|are|which|who|where|when|why|tell me|i want|i need|i'?d like|book|show me)\b/i;
 
 /** Drops the order stage. "unclear" stays, for the limit on replies to messages with no clear request. */
 function withoutStage({ stage, ...reply }: Reply): Reply {
