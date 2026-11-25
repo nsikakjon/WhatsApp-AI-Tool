@@ -30,6 +30,8 @@ import type { WalkIn, WalkInMode } from "./walkin/index.js";
 import { describeFile, fileKind, MAX_FILE_BYTES, RECENT_ORDER_DAYS, type CustomerFile, type CustomerFileStore, type FileKind } from "./customer-files.js";
 import { PaymentsHeld } from "./paylinks.js";
 import { buyNowItems } from "./buy-now.js";
+import type { HireBookings, HireQuote } from "./rentals/index.js";
+import type { HistoryEntry } from "../../core/product.js";
 
 // The quote and order bot. Any business can use it with its own price list
 // (see store.ts and businesses.ts for how several businesses share it).
@@ -155,6 +157,8 @@ export interface QuoteProductOptions {
   walkIn?: WalkIn;
   /** Event tickets with a QR code each, checked in at the door (tickets/). */
   tickets?: EventTickets;
+  /** Hiring things out by the day: dates, deposits, returns (rentals/). */
+  rentals?: HireBookings;
   /** Files customers send and their order details (QUOTE_CUSTOMER_FILES, migration 0085). Without it, a file is only checked as a payment screenshot. */
   customerFiles?: CustomerFileStore;
   /** The owner app's order board found at one order (e.g. KP-1001), for the Open order button on alerts. */
@@ -344,10 +348,14 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
 
       // Out of AI credits: simple menu replies instead, and the owner hears about it.
       const credit = opts.credits ? await opts.credits.spend() : { useAi: true, ownerNotice: null };
+      const hireItems = opts.rentals ? await opts.rentals.items(variants.map((v) => v.id)) : new Map();
       const input = {
         text: msg.text,
         history: ctx.history,
-        catalog: variants.map((v) => ({ id: v.id, name: v.name, minQuantity: v.minQuantity, ...(v.details ? { details: v.details } : {}) })),
+        catalog: variants.map((v) => {
+          const details = [v.details, opts.rentals?.aiNote(v.id, hireItems)].filter(Boolean).join(" ");
+          return { id: v.id, name: v.name, minQuantity: v.minQuantity, ...(details ? { details } : {}) };
+        }),
         language: lang,
         about: aboutForAi(opts.about ? await opts.about() : null),
       };
@@ -378,7 +386,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         case "quote":
           reply = walkIn.paused
             ? closedReply(t)
-            : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone, notes);
+            : await makeQuote(understanding.items, variants, ctx.contactId, msg.contactName, msg.from, t, ctx.sharedPhone, notes, false, { text: msg.text, history: ctx.history });
           if (!understanding.items.length) reply.stage = "unclear";
           break;
         case "confirm":
@@ -435,6 +443,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
         return toOwner(own.paidTwice(who, label, money(order.totalKobo), order.status === "cancelled"));
       }
       const pickup = await walkInPaid(order);
+      const hired = await hirePaid(order);
       const delivery = opts.delivery ? await opts.delivery.charge(order.id) : null;
       // The courier fee came with the payment: book the courier straight away.
       const booked = via.how === "online" && (via.courierKobo ?? 0) > 0 && opts.delivery ? await opts.delivery.bookCourier(orderNumber) : [];
@@ -448,10 +457,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           : via.how === "app"
             ? own.paidApp(label, total, who)
             : own.paidOnline(label, total, who, via.feeKobo > 0 ? money(via.feeKobo) : null, opts.payProvider ?? "Paystack");
+      const receiptMsg = receiptNote(order, label, receipt, pickup, own);
+      if (hired) receiptMsg.text += `\n\n${hired.customer}`;
       return [
-        receiptNote(order, label, receipt, pickup, own),
+        receiptMsg,
         ...(tickets ? [tickets] : []),
-        ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") + (note ? `\n\n${note}` : "")),
+        ...toOwner(how + (hired ? `\n\n${hired.owner}` : "") + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") + (note ? `\n\n${note}` : "")),
         ...booked,
       ];
     },
@@ -831,10 +842,24 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     notes?: string | null,
     /** From "Buy now": when every item is taken as asked, `ready` says to confirm straight away. */
     buyNow = false,
+    /** What the customer said, where hire dates are read from. */
+    said?: { text: string; history: HistoryEntry[] },
   ): Promise<Reply & { ready?: boolean }> {
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
     const problems: string[] = [];
+    // Hire items are priced for the dates asked (rentals/); the rest as usual.
+    let hire: HireQuote = null;
+    if (opts.rentals) {
+      hire = await opts.rentals.quote({ items, variants, text: said?.text, history: said?.history });
+      if (hire) {
+        items = hire.rest;
+        if ("reply" in hire) {
+          if (!items.length) return { text: hire.reply };
+          problems.push(hire.reply);
+        }
+      }
+    }
     // Items with no price in the database (priced by the team case by case).
     const manual: string[] = [];
 
@@ -853,6 +878,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       problems.push(...short.values());
       lines = lines.filter((l) => !short.has(l.variantId));
     }
+    const hired = hire && "bookings" in hire ? hire : null;
+    if (hired) lines = [...hired.lines, ...lines];
 
     // Hand items without a set price to the owner instead of guessing.
     const manualNote = manual.length > 0 ? t.teamWillPrice(manual.join(", ")) : null;
@@ -874,6 +901,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     // A changed request makes a new quote: the old one's details and files come along.
     const previous = opts.customerFiles ? await opts.orders.latestOpenQuote(contactId) : null;
     const order = await opts.orders.createQuote(contactId, lines, quoteTotal(lines));
+    if (hired) await opts.rentals!.saveQuote(order.id, hired.bookings);
     const orderNotes = opts.customerFiles ? await carryDetails(opts.customerFiles, order, previous, notes ?? null, contactId) : null;
     if (buyNow && problems.length === 0 && manual.length === 0) return { text: "", ready: true };
     const notesLine = orderNotes && shown(orderNotes);
@@ -882,6 +910,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       t.quoteHeader(ref(order)),
       "",
       ...lines.map((l) => `• ${l.quantity} x ${l.name} @ ${money(l.unitPriceKobo)} = ${money(l.totalKobo)}`),
+      ...(hired ? ["", hired.note] : []),
       "",
       t.quoteTotal(money(order.totalKobo)),
       ...(notesLine ? ["", t.orderNotes(notesLine)] : []),
@@ -978,6 +1007,9 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const ask = await dispatch.beforeConfirm(order, { waId, name, phone }, lang);
       if (ask) return ask.locationRequest && askNumber ? { ...ask, contactRequest: askNumber } : ask;
     }
+    // Hire items: the dates are held while the customer pays, unless someone else took them meanwhile.
+    const gone = opts.rentals ? await opts.rentals.hold(order.id, ref(order)) : null;
+    if (gone) return { text: gone };
     if (!(await opts.orders.setStatus(order.id, "confirmed"))) return noQuote;
     const lowStock = (await opts.catalogue?.confirmed(order.id, order.lines)) ?? [];
     let spot: { code: string; table: string | null } | null = null;
@@ -1124,6 +1156,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (walkInReply) return walkInReply;
     const ticketReply = opts.tickets ? await opts.tickets.ownerCommand(msg) : null;
     if (ticketReply) return ticketReply;
+    const hireReply = opts.rentals ? await opts.rentals.ownerCommand(msg, { chargeBalance }) : null;
+    if (hireReply) return hireReply;
     const shopReply = opts.shop ? await opts.shop.ownerCommand(msg) : null;
     if (shopReply) return { text: shopReply };
     const caption = (msg.caption ?? "").trim();
@@ -1251,6 +1285,24 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
   }
 
   /** The tickets in a paid order, sent to the customer. Null when it has none, or if making them fails (the owner can ask the customer to send "my tickets" later). */
+  async function hirePaid(order: OrderDetails): Promise<{ customer: string; owner: string } | null> {
+    if (!opts.rentals) return null;
+    try {
+      return await opts.rentals.paid(order.id);
+    } catch (err) {
+      log.error(`Couldn't book the hire dates for ${ref(order)}:`, err);
+      return null;
+    }
+  }
+
+  /** What a customer owes after a hire return, as a confirmed order with a pay link. */
+  async function chargeBalance(customer: { contactId: string; waId: string }, line: QuoteLine): Promise<{ label: string; url: string | null }> {
+    const order = await opts.orders.createQuote(customer.contactId, [line], line.totalKobo);
+    await opts.orders.setStatus(order.id, "confirmed");
+    const { url } = await payLinkFor(order, customer.waId);
+    return { label: ref(order), url };
+  }
+
   async function ticketsPaid(order: OrderDetails): Promise<Notice | null> {
     if (!opts.tickets) return null;
     try {

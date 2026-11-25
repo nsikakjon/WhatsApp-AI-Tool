@@ -14,6 +14,8 @@ import { BUSINESS, links, memoryWalkIn } from "./walkin/testing.js";
 import { welcomeAsk } from "./welcome.js";
 import { createEventTickets } from "./tickets/index.js";
 import { links as ticketLinks, memoryTickets } from "./tickets/testing.js";
+import { createHireBookings } from "./rentals/index.js";
+import { memoryRentals } from "./rentals/testing.js";
 
 const variants: Variant[] = [
   {
@@ -1562,5 +1564,44 @@ describe("Buy now from the shop page", () => {
     const reply = await s.product.handle(buy(`1a2b3c4d*100 5e6f7a8b*20`), ctx);
     expect(reply?.text).toContain("Reply YES");
     expect(s.orders[0]?.status).toBe("quoted");
+  });
+});
+
+describe("hire bookings in the chat", () => {
+  const GEN: Variant = { id: "v-gen", name: "Generator: 20kVA", minQuantity: 1, tiers: [{ minQuantity: 1, unitPriceKobo: 25_000_00 }] };
+  const now = () => new Date("2026-11-25T09:00:00Z");
+
+  function hireSetup(answers: Understanding[]) {
+    const mem = memoryOrders();
+    const rentals = memoryRentals({ now, names: { "v-gen": GEN.name }, orders: { o1: { number: 1001, contactId: "c1", waId: "2348012345678", name: "Ada" } } });
+    const hire = createHireBookings({ businessName: "Demo Hire", orderPrefix: "DH", store: rentals, catalog: { activeVariants: async () => [GEN] }, orders: mem.store, now });
+    const seen: Array<Parameters<Understander["understand"]>[0]> = [];
+    const product = createQuoteProduct({
+      businessName: "Demo Hire",
+      orderPrefix: "DH",
+      catalog: { activeVariants: async () => [GEN] },
+      orders: mem.store,
+      ai: { understand: async (input) => (seen.push(input), answers.shift()!) },
+      rentals: hire,
+      log: { error() {} },
+    });
+    return { product, rentals, seen, ...mem };
+  }
+
+  it("quotes the hire for the dates, holds them on YES and books them once paid", async () => {
+    const { product, rentals, seen } = hireSetup([
+      { intent: "quote", items: [{ variantId: "v-gen", quantity: 1 }], message: null },
+      { intent: "confirm", items: [], message: null },
+    ]);
+    await rentals.setItem("v-gen", { units: 1, depositKobo: 50_000_00 });
+    const quote = await product.handle(text("Do you have a 20kVA generator for 3 days from Friday?"), ctx);
+    expect(seen[0]?.catalog[0]?.details).toMatch(/quantity is how many units, never the number of days/);
+    expect(quote?.text).toMatch(/• 1 x Generator: 20kVA hire, Fri 27 Nov to Mon 30 Nov \(3 days\) @ ₦75,000 = ₦75,000\n• 1 x Refundable deposit: Generator: 20kVA @ ₦50,000 = ₦50,000\n\nOut Fri 27 Nov, back Mon 30 Nov\. Free on those dates\./);
+    expect(rentals.bookings[0]?.status).toBe("quoted");
+    await product.handle(text("yes"), ctx);
+    expect(rentals.bookings[0]?.status).toBe("held");
+    const paid = await product.orderPaid(1001);
+    expect(paid[0]?.text).toMatch(/Your hire is booked:/);
+    expect(rentals.bookings[0]?.status).toBe("booked");
   });
 });
