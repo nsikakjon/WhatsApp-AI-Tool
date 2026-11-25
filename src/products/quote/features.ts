@@ -44,6 +44,8 @@ export type PlanFeature =
   | "stations"
   /** Event tickets with a QR code each and a door screen (migration 0068, tickets/). */
   | "event_tickets"
+  /** Hiring things out by the day: dates, deposits, returns (migration 0097, rentals/). */
+  | "hire_bookings"
   | "transaction_fee"
   /** The most yarnOga's fee can be on one payment, in kobo (naira) or centimes (CFA francs), migration 0052. */
   | "transaction_fee_cap_ngn"
