@@ -168,13 +168,11 @@ export function agreementPdf(business: PaperBusiness, bookings: Booking[]): Uint
   ctx.fillText("Delivery or site address: _______________________________________________", M, y);
   y += 64;
 
-  const cols = { item: M, units: M + 470, out: M + 560, back: M + 740, charge: W - M - 190, deposit: W - M };
+  const cols = { item: M, units: M + 600, charge: W - M - 230, deposit: W - M };
   ctx.font = "22px Inter SemiBold";
   ctx.fillStyle = MUTED;
-  ctx.fillText("ITEM", cols.item, y);
+  ctx.fillText("ITEM AND DATES", cols.item, y);
   ctx.fillText("QTY", cols.units, y);
-  ctx.fillText("OUT", cols.out, y);
-  ctx.fillText("BACK", cols.back, y);
   ctx.textAlign = "right";
   ctx.fillText("HIRE", cols.charge, y);
   ctx.fillText("DEPOSIT", cols.deposit, y);
@@ -192,10 +190,8 @@ export function agreementPdf(business: PaperBusiness, bookings: Booking[]): Uint
     hireTotal += charge;
     depositTotal += b.depositKobo * b.units;
     ctx.fillStyle = INK;
-    ctx.fillText(wrap(ctx, b.name, 440)[0]!, cols.item, y);
+    ctx.fillText(wrap(ctx, b.name, cols.units - cols.item - 30)[0]!, cols.item, y);
     ctx.fillText(String(b.units), cols.units, y);
-    ctx.fillText(showDay(b.start), cols.out, y);
-    ctx.fillText(showDay(b.back), cols.back, y);
     ctx.textAlign = "right";
     ctx.fillText(money(charge), cols.charge, y);
     ctx.fillText(money(b.depositKobo * b.units), cols.deposit, y);
@@ -203,7 +199,7 @@ export function agreementPdf(business: PaperBusiness, bookings: Booking[]): Uint
     y += 32;
     ctx.fillStyle = MUTED;
     ctx.font = "20px Inter";
-    ctx.fillText(`${days} day${days === 1 ? "" : "s"} · ${money(b.dailyKobo)} a day${b.weeklyKobo !== null ? ` · ${money(b.weeklyKobo)} a week` : ""}`, cols.item, y);
+    ctx.fillText(`Out ${showDay(b.start)}, back ${showDay(b.back)} · ${days} day${days === 1 ? "" : "s"} · ${money(b.dailyKobo)} a day${b.weeklyKobo !== null ? ` · ${money(b.weeklyKobo)} a week` : ""}`, cols.item, y);
     ctx.font = "24px Inter";
     y += 44;
   }
@@ -294,9 +290,7 @@ export function checklistPdf(business: PaperBusiness, bookings: Booking[]): Uint
       signLine(ctx, "Customer (out)", M, row - 30, third);
       signLine(ctx, "Staff (out)", M + third + 40, row - 30, third);
       signLine(ctx, "Staff (back)", M + 2 * (third + 40), row - 30, third);
-      y = row + 80;
-      ctx.fillStyle = LINE;
-      ctx.fillRect(M, y - 30, W - 2 * M, 2);
+      y = row + 110;
     }
   }
   pages.push(current.done());
@@ -324,10 +318,10 @@ export async function stickersPdf(business: PaperBusiness, whatsappNumber: strin
       ctx.setLineDash([10, 8]);
       ctx.strokeRect(x + 10, y + 10, cw - 20, ch - 20);
       ctx.setLineDash([]);
-      const qrSize = ch - 100;
+      const qrSize = Math.min(ch - 100, 230);
       const qr = createCanvas(qrSize, qrSize);
       await QRCode.toCanvas(qr as unknown as HTMLCanvasElement, hireChatLink(whatsappNumber, name), { width: qrSize, margin: 1 });
-      ctx.drawImage(qr, x + 40, y + 50, qrSize, qrSize);
+      ctx.drawImage(qr, x + 40, y + (ch - qrSize) / 2, qrSize, qrSize);
       const tx = x + 60 + qrSize;
       const tw = cw - qrSize - 100;
       ctx.fillStyle = INK;
@@ -346,9 +340,9 @@ export async function stickersPdf(business: PaperBusiness, whatsappNumber: strin
       }
       ctx.font = "22px Inter SemiBold";
       ctx.fillStyle = INK;
-      ctx.fillText(wrap(ctx, business.name, tw)[0]!, tx, y + ch - 90);
+      ctx.fillText(wrap(ctx, business.name, tw)[0]!, tx, Math.max(ty + 16, y + ch - 100));
       ctx.font = "20px Inter";
-      ctx.fillText(showWaId(whatsappNumber), tx, y + ch - 60);
+      ctx.fillText(showWaId(whatsappNumber), tx, Math.max(ty + 46, y + ch - 70));
     }
     pages.push(done());
   }
