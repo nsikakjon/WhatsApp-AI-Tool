@@ -90,6 +90,8 @@ import { createSupabaseWalkInStore } from "./products/quote/walkin/store.js";
 import { createEventTickets, type EventTickets } from "./products/quote/tickets/index.js";
 import { createTicketLinks } from "./products/quote/tickets/links.js";
 import { createSupabaseTicketStore } from "./products/quote/tickets/store.js";
+import { createAppointments, type Appointments } from "./products/quote/appointments/index.js";
+import { createSupabaseAppointmentStore } from "./products/quote/appointments/store.js";
 import { createSiteReporter } from "./products/site/index.js";
 import { createSupabaseSiteStore } from "./products/site/store.js";
 import { createClaudeSummariser } from "./products/site/summarise.js";
@@ -534,6 +536,32 @@ const ticketsFor = (businessId: string, businessName: string, orderPrefix: strin
       })
     : undefined;
 
+// Appointment booking for gyms, clinics, salons and coaches (QUOTE_APPOINTMENTS).
+// Each business's is kept here too, for the reminders and the morning summary.
+const appointmentsConfig = config.activeProduct === "quote" ? config.quoteAppointments : undefined;
+const bookings = new Map<string, Appointments>();
+const appointmentsFor = (
+  businessId: string,
+  businessName: string,
+  catalog: Parameters<typeof createAppointments>[0]["catalog"],
+  ownerWaId: string | undefined,
+  features?: PlanFeatures,
+  currency?: Currency,
+) => {
+  if (!appointmentsConfig) return undefined;
+  const booking = createAppointments({
+    businessName,
+    store: createSupabaseAppointmentStore(supabase, businessId),
+    catalog,
+    ownerWaId,
+    features,
+    currency,
+    template: appointmentsConfig.template,
+  });
+  bookings.set(businessId, booking);
+  return booking;
+};
+
 // How many numbers (business plus branches) a main business's plan allows; null = no cap.
 async function numbersAllowed(mainId: string): Promise<number | null> {
   const { features } = mainId === DEFAULT_BUSINESS_ID ? planFeatures(mainId, config.quote?.plan) : planFeatures(mainId);
@@ -678,6 +706,14 @@ if (config.activeProduct === "quote" && config.quote) {
     payProvider: config.quote.currency === "NGN" ? "Paystack" : "Flutterwave",
     walkIn: walkInFor(DEFAULT_BUSINESS_ID, config.quote.orderPrefix, mainFeatures.features),
     tickets: ticketsFor(DEFAULT_BUSINESS_ID, config.quote.businessName, config.quote.orderPrefix, config.quote.language, mainFeatures.features, config.quote.currency),
+    appointments: appointmentsFor(
+      DEFAULT_BUSINESS_ID,
+      config.quote.businessName,
+      createSupabaseCatalog(supabase, mainBusinessId),
+      config.quote.ownerWaId,
+      mainFeatures.features,
+      config.quote.currency,
+    ),
     sheets: sheetsFor(DEFAULT_BUSINESS_ID),
     plan: config.quote.plan
       ? createPlanGate({
@@ -782,6 +818,7 @@ function businessBot(business: QuoteBusiness, multi: NonNullable<typeof quoteBus
     payProvider: business.currency && business.currency !== "NGN" ? "Flutterwave" : "Paystack",
     walkIn: walkInFor(business.id, business.orderPrefix, features.features),
     tickets: ticketsFor(business.id, business.name, business.orderPrefix, business.language ?? "en", features.features, business.currency),
+    appointments: appointmentsFor(business.id, business.name, createSupabaseCatalog(supabase, business.id), business.ownerWaId ?? undefined, features.features, business.currency),
     plan: createPlanGate({ store: createSupabasePlanStore(supabase, business.id), checkout: planCheckout(planId), alertAt80: config.quoteLimitAlerts }),
     limitAlerts: config.quoteLimitAlerts,
     askYarnogaToCall: callMeFor(business.name),
@@ -2145,6 +2182,36 @@ if (payReminders) {
   });
 }
 
+// Appointment booking (QUOTE_APPOINTMENTS): every 15 minutes, reminders that
+// are due (the day before in the daytime, and 2 hours before; as a template
+// outside WhatsApp's 24-hour window when one is set), unpaid holds let go,
+// and at 7am Lagos time the owner's list of the day's bookings.
+if (appointmentsConfig) {
+  runEvery(15 * 60 * 1000, async () => {
+    const at = new Date();
+    for (const b of await createSupabaseBusinesses(supabase).list()) {
+      if (b.id !== DEFAULT_BUSINESS_ID && (!quoteBusinesses || !b.active || !numberOf(b))) continue;
+      try {
+        if (!(await onPlan(b, "appointments"))) continue;
+        const found = await quoteBotFor(b.id);
+        const booking = found && bookings.get(b.id);
+        if (!found || !booking) continue;
+        const numberId = found.fromNumberId ?? config.whatsapp.phoneNumberId;
+        for (const note of await booking.due(at)) {
+          if (!note.template && !(await canMessageFreely(store, note.to, numberId))) continue;
+          await sendNotice(outbox, note, found.fromNumberId ?? undefined).catch((err) => console.error(`Booking reminder to ...${note.to.slice(-4)} failed:`, err));
+        }
+        if (lagosHour(at) === 7 && found.ownerWaId) {
+          const summary = await booking.summary(at);
+          if (summary && (await booking.claimSummary(at))) await sendNotice(outbox, { to: found.ownerWaId, text: summary }, found.fromNumberId ?? undefined);
+        }
+      } catch (err) {
+        console.error(`Appointment booking run failed for ${b.name}:`, err);
+      }
+    }
+  });
+}
+
 // Monthly payments (QUOTE_MONTHLY_PAYMENTS): every 15 minutes, months that
 // have come due are charged to the saved card or sent as a link, and unpaid
 // ones are reminded, in the daytime only.
@@ -2376,6 +2443,6 @@ if (chatSignup?.followUp && quoteBusinesses) {
 
 serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
   console.log(
-    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? (chatSignup.followUp ? "on, with follow-ups" : "on") : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
+    `Server listening on port ${info.port} (product: ${product.name}, more quote businesses: ${quoteBusinesses ? "on" : "off"}, quote reminders: ${followUps ? "on" : "off"}, broadcasts: ${broadcastConfig ? "on" : "off"}, site reporter: ${siteReporter ? "on" : "off"}, lead qualifier: ${leadQualifier ? "on" : "off"}, flyers: ${flyerBot ? "on" : "off"}, voice notes: ${config.groq ? "on" : "off"}, dashboard: ${config.dashboard ? "on" : "off"}, farm app: ${config.farm ? "on" : "off"}, reply generator: ${config.generator ? "on" : "off"}, sign-up page: ${config.signup ? "on" : "off"}, owner-reply pause: ${config.ownerReplyPauseMinutes} min, inbox: ${config.inbox ? "on" : "off"}, payments: ${paystackConfig ? (paystackConfig.secretKey.startsWith("sk_live_") ? "Paystack live" : "Paystack test") : "Paystack off"}, ${flutterwaveConfig ? (flutterwaveConfig.secretKey.startsWith("FLWSECK_TEST") ? "Flutterwave test" : "Flutterwave live") : "Flutterwave off"}, quote setup screen: ${config.quoteSetup ? "on" : "off"}, delivery: ${delivery ? "on" : "off"}, order board: ${orderBoard ? "on" : "off"}, walk-in orders: ${walkInConfig ? "on" : "off"}, event tickets: ${ticketsConfig ? "on" : "off"}, appointments: ${appointmentsConfig ? "on" : "off"}, shop pages: ${shopConfig ? "on" : "off"}, photos and stock: ${config.quoteCatalogue ? "on" : "off"}, branches: ${config.quoteBranches ? "on" : "off"}, chat sign-up: ${chatSignup && quoteBusinesses ? (chatSignup.followUp ? "on, with follow-ups" : "on") : "off"}, Google Sheet prices: ${sheetSync ? "on" : "off"}, emails: ${emailConfig ? "on" : "off"})`,
   );
 });

@@ -168,6 +168,13 @@ export interface Config {
   /** Event tickets with a QR code each and a door screen (migration 0068). Only set when QUOTE_EVENT_TICKETS is true. */
   quoteEventTickets?: { publicUrl: string };
   /**
+   * Appointment booking for gyms, clinics, salons and coaches (migration 0099).
+   * Only set when QUOTE_APPOINTMENTS is true. `template`
+   * (APPOINTMENT_REMINDER_TEMPLATE_NAME) sends reminders to customers outside
+   * WhatsApp's 24-hour window: {{1}} business, {{2}} service, {{3}} when and who, {{4}} booking number.
+   */
+  quoteAppointments?: { template?: { name: string; language: string } };
+  /**
    * Each quote business's public shop page at /shop/<name> (migration 0059). Only set when QUOTE_SHOP is true.
    * `linkBase` is what links shown to people start with: SHOP_LINK_BASE (e.g. https://yarnoga.com/s), else <PUBLIC_URL>/shop.
    */
@@ -636,6 +643,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : undefined,
     quoteEventTickets: /^(true|yes|on|1)$/i.test(env.QUOTE_EVENT_TICKETS ?? "")
       ? { publicUrl: publicUrl(required(env, "PUBLIC_URL")) }
+      : undefined,
+    quoteAppointments: /^(true|yes|on|1)$/i.test(env.QUOTE_APPOINTMENTS ?? "")
+      ? {
+          template: env.APPOINTMENT_REMINDER_TEMPLATE_NAME?.trim()
+            ? { name: env.APPOINTMENT_REMINDER_TEMPLATE_NAME.trim(), language: env.APPOINTMENT_REMINDER_TEMPLATE_LANGUAGE?.trim() || "en" }
+            : undefined,
+        }
       : undefined,
     quoteShop: /^(true|yes|on|1)$/i.test(env.QUOTE_SHOP ?? "") ? shopSettings(env) : undefined,
     broadcasts: /^(true|yes|on|1)$/i.test(env.BROADCASTS_ENABLED ?? "")

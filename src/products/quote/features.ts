@@ -67,7 +67,9 @@ export type PlanFeature =
   /** Business flyers in the owner app: how many a month (migration 0082, flyer-packs.ts). */
   | "business_flyers"
   /** The business advisor's written answers a month, Pro and up (migration 0093, owner/advisor/). */
-  | "business_advisor";
+  | "business_advisor"
+  /** Appointment booking for gyms, clinics, salons and coaches, Pro and up (migration 0099, appointments/). */
+  | "appointments";
 
 export interface FeatureRow {
   included: boolean;

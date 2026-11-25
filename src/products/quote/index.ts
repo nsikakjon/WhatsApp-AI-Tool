@@ -26,6 +26,7 @@ import { isPhoneNumber, showWaId } from "../../core/whatsapp/ids.js";
 import { customerWelcome, ownerMenu, QUOTE_CHOICE, TEAM_CHOICE, welcomeAsk } from "./welcome.js";
 import { declineKind } from "./decline.js";
 import type { EventTickets } from "./tickets/index.js";
+import type { Appointments } from "./appointments/index.js";
 import type { WalkIn, WalkInMode } from "./walkin/index.js";
 import { describeFile, fileKind, MAX_FILE_BYTES, RECENT_ORDER_DAYS, type CustomerFile, type CustomerFileStore, type FileKind } from "./customer-files.js";
 import { PaymentsHeld } from "./paylinks.js";
@@ -155,6 +156,8 @@ export interface QuoteProductOptions {
   walkIn?: WalkIn;
   /** Event tickets with a QR code each, checked in at the door (tickets/). */
   tickets?: EventTickets;
+  /** Appointment booking for gyms, clinics, salons and coaches (appointments/). */
+  appointments?: Appointments;
   /** Files customers send and their order details (QUOTE_CUSTOMER_FILES, migration 0085). Without it, a file is only checked as a payment screenshot. */
   customerFiles?: CustomerFileStore;
   /** The owner app's order board found at one order (e.g. KP-1001), for the Open order button on alerts. */
@@ -239,6 +242,15 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       if (opts.tickets) {
         const ticketReply = await opts.tickets.customerMessage(msg, ctx.contactId, lang);
         if (ticketReply) return ticketReply;
+      }
+      if (opts.appointments) {
+        const bookingReply = await opts.appointments.customerMessage(msg, {
+          contactId: ctx.contactId,
+          waId: msg.from,
+          name: msg.contactName ?? null,
+          checkout: (customer, line) => chargeLine(customer, line),
+        });
+        if (bookingReply) return bookingReply;
       }
       const walkIn = venue.on && (await walkInChat(ctx.contactId)) ? venue : WALK_IN_OFF;
       if (!walkIn.on && opts.delivery && (await deliveryOnPlan())) {
@@ -440,6 +452,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       const booked = via.how === "online" && (via.courierKobo ?? 0) > 0 && opts.delivery ? await opts.delivery.bookCourier(orderNumber) : [];
       const receipt = await documentImage("receipt", { ...order, paidAt: new Date() }, delivery, pickup, own);
       const tickets = await ticketsPaid(order);
+      const appointments = await appointmentsPaid(order);
       const note = !pickup && opts.delivery && (await deliveryOnPlan()) ? await opts.delivery.ownerNote(order) : null;
       const total = money(order.totalKobo);
       const how =
@@ -448,10 +461,12 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           : via.how === "app"
             ? own.paidApp(label, total, who)
             : own.paidOnline(label, total, who, via.feeKobo > 0 ? money(via.feeKobo) : null, opts.payProvider ?? "Paystack");
+      const receiptMsg = receiptNote(order, label, receipt, pickup, own);
+      if (appointments) receiptMsg.text += `\n\n${appointments.customer}`;
       return [
-        receiptNote(order, label, receipt, pickup, own),
+        receiptMsg,
         ...(tickets ? [tickets] : []),
-        ...toOwner(how + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") + (note ? `\n\n${note}` : "")),
+        ...toOwner(how + (appointments ? `\n\n${appointments.owner}` : "") + (pickup ? `\n\n${own.onPickupScreens(pickup.stations)}` : "") + (tickets ? `\n\n${own.ticketsSent(tickets.images?.length ?? 0)}` : "") + (note ? `\n\n${note}` : "")),
         ...booked,
       ];
     },
@@ -832,6 +847,11 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     /** From "Buy now": when every item is taken as asked, `ready` says to confirm straight away. */
     buyNow = false,
   ): Promise<Reply & { ready?: boolean }> {
+    // A bookable service (a session, a class) is booked for a time, not quoted.
+    if (opts.appointments && !buyNow) {
+      const booking = await opts.appointments.forQuote(items.map((i) => i.variantId), variants);
+      if (booking) return booking;
+    }
     const byId = new Map(variants.map((v) => [v.id, v]));
     let lines: QuoteLine[] = [];
     const problems: string[] = [];
@@ -1124,6 +1144,8 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
     if (walkInReply) return walkInReply;
     const ticketReply = opts.tickets ? await opts.tickets.ownerCommand(msg) : null;
     if (ticketReply) return ticketReply;
+    const bookingReply = opts.appointments ? await opts.appointments.ownerCommand(msg) : null;
+    if (bookingReply) return bookingReply;
     const shopReply = opts.shop ? await opts.shop.ownerCommand(msg) : null;
     if (shopReply) return { text: shopReply };
     const caption = (msg.caption ?? "").trim();
@@ -1173,6 +1195,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           delivery: !!opts.delivery && (await deliveryOnPlan()),
           walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
           tickets: !!opts.tickets && (opts.features ? await opts.features.has("event_tickets") : true),
+          appointments: !!opts.appointments && (opts.features ? await opts.features.has("appointments") : true),
           shop: !!opts.shop,
         }),
       };
@@ -1248,6 +1271,25 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
       log.error(`Couldn't check whether ${ref(order)} is all tickets:`, err);
       return false;
     }
+  }
+
+  /** The bookings a paid order held, now booked. Null when it has none, or if booking them fails (the owner sees the payment either way). */
+  async function appointmentsPaid(order: OrderDetails): Promise<{ customer: string; owner: string } | null> {
+    if (!opts.appointments) return null;
+    try {
+      return await opts.appointments.paid(order.id);
+    } catch (err) {
+      log.error(`Couldn't book the appointment for ${ref(order)}:`, err);
+      return null;
+    }
+  }
+
+  /** One line (a booking, a deposit) as a confirmed order with its pay link. */
+  async function chargeLine(customer: { contactId: string; waId: string }, line: QuoteLine): Promise<{ orderId: string; label: string; url: string | null }> {
+    const order = await opts.orders.createQuote(customer.contactId, [line], line.totalKobo);
+    await opts.orders.setStatus(order.id, "confirmed");
+    const { url } = await payLinkFor(order, customer.waId);
+    return { orderId: order.id, label: ref(order), url };
   }
 
   /** The tickets in a paid order, sent to the customer. Null when it has none, or if making them fails (the owner can ask the customer to send "my tickets" later). */
