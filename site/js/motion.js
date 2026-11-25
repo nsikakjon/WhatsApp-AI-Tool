@@ -1,4 +1,5 @@
-// Plays the hero chats message by message, with the "behind the chat" log ticking along.
+// Plays the hero chats message by message, with the "behind the chat" log ticking along
+// and any back-office records ([data-after] = bubble number) appearing as the chat reaches them.
 // Without JavaScript, or with reduced motion switched on, everything shows complete and still.
 (function () {
   if (!window.matchMedia || !matchMedia("(prefers-reduced-motion: no-preference)").matches || !("IntersectionObserver" in window)) return;
@@ -15,6 +16,7 @@
     var log = art && art.querySelector(".runlog");
     var bubbles = [].slice.call(chat.children).filter(function (b) { return b.classList.contains("b"); });
     var lines = log ? [].slice.call(log.querySelectorAll("li[data-with]")) : [];
+    var recs = art ? [].slice.call(art.querySelectorAll("[data-after]")) : [];
     var typing = document.createElement("div");
     typing.className = "b in typing";
     typing.innerHTML = "<i></i><i></i><i></i>";
@@ -36,6 +38,8 @@
         if (log) log.classList.add("playing");
         bubbles.forEach(function (b) { b.classList.remove("on"); });
         lines.forEach(function (l) { l.classList.remove("on"); });
+        recs.forEach(function (r) { r.classList.remove("on"); });
+        if (art) art.classList.add("playing");
 
         for (var i = 0; i < bubbles.length; i++) {
           var b = bubbles[i], bot = b.classList.contains("in");
@@ -45,6 +49,7 @@
           await wait(bot ? Math.max(500, 1300 - mine.length * 450) : 700);
           typing.remove();
           b.classList.add("on");
+          recs.forEach(function (r) { if (+r.dataset.after === i) r.classList.add("on"); });
           await wait(b.querySelector(".voice, img") ? 2200 : bot ? 2200 : 1100);
         }
         await wait(4500);
