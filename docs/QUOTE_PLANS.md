@@ -6,8 +6,8 @@ both in kobo or plain counts, so they change in Supabase, never in code.
 
 | | Free | Starter | Pro | Growth | Enterprise |
 |---|---|---|---|---|---|
-| Monthly | ₦0 | ₦7,000 | ₦23,000 | ₦73,000 | ₦298,000 |
-| Paid yearly (per month) | | ₦6,250 | ₦19,250 | ₦61,750 | ₦253,000 |
+| Monthly | ₦0 | ₦15,000 | ₦43,000 | ₦93,000 | ₦318,000 |
+| Paid yearly (per month) | | ₦12,750 | ₦36,500 | ₦79,000 | ₦270,000 |
 | Confirmed orders a month | 50 | Unlimited | Unlimited | Unlimited | Unlimited |
 | AI replies a month | 500 | 2,500 | 7,500 | 25,000 | 100,000 |
 | Price list rows | 20 | 100 | Unlimited | Unlimited | Unlimited |
@@ -39,7 +39,7 @@ and gets everything Pro has.
 ## Changing a price or limit
 
 Edit the row in Supabase > Table Editor: `quote_plans` for prices (kobo:
-₦7,000 is 700000), `quote_plan_features` for limits (`usage_limit`, empty for
+₦15,000 is 1500000), `quote_plan_features` for limits (`usage_limit`, empty for
 no cap) and whether a plan has a feature (`included`).
 
 ## Bot messages (Meta's fee)

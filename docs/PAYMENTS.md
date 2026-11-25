@@ -109,8 +109,9 @@ payer's WhatsApp number:
 | Anywhere else | US dollars | Paystack: card |
 
 The prices are in the `plan_prices` table (migrations
-`0062_plan_prices.sql`, `0074_plan_prices_east_africa.sql` and
-`0086_ghana_zambia_currencies.sql`), the same ones as the website's currency picker. To
+`0062_plan_prices.sql`, `0074_plan_prices_east_africa.sql`,
+`0086_ghana_zambia_currencies.sql` and, for the quote plans' 25 Nov 2026 prices,
+`0098_quote_plan_prices_up.sql`), the same ones as the website's currency picker. To
 change one, change it in the table and in the website's `js/currency.js`.
 
 To switch it on:
