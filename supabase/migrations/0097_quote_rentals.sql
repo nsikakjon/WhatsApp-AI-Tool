@@ -1,4 +1,4 @@
--- Equipment hire for the quote bot (QUOTE_RENTALS, src/products/quote/rentals/).
+-- Hire bookings for the quote bot (equipment, cars, event chairs and canopies, halls, costumes: anything hired by the day) (QUOTE_RENTALS, src/products/quote/rentals/).
 -- Run this once in Supabase: SQL Editor > New query > paste > Run
 -- (after 0020, 0025 and 0054). Running it again is safe and changes nothing.
 --
@@ -130,13 +130,13 @@ begin
 end;
 $$;
 
--- Which plans include equipment hire.
+-- Which plans include hire bookings (Pro and above, jay 25 Nov 2026).
 insert into public.quote_plan_features (plan_code, feature, included, usage_limit)
 values
-  ('free',       'equipment_hire', false, null),
-  ('starter',    'equipment_hire', false, null),
-  ('pro',        'equipment_hire', true,  null),
-  ('standard',   'equipment_hire', true,  null),
-  ('growth',     'equipment_hire', true,  null),
-  ('enterprise', 'equipment_hire', true,  null)
+  ('free',       'hire_bookings', false, null),
+  ('starter',    'hire_bookings', false, null),
+  ('pro',        'hire_bookings', true,  null),
+  ('standard',   'hire_bookings', true,  null),
+  ('growth',     'hire_bookings', true,  null),
+  ('enterprise', 'hire_bookings', true,  null)
 on conflict (plan_code, feature) do nothing;
