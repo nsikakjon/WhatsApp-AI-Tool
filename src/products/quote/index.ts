@@ -1207,6 +1207,7 @@ export function createQuoteProduct(opts: QuoteProductOptions): QuoteProduct {
           delivery: !!opts.delivery && (await deliveryOnPlan()),
           walkIn: !!opts.walkIn && (opts.features ? await opts.features.has("walk_in") : true),
           tickets: !!opts.tickets && (opts.features ? await opts.features.has("event_tickets") : true),
+          hire: !!opts.rentals && (opts.features ? await opts.features.has("hire_bookings") : true),
           shop: !!opts.shop,
         }),
       };
