@@ -403,6 +403,7 @@ a:hover > .go::after, .go:hover::after { transform: translateX(4px); }
   .js .desk.playing .rec:not(.on) { opacity: .22; transform: translateY(6px); }
   .js .desk.playing .rec.on { border-color: rgba(198, 255, 31, .55); }
 }
+.desk-note { margin: 10px 0 0; font: 700 clamp(20px, 2vw, 26px)/1.25 var(--display); letter-spacing: -0.01em; max-width: 26em; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border-block: 1px solid var(--line); }
 .stats > div { background: var(--bg); padding: clamp(20px, 3vw, 32px) clamp(12px, 2vw, 24px) clamp(20px, 3vw, 32px) 0; }
 .stats > div + div { padding-left: clamp(16px, 2.4vw, 28px); }
