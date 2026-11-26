@@ -61,6 +61,7 @@ import {
 } from "./products/quote/plan.js";
 import { createClaudeDrafter } from "./products/quote/drafter.js";
 import { createSupabaseSignups, preview, withChatSignup } from "./products/quote/chat-signup.js";
+import { createClaudeSupport } from "./products/quote/support.js";
 import { createSupabaseLineGuests, withSharedLine } from "./products/quote/shared-line.js";
 import { checkDueSheets, createSheetSync, createSupabaseSheets } from "./products/quote/sheet-sync.js";
 import { fetchSheet } from "./core/sheets.js";
@@ -875,6 +876,15 @@ if (chatSignup && quoteBusinesses) {
     drafter: createClaudeDrafter({ apiKey: quoteBusinesses.anthropicApiKey, model: quoteBusinesses.model }),
     alertWaId: chatSignup.alertWaId,
     signUpToContinue: chatSignup.signUpToContinue,
+    // yarnOga customer support: questions about features and plans, walkthroughs, and the Demo Shop on request.
+    support: {
+      writer: createClaudeSupport({
+        apiKey: quoteBusinesses.anthropicApiKey,
+        model: quoteBusinesses.model,
+        onUsage: countAi(chatSignup.phoneNumberId, quoteBusinesses.model),
+      }),
+      plans: createSupabasePlanStore(supabase),
+    },
     numbers: numberQueue
       ? createNumberCollector({ store: numberQueue, alertWaId: chatSignup.alertWaId, publicUrl: chatSignup.numberQueue?.publicUrl, connectLink })
       : undefined,
