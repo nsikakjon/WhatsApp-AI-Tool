@@ -181,7 +181,13 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
     return v;
   };
   // "Set it up for me" only shows when there's someone to tell.
-  const guestButtons = opts.alertWaId ? [...GUEST_BUTTONS, SET_UP_BUTTON] : GUEST_BUTTONS;
+  // With support on, the third button books a walkthrough; "set it up for me" is still offered in words.
+  const guestButtons =
+    opts.support && opts.alertWaId
+      ? [SIGN_UP_BUTTON, WALKTHROUGH_BUTTON, DEMO_BUTTON]
+      : opts.alertWaId
+        ? [...GUEST_BUTTONS, SET_UP_BUTTON]
+        : GUEST_BUTTONS;
 
   return {
     name: next.name,
@@ -278,7 +284,8 @@ export function withChatSignup(next: Product, opts: ChatSignupOptions): Product 
             if (answer === null) return unclear(msg.from) ?? { text: ASK_SELLS_AGAIN, stage: "unclear" };
             visitor(msg.from).askedSells = false;
           }
-          if (opts.support && !(signup?.businessId && (ask === "greeting" || ask === "help"))) {
+          if (opts.support && signup?.businessId && (ask === "greeting" || ask === "help")) return ownerWelcome(msg.contactName, signup.businessName);
+          if (opts.support) {
             const helped = await supportReply(msg, ctx, signup, text);
             if (helped) return helped;
           }
@@ -937,7 +944,9 @@ const AS_CUSTOMER = /\b(as an? (customer|buyer)|customer('s)? (view|side)|demo s
 const GO_AHEAD = /^(ok+a*y*|okay|yes|yeah|yea|yep|sure|alright|go ahead|let'?s go|let'?s start|yes please|ok let'?s go)$/;
 /** How long a repeated "sign up" counts as sent with the first. */
 const REPEAT_MS = 2 * 60_000;
-const GUEST_BUTTONS = [SIGN_UP_BUTTON, { id: SEE_DEMO, title: "See it as a customer" }];
+const DEMO_BUTTON = { id: SEE_DEMO, title: "See it as a customer" };
+const GUEST_BUTTONS = [SIGN_UP_BUTTON, DEMO_BUTTON];
+const WALKTHROUGH_BUTTON = { id: "book a walkthrough", title: "Book a walkthrough" };
 /** The demo shop's own buttons and commands, which are never a business name or an answer at sign-up. */
 const TALK_TO_SOMEONE = /^(talk|speak|chat) (to|with) (a |an |the |your )?(someone|somebody|person|human|agent|real person|team|yarnoga team|customer (care|service))$/;
 const CHANGE_NAME = /^(change|edit|fix|wrong) (the |my )?(business )?name$/;
@@ -1007,14 +1016,46 @@ function intro(contactName: string | undefined, buttons = GUEST_BUTTONS, support
     return {
       text: "",
       buttons: {
-        body:
-          `Hi${first ? ` ${first}` : ""}! This is yarnOga support. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\n` +
-          "Ask me anything about what yarnOga can do or what it costs, or tell me what you sell and I'll show you how it works for you.",
+        body: [
+          `Hi${first ? ` ${first}` : ""}, welcome to yarnOga! ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}`,
+          "",
+          "Here's how I can help:",
+          "• *Sign up free* and set up your assistant right here in about 5 minutes",
+          "• *Book a walkthrough*, a 20-minute call where our team shows you yarnOga with your own products",
+          "• *Set it up for me*, and our team sets it up with you",
+          "• *See it as a customer* in our Demo Shop",
+          "• Ask me anything, like _what does it cost?_ or _can it take bookings?_",
+          "",
+          "More on yarnoga.com. To start, what does your business sell?",
+        ].join("\n"),
         buttons,
       },
     };
   }
   return { text: "", buttons: { body: `Hi${first ? ` ${first}` : ""}! This is yarnOga. ${WHAT_IT_DOES.replace("yarnOga gives", "We give")}\n\nWhat do you sell?`, buttons } };
+}
+
+/** An owner's "hi" with support on: what they can do here, not the demo shop. */
+function ownerWelcome(contactName: string | undefined, businessName: string | null): Reply {
+  const first = contactName?.trim().split(/\s+/)[0];
+  return {
+    text: "",
+    buttons: {
+      body: [
+        `Hi${first ? ` ${first}` : ""}, welcome back to yarnOga${businessName ? `. You're signed up as *${businessName}*` : ""}.`,
+        "",
+        "Here's what you can send me:",
+        "• *try* to chat with your bot as a customer would",
+        "• *prices* to change your price list, or just type new prices, for example _Shirts 20k_",
+        "• *connect* to get your link for connecting your WhatsApp number",
+        "• *plans* to see what each plan costs",
+        "• *book a walkthrough* for a 20-minute call with our team",
+        "",
+        "Or ask me anything about yarnOga, like _how do I add my staff?_ More on yarnoga.com.",
+      ].join("\n"),
+      buttons: [{ id: "try", title: "Try my bot" }, WALKTHROUGH_BUTTON, { id: "talk to someone", title: "Talk to someone" }],
+    },
+  };
 }
 
 function pitch(sells: string, buttons = GUEST_BUTTONS): Reply {
