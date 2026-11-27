@@ -186,6 +186,7 @@ import { liftsLimits, unusualPayments } from "./compliance/aml.js";
 import { createScreener, type ScreeningResult } from "./compliance/sanctions.js";
 import { createSupabaseFarmStore } from "./farm/store.js";
 import { createSatellite } from "./farm/satellite.js";
+import { createFarmAssistant } from "./farm/assistant.js";
 import { createDojahRegistry } from "./compliance/registry.js";
 import type { ComplianceDeps } from "./compliance/index.js";
 import type { Notice } from "./core/product.js";
@@ -1928,6 +1929,10 @@ const app = createApp({
         password: config.farm.password,
         store: createSupabaseFarmStore(supabase),
         satellite: config.farm.copernicus ? createSatellite(config.farm.copernicus) : undefined,
+        assistant: config.farm.assistant
+          ? createFarmAssistant({ apiKey: config.farm.assistant.anthropicApiKey, model: config.farm.assistant.model })
+          : undefined,
+        assistantDailyLimit: config.farm.assistant?.dailyLimit,
       }
     : undefined,
 });

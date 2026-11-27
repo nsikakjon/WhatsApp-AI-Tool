@@ -1,6 +1,6 @@
 // Offline support: serve the app from cache when there's no signal on the farm.
-const C="oko-v3";
-const FILES=["./","index.html","css/app.css","js/geo.js","js/crops.js","js/survey.js","js/sync.js","js/satellite.js","js/app.js","manifest.json","icon.svg","icon-192.png"];
+const C="oko-v4";
+const FILES=["./","index.html","css/app.css","js/geo.js","js/crops.js","js/survey.js","js/sync.js","js/satellite.js","js/assistant.js","js/app.js","manifest.json","icon.svg","icon-192.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)).catch(()=>{}));self.skipWaiting();});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim();});
 self.addEventListener("fetch",e=>{
