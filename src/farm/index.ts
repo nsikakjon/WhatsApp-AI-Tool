@@ -7,7 +7,11 @@ import { join, resolve, sep } from "node:path";
 import { clientIp, createLoginThrottle, guardedBasicAuth } from "../core/security/guard.js";
 import { cleanField, mergeField } from "./merge.js";
 import type { FarmStore, FarmUser, FieldRow } from "./store.js";
-import { ringHectares, type Satellite } from "./satellite.js";
+import type { Satellite } from "./satellite.js";
+import { createSatelliteCache, SAT_MAX_HA } from "./sat-cache.js";
+import { waNumber } from "./alerts.js";
+
+export { boundaryRing } from "./sat-cache.js";
 
 // Oko: the farm and land app at /farm/.
 //
@@ -33,6 +37,8 @@ export interface FarmDeps {
   now?: () => Date;
   /** Satellite crop health (COPERNICUS_CLIENT_ID / _SECRET). */
   satellite?: Satellite;
+  /** True when the server sends WhatsApp alerts (see alerts.ts), so Settings offers the switches. */
+  whatsappAlerts?: boolean;
 }
 
 export const FARM_DIR = fileURLToPath(new URL("../../farm-app/", import.meta.url));
@@ -77,7 +83,7 @@ export function createFarm(deps: FarmDeps) {
   const now = deps.now ?? (() => new Date());
   const store = deps.store;
   const badTokens = createLoginThrottle(20, 15 * 60 * 1000);
-  const satBusy = new Map<string, Promise<unknown>>();
+  const satCache = store && deps.satellite ? createSatelliteCache({ store, satellite: deps.satellite, now }) : null;
 
   app.onError((err, c) => {
     log.error("Farm app request failed:", err);
@@ -277,36 +283,16 @@ export function createFarm(deps: FarmDeps) {
     const user = c.get("user");
     const field = await store!.field(c.req.param("id"));
     if (!field || field.deletedAt || !(await access(user, field))) return c.json({ error: "Not found." }, 404);
-    if (!deps.satellite) return c.json({ configured: false });
-    const ring = boundaryRing(field.data);
-    if (!ring) return c.json({ configured: true, needsBoundary: true });
-    if (ringHectares(ring) > SAT_MAX_HA) return c.json({ configured: true, error: `Fields over ${SAT_MAX_HA} ha aren't supported yet.` });
-    const key = ring.map((p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`).join(";");
-    const cached = await store!.satellite(field.id);
-    const fresh = cached && cached.boundaryKey === key && now().getTime() - cached.fetchedAt.getTime() < SAT_REFRESH_MS;
-    if (fresh) return c.json(satOut(field.id, cached));
-    let job = satBusy.get(field.id);
-    if (!job) {
-      job = (async () => {
-        const to = now();
-        const series = await deps.satellite!.ndviSeries(ring, new Date(to.getTime() - 365 * 86400_000), to);
-        const latest = series[series.length - 1];
-        const sameImage = cached && cached.boundaryKey === key && latest && cached.imageDate === latest.date;
-        const image = latest && !sameImage ? await deps.satellite!.ndviImage(ring, latest.date) : null;
-        const row = { boundaryKey: key, series, fetchedAt: to, imageDate: latest ? latest.date : null };
-        await store!.saveSatellite(field.id, row, image);
-        return row;
-      })().finally(() => satBusy.delete(field.id));
-      satBusy.set(field.id, job);
-    }
-    try {
-      const row = (await job) as Awaited<ReturnType<FarmStore["satellite"]>>;
-      return c.json(satOut(field.id, row!));
-    } catch (err) {
-      log.error("Farm satellite request failed:", err);
-      if (cached && cached.boundaryKey === key) return c.json({ ...satOut(field.id, cached), stale: true });
+    if (!satCache) return c.json({ configured: false });
+    const r = await satCache.get(field);
+    if (r.kind === "needsBoundary") return c.json({ configured: true, needsBoundary: true });
+    if (r.kind === "tooBig") return c.json({ configured: true, error: `Fields over ${SAT_MAX_HA} ha aren't supported yet.` });
+    if (r.kind === "failed") {
+      log.error("Farm satellite request failed:", r.error);
       return c.json({ configured: true, error: "The satellite service didn't answer. Try again later." }, 502);
     }
+    if (r.error) log.error("Farm satellite request failed:", r.error);
+    return c.json(r.stale ? { ...satOut(field.id, r.row), stale: true } : satOut(field.id, r.row));
   });
 
   api.get("/fields/:id/satellite.png", async (c) => {
@@ -316,6 +302,39 @@ export function createFarm(deps: FarmDeps) {
     const img = await store!.satelliteImage(field.id);
     if (!img) return c.json({ error: "Not found." }, 404);
     return new Response(new Uint8Array(img), { headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=86400" } });
+  });
+
+  /* ---------- WhatsApp alerts ---------- */
+  // Each person sets their own number; only a field's owner can switch its alerts on.
+  api.get("/alerts", async (c) => {
+    const user = c.get("user");
+    if (!deps.whatsappAlerts) return c.json({ available: false });
+    return c.json({ available: true, phone: user.phone, fields: await store!.alertSwitches(user.id) });
+  });
+
+  api.put("/alerts/phone", async (c) => {
+    const user = c.get("user");
+    if (!deps.whatsappAlerts) return c.json({ error: "WhatsApp alerts aren't switched on yet." }, 503);
+    const body = await jsonBody<{ phone?: unknown }>(c);
+    const typed = typeof body?.phone === "string" ? body.phone.trim() : "";
+    const phone = typed ? waNumber(typed) : null;
+    if (typed && !phone) return c.json({ error: "That doesn't look like a WhatsApp number. Type it like 0803 123 4567, or with the country code (+44…)." }, 400);
+    await store!.setPhone(user.id, phone);
+    // No number, no alerts: switch them all off so they don't come back on by surprise with a new number.
+    if (!phone) for (const f of await store!.alertSwitches(user.id)) if (f.on) await store!.setAlertSwitch(f.id, false);
+    return c.json({ phone });
+  });
+
+  api.put("/alerts/fields/:id", async (c) => {
+    const user = c.get("user");
+    if (!deps.whatsappAlerts) return c.json({ error: "WhatsApp alerts aren't switched on yet." }, 503);
+    const field = await store!.field(c.req.param("id"));
+    if (!field || field.deletedAt || field.ownerId !== user.id) return c.json({ error: "Only the field's owner can switch its alerts on or off." }, 403);
+    const body = await jsonBody<{ on?: unknown }>(c);
+    const on = body?.on === true;
+    if (on && !user.phone) return c.json({ error: "Add your WhatsApp number first." }, 400);
+    await store!.setAlertSwitch(field.id, on);
+    return c.json({ id: field.id, on });
   });
 
   /* ---------- admin ---------- */
@@ -396,17 +415,6 @@ export function createFarm(deps: FarmDeps) {
   }
 }
 
-const SAT_MAX_HA = 2000;
-const SAT_REFRESH_MS = 12 * 3600_000;
-
-/** The field's boundary as [lon, lat] points, when it has one. */
-export function boundaryRing(data: Record<string, unknown>): Array<[number, number]> | null {
-  const b = Array.isArray(data.beacons) ? (data.beacons as Array<{ lat?: unknown; lon?: unknown }>) : [];
-  const ring = b
-    .map((p) => [Number(p.lon), Number(p.lat)] as [number, number])
-    .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180);
-  return ring.length >= 3 ? ring : null;
-}
 function satOut(fieldId: string, row: NonNullable<Awaited<ReturnType<FarmStore["satellite"]>>>) {
   return {
     configured: true,
