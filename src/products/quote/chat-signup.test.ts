@@ -944,7 +944,21 @@ describe("yarnOga support on the quotes number", () => {
   it("meets hi as yarnOga support", async () => {
     const { say } = helped({});
     const reply = await say("Hi");
-    expect(reply.buttons?.body).toMatch(/^Hi Ada! This is yarnOga support\..*Ask me anything about what yarnOga can do/s);
+    expect(reply.buttons?.body).toMatch(/^Hi Ada, welcome to yarnOga! We give your business.*Book a walkthrough.*yarnoga\.com.*what does your business sell\?$/s);
+    expect(reply.buttons!.body.length).toBeLessThanOrEqual(1024);
+    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["sign up", "book a walkthrough", "see it as a customer"]);
+    expect((await say("book a walkthrough")).text).toMatch(/What day and time suit you/);
+  });
+
+  it("meets a signed-up owner's hi with what they can do, not the demo shop", async () => {
+    const { say, mem, asked } = helped({});
+    await mem.store.save(OWNER, { step: "done", businessName: "Mama Cakes", businessId: "biz-1" });
+    const reply = await say("Hi");
+    expect(reply.buttons?.body).toMatch(/^Hi Ada, welcome back to yarnOga\. You're signed up as \*Mama Cakes\*\..*\*try\*/s);
+    expect(reply.buttons!.body.length).toBeLessThanOrEqual(1024);
+    expect(reply.buttons?.buttons.map((b) => b.id)).toEqual(["try", "book a walkthrough", "talk to someone"]);
+    expect(reply.text).toBe("");
+    expect(asked).toHaveLength(0);
   });
 
   it("answers a question about features with the AI, and gives it the plans without prices", async () => {
